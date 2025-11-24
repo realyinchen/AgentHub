@@ -1,4 +1,4 @@
-# 🧠 LangGraph Agent Hub
+# 🧠 AI Agent Hub
 
 一个使用 FastAPI（后端）和 Streamlit（前端）构建的模块化 Agent 集合框架。
 
@@ -10,19 +10,16 @@
 
 ![wechat_qrcode](https://github.com/realyinchen/RAG/blob/main/imgs/wechat_qrcode.jpg)
 
-🚀 特性
+### 🚀 项目特点
 
-FastAPI 后端 — 稳健的 RESTful API 层，用于 Agent 调度与异步任务管理。
+✅ FastAPI 后端 — 稳健的 RESTful API 层，用于 Agent 调度与异步任务管理。  
+✅ Streamlit 前端 — 交互式网页界面，用于实验 Agent 与可视化推理图谱。  
+✅ LangChain/LangGraph 集成 — 轻松构建设计并连接多 Agent 推理工作流，并进行可视化。  
+✅ 流式与事件驱动 — 实时 token 流输出和 Agent 执行事件的可视化。
 
-Streamlit 前端 — 交互式网页界面，用于实验 Agent 与可视化推理图谱。
+### 🧩 适用于：
 
-LangChain/LangGraph 集成 — 轻松构建设计并连接多 Agent 推理工作流，并进行可视化。
-
-流式与事件驱动 — 实时 token 流输出和 Agent 执行事件的可视化。
-
-🧩 适用于：
-
-想要更高效的展示LangChain与LangGraph的学习成果的同学。 
+想要更高效地展示 LangChain 与 LangGraph 学习成果的同学。 
 
 ### 快速启动项目
 
