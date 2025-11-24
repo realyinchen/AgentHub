@@ -12,10 +12,10 @@
 
 ### 🚀 项目特点
 
-✅ FastAPI 后端 — 稳健的 RESTful API 层，用于 Agent 调度与异步任务管理。  
-✅ Streamlit 前端 — 交互式网页界面，用于实验 Agent 与可视化推理图谱。  
-✅ LangChain/LangGraph 集成 — 轻松构建设计并连接多 Agent 推理工作流，并进行可视化。  
-✅ 流式与事件驱动 — 实时 token 流输出和 Agent 执行事件的可视化。
+✅ **FastAPI 后端** — 稳健的 RESTful API 层，用于 Agent 调度与异步任务管理。  
+✅ **Streamlit 前端** — 交互式网页界面，用于实验 Agent 与可视化推理图谱。  
+✅ **LangChain/LangGraph 集成** — 轻松构建设计并连接多 Agent 推理工作流，并进行可视化。  
+✅ **流式与事件驱动** — 实时 token 流输出和 Agent 执行事件的可视化。
 
 ### 🧩 适用于：
 
@@ -55,3 +55,6 @@
     ``` bash
     $ streamlit run src/streamlit_app.py
     ```
+7. 在浏览器中  
+   - 打开`http://localhost:8501`访问前端
+   - 打开`http://0.0.0.0:8080/docs`访问 Swagger UI
