@@ -23,28 +23,30 @@
 
 ### 快速启动项目
 
-```
-首先需要安装 VS Code，[点击下载](https://code.visualstudio.com/Download)。
+1. 安装 [VS Code](https://code.visualstudio.com/Download) 与 [miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
 
-1. 安装 [miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
 2. 创建虚拟环境  
     ``` bash
     $ conda create -n agenthub python=3.12
     ```
+
 3. 激活虚拟环境  
     ``` bash
     $ conda activate agenthub
     ```
+
 4. 进入项目根目录  AgentHub  
    将项目根目录下的环境变量配置文件重命名，并根据实际情况，填入你的配置信息  
     ``` bash
     $ mv .example.env .env
     ```
+
 5. 安装依赖包
     ``` bash
     $ pip install -r requirements.txt
     ```
-6. 运行项目
+
+6. 运行项目  
     启动后端  
     ``` bash
     $ python src/run_backend.py 
@@ -53,4 +55,3 @@
     ``` bash
     $ streamlit run src/streamlit_app.py
     ```
-```
