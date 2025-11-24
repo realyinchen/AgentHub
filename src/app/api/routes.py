@@ -54,14 +54,14 @@ async def stream(user_input: UserInput) -> StreamingResponse:
 
 
 @api_router.post("/invoke")
-async def ainvoke(user_input: UserInput) -> ChatMessage:
+async def invoke(user_input: UserInput) -> ChatMessage:
     """
     Async invoke an agent with user input to retrieve a final response.
 
     Use thread_id to persist and continue a multi-turn conversation.
     """
 
-    kwargs = handle_input(user_input)
+    kwargs = await handle_input(user_input)
 
     try:
         response = await rag_agent.ainvoke(**kwargs)  # type: ignore
