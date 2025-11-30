@@ -192,7 +192,7 @@ class AgentClient:
         request = ChatHistoryInput(thread_id=thread_id)
         try:
             response = httpx.post(
-                f"{self.base_url}/history",
+                f"{self.base_url}/api/v1/history",
                 json=request.model_dump(),
                 timeout=self.timeout,
             )

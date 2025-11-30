@@ -35,6 +35,21 @@ class Settings(BaseSettings):
     LLM_NAME: str | None = None
     EMBEDDING_MODEL_NAME: str | None = None
 
+    # PostgreSQL Configuration
+    POSTGRES_USER: str | None = None
+    POSTGRES_PASSWORD: SecretStr | None = None
+    POSTGRES_HOST: str | None = None
+    POSTGRES_PORT: int | None = None
+    POSTGRES_DB: str | None = None
+    POSTGRES_APPLICATION_NAME: str = "agent-hub"
+    POSTGRES_MIN_CONNECTIONS_PER_POOL: int = 1
+    POSTGRES_MAX_CONNECTIONS_PER_POOL: int = 1
+
+    # PostgreSQL Configuration
+    QDRANT_HOST: str | None = None
+    QDRANT_PORT: int | None = None
+    QDRANT_COLLECTION: str = ""
+
     @computed_field  # type: ignore[prop-decorator]
     @property
     def BASE_URL(self) -> str:
