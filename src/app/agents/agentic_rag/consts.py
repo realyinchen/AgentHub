@@ -1,0 +1,7 @@
+COORDINATOR = "coordinator"
+REPORTER = "reporter"
+RETRIEVE = "retrieve"
+GRADE_DOCUMENTS = "grade_documents"
+WEBSEARCH = "web_search"
+RAG_ANSWER = "rag_answer"
+DIRECT_ANSWER = "direct_answer"
