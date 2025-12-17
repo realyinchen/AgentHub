@@ -1,11 +1,13 @@
 from dotenv import find_dotenv
 from pydantic import (
+    BeforeValidator,
     HttpUrl,
     SecretStr,
     TypeAdapter,
     computed_field,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from typing import Annotated
 
 
 def check_str_is_http(x: str) -> str:
@@ -34,6 +36,13 @@ class Settings(BaseSettings):
     COMPATIBLE_BASE_URL: str | None = None
     LLM_NAME: str | None = None
     EMBEDDING_MODEL_NAME: str | None = None
+
+    LANGCHAIN_TRACING_V2: bool = False
+    LANGCHAIN_PROJECT: str = "default"
+    LANGCHAIN_ENDPOINT: Annotated[str, BeforeValidator(check_str_is_http)] = (
+        "https://api.smith.langchain.com"
+    )
+    LANGCHAIN_API_KEY: SecretStr | None = None
 
     # PostgreSQL Configuration
     POSTGRES_USER: str | None = None

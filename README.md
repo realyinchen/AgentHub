@@ -38,7 +38,7 @@
 4. 进入项目根目录  AgentHub  
    将项目根目录下的环境变量配置文件重命名，并根据实际情况，填入你的配置信息  
     ``` bash
-    $ mv .example.env .env
+    $ mv .env.example .env
     ```
 
 5. 安装依赖包

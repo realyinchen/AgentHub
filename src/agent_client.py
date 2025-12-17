@@ -1,9 +1,9 @@
 import httpx
 import json
 from collections.abc import AsyncGenerator, Generator
+from typing import Any
 
-from app.schema.chat_message import ChatHistory, ChatHistoryInput, ChatMessage
-from app.schema.user_input import UserInput
+from app.schema import ChatHistory, ChatHistoryInput, ChatMessage, UserInput
 
 
 class AgentClient:
@@ -103,7 +103,10 @@ class AgentClient:
         return None
 
     def stream(
-        self, message: str, thread_id: str | None = None
+        self,
+        message: str,
+        resume: dict[str, Any] | Any | None = None,
+        thread_id: str | None = None,
     ) -> Generator[ChatMessage | str, None, None]:
         """
         Stream the agent's response synchronously.
@@ -119,9 +122,7 @@ class AgentClient:
         Returns:
             Generator[ChatMessage | str, None, None]: The response from the agent
         """
-        request = UserInput(content=message)
-        if thread_id:
-            request.thread_id = thread_id
+        request = UserInput(content=message, resume=resume, thread_id=thread_id)
         try:
             with httpx.stream(
                 "POST",
@@ -142,6 +143,7 @@ class AgentClient:
     async def astream(
         self,
         message: str,
+        resume: dict[str, Any] | Any | None = None,
         thread_id: str | None = None,
     ) -> AsyncGenerator[ChatMessage | str, None]:
         """
@@ -159,9 +161,7 @@ class AgentClient:
         Returns:
             AsyncGenerator[ChatMessage | str, None]: The response from the agent
         """
-        request = UserInput(content=message)
-        if thread_id:
-            request.thread_id = thread_id
+        request = UserInput(content=message, resume=resume, thread_id=thread_id)
         async with httpx.AsyncClient() as client:
             try:
                 async with client.stream(

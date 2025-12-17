@@ -1,12 +1,11 @@
-# pyright: reportAssignmentType=false
 import logging
 from fastapi import APIRouter, HTTPException, status
 from fastapi.responses import StreamingResponse
 from langchain_core.runnables import RunnableConfig
-from langchain.messages import AnyMessage
+from langchain_core.messages import AIMessage, AnyMessage
 from typing import Any
 
-from app.agents import rag_agent
+from app.agents import rag_agent, hitl_agent
 from app.schema import ChatMessage, UserInput, ChatHistoryInput, ChatHistory
 from app.utils.message_utils import (
     handle_input,
@@ -48,7 +47,7 @@ async def stream(user_input: UserInput) -> StreamingResponse:
     Set `stream_tokens=false` to return intermediate messages but not token-by-token.
     """
     return StreamingResponse(
-        streaming_message_generator(user_input, rag_agent),
+        streaming_message_generator(user_input, hitl_agent),
         media_type="text/event-stream",
     )
 
@@ -61,12 +60,30 @@ async def invoke(user_input: UserInput) -> ChatMessage:
     Use thread_id to persist and continue a multi-turn conversation.
     """
 
-    kwargs = await handle_input(user_input)
+    # NOTE: Currently this only returns the last message or interrupt.
+    # In the case of an agent outputting multiple AIMessages (such as the background step
+    # in interrupt-agent, or a tool step in research-assistant), it's omitted. Arguably,
+    # you'd want to include it. You could update the API to return a list of ChatMessages
+    # in that case.
+    kwargs = await handle_input(user_input, hitl_agent)
 
     try:
-        response = await rag_agent.ainvoke(**kwargs)  # type: ignore
-        # Normal response, the agent completed successfully
-        output = langchain_to_chat_message(response["messages"][-1])
+        response_events: list[tuple[str, Any]] = await hitl_agent.ainvoke(
+            **kwargs, stream_mode=["updates", "values"] # type: ignore
+        )  
+        response_type, response = response_events[-1]
+        if response_type == "values":
+            # Normal response, the agent completed successfully
+            output = langchain_to_chat_message(response["messages"][-1])
+        elif response_type == "updates" and "__interrupt__" in response:
+            # The last thing to occur was an interrupt
+            # Return the value of the first interrupt as an AIMessage
+            output = langchain_to_chat_message(
+                AIMessage(content=response["__interrupt__"][0].value)
+            )
+        else:
+            raise ValueError(f"Unexpected response type: {response_type}")
+
         return output
     except Exception as e:
         logger.error(f"An exception occurred: {e}")
@@ -81,8 +98,8 @@ async def history(input: ChatHistoryInput) -> ChatHistory:
 
     config = RunnableConfig({"configurable": {"thread_id": input.thread_id}})
     try:
-        state_snapshot = await rag_agent.aget_state(config=config)
-        messages: list[AnyMessage] = state_snapshot.values["messages"]
+        state_snapshot = await hitl_agent.aget_state(config=config)
+        messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
         chat_messages: list[ChatMessage] = [
             langchain_to_chat_message(m) for m in messages
         ]

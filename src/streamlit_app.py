@@ -1,3 +1,5 @@
+# type: ignore
+
 import asyncio
 import streamlit as st
 import uuid
@@ -7,218 +9,407 @@ from app.core.config import settings
 from app.schema.chat_message import ChatMessage
 from agent_client import AgentClient, AgentClientError
 
-
 APP_TITLE = "Agent Hub"
 APP_ICON = "🧰"
 
 
 async def main() -> None:
-    st.set_page_config(
-        page_title=APP_TITLE,
-        page_icon=APP_ICON,
-        menu_items={},
-    )
+    st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON, menu_items={})
 
-    # Hide the streamlit upper-right chrome
-    st.html(
-        """
-        <style>
-        [data-testid="stStatusWidget"] {
-                visibility: hidden;
-                height: 0%;
-                position: fixed;
-            }
-        </style>
-        """,
-    )
-    if st.get_option("client.toolbarMode") != "minimal":
-        st.set_option("client.toolbarMode", "minimal")
-        await asyncio.sleep(0.1)
-        st.rerun()
+    # 隐藏工具栏
+    st.html("<style>[data-testid='stStatusWidget'] { visibility: hidden; }</style>")
 
+    # 初始化 client
     if "agent_client" not in st.session_state:
         agent_url = f"http://{settings.HOST}:{settings.PORT}"
         st.session_state.agent_client = AgentClient(base_url=agent_url)
     agent_client: AgentClient = st.session_state.agent_client
 
+    # 初始化 thread
     if "thread_id" not in st.session_state:
-        thread_id = st.query_params.get("thread_id")
-        if not thread_id:
-            thread_id = str(uuid.uuid4())
+        thread_id = st.query_params.get("thread_id") or str(uuid.uuid4())
+        try:
+            history = agent_client.get_history(thread_id=thread_id)
+            messages = history.messages
+        except AgentClientError:
             messages = []
-        else:
-            try:
-                messages = agent_client.get_history(thread_id=thread_id).messages
-            except AgentClientError:
-                st.error("No message history found for this Thread ID.")
-                messages = []
         st.session_state.messages = messages
         st.session_state.thread_id = thread_id
 
-    # Config options
+    # 侧边栏
     with st.sidebar:
         st.header(f"{APP_ICON} {APP_TITLE}")
-
-        ""
-        "💪 Powerful AI Agent POC 💪"
-        ""
-
+        st.write("💪 Powerful AI Agent POC 💪")
         if st.button(":material/chat: New Chat", use_container_width=True):
-            st.session_state.messages = []
-            st.session_state.thread_id = str(uuid.uuid4())
+            for key in [
+                "messages",
+                "thread_id",
+                "pending_interrupt",
+                "hitl_decisions",
+                "editing_action",
+                "final_hitl_feedback",
+            ]:
+                st.session_state.pop(key, None)
             st.rerun()
 
-    # Draw existing messages
-    messages: list[ChatMessage] = st.session_state.messages
-
-    if len(messages) == 0:
+    # 显示历史消息
+    messages: list[ChatMessage] = st.session_state.messages or []
+    if not messages:
         with st.chat_message("ai"):
-            st.write("我是一个 RAG Agent，你可以问我任何问题！")
+            st.write("请关注我的微信公众号: PyTorch研习社")
 
-    # draw_messages() expects an async iterator over messages
-    async def amessage_iter() -> AsyncGenerator[ChatMessage, None]:
-        for m in messages:
+    async def history_iter():
+        for m in st.session_state.messages:
             yield m
 
-    await draw_messages(amessage_iter())
+    await draw_messages(history_iter())  # 关键：不要传 is_new=True
 
-    # Generate new message if the user provided new input
-    if user_input := st.chat_input():
-        messages.append(ChatMessage(type="human", content=user_input))
-        st.chat_message("human").write(user_input)
-        try:
-            stream = agent_client.astream(
-                message=user_input, thread_id=st.session_state.thread_id
-            )
-            await draw_messages(stream, is_new=True)
-            st.rerun()  # Clear stale containers
-        except AgentClientError as e:
-            st.error(f"Error generating response: {e}")
-            st.stop()
+    # ==================== 处理用户新输入 ====================
+    if user_input := st.chat_input("请输入您的消息..."):
+        user_msg = ChatMessage(type="human", content=user_input)
+        st.session_state.messages.append(user_msg)
+        with st.chat_message("human"):
+            st.write(user_input)
+
+        with st.status("Agent 正在思考...", expanded=True) as status:
+            try:
+                stream = agent_client.astream(
+                    message=user_input,
+                    thread_id=st.session_state.thread_id,
+                )
+                interrupt_occurred = await draw_messages(stream, is_new=True)
+                if interrupt_occurred:
+                    status.update(label="等待人工审核", state="running")
+                else:
+                    status.update(label="完成", state="complete")
+            except Exception as e:
+                st.error(f"Agent 调用异常: {e}")
+                status.update(label="错误", state="error")
+
+        st.rerun()  # 刷新以显示可能的弹框
+
+    # ==================== 处理待审核的中断 ====================
+    # 只有在有中断、且用户还没有提交最终反馈时，才显示审核弹框
+    if (
+        "pending_interrupt" in st.session_state
+        and "final_hitl_feedback" not in st.session_state
+    ):
+        hitl_confirm_dialog(st.session_state.pending_interrupt)
+
+    # ==================== 用户已完成审核，恢复执行 ====================
+    if "final_hitl_feedback" in st.session_state:
+        feedback = st.session_state.final_hitl_feedback
+
+        with st.status("正在恢复 Agent 执行...", expanded=True) as status:
+            st.write("提交反馈并继续...")
+            try:
+                resume_stream = agent_client.astream(
+                    message="",
+                    resume=feedback,
+                    thread_id=st.session_state.thread_id,
+                )
+                await draw_messages(resume_stream, is_new=True)
+                status.update(label="Agent 已恢复并完成执行", state="complete")
+            except Exception as e:
+                status.update(label="恢复失败", state="error")
+                st.error(f"恢复执行失败: {e}")
+            finally:
+                # 清理状态
+                for key in [
+                    "pending_interrupt",
+                    "final_hitl_feedback",
+                    "hitl_decisions",
+                    "editing_action",
+                ]:
+                    st.session_state.pop(key, None)
+                st.rerun()
 
 
 async def draw_messages(
     messages_agen: AsyncGenerator[ChatMessage | str, None],
     is_new: bool = False,
-) -> None:
+) -> bool:
     """
-    Draws a set of chat messages - either replaying existing messages or streaming new ones.
-
-    This function has additional logic to handle streaming tokens and tool calls.
-    - Use a placeholder container to render streaming tokens as they arrive.
-    - Use a status container to render tool calls. Track the tool inputs and outputs
-      and update the status container accordingly.
-
-    The function also needs to track the last message container in session state
-    since later messages can draw to the same container.
-
-    Args:
-        messages_agen: An async iterator over messages to draw.
-        is_new: Whether the messages are new or not.
+    统一绘制所有消息，确保历史和实时流显示完全一致
+    返回 True 表示发生了 interrupt
     """
-
-    # Keep track of the last message container
-    last_message_type = None
-    st.session_state.last_message = None
-
-    # Placeholder for intermediate streaming tokens
+    interrupt_occurred = False
     streaming_content = ""
     streaming_placeholder = None
+    last_was_ai = False  # 标记上一个是否是 AI 消息块
 
-    # Iterate over the messages and draw them
-    while msg := await anext(messages_agen, None):
-        # str message represents an intermediate token being streamed
-        if isinstance(msg, str):
-            # If placeholder is empty, this is the first token of a new message
-            # being streamed. We need to do setup.
-            if not streaming_placeholder:
-                if last_message_type != "ai":
-                    last_message_type = "ai"
-                    st.session_state.last_message = st.chat_message("ai")
-                with st.session_state.last_message:  # pyright: ignore[reportOptionalContextManager]
-                    streaming_placeholder = st.empty()
+    # 用于匹配 tool_call_id 的 status 容器
+    tool_statuses: dict[str, any] = {}
 
-            streaming_content += msg
-            streaming_placeholder.write(streaming_content)
-            continue
-        if not isinstance(msg, ChatMessage):
-            st.error(f"Unexpected message type: {type(msg)}")
-            st.write(msg)
-            st.stop()
+    try:
+        async for msg in messages_agen:
+            # 实时 token 流
+            if isinstance(msg, str):
+                if not streaming_placeholder:
+                    # 新建一个 AI 消息容器
+                    chat = st.chat_message("ai")
+                    st.session_state.last_message = chat
+                    streaming_placeholder = chat.empty()
+                streaming_content += msg
+                streaming_placeholder.write(streaming_content)
+                continue
 
-        match msg.type:
-            # A message from the user, the easiest case
-            case "human":
-                last_message_type = "human"
-                st.chat_message("human").write(msg.content)
+            if not isinstance(msg, ChatMessage):
+                continue
 
-            # A message from the agent is the most complex case, since we need to
-            # handle streaming tokens and tool calls.
-            case "ai":
-                # If we're rendering new messages, store the message in session state
-                if is_new:
-                    st.session_state.messages.append(msg)
+            # 新消息加入历史
+            if is_new:
+                st.session_state.messages.append(msg)
 
-                # If the last message type was not AI, create a new chat message
-                if last_message_type != "ai":
-                    last_message_type = "ai"
-                    st.session_state.last_message = st.chat_message("ai")
+            # ==================== 绘制消息 ====================
+            if msg.type == "human":
+                with st.chat_message("human"):
+                    st.markdown(msg.content)
+                last_was_ai = False
 
-                with st.session_state.last_message:  # pyright: ignore[reportOptionalContextManager]
-                    # If the message has content, write it out.
-                    # Reset the streaming variables to prepare for the next message.
+            elif msg.type == "ai":
+                # AI 消息可能有 content + tool_calls，或只有 content
+                if not last_was_ai:
+                    chat = st.chat_message("ai")
+                    st.session_state.last_message = chat
+                    last_was_ai = True
+                else:
+                    chat = st.session_state.last_message
+
+                with chat:
+                    # 显示文本内容
                     if msg.content:
                         if streaming_placeholder:
-                            streaming_placeholder.write(msg.content)
-                            streaming_content = ""
+                            streaming_placeholder.markdown(msg.content)
                             streaming_placeholder = None
+                            streaming_content = ""
                         else:
-                            st.write(msg.content)
+                            st.markdown(msg.content)
 
+                    # 显示工具调用（如果有）
                     if msg.tool_calls:
-                        # Create a status container for each tool call and store the
-                        # status container by ID to ensure results are mapped to the
-                        # correct status container.
-                        call_results = {}
                         for tool_call in msg.tool_calls:
-                            label = f"""🛠️ 调用工具: {tool_call["name"]}"""
+                            tool_id = tool_call["id"]
+                            tool_name = tool_call["name"]
+                            label = f"🛠️ 正在调用工具：**{tool_name}**"
+                            status = st.status(label, expanded=True)
+                            with status:
+                                st.write("**输入参数：**")
+                                st.json(tool_call["args"])
+                            tool_statuses[tool_id] = (status, tool_name)
 
-                            status = st.status(
-                                label,
-                                state="running" if is_new else "complete",
-                            )
-                            call_results[tool_call["id"]] = status
+            elif msg.type == "tool":
+                # 查找对应的工具调用 status 元组并更新
+                status_tuple = tool_statuses.get(msg.tool_call_id)
+                if status_tuple:
+                    status, tool_name = status_tuple
+                    with status:
+                        st.write("**工具执行结果：**")
+                        st.markdown(msg.content)
+                    status.update(
+                        label=f"✅ 已执行工具 {tool_name}",
+                        state="complete",
+                    )
+                else:
+                    # 历史消息：无法获取 name 时，保守显示
+                    with st.chat_message("assistant", avatar="🛠️"):
+                        st.caption("工具执行结果")
+                        st.markdown(msg.content)
+                last_was_ai = True  # tool 属于 AI 思考过程的一部分
 
-                        # Expect one ToolMessage for each tool call.
-                        for tool_call in msg.tool_calls:
-                            # Only non-transfer tool calls reach this point
-                            status = call_results[tool_call["id"]]
-                            status.write("Input:")
-                            status.write(tool_call["args"])
-                            tool_result: ChatMessage = await anext(messages_agen)  # type: ignore
+            elif msg.type == "interrupt":
+                # 只有新消息中的中断才处理，历史消息中的中断不处理
+                if is_new and st.session_state.get("pending_interrupt") is None:
+                    st.session_state.pending_interrupt = msg
+                    interrupt_occurred = True
 
-                            if tool_result.type != "tool":
-                                st.error(
-                                    f"Unexpected ChatMessage type: {tool_result.type}"
-                                )
-                                st.write(tool_result)
-                                st.stop()
+                    if is_new:
+                        st.session_state.messages.append(msg)
+                        with st.chat_message("system"):
+                            st.warning("🤖 Agent 请求人工审核，请在弹出的对话框中操作")
 
-                            # Record the message if it's new, and update the correct
-                            # status container with the result
-                            if is_new:
-                                st.session_state.messages.append(tool_result)
-                            if tool_result.tool_call_id:
-                                status = call_results[tool_result.tool_call_id]
-                            status.write("Output:")
-                            status.write(tool_result.content)
-                            status.update(state="complete")
+            # 清除 streaming 状态
+            streaming_placeholder = None
+            streaming_content = ""
 
-            # In case of an unexpected message type, log an error and stop
-            case _:
-                st.error(f"Unexpected ChatMessage type: {msg.type}")
-                st.write(msg)
-                st.stop()
+    except Exception as e:
+        st.error(f"绘制消息时出错: {e}")
+    finally:
+        # 确保所有 status 关闭
+        for s in tool_statuses.values():
+            try:
+                s.update(state="complete")
+            except:  # noqa: E722
+                pass
+
+    return interrupt_occurred
+
+
+# ==================== HITL 审核对话框 ===================
+@st.dialog("请审核 Agent 操作", width="large")
+def hitl_confirm_dialog(interrupt_message: ChatMessage):
+    action_requests = getattr(interrupt_message, "action_requests", [])
+    review_configs = getattr(interrupt_message, "review_configs", [])
+
+    review_map = {
+        cfg["action_name"]: cfg["allowed_decisions"] for cfg in review_configs
+    }
+    if "hitl_decisions" not in st.session_state:
+        st.session_state.hitl_decisions = {}
+
+    st.markdown("### 🤖 Agent 请求执行以下操作，请逐一审核")
+
+    for action in action_requests:
+        name = action["name"]
+        args = action.get("args", {})
+        desc = action.get("description", "")
+        allowed = review_map.get(name, ["approve", "reject"])
+
+        st.markdown(f"**工具：{name}**")
+        st.info(desc)
+        st.json(args, expanded=False)
+
+        cols = st.columns(len(allowed) + (1 if "edit" in allowed else 0))
+        i = 0
+        if "approve" in allowed:
+            with cols[i]:
+                if st.button(
+                    "✅ 批准",
+                    key=f"app_{name}",
+                    type="primary",
+                    use_container_width=True,
+                ):
+                    st.session_state.hitl_decisions[name] = {
+                        "decision": "approve",
+                        "edited_args": None,
+                    }
+                    st.rerun()
+            i += 1
+        if "reject" in allowed:
+            with cols[i]:
+                if st.button("❌ 拒绝", key=f"rej_{name}", use_container_width=True):
+                    st.session_state.hitl_decisions[name] = {
+                        "decision": "reject",
+                        "edited_args": None,
+                    }
+                    st.rerun()
+            i += 1
+        if "edit" in allowed:
+            with cols[i]:
+                if st.button(
+                    "✏️ 编辑参数", key=f"edit_{name}", use_container_width=True
+                ):
+                    st.session_state.editing_action = name
+                    st.rerun()
+
+        st.divider()
+
+    # 编辑表单
+    if st.session_state.get("editing_action"):
+        name = st.session_state.editing_action
+        action = next(a for a in action_requests if a["name"] == name)
+        args = action.get("args", {})
+
+        st.markdown(f"### ✏️ 编辑：**{name}** 参数")
+        with st.form(key=f"editform_{name}"):
+            edited = {}
+            for k, v in args.items():
+                if isinstance(v, bool):
+                    edited[k] = st.checkbox(k, v)
+                elif isinstance(v, int):
+                    edited[k] = st.number_input(k, v, step=1)
+                elif isinstance(v, float):
+                    edited[k] = st.number_input(k, v)
+                elif isinstance(v, str) and "\n" in v or len(v) > 100:
+                    edited[k] = st.text_area(k, v, height=200)
+                else:
+                    edited[k] = st.text_input(k, str(v))
+
+            c1, c2 = st.columns(2)
+            with c1:
+                ok = st.form_submit_button("✅ 确认编辑并执行", type="primary")
+            with c2:
+                cancel = st.form_submit_button("❌ 取消")
+
+            if ok:
+                st.session_state.hitl_decisions[name] = {
+                    "decision": "edit",
+                    "edited_args": edited,
+                }
+                st.session_state.editing_action = None
+                st.rerun()
+            if cancel:
+                st.session_state.editing_action = None
+                st.rerun()
+
+    # 审核进度
+    if st.session_state.hitl_decisions:
+        st.markdown("### ✅ 审核进度")
+        for name, d in st.session_state.hitl_decisions.items():
+            icon = {"approve": "✅", "reject": "❌", "edit": "✏️"}.get(
+                d["decision"], "?"
+            )
+            st.write(f"{icon} **{name}** → {d['decision'].upper()}")
+            if d.get("edited_args", None):
+                st.json(d["edited_args"])
+
+        # 全部审核完成后提交
+        if (
+            len(st.session_state.hitl_decisions) == len(action_requests)
+            and action_requests
+        ):
+            if st.button(
+                "🚀 提交审核结果，继续执行", type="primary", use_container_width=True
+            ):
+                decisions = []
+
+                for action in action_requests:
+                    action_name = action["name"]
+                    user_decision = st.session_state.hitl_decisions.get(action_name)
+
+                    if not user_decision:
+                        st.error(f"缺失对 {action_name} 的审核决定")
+                        st.stop()
+
+                    decision_type = user_decision["decision"]
+
+                    if decision_type == "approve":
+                        decisions.append({"type": "approve"})
+
+                    elif decision_type == "reject":
+                        decisions.append({"type": "reject"})
+
+                    elif decision_type == "edit":
+                        edited_args = user_decision.get("edited_args")
+                        decisions.append(
+                            {
+                                "type": "edit",
+                                "edited_action": {
+                                    "name": action_name,  # 工具名保持不变
+                                    "args": edited_args,  # 用户修改后的参数
+                                },
+                            }
+                        )
+
+                    else:
+                        st.error(f"未知决策类型: {decision_type}")
+                        st.stop()
+
+                # 构造后端期望的 resume 结构
+                resume_payload = {"decisions": decisions}
+
+                # 存入 session_state，供主流程恢复时使用
+                st.session_state.final_hitl_feedback = resume_payload
+
+                # 立即删除 pending_interrupt，强制关闭弹框
+                st.session_state.pop("pending_interrupt", None)
+
+                # 清空临时状态
+                st.session_state.hitl_decisions = {}
+                st.session_state.editing_action = None
+
+                st.success("审核结果已提交，正在继续执行 Agent...")
+                st.rerun()
 
 
 if __name__ == "__main__":

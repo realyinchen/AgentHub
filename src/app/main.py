@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
-from app.agents import rag_agent
+from app.agents import rag_agent, hitl_agent
 from app.core.config import settings
 from app.database import (
     initialize_database,
@@ -35,9 +35,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             if hasattr(saver, "setup"):
                 await saver.setup()
 
-            logger.info("✅ PostgreSQL checkpointer pool ready")
             # Set checkpointer for thread-scoped memory (conversation history)
-            rag_agent.checkpointer = saver
+            hitl_agent.checkpointer = saver
             yield
             close_qdrant_client()
     except Exception as e:
