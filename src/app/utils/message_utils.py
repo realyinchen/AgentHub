@@ -10,10 +10,10 @@ from langchain_core.messages import (
     ToolMessage,
 )
 from langchain_core.runnables import RunnableConfig
-from langgraph.graph.state import CompiledStateGraph
 from langgraph.types import Command
 from typing import Any
 
+from app.agents.agents import AgentGraph
 from app.schema import ChatMessage, InterruptMessage, UserInput
 
 
@@ -72,7 +72,7 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
 
 
 async def streaming_message_generator(
-    user_input: UserInput, agent: CompiledStateGraph
+    user_input: UserInput, agent: AgentGraph
 ) -> AsyncGenerator[str, None]:
     """
     Generate a stream of messages from the agent.
@@ -142,9 +142,7 @@ async def streaming_message_generator(
         yield "data: [DONE]\n\n"
 
 
-async def handle_input(
-    user_input: UserInput, agent: CompiledStateGraph
-) -> dict[str, Any]:
+async def handle_input(user_input: UserInput, agent: AgentGraph) -> dict[str, Any]:
     """
     Parse user input and returns kwargs for agent invocation.
     """

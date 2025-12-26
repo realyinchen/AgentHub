@@ -5,8 +5,9 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage, AnyMessage
 from typing import Any
 
-from app.agents import rag_agent, hitl_agent
+from app.agents import AgentGraph, DEFAULT_AGENT, get_all_agent_info, get_agent
 from app.schema import ChatMessage, UserInput, ChatHistoryInput, ChatHistory
+from app.schema.agent_info import AgentInfoMetadata
 from app.utils.message_utils import (
     handle_input,
     langchain_to_chat_message,
@@ -33,9 +34,13 @@ def _sse_response_example() -> dict[int | str, Any]:
 
 
 @api_router.post(
-    "/stream", response_class=StreamingResponse, responses=_sse_response_example()
+    "/{agent_id}/stream",
+    response_class=StreamingResponse,
+    responses=_sse_response_example(),
 )
-async def stream(user_input: UserInput) -> StreamingResponse:
+async def stream(
+    user_input: UserInput, agent_id: str = DEFAULT_AGENT
+) -> StreamingResponse:
     """
     Stream an agent's response to a user input, including intermediate messages and tokens.
 
@@ -46,14 +51,15 @@ async def stream(user_input: UserInput) -> StreamingResponse:
 
     Set `stream_tokens=false` to return intermediate messages but not token-by-token.
     """
+    agent: AgentGraph = get_agent(agent_id)
     return StreamingResponse(
-        streaming_message_generator(user_input, hitl_agent),
+        streaming_message_generator(user_input, agent),
         media_type="text/event-stream",
     )
 
 
-@api_router.post("/invoke")
-async def invoke(user_input: UserInput) -> ChatMessage:
+@api_router.post("/{agent_id}/invoke")
+async def invoke(user_input: UserInput, agent_id: str = DEFAULT_AGENT) -> ChatMessage:
     """
     Async invoke an agent with user input to retrieve a final response.
 
@@ -65,12 +71,14 @@ async def invoke(user_input: UserInput) -> ChatMessage:
     # in interrupt-agent, or a tool step in research-assistant), it's omitted. Arguably,
     # you'd want to include it. You could update the API to return a list of ChatMessages
     # in that case.
-    kwargs = await handle_input(user_input, hitl_agent)
+    agent: AgentGraph = get_agent(agent_id)
+    kwargs = await handle_input(user_input, agent)
 
     try:
-        response_events: list[tuple[str, Any]] = await hitl_agent.ainvoke(
-            **kwargs, stream_mode=["updates", "values"] # type: ignore
-        )  
+        response_events: list[tuple[str, Any]] = await agent.ainvoke(
+            **kwargs,
+            stream_mode=["updates", "values"],  # type: ignore
+        )
         response_type, response = response_events[-1]
         if response_type == "values":
             # Normal response, the agent completed successfully
@@ -90,15 +98,17 @@ async def invoke(user_input: UserInput) -> ChatMessage:
         raise HTTPException(status_code=500, detail="Unexpected error")
 
 
-@api_router.post("/history")
-async def history(input: ChatHistoryInput) -> ChatHistory:
+@api_router.post("/{agent_id}/history")
+async def history(
+    input: ChatHistoryInput, agent_id: str = DEFAULT_AGENT
+) -> ChatHistory:
     """
     Get chat history.
     """
-
+    agent: AgentGraph = get_agent(agent_id)
     config = RunnableConfig({"configurable": {"thread_id": input.thread_id}})
     try:
-        state_snapshot = await hitl_agent.aget_state(config=config)
+        state_snapshot = await agent.aget_state(config=config)
         messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
         chat_messages: list[ChatMessage] = [
             langchain_to_chat_message(m) for m in messages
@@ -107,3 +117,8 @@ async def history(input: ChatHistoryInput) -> ChatHistory:
     except Exception as e:
         logger.error(f"An exception occurred: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error")
+
+
+@api_router.get("/agent-info")
+async def agent_info() -> AgentInfoMetadata:
+    return AgentInfoMetadata(agents=get_all_agent_info(), default_agent=DEFAULT_AGENT)

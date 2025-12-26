@@ -1,6 +1,7 @@
 # type: ignore
 
 import asyncio
+import urllib.parse
 import streamlit as st
 import uuid
 from collections.abc import AsyncGenerator
@@ -39,8 +40,10 @@ async def main() -> None:
     # 侧边栏
     with st.sidebar:
         st.header(f"{APP_ICON} {APP_TITLE}")
-        st.write("💪 Powerful AI Agent POC 💪")
-        if st.button(":material/chat: New Chat", use_container_width=True):
+        st.write("在一个地方体验所有的AI Agent")
+        if st.button(":material/chat: 开启新会话", use_container_width=True):
+            # 清空 URL 参数 → 地址栏变干净
+            st.query_params.clear()
             for key in [
                 "messages",
                 "thread_id",
@@ -51,6 +54,40 @@ async def main() -> None:
             ]:
                 st.session_state.pop(key, None)
             st.rerun()
+
+        agent_list = [
+            agent.agent_id for agent in agent_client.agent_info_metadata.agents
+        ]
+        agent_idx = agent_list.index(agent_client.agent_info_metadata.default_agent)
+        agent_client.agent_id = st.selectbox(
+            ":material/tune: 选择Agent",
+            options=agent_list,
+            index=agent_idx,
+        )
+
+        @st.dialog("分享/恢复 聊天")
+        def share_chat_dialog() -> None:
+            session = st.runtime.get_instance()._session_mgr.list_active_sessions()[0]
+            st_base_url = urllib.parse.urlunparse(
+                [
+                    session.client.request.protocol,
+                    session.client.request.host,
+                    "",
+                    "",
+                    "",
+                    "",
+                ]
+            )
+            # if it's not localhost, switch to https by default
+            if not st_base_url.startswith("https") and "localhost" not in st_base_url:
+                st_base_url = st_base_url.replace("http", "https")
+            # Include both thread_id and user_id in the URL for sharing to maintain user identity
+            chat_url = f"{st_base_url}?thread_id={st.session_state.thread_id}"
+            st.info("复制下面的链接即可分享本次聊天记录")
+            st.code(f"{chat_url}", wrap_lines=True)
+
+        if st.button(":material/upload: 分享/恢复 聊天", use_container_width=True):
+            share_chat_dialog()
 
     # 显示历史消息
     messages: list[ChatMessage] = st.session_state.messages or []

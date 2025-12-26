@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
-from app.agents import rag_agent, hitl_agent
+from app.agents import get_all_agent_info, get_agent
 from app.core.config import settings
 from app.database import (
     initialize_database,
@@ -34,9 +34,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         async with initialize_database() as saver:
             if hasattr(saver, "setup"):
                 await saver.setup()
-
-            # Set checkpointer for thread-scoped memory (conversation history)
-            hitl_agent.checkpointer = saver
+            # Configure agents with both memory components and async loading
+            agents = get_all_agent_info()
+            for agent in agents:
+                agent = get_agent(agent.agent_id)
+                # Set checkpointer for thread-scoped memory (conversation history)
+                agent.checkpointer = saver
             yield
             close_qdrant_client()
     except Exception as e:

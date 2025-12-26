@@ -3,7 +3,13 @@ import json
 from collections.abc import AsyncGenerator, Generator
 from typing import Any
 
-from app.schema import ChatHistory, ChatHistoryInput, ChatMessage, UserInput
+from app.schema import (
+    AgentInfoMetadata,
+    ChatHistory,
+    ChatHistoryInput,
+    ChatMessage,
+    UserInput,
+)
 
 
 class AgentClient:
@@ -21,6 +27,25 @@ class AgentClient:
         """
         self.base_url = base_url
         self.timeout = timeout
+        self.agent_id: str | None = None
+        self.agent_info_metadata: AgentInfoMetadata | None = None
+        self._retrieve_info()
+
+    def _retrieve_info(self) -> None:
+        try:
+            response = httpx.get(
+                f"{self.base_url}/api/v1/agent-info",
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            raise AgentClientError(f"Error getting agent info: {e}")
+
+        self.agent_info_metadata = AgentInfoMetadata.model_validate(response.json())
+        if not self.agent_id or self.agent_id not in [
+            agent.agent_id for agent in self.agent_info_metadata.agents
+        ]:
+            self.agent_id = self.agent_info_metadata.default_agent
 
     def invoke(self, message: str, thread_id: str | None = None) -> ChatMessage:
         """
@@ -39,7 +64,7 @@ class AgentClient:
 
         try:
             response = httpx.post(
-                f"{self.base_url}/api/v1/invoke",
+                f"{self.base_url}/api/v1/{self.agent_id}/invoke",
                 json=request.model_dump(),
                 timeout=self.timeout,
             )
@@ -67,7 +92,7 @@ class AgentClient:
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
-                    f"{self.base_url}/api/v1/invoke",
+                    f"{self.base_url}/api/v1/{self.agent_id}/invoke",
                     json=request.model_dump(),
                     timeout=self.timeout,
                 )
@@ -126,7 +151,7 @@ class AgentClient:
         try:
             with httpx.stream(
                 "POST",
-                f"{self.base_url}/api/v1/stream",
+                f"{self.base_url}/api/v1/{self.agent_id}/stream",
                 json=request.model_dump(),
                 timeout=self.timeout,
             ) as response:
@@ -166,7 +191,7 @@ class AgentClient:
             try:
                 async with client.stream(
                     "POST",
-                    f"{self.base_url}/api/v1/stream",
+                    f"{self.base_url}/api/v1/{self.agent_id}/stream",
                     json=request.model_dump(),
                     timeout=self.timeout,
                 ) as response:
@@ -192,7 +217,7 @@ class AgentClient:
         request = ChatHistoryInput(thread_id=thread_id)
         try:
             response = httpx.post(
-                f"{self.base_url}/api/v1/history",
+                f"{self.base_url}/api/v1/{self.agent_id}/history",
                 json=request.model_dump(),
                 timeout=self.timeout,
             )
