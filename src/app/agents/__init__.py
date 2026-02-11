@@ -1,13 +1,12 @@
-from app.agents.agents import (
-    DEFAULT_AGENT,
-    AgentGraph,
-    get_agent,
-    get_all_agent_info,
-)
+from typing import Dict
+from langgraph.graph.state import CompiledStateGraph
 
-__all__ = [
-    "AgentGraph",
-    "DEFAULT_AGENT",
-    "get_agent",
-    "get_all_agent_info",
-]
+from .chatbot import chatbot
+from .agentic_rag import rag_agent
+from .hitl_agent import hitl_agent
+
+agents: Dict[str, CompiledStateGraph] = {
+    "chatbot": chatbot,
+    "rag-agent": rag_agent,
+    "hitl-agent": hitl_agent,
+}

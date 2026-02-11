@@ -1,6 +1,4 @@
 # type: ignore
-
-
 from langgraph.graph import END, StateGraph
 
 from .chains import answer_grader, hallucination_grader, question_router

@@ -3,11 +3,11 @@ from langchain_core.documents import Document
 from langchain_qdrant import QdrantVectorStore
 
 from app.core.models import embedding_model
-from app.database import get_qdrant_client
+from app.database import qdrant_manager
 
 
 def _get_vectorstore(collection_name: str) -> QdrantVectorStore:
-    client = get_qdrant_client()
+    client = qdrant_manager.get_client()
     return QdrantVectorStore(
         client=client,
         collection_name=collection_name,

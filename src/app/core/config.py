@@ -59,7 +59,32 @@ class Settings(BaseSettings):
     QDRANT_PORT: int | None = None
     QDRANT_COLLECTION: str = ""
 
-    @computed_field  # type: ignore[prop-decorator]
+    @computed_field
+    @property
+    def ASYNC_POSTGRE_URL(self) -> str:
+        """Build and return the asynchronous PostgreSQL connection string."""
+        if settings.POSTGRES_PASSWORD is None:
+            raise ValueError("POSTGRES_PASSWORD is not set")
+        return (
+            f"postgresql+asyncpg://{settings.POSTGRES_USER}:"
+            f"{settings.POSTGRES_PASSWORD.get_secret_value()}@"
+            f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/"
+            f"{settings.POSTGRES_DB}"
+        )
+
+    @computed_field
+    @property
+    def POSTGRE_URL(self) -> str:
+        if settings.POSTGRES_PASSWORD is None:
+            raise ValueError("POSTGRES_PASSWORD is not set")
+        return (
+            f"postgresql+psycopg://{settings.POSTGRES_USER}:"
+            f"{settings.POSTGRES_PASSWORD.get_secret_value()}@"
+            f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/"
+            f"{settings.POSTGRES_DB}"
+        )
+
+    @computed_field
     @property
     def BASE_URL(self) -> str:
         return f"http://{self.HOST}:{self.PORT}"

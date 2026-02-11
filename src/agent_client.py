@@ -1,14 +1,19 @@
+from uuid import UUID
 import httpx
 import json
 from collections.abc import AsyncGenerator, Generator
-from typing import Any
+from typing import List
+from pydantic import TypeAdapter
 
-from app.schema import (
-    AgentInfoMetadata,
+from app.core.config import settings
+from app.schemas.agent import AgentInDB
+from app.schemas.chat import (
     ChatHistory,
-    ChatHistoryInput,
     ChatMessage,
+    ConversationCreate,
+    ConversationInDB,
     UserInput,
+    ConversationUpdate,
 )
 
 
@@ -27,44 +32,39 @@ class AgentClient:
         """
         self.base_url = base_url
         self.timeout = timeout
-        self.agent_id: str | None = None
-        self.agent_info_metadata: AgentInfoMetadata | None = None
-        self._retrieve_info()
+        self.agent_id: str = "chatbot"
+        self.url = f"{self.base_url}{settings.API_V1_STR}"
 
-    def _retrieve_info(self) -> None:
         try:
             response = httpx.get(
-                f"{self.base_url}/api/v1/agent-info",
+                f"{self.url}/agents/",
                 timeout=self.timeout,
             )
             response.raise_for_status()
         except httpx.HTTPError as e:
-            raise AgentClientError(f"Error getting agent info: {e}")
+            raise AgentClientError(f"Error getting available agents: {e}")
 
-        self.agent_info_metadata = AgentInfoMetadata.model_validate(response.json())
-        if not self.agent_id or self.agent_id not in [
-            agent.agent_id for agent in self.agent_info_metadata.agents
-        ]:
-            self.agent_id = self.agent_info_metadata.default_agent
+        type_adapter = TypeAdapter(List[AgentInDB])
+        self.available_agents = type_adapter.validate_python(response.json())
 
-    def invoke(self, message: str, thread_id: str | None = None) -> ChatMessage:
+    def invoke(self, message: str, thread_id: UUID | None = None) -> ChatMessage:
         """
         Invoke the agent asynchronously. Only the final message is returned.
 
         Args:
             message (str): The message to send to the agent
-            thread_id (str, optional): Thread ID for continuing a conversation
+            thread_id (UUID, optional): Thread ID for continuing a conversation
 
         Returns:
             AnyMessage: The response from the agent
         """
-        request = UserInput(content=message)
-        if thread_id:
-            request.thread_id = thread_id
+        request = UserInput(
+            content=message, agent_id=self.agent_id, thread_id=thread_id
+        )
 
         try:
             response = httpx.post(
-                f"{self.base_url}/api/v1/{self.agent_id}/invoke",
+                f"{self.url}/chat/invoke",
                 json=request.model_dump(),
                 timeout=self.timeout,
             )
@@ -74,25 +74,25 @@ class AgentClient:
 
         return ChatMessage.model_validate(response.json())
 
-    async def ainvoke(self, message: str, thread_id: str | None = None) -> ChatMessage:
+    async def ainvoke(self, message: str, thread_id: UUID | None = None) -> ChatMessage:
         """
         Invoke the agent asynchronously. Only the final message is returned.
 
         Args:
             message (str): The message to send to the agent
-            thread_id (str, optional): Thread ID for continuing a conversation
+            thread_id (UUID, optional): Thread ID for continuing a conversation
 
         Returns:
             AnyMessage: The response from the agent
         """
-        request = UserInput(content=message)
-        if thread_id:
-            request.thread_id = thread_id
+        request = UserInput(
+            content=message, agent_id=self.agent_id, thread_id=thread_id
+        )
 
         async with httpx.AsyncClient() as client:
             try:
                 response = await client.post(
-                    f"{self.base_url}/api/v1/{self.agent_id}/invoke",
+                    f"{self.url}/chat/invoke",
                     json=request.model_dump(),
                     timeout=self.timeout,
                 )
@@ -130,8 +130,7 @@ class AgentClient:
     def stream(
         self,
         message: str,
-        resume: dict[str, Any] | Any | None = None,
-        thread_id: str | None = None,
+        thread_id: UUID | None = None,
     ) -> Generator[ChatMessage | str, None, None]:
         """
         Stream the agent's response synchronously.
@@ -142,16 +141,18 @@ class AgentClient:
 
         Args:
             message (str): The message to send to the agent
-            thread_id (str, optional): Thread ID for continuing a conversation
+            thread_id (UUID, optional): Thread ID for continuing a conversation
 
         Returns:
             Generator[ChatMessage | str, None, None]: The response from the agent
         """
-        request = UserInput(content=message, resume=resume, thread_id=thread_id)
+        request = UserInput(
+            content=message, agent_id=self.agent_id, thread_id=thread_id
+        )
         try:
             with httpx.stream(
                 "POST",
-                f"{self.base_url}/api/v1/{self.agent_id}/stream",
+                f"{self.url}/chat/stream",
                 json=request.model_dump(),
                 timeout=self.timeout,
             ) as response:
@@ -168,8 +169,7 @@ class AgentClient:
     async def astream(
         self,
         message: str,
-        resume: dict[str, Any] | Any | None = None,
-        thread_id: str | None = None,
+        thread_id: UUID | None = None,
     ) -> AsyncGenerator[ChatMessage | str, None]:
         """
         Stream the agent's response asynchronously.
@@ -180,19 +180,20 @@ class AgentClient:
 
         Args:
             message (str): The message to send to the agent
-            model (str, optional): LLM model to use for the agent
-            thread_id (str, optional): Thread ID for continuing a conversation
+            thread_id (UUID, optional): Thread ID for continuing a conversation
 
         Returns:
             AsyncGenerator[ChatMessage | str, None]: The response from the agent
         """
-        request = UserInput(content=message, resume=resume, thread_id=thread_id)
+        request = UserInput(
+            content=message, agent_id=self.agent_id, thread_id=thread_id
+        )
         async with httpx.AsyncClient() as client:
             try:
                 async with client.stream(
                     "POST",
-                    f"{self.base_url}/api/v1/{self.agent_id}/stream",
-                    json=request.model_dump(),
+                    f"{self.url}/chat/stream",
+                    json=request.model_dump(mode="json"),
                     timeout=self.timeout,
                 ) as response:
                     response.raise_for_status()
@@ -207,18 +208,16 @@ class AgentClient:
             except httpx.HTTPError as e:
                 raise AgentClientError(f"Error: {e}")
 
-    def get_history(self, thread_id: str) -> ChatHistory:
+    def get_history(self, thread_id: UUID | None = None) -> ChatHistory:
         """
         Get chat history.
 
         Args:
-            thread_id (str, optional): Thread ID for identifying a conversation
+            thread_id (UUID, optional): Thread ID for identifying a conversation
         """
-        request = ChatHistoryInput(thread_id=thread_id)
         try:
-            response = httpx.post(
-                f"{self.base_url}/api/v1/{self.agent_id}/history",
-                json=request.model_dump(),
+            response = httpx.get(
+                f"{self.url}/chat/history/{self.agent_id}/{thread_id}",
                 timeout=self.timeout,
             )
             response.raise_for_status()
@@ -226,6 +225,224 @@ class AgentClient:
             raise AgentClientError(f"Error: {e}")
 
         return ChatHistory.model_validate(response.json())
+
+    def get_conversation_title(self, thread_id: UUID) -> str:
+        """
+        Get the title of a conversation.
+
+        Args:
+            thread_id (UUID): The thread ID of the conversation
+
+        Returns:
+            str: The title of the conversation
+        """
+        try:
+            response = httpx.get(
+                f"{self.url}/chat/title/{thread_id}",
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()["title"]
+        except httpx.HTTPError as e:
+            raise AgentClientError(f"Error getting conversation title: {e}")
+
+    async def aget_conversation_title(self, thread_id: UUID) -> str:
+        """
+        Get the title of a conversation asynchronously.
+
+        Args:
+            thread_id (str): The thread ID of the conversation
+
+        Returns:
+            str: The title of the conversation
+        """
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{self.url}/chat/title/{thread_id}",
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                return response.json()["title"]
+            except httpx.HTTPError as e:
+                raise AgentClientError(f"Error getting conversation title: {e}")
+
+    def set_conversation_title(self, thread_id: UUID, title: str) -> None:
+        """
+        Set or update the title of a conversation.
+
+        Args:
+            thread_id (UUID): The thread ID of the conversation
+            title (str): The title to set for the conversation
+        """
+        request = ConversationUpdate(thread_id=thread_id, title=title, is_deleted=False)
+        try:
+            response = httpx.post(
+                f"{self.url}/chat/title",
+                json=request.model_dump(mode="json"),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+        except httpx.HTTPError as e:
+            raise AgentClientError(f"Error setting conversation title: {e}")
+
+    async def aset_conversation_title(self, thread_id: UUID, title: str) -> None:
+        """
+        Set or update the title of a conversation asynchronously.
+
+        Args:
+            thread_id (UUID): The thread ID of the conversation
+            title (str): The title to set for the conversation
+        """
+        request = ConversationUpdate(thread_id=thread_id, title=title, is_deleted=False)
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    f"{self.url}/chat/title",
+                    json=request.model_dump(mode="json"),
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+            except httpx.HTTPError as e:
+                raise AgentClientError(f"Error setting conversation title: {e}")
+
+    def get_conversations(
+        self, limit: int = 20, offset: int = 0
+    ) -> List[ConversationInDB]:
+        """
+        Get a paginated list of recent conversations from the backend API.
+
+        Args:
+            limit: Maximum number of conversations to retrieve (default: 20)
+            offset: Number of conversations to skip (default: 0)
+
+        Returns:
+            List of ConversationInDB objects
+
+        Raises:
+            AgentClientError: If the request fails
+        """
+        params = {
+            "limit": limit,
+            "offset": offset,
+        }
+        try:
+            response = httpx.get(
+                f"{self.url}/chat/conversations",
+                params=params,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+
+            data = response.json()
+
+            if isinstance(data, list):
+                return [ConversationInDB.model_validate(item) for item in data]
+
+            else:
+                raise AgentClientError("Unexpected response format from API")
+        except httpx.HTTPError as e:
+            raise AgentClientError(f"Error getting conversations: {e}")
+
+    async def aget_conversations(
+        self,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> List[ConversationInDB]:
+        """
+        Get a paginated list of recent conversations from the backend API asynchronously.
+
+        Args:
+            limit: Maximum number of conversations to retrieve (default: 20)
+            offset: Number of conversations to skip (default: 0)
+
+        Returns:
+            List of ConversationInDB objects
+
+        Raises:
+            AgentClientError: If the request fails
+        """
+        params = {
+            "limit": limit,
+            "offset": offset,
+        }
+
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.get(
+                    f"{self.url}/chat/conversations",
+                    params=params,
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+
+                data = response.json()
+
+                if isinstance(data, list):
+                    return [ConversationInDB.model_validate(item) for item in data]
+
+                else:
+                    raise AgentClientError("Unexpected response format from API")
+
+        except Exception as e:
+            raise AgentClientError(f"Error getting conversations: {e}")
+
+    def create_conversation(self, thread_id: UUID, title: str) -> ConversationInDB:
+        """
+        Create a new conversation in DB.
+
+        Args:
+            thread_id (UUID): The thread ID of the conversation
+            title (str): The title to set for the conversation
+
+        Returns:
+            ConversationInDB object
+
+        Raises:
+            AgentClientError: If the request fails
+        """
+        request = ConversationCreate(thread_id=thread_id, title=title)
+        try:
+            response = httpx.post(
+                f"{self.url}/chat/conversations",
+                json=request.model_dump(mode="json"),
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+
+            return ConversationInDB.model_validate(response.json())
+        except httpx.HTTPError as e:
+            raise AgentClientError(f"Error creating conversations: {e}")
+
+    async def acreate_conversation(
+        self, thread_id: UUID, title: str
+    ) -> ConversationInDB:
+        """
+        Create a new conversation in DB asynchronously.
+
+        Args:
+            thread_id (UUID): The thread ID of the conversation
+            title (str): The title to set for the conversation
+
+        Returns:
+            ConversationInDB object
+
+        Raises:
+            AgentClientError: If the request fails
+        """
+        request = ConversationCreate(thread_id=thread_id, title=title)
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(
+                    f"{self.url}/chat/conversations",
+                    json=request.model_dump(mode="json"),
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+
+                return ConversationInDB.model_validate(response.json())
+        except httpx.HTTPError as e:
+            raise AgentClientError(f"Error creating conversations: {e}")
 
 
 class AgentClientError(Exception):

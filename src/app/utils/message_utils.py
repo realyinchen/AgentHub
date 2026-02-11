@@ -11,10 +11,10 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
+from langgraph.graph.state import CompiledStateGraph
 from typing import Any
 
-from app.agents.agents import AgentGraph
-from app.schema import ChatMessage, InterruptMessage, UserInput
+from app.schemas.chat import ChatMessage, UserInput
 
 
 logger = logging.getLogger(__name__)
@@ -59,20 +59,12 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                 tool_call_id=message.tool_call_id,
             )
             return tool_message
-        case InterruptMessage():
-            interrupt_message = ChatMessage(
-                type="interrupt",
-                content="",
-                action_requests=message.action_requests,
-                review_configs=message.review_configs,
-            )
-            return interrupt_message
         case _:
             raise ValueError(f"Unsupported message type: {message.__class__.__name__}")
 
 
 async def streaming_message_generator(
-    user_input: UserInput, agent: AgentGraph
+    user_input: UserInput, agent: CompiledStateGraph
 ) -> AsyncGenerator[str, None]:
     """
     Generate a stream of messages from the agent.
@@ -96,14 +88,14 @@ async def streaming_message_generator(
                     # In a more sophisticated implementation, we could add
                     # some structured ChatMessage type to return the interrupt value.
                     if node == "__interrupt__":
-                        for interrupt in updates:
-                            new_messages.append(
-                                InterruptMessage(
-                                    content="",
-                                    action_requests=interrupt.value["action_requests"],
-                                    review_configs=interrupt.value["review_configs"],
-                                )
-                            )
+                        # for interrupt in updates:
+                        #     new_messages.append(
+                        #         InterruptMessage(
+                        #             content="",
+                        #             action_requests=interrupt.value["action_requests"],
+                        #             review_configs=interrupt.value["review_configs"],
+                        #         )
+                        #     )
                         continue
                     updates = updates or {}
                     update_messages = updates.get("messages", [])
@@ -142,7 +134,9 @@ async def streaming_message_generator(
         yield "data: [DONE]\n\n"
 
 
-async def handle_input(user_input: UserInput, agent: AgentGraph) -> dict[str, Any]:
+async def handle_input(
+    user_input: UserInput, agent: CompiledStateGraph
+) -> dict[str, Any]:
     """
     Parse user input and returns kwargs for agent invocation.
     """
@@ -152,17 +146,8 @@ async def handle_input(user_input: UserInput, agent: AgentGraph) -> dict[str, An
 
     config = RunnableConfig(configurable=configurable)
 
-    # Check for interrupts that need to be resumed
-    state = await agent.aget_state(config=config)
-    interrupted_tasks = [
-        task for task in state.tasks if hasattr(task, "interrupts") and task.interrupts
-    ]
     input: Command | dict[str, Any]
-    if interrupted_tasks:
-        # assume user input is response to resume agent execution from interrupt
-        input = Command(resume=user_input.resume)
-    else:
-        input = {"messages": [HumanMessage(content=user_input.content)]}
+    input = {"messages": [HumanMessage(content=user_input.content)]}
 
     kwargs = {
         "input": input,

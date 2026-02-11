@@ -4,14 +4,15 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
-from app.agents import get_all_agent_info, get_agent
+from app.utils.agent_utils import get_available_agents
 from app.core.config import settings
 from app.database import (
-    initialize_database,
-    initialize_qdrant_client,
-    close_qdrant_client,
+    adb_manager,
+    db_manager,
+    get_checkpointer,
+    qdrant_manager,
 )
-from app.api.routes import api_router
+from app.api.v1.router import api_router
 
 
 logger = logging.getLogger(__name__)
@@ -28,20 +29,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Configurable lifespan that initializes the appropriate database checkpointer and vectorstore
     """
     try:
-        # Initialize vectorstore client
-        initialize_qdrant_client()
+        await adb_manager.initialize()
+        db_manager.initialize()
+        qdrant_manager.initialize()
         # Initialize checkpointer (for short-term memory)
-        async with initialize_database() as saver:
-            if hasattr(saver, "setup"):
-                await saver.setup()
+        async with get_checkpointer() as checkpointer:
+            if hasattr(checkpointer, "setup"):
+                await checkpointer.setup()
             # Configure agents with both memory components and async loading
-            agents = get_all_agent_info()
-            for agent in agents:
-                agent = get_agent(agent.agent_id)
+            available_agents = await get_available_agents()
+            for agent in available_agents:
                 # Set checkpointer for thread-scoped memory (conversation history)
-                agent.checkpointer = saver
+                agent.checkpointer = checkpointer
             yield
-            close_qdrant_client()
+            qdrant_manager.dispose()
+            db_manager.dispose()
+            await adb_manager.dispose()
     except Exception as e:
         logger.error(f"Error during database and vectorstore initialization: {e}")
         raise
