@@ -72,12 +72,6 @@ async def stream(user_input: UserInput) -> StreamingResponse:
     return StreamingResponse(
         streaming_message_generator(user_input, agent),
         media_type="text/event-stream",
-        headers={
-            # Help intermediaries keep SSE unbuffered for true token streaming.
-            "Cache-Control": "no-cache, no-transform",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no",
-        },
     )
 
 
