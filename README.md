@@ -1,60 +1,202 @@
-# 🧠 AI Agent Hub
+# 🧠 AgentHub - AI Agent Platform
 
-一个使用 FastAPI（后端）和 Streamlit（前端）构建的模块化 Agent 集合框架。
+A modular AI Agent collection framework that provides a modern web interface for experimenting with LangChain and LangGraph agents. Built with FastAPI (backend) and React (frontend), featuring a clean separation of concerns and modern development practices.
 
-这是 [learn_langchain_langgraph](https://github.com/realyinchen/learn_langchain_langgraph) 中 Agent 的 GUI 版本。
+This is the GUI version of the [learn_langchain_langgraph](https://github.com/realyinchen/learn_langchain_langgraph) project.
 
-灵感来源：[agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)
+Inspired by: [agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)
 
-关注我的微信公众号获取最新推送
+Follow my WeChat official account for the latest updates:
 
 ![wechat_qrcode](https://github.com/realyinchen/RAG/blob/main/imgs/wechat_qrcode.jpg)
 
-### 🚀 项目特点
+## 🚀 Project Features
 
-✅ **FastAPI 后端** — 稳健的 RESTful API 层，用于 Agent 调度与异步任务管理。  
-✅ **Streamlit 前端** — 交互式网页界面，用于实验 Agent 与可视化推理图谱。  
-✅ **LangChain/LangGraph 集成** — 轻松构建设计并连接多 Agent 推理工作流，并进行可视化。  
-✅ **流式与事件驱动** — 实时 token 流输出和 Agent 执行事件的可视化。
+✅ **FastAPI Backend** — Robust RESTful API layer for agent orchestration and async task management.  
+✅ **Modern React Frontend** — Interactive web interface built with Vite + React + TypeScript + Tailwind CSS + shadcn/ui for superior user experience.  
+✅ **LangChain/LangGraph Integration** — Easy to build, design, and connect multi-agent reasoning workflows with visualization.  
+✅ **Streaming & Event-Driven** — Real-time token streaming and agent execution event visualization.  
 
-### 🧩 适用于：
+## 🧩 Perfect For:
 
-想要更高效地展示 LangChain 与 LangGraph 学习成果的同学。 
+Students and developers who want to efficiently showcase their LangChain and LangGraph learning achievements in an interactive, visual format.
 
-### 快速启动项目
+## 🏗️ Architecture
 
-1. 安装 [VS Code](https://code.visualstudio.com/Download) 与 [miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
+```
+AgentHub/
+├── frontend/               # Vite + React + TypeScript + Tailwind CSS + shadcn/ui
+│   ├── src/                # React components and logic
+│   ├── public/             # Static assets
+│   ├── package.json        # Frontend dependencies
+│   └── vite.config.ts      # Vite build configuration
+├── backend/                # FastAPI + LangGraph backend
+│   ├── app/                # Main application code
+│   │   ├── main.py         # FastAPI application entry point
+│   │   ├── agents/         # Agent implementations (chatbot, rag-agent)
+│   │   ├── api/            # API routes
+│   │   ├── core/           # Core configurations
+│   │   ├── database/       # Database managers and checkpointer
+│   │   └── ...             # Other modules
+│   ├── scripts/            # Database initialization scripts
+│   │   └── init_database.py # Initialize PostgreSQL and Qdrant
+│   └── run_backend.py      # Backend startup script
+├── .env                    # Environment variables
+├── requirements.txt        # Python dependencies
+└── README.md               # This file
+```
 
-2. 创建虚拟环境  
-    ``` bash
-    $ conda create -n agenthub python=3.12
-    ```
+## 🛠️ Tech Stack
 
-3. 激活虚拟环境  
-    ``` bash
-    $ conda activate agenthub
-    ```
+### Backend
+- **Python 3.12** - Runtime environment
+- **FastAPI** - High-performance web framework with automatic API documentation
+- **LangChain** - LLM orchestration framework
+- **LangGraph** - Agent workflow graphs for complex reasoning
+- **PostgreSQL** - Primary database with async/sync support
+- **Qdrant** - Vector store for RAG functionality
+- **Uvicorn** - ASGI server for production deployment
 
-4. 进入项目根目录  AgentHub  
-   将项目根目录下的环境变量配置文件重命名，并根据实际情况，填入你的配置信息  
-    ``` bash
-    $ mv .env.example .env
-    ```
+### Frontend
+- **Vite** - Next-generation build tool with instant server start
+- **React 19** - Component-based UI library
+- **TypeScript** - Static typing for code safety
+- **Tailwind CSS** - Utility-first CSS framework
+- **shadcn/ui** - Accessible, customizable UI components
+- **TanStack Query** - Data fetching and state management
+- **Lucide React** - Beautiful icon library
 
-5. 安装依赖包
-    ``` bash
-    $ pip install -r requirements.txt
-    ```
+## 🚀 Quick Start
 
-6. 运行项目  
-    启动后端  
-    ``` bash
-    $ python src/run_backend.py 
-    ```
-    启动前端  
-    ``` bash
-    $ streamlit run src/streamlit_app.py
-    ```
-7. 在浏览器中  
-   - 打开`http://localhost:8501`访问前端
-   - 打开`http://0.0.0.0:8080/docs`访问 Swagger UI
+### Prerequisites
+1. Install [VS Code](https://code.visualstudio.com/Download) and [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
+2. Install [Node.js 18+](https://nodejs.org/) for frontend development
+
+### Setup Instructions
+
+1. **Create virtual environment**
+   ```bash
+   conda create -n agenthub python=3.12
+   ```
+
+2. **Activate virtual environment**
+   ```bash
+   conda activate agenthub
+   ```
+
+3. **Clone and enter project directory**
+   ```bash
+   git clone <repository-url>
+   cd AgentHub
+   ```
+
+4. **Configure environment variables**
+   ```bash
+   cp .env.example .env
+   ```
+   Edit `.env` with your API keys and configuration settings.
+
+5. **Install backend dependencies**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+6. **Initialize database**
+   ```bash
+   python backend/scripts/init_database.py
+   ```
+
+7. **Start backend server**
+   ```bash
+   python backend/run_backend.py
+   ```
+
+8. **In a new terminal, navigate to frontend and start development server**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
+
+9. **Access the application**
+   - Frontend: Open `http://localhost:5173` in your browser
+   - Backend API: Visit `http://0.0.0.0:8080/docs` for Swagger UI
+
+## 🤖 Available Agents
+
+- **chatbot** — Simple conversational agent without tools
+- **rag-agent** — Advanced RAG agent with:
+  - Question routing (vector store / web search / direct answer)
+  - Qdrant vector store retrieval
+  - Document relevance grading
+  - Hallucination grading
+  - Answer quality grading
+  - Tavily web search fallback
+  - Reporter node for final answer formatting
+
+## 📋 Environment Variables
+
+### Backend (.env at project root)
+```env
+# Application
+MODE=dev                          # "dev" enables uvicorn auto-reload
+
+# Server
+HOST=0.0.0.0
+PORT=8080
+
+# LLM (OpenAI-compatible API)
+COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+COMPATIBLE_API_KEY=sk-...
+LLM_NAME=qwen3-max
+EMBEDDING_MODEL_NAME=text-embedding-v4
+
+# LangSmith Tracing
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_PROJECT="AgentHub"
+LANGCHAIN_API_KEY=lsv2_...
+
+# PostgreSQL
+POSTGRES_USER=langchain
+POSTGRES_PASSWORD=langgraph
+POSTGRES_HOST=localhost
+POSTGRES_PORT=5432
+POSTGRES_DB=agentdb
+
+# Qdrant
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+QDRANT_COLLECTION=agentic_rag_survey
+
+# Tavily Search
+TAVILY_API_KEY=tvly-...
+```
+
+### Frontend (frontend/.env)
+```env
+VITE_API_URL=http://localhost:8080
+```
+
+## 🔄 Development Notes
+
+- **Backend**: Located in `backend/` directory, uses FastAPI with async lifespan management
+- **Frontend**: Located in `frontend/` directory, built with Vite + React + TypeScript + Tailwind CSS
+- **Database Scripts**: Located in `backend/scripts/` for initialization and maintenance
+- **Agent Registration**: Agents are registered in `backend/app/agents/__init__.py` and controlled via PostgreSQL
+- **Streaming**: Uses Server-Sent Events (SSE) for real-time agent responses
+
+## 🚧 Known Limitations
+
+1. **RAG Collection**: The `rag-agent` requires pre-populated Qdrant collections; no built-in document upload UI yet
+2. **Testing**: No unit/integration tests currently implemented
+3. **Deployment**: No Docker Compose configuration for easy local deployment
+
+## 🚀 Future Enhancements
+
+- Additional agent types (SQL agent, code agent, multi-agent workflows)
+- Comprehensive test suite for backend and frontend
+- Docker Compose for simplified local development
+- Agent graph visualization in React UI
+- Conversation search and filtering
+- Document upload UI for Qdrant population
+- Agent performance metrics dashboard
