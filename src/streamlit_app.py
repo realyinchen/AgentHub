@@ -38,7 +38,9 @@ async def main() -> None:
         st.rerun()
 
     if "agent_client" not in st.session_state:
-        agent_url = f"http://{settings.HOST}:{settings.PORT}"
+        # 0.0.0.0 is valid for server bind, but not for client requests.
+        host = "127.0.0.1" if settings.HOST in {"0.0.0.0", "::"} else settings.HOST
+        agent_url = f"http://{host}:{settings.PORT}"
         st.session_state.agent_client = AgentClient(base_url=agent_url)
     agent_client: AgentClient = st.session_state.agent_client
 
