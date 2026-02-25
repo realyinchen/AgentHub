@@ -21,7 +21,7 @@ class AgentClient:
     """Client for interacting with the agent service."""
 
     def __init__(
-        self, base_url: str = "http://0.0.0.0:8080", timeout: float | None = None
+        self, base_url: str = "http://127.0.0.1:8080", timeout: float | None = None
     ) -> None:
         """
         Initialize the client.
@@ -39,6 +39,7 @@ class AgentClient:
             response = httpx.get(
                 f"{self.url}/agents/",
                 timeout=self.timeout,
+                trust_env=False,
             )
             response.raise_for_status()
         except httpx.HTTPError as e:
@@ -67,6 +68,7 @@ class AgentClient:
                 f"{self.url}/chat/invoke",
                 json=request.model_dump(),
                 timeout=self.timeout,
+                trust_env=False,
             )
             response.raise_for_status()
         except httpx.HTTPError as e:
@@ -89,12 +91,11 @@ class AgentClient:
             content=message, agent_id=self.agent_id, thread_id=thread_id
         )
 
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             try:
                 response = await client.post(
                     f"{self.url}/chat/invoke",
                     json=request.model_dump(),
-                    timeout=self.timeout,
                 )
                 response.raise_for_status()
             except httpx.HTTPError as e:
@@ -155,6 +156,7 @@ class AgentClient:
                 f"{self.url}/chat/stream",
                 json=request.model_dump(),
                 timeout=self.timeout,
+                trust_env=False,
             ) as response:
                 response.raise_for_status()
                 for line in response.iter_lines():
@@ -188,13 +190,12 @@ class AgentClient:
         request = UserInput(
             content=message, agent_id=self.agent_id, thread_id=thread_id
         )
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             try:
                 async with client.stream(
                     "POST",
                     f"{self.url}/chat/stream",
                     json=request.model_dump(mode="json"),
-                    timeout=self.timeout,
                 ) as response:
                     response.raise_for_status()
                     async for line in response.aiter_lines():
@@ -219,6 +220,7 @@ class AgentClient:
             response = httpx.get(
                 f"{self.url}/chat/history/{self.agent_id}/{thread_id}",
                 timeout=self.timeout,
+                trust_env=False,
             )
             response.raise_for_status()
         except httpx.HTTPError as e:
@@ -240,6 +242,7 @@ class AgentClient:
             response = httpx.get(
                 f"{self.url}/chat/title/{thread_id}",
                 timeout=self.timeout,
+                trust_env=False,
             )
             response.raise_for_status()
             return response.json()["title"]
@@ -256,11 +259,10 @@ class AgentClient:
         Returns:
             str: The title of the conversation
         """
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             try:
                 response = await client.get(
                     f"{self.url}/chat/title/{thread_id}",
-                    timeout=self.timeout,
                 )
                 response.raise_for_status()
                 return response.json()["title"]
@@ -281,6 +283,7 @@ class AgentClient:
                 f"{self.url}/chat/title",
                 json=request.model_dump(mode="json"),
                 timeout=self.timeout,
+                trust_env=False,
             )
             response.raise_for_status()
         except httpx.HTTPError as e:
@@ -295,12 +298,11 @@ class AgentClient:
             title (str): The title to set for the conversation
         """
         request = ConversationUpdate(thread_id=thread_id, title=title, is_deleted=False)
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=self.timeout, trust_env=False) as client:
             try:
                 response = await client.post(
                     f"{self.url}/chat/title",
                     json=request.model_dump(mode="json"),
-                    timeout=self.timeout,
                 )
                 response.raise_for_status()
             except httpx.HTTPError as e:
@@ -331,6 +333,7 @@ class AgentClient:
                 f"{self.url}/chat/conversations",
                 params=params,
                 timeout=self.timeout,
+                trust_env=False,
             )
             response.raise_for_status()
 
@@ -368,11 +371,12 @@ class AgentClient:
         }
 
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, trust_env=False
+            ) as client:
                 response = await client.get(
                     f"{self.url}/chat/conversations",
                     params=params,
-                    timeout=self.timeout,
                 )
                 response.raise_for_status()
 
@@ -407,6 +411,7 @@ class AgentClient:
                 f"{self.url}/chat/conversations",
                 json=request.model_dump(mode="json"),
                 timeout=self.timeout,
+                trust_env=False,
             )
             response.raise_for_status()
 
@@ -432,11 +437,12 @@ class AgentClient:
         """
         request = ConversationCreate(thread_id=thread_id, title=title)
         try:
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(
+                timeout=self.timeout, trust_env=False
+            ) as client:
                 response = await client.post(
                     f"{self.url}/chat/conversations",
                     json=request.model_dump(mode="json"),
-                    timeout=self.timeout,
                 )
                 response.raise_for_status()
 
