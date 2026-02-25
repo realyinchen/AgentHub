@@ -1,5 +1,6 @@
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncGenerator
 from langchain_core.messages import (
@@ -72,6 +73,11 @@ async def streaming_message_generator(
     This is the workhorse method for the /stream endpoint.
     """
     kwargs = await handle_input(user_input, agent)
+    started_at = time.perf_counter()
+    first_chunk_sent = False
+
+    # Send an SSE comment prelude immediately to encourage early flush in proxies.
+    yield f": {' ' * 2048}\n\n"
     try:
         # Process streamed events from the graph and yield messages over the SSE stream.
         async for stream_event in agent.astream(
@@ -114,6 +120,14 @@ async def streaming_message_generator(
                     and chat_message.content == user_input.content
                 ):
                     continue
+                if not first_chunk_sent:
+                    first_chunk_sent = True
+                    logger.info(
+                        "stream first chunk in %.1f ms (agent_id=%s, thread_id=%s)",
+                        (time.perf_counter() - started_at) * 1000,
+                        user_input.agent_id,
+                        user_input.thread_id,
+                    )
                 yield f"data: {json.dumps({'type': 'message', 'content': chat_message.model_dump()})}\n\n"
 
             if stream_mode == "messages":
@@ -126,6 +140,14 @@ async def streaming_message_generator(
                     # Empty content in the context of OpenAI usually means
                     # that the model is asking for a tool to be invoked.
                     # So we only print non-empty content.
+                    if not first_chunk_sent:
+                        first_chunk_sent = True
+                        logger.info(
+                            "stream first chunk in %.1f ms (agent_id=%s, thread_id=%s)",
+                            (time.perf_counter() - started_at) * 1000,
+                            user_input.agent_id,
+                            user_input.thread_id,
+                        )
                     yield f"data: {json.dumps({'type': 'token', 'content': convert_message_content_to_string(content)})}\n\n"
     except Exception as e:
         logger.error(f"Error in message generator: {e}")
