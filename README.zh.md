@@ -1,5 +1,10 @@
 # 🧠 AgentHub - AI 智能体平台
 
+<p align="center">
+  <a href="README.md">English</a> |
+  <a href="README.zh.md">简体中文</a>
+</p>
+
 一个提供现代 Web 界面的模块化 AI 智能体集合框架，用于实验 LangChain 和 LangGraph 智能体。采用 FastAPI（后端）和 React（前端）构建，具有清晰的关注点分离和现代化开发实践。
 
 这是 [learn_langchain_langgraph](https://github.com/realyinchen/learn_langchain_langgraph) 项目的 GUI 版本。
@@ -26,6 +31,7 @@
 ```
 AgentHub/
 ├── frontend/               # Vite + React + TypeScript + Tailwind CSS + shadcn/ui
+│   ├── .env                # 前端环境变量
 │   ├── src/                # React 组件和逻辑
 │   ├── public/             # 静态资源
 │   ├── package.json        # 前端依赖
@@ -40,9 +46,10 @@ AgentHub/
 │   │   └── ...             # 其他模块
 │   ├── scripts/            # 数据库初始化脚本
 │   │   └── init_database.py # 初始化 PostgreSQL 和 Qdrant
+│   ├── .env                # 环境变量
+│   ├── .env.example        # 环境变量示例
+│   ├── requirements.txt    # Python 依赖
 │   └── run_backend.py      # 后端启动脚本
-├── .env                    # 环境变量
-├── requirements.txt        # Python 依赖
 └── README.md               # 此文件
 ```
 
@@ -92,6 +99,7 @@ AgentHub/
 
 4. **配置环境变量**
    ```bash
+   cd backend
    cp .env.example .env
    ```
    使用您的 API 密钥和配置设置编辑 `.env` 文件。
@@ -103,12 +111,12 @@ AgentHub/
 
 6. **初始化数据库**
    ```bash
-   python backend/scripts/init_database.py
+   python scripts/init_database.py
    ```
 
 7. **启动后端服务器**
    ```bash
-   python backend/run_backend.py
+   python run_backend.py
    ```
 
 8. **在新终端中，导航到前端并启动开发服务器**
@@ -120,7 +128,7 @@ AgentHub/
 
 9. **访问应用程序**
    - 前端：在浏览器中打开 `http://localhost:5173`
-   - 后端 API：访问 `http://0.0.0.0:8080/docs` 查看 Swagger UI
+   - 后端 API：访问 `http://localhost:8080/docs` 查看 Swagger UI
 
 ## 🤖 可用智能体
 
@@ -136,7 +144,7 @@ AgentHub/
 
 ## 📋 环境变量
 
-### 后端（项目根目录的 .env）
+### 后端（backend/.env）
 ```env
 # 应用程序
 MODE=dev                          # "dev" 启用 uvicorn 自动重载

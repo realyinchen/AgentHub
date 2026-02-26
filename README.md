@@ -1,5 +1,10 @@
 # 🧠 AgentHub - AI Agent Platform
 
+<p align="center">
+  <a href="README.md">English</a> |
+  <a href="README.zh.md">简体中文</a>
+</p>
+
 A modular AI Agent collection framework that provides a modern web interface for experimenting with LangChain and LangGraph agents. Built with FastAPI (backend) and React (frontend), featuring a clean separation of concerns and modern development practices.
 
 This is the GUI version of the [learn_langchain_langgraph](https://github.com/realyinchen/learn_langchain_langgraph) project.
@@ -26,6 +31,7 @@ Students and developers who want to efficiently showcase their LangChain and Lan
 ```
 AgentHub/
 ├── frontend/               # Vite + React + TypeScript + Tailwind CSS + shadcn/ui
+│   ├── .env                # Frontend environment variables
 │   ├── src/                # React components and logic
 │   ├── public/             # Static assets
 │   ├── package.json        # Frontend dependencies
@@ -40,9 +46,10 @@ AgentHub/
 │   │   └── ...             # Other modules
 │   ├── scripts/            # Database initialization scripts
 │   │   └── init_database.py # Initialize PostgreSQL and Qdrant
+│   ├── .env                # Environment variables
+│   ├── .env.example        # Environment variables example
+│   ├── requirements.txt    # Python dependencies
 │   └── run_backend.py      # Backend startup script
-├── .env                    # Environment variables
-├── requirements.txt        # Python dependencies
 └── README.md               # This file
 ```
 
@@ -92,6 +99,7 @@ AgentHub/
 
 4. **Configure environment variables**
    ```bash
+   cd backend
    cp .env.example .env
    ```
    Edit `.env` with your API keys and configuration settings.
@@ -103,12 +111,12 @@ AgentHub/
 
 6. **Initialize database**
    ```bash
-   python backend/scripts/init_database.py
+   python scripts/init_database.py
    ```
 
 7. **Start backend server**
    ```bash
-   python backend/run_backend.py
+   python run_backend.py
    ```
 
 8. **In a new terminal, navigate to frontend and start development server**
@@ -120,7 +128,7 @@ AgentHub/
 
 9. **Access the application**
    - Frontend: Open `http://localhost:5173` in your browser
-   - Backend API: Visit `http://0.0.0.0:8080/docs` for Swagger UI
+   - Backend API: Visit `http://localhost:8080/docs` for Swagger UI
 
 ## 🤖 Available Agents
 
@@ -136,7 +144,7 @@ AgentHub/
 
 ## 📋 Environment Variables
 
-### Backend (.env at project root)
+### Backend (backend/.env)
 ```env
 # Application
 MODE=dev                          # "dev" enables uvicorn auto-reload
