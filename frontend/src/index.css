@@ -101,9 +101,16 @@
     @apply border-border outline-ring/50;
   }
 
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
     @apply bg-background text-foreground;
-    min-height: 100vh;
+    margin: 0;
     background-image:
       radial-gradient(circle at top left, rgb(99 102 241 / 0.09), transparent 45%),
       radial-gradient(circle at bottom right, rgb(14 165 233 / 0.1), transparent 45%);

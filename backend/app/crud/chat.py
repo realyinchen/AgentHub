@@ -47,6 +47,9 @@ async def create_conversation(
     )
 
     db.add(db_obj)
+    # Ensure ORM/DB defaults (e.g. created_at/updated_at) are populated before response serialization.
+    await db.flush()
+    await db.refresh(db_obj)
 
     return db_obj
 
