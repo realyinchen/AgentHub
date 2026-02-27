@@ -27,6 +27,7 @@ const extractTextContent = (node: React.ReactNode): string => {
 
 interface HighlightedPreProps extends React.HTMLAttributes<HTMLPreElement> {
 	language: string;
+	disableHighlight?: boolean;
 }
 
 type HighlightedLine = Array<{
@@ -38,12 +39,17 @@ const HighlightedPre = memo(({
 	children,
 	className,
 	language,
+	disableHighlight = false,
 	...props
 }: HighlightedPreProps) => {
 	const code = useMemo(() => extractTextContent(children), [children]);
 	const [lines, setLines] = useState<HighlightedLine[] | null>(null);
 
 	useEffect(() => {
+		if (disableHighlight) {
+			return;
+		}
+
 		let cancelled = false;
 
 		const highlight = async () => {
@@ -79,15 +85,14 @@ const HighlightedPre = memo(({
 			}
 		};
 
-		setLines(null);
 		void highlight();
 
 		return () => {
 			cancelled = true;
 		};
-	}, [code, language]);
+	}, [code, disableHighlight, language]);
 
-	if (!lines || lines.length === 0) {
+	if (disableHighlight || !lines || lines.length === 0) {
 		return (
 			<pre
 				{...props}
@@ -131,6 +136,7 @@ HighlightedPre.displayName = "HighlightedPre";
 
 interface CodeBlockProps extends React.HTMLAttributes<HTMLPreElement> {
 	language: string;
+	disableHighlight?: boolean;
 }
 
 function CopyCodeButton({ code }: { code: string }) {
@@ -171,6 +177,7 @@ function CopyCodeButton({ code }: { code: string }) {
 const CodeBlock = ({
 	children,
 	language,
+	disableHighlight = false,
 	className,
 	...props
 }: CodeBlockProps) => {
@@ -179,7 +186,12 @@ const CodeBlock = ({
 	return (
 		<div className="relative w-full max-w-full">
 			<CopyCodeButton code={code} />
-			<HighlightedPre language={language} className={className} {...props}>
+			<HighlightedPre
+				language={language}
+				disableHighlight={disableHighlight}
+				className={className}
+				{...props}
+			>
 				{children}
 			</HighlightedPre>
 		</div>
@@ -188,7 +200,9 @@ const CodeBlock = ({
 
 CodeBlock.displayName = "CodeBlock";
 
-const components: Partial<Components> = {
+const createMarkdownComponents = (
+	disableCodeHighlight: boolean,
+): Partial<Components> => ({
 	h1: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h1 className="mt-2 scroll-m-20 text-4xl font-bold" {...props}>
 			{children}
@@ -372,7 +386,11 @@ const components: Partial<Components> = {
 		const isBlock = inline === false || Boolean(match) || code.includes("\n");
 		if (isBlock) {
 			return (
-				<CodeBlock language={match?.[1] ?? "text"} className={className}>
+				<CodeBlock
+					language={match?.[1] ?? "text"}
+					disableHighlight={disableCodeHighlight}
+					className={className}
+				>
 					{children}
 				</CodeBlock>
 			);
@@ -390,7 +408,7 @@ const components: Partial<Components> = {
 		);
 	},
 	pre: ({ children }) => <>{children}</>,
-};
+});
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
 	if (!markdown) {
@@ -403,10 +421,11 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
 interface MarkdownBlockProps {
 	content: string;
 	className?: string;
+	components: Partial<Components>;
 }
 
 const MemoizedMarkdownBlock = memo(
-	({ content, className }: MarkdownBlockProps) => {
+	({ content, className, components }: MarkdownBlockProps) => {
 		return (
 			<div className={className}>
 				<ReactMarkdown
@@ -423,6 +442,9 @@ const MemoizedMarkdownBlock = memo(
 		if (prevProps.content !== nextProps.content) {
 			return false;
 		}
+		if (prevProps.components !== nextProps.components) {
+			return false;
+		}
 		return true;
 	},
 );
@@ -432,19 +454,25 @@ MemoizedMarkdownBlock.displayName = "MemoizedMarkdownBlock";
 interface MarkdownContentProps {
 	content: string;
 	className?: string;
+	isStreaming?: boolean;
 }
 
 export const MarkdownContent = memo(
-	({ content, className }: MarkdownContentProps) => {
+	({ content, className, isStreaming = false }: MarkdownContentProps) => {
 		const blocks = useMemo(
 			() => parseMarkdownIntoBlocks(content || ""),
 			[content],
+		);
+		const components = useMemo(
+			() => createMarkdownComponents(isStreaming),
+			[isStreaming],
 		);
 
 		return blocks.map((block, index) => (
 			<MemoizedMarkdownBlock
 				content={block}
 				className={className}
+				components={components}
 				key={`block_${
 					// biome-ignore lint/suspicious/noArrayIndexKey: Needed for react key
 					index

@@ -43,6 +43,9 @@ const suggestions = [
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
 const SCROLL_BUTTON_SHOW_OFFSET = 180
 const SCROLLBAR_FADE_OUT_DELAY = 420
+const STREAM_SCROLL_EASING = 0.2
+const STREAM_SCROLL_MIN_STEP = 1
+const USER_SCROLL_INTERRUPT_DELTA = -2
 
 export function ChatMainPanel({
   agents,
@@ -62,6 +65,10 @@ export function ChatMainPanel({
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
   const conversationRef = useRef<HTMLDivElement | null>(null)
   const scrollbarHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const streamFollowRafRef = useRef<number | null>(null)
+  const autoScrollEnabledRef = useRef(true)
+  const isStreamingRef = useRef(isStreaming)
+  const lastKnownScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
 
@@ -109,17 +116,75 @@ export function ChatMainPanel({
     element.scrollTo({ top: element.scrollHeight, behavior })
   }, [])
 
+  const stopStreamFollow = useCallback(() => {
+    if (streamFollowRafRef.current !== null) {
+      window.cancelAnimationFrame(streamFollowRafRef.current)
+      streamFollowRafRef.current = null
+    }
+  }, [])
+
+  const startStreamFollow = useCallback(() => {
+    if (streamFollowRafRef.current !== null) {
+      return
+    }
+
+    const step = () => {
+      const element = conversationRef.current
+      if (!element || !isStreamingRef.current || !autoScrollEnabledRef.current) {
+        streamFollowRafRef.current = null
+        return
+      }
+
+      const targetTop = element.scrollHeight - element.clientHeight
+      const distance = targetTop - element.scrollTop
+
+      if (distance <= 0.5) {
+        element.scrollTop = targetTop
+      } else {
+        element.scrollTop += Math.max(STREAM_SCROLL_MIN_STEP, distance * STREAM_SCROLL_EASING)
+      }
+
+      streamFollowRafRef.current = window.requestAnimationFrame(step)
+    }
+
+    streamFollowRafRef.current = window.requestAnimationFrame(step)
+  }, [])
+
   useEffect(() => {
-    scrollToBottom(isStreaming ? "smooth" : "auto")
-  }, [messages, isStreaming, isLoadingConversation, scrollToBottom])
+    isStreamingRef.current = isStreaming
+    if (!isStreaming) {
+      stopStreamFollow()
+    }
+  }, [isStreaming, stopStreamFollow])
+
+  useEffect(() => {
+    if (isAwaitingAgentSelection || isLoadingConversation || !autoScrollEnabledRef.current) {
+      return
+    }
+
+    if (isStreaming) {
+      startStreamFollow()
+      return
+    }
+
+    scrollToBottom("auto")
+  }, [
+    isAwaitingAgentSelection,
+    isLoadingConversation,
+    isStreaming,
+    messages,
+    scrollToBottom,
+    startStreamFollow,
+  ])
 
   useEffect(() => {
     return () => {
       if (scrollbarHideTimerRef.current) {
         clearTimeout(scrollbarHideTimerRef.current)
       }
+      stopStreamFollow()
     }
-  }, [])
+  }, [stopStreamFollow])
 
   const updateScrollButtonState = useCallback(() => {
     const element = conversationRef.current
@@ -138,8 +203,21 @@ export function ChatMainPanel({
     const distanceFromBottom =
       element.scrollHeight - element.scrollTop - element.clientHeight
     const isAtBottom = distanceFromBottom <= SCROLL_BOTTOM_HIDE_THRESHOLD
+    const scrollDelta = element.scrollTop - lastKnownScrollTopRef.current
+    lastKnownScrollTopRef.current = element.scrollTop
+
+    if (isAtBottom) {
+      autoScrollEnabledRef.current = true
+      if (isStreamingRef.current) {
+        startStreamFollow()
+      }
+    } else if (isStreamingRef.current && scrollDelta < USER_SCROLL_INTERRUPT_DELTA) {
+      autoScrollEnabledRef.current = false
+      stopStreamFollow()
+    }
+
     setShowScrollButton(!isAtBottom && distanceFromBottom > SCROLL_BUTTON_SHOW_OFFSET)
-  }, [])
+  }, [startStreamFollow, stopStreamFollow])
 
   const submitMessage = useCallback((rawInput: string) => {
     const trimmed = rawInput.trim()
@@ -284,8 +362,12 @@ export function ChatMainPanel({
               variant="secondary"
               className="absolute top-0 left-1/2 z-30 cursor-pointer -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md"
               onClick={() => {
+                autoScrollEnabledRef.current = true
                 setShowScrollButton(false)
                 scrollToBottom("smooth")
+                if (isStreamingRef.current) {
+                  startStreamFollow()
+                }
               }}
             >
               <ArrowDown className="size-4" />

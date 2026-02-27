@@ -1,10 +1,8 @@
 import {
-  Bot,
   CheckIcon,
   ChevronDown,
   CopyIcon,
   RefreshCcwIcon,
-  User,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -12,7 +10,6 @@ import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
 import type { LocalChatMessage } from "@/types"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 
@@ -118,6 +115,7 @@ function parseReasoning(message: LocalChatMessage): { content: string; duration?
 export function ChatMessageItem({ message, onRetry, retryDisabled = false }: ChatMessageItemProps) {
   const isUser = message.type === "human"
   const isAI = message.type === "ai"
+  const isStreamingPlaceholder = isAI && message.is_streaming && !message.content.trim()
   const sources = parseSources(message)
   const reasoning = parseReasoning(message)
   const [copied, setCopied] = useState(false)
@@ -160,7 +158,11 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
         from={isUser ? "user" : "assistant"}
         className={cn(
           "min-w-0 shrink-0",
-          isUser ? "w-auto max-w-[72%] items-end" : "w-full max-w-[85%]",
+          isUser
+            ? "w-auto max-w-[72%] items-end"
+            : isStreamingPlaceholder
+              ? "w-auto max-w-[85%]"
+              : "w-full max-w-[85%]",
         )}
       >
         <MessageContent
@@ -168,7 +170,9 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
             "max-w-full space-y-3 overflow-visible rounded-2xl px-4 py-3",
             isUser
               ? "w-fit mr-3  border-border/70 bg-muted/65 text-foreground group-[.is-user]:bg-muted/65 group-[.is-user]:text-foreground"
-              : "w-full bg-muted/60 text-foreground",
+              : isStreamingPlaceholder
+                ? "w-fit min-w-14 bg-muted/60 text-foreground"
+                : "w-full bg-muted/60 text-foreground",
           )}
         >
           {sources.length > 0 ? (
@@ -208,7 +212,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
 
           {isAI ? (
             message.content ? (
-              <MarkdownContent content={message.content} />
+              <MarkdownContent content={message.content} isStreaming={message.is_streaming} />
             ) : message.is_streaming ? (
               <div className="flex items-center gap-1 text-sm text-muted-foreground">
                 <span className="inline-flex gap-1">
