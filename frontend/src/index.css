@@ -116,3 +116,45 @@
       radial-gradient(circle at bottom right, rgb(14 165 233 / 0.1), transparent 45%);
   }
 }
+
+@layer components {
+  .chat-messages-scroll-area {
+    --chat-scrollbar-opacity: 0;
+    --chat-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 48%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .chat-messages-scroll-area::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: transparent;
+  }
+
+  .chat-messages-scroll-area::-webkit-scrollbar-track,
+  .chat-messages-scroll-area::-webkit-scrollbar-corner {
+    background: transparent;
+    border: 0;
+  }
+
+  .chat-messages-scroll-area::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--chat-scrollbar-thumb);
+    opacity: var(--chat-scrollbar-opacity);
+    transition: opacity 220ms ease-in-out;
+  }
+
+  .chat-messages-scroll-area.is-scrolling {
+    --chat-scrollbar-opacity: 1;
+    scrollbar-color: var(--chat-scrollbar-thumb) transparent;
+  }
+
+  .chat-messages-bottom-fade {
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-background) 0%, transparent) 0%,
+      var(--color-background) 100%
+    );
+  }
+}

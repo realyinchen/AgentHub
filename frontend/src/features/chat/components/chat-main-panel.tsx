@@ -46,6 +46,7 @@ const suggestions = [
 ]
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
 const SCROLL_BUTTON_SHOW_OFFSET = 180
+const SCROLLBAR_FADE_OUT_DELAY = 420
 
 export function ChatMainPanel({
   agents,
@@ -65,7 +66,9 @@ export function ChatMainPanel({
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
   const conversationRef = useRef<HTMLDivElement | null>(null)
+  const scrollbarHideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showScrollButton, setShowScrollButton] = useState(false)
+  const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
 
   const status: "streaming" | "submitted" | "ready" = useMemo(() => {
     if (isStreaming) {
@@ -115,11 +118,28 @@ export function ChatMainPanel({
     scrollToBottom(isStreaming ? "smooth" : "auto")
   }, [messages, isStreaming, isLoadingConversation, scrollToBottom])
 
+  useEffect(() => {
+    return () => {
+      if (scrollbarHideTimerRef.current) {
+        clearTimeout(scrollbarHideTimerRef.current)
+      }
+    }
+  }, [])
+
   const updateScrollButtonState = useCallback(() => {
     const element = conversationRef.current
     if (!element) {
       return
     }
+
+    setIsMessagesScrolling(true)
+    if (scrollbarHideTimerRef.current) {
+      clearTimeout(scrollbarHideTimerRef.current)
+    }
+    scrollbarHideTimerRef.current = setTimeout(() => {
+      setIsMessagesScrolling(false)
+    }, SCROLLBAR_FADE_OUT_DELAY)
+
     const distanceFromBottom =
       element.scrollHeight - element.scrollTop - element.clientHeight
     const isAtBottom = distanceFromBottom <= SCROLL_BOTTOM_HIDE_THRESHOLD
@@ -190,7 +210,10 @@ export function ChatMainPanel({
         <div className="relative min-h-0 flex-1">
           <div
             ref={conversationRef}
-            className="h-full overflow-y-auto max-w-4xl mx-auto"
+            className={[
+              "chat-messages-scroll-area mx-auto h-full max-w-4xl overflow-y-auto",
+              isMessagesScrolling ? "is-scrolling" : "",
+            ].join(" ")}
             onScroll={updateScrollButtonState}
           >
             {isLoadingConversation ? (
@@ -231,7 +254,7 @@ export function ChatMainPanel({
                 </div>
               </div>
             ) : (
-              <div className="mx-auto flex w-full  flex-col gap-4 py-4 ">
+              <div className="mx-auto flex w-full  flex-col gap-4 py-3 p-3 ">
                 {messages.length === 0 ? (
 
                   <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
@@ -262,13 +285,19 @@ export function ChatMainPanel({
               </div>
             )}
           </div>
+          {!isAwaitingAgentSelection ? (
+            <div
+              aria-hidden="true"
+              className="chat-messages-bottom-fade pointer-events-none absolute inset-x-0 bottom-0 z-10 mx-auto h-14 max-w-4xl"
+            />
+          ) : null}
 
         </div>
 
       </div>
 
       {!isAwaitingAgentSelection ? (
-        <footer className="relative z-20 bg-background px-4 pb-6 md:px-6">
+        <footer className="relative  z-20 bg-background ">
           {shouldShowScrollButton ? (
             <Button
               size="icon"
@@ -282,7 +311,7 @@ export function ChatMainPanel({
               <ArrowDown className="size-4" />
             </Button>
           ) : null}
-          <div className="mx-auto w-full max-w-4xl space-y-3 overflow-y-auto p-6">
+          <div className="mx-auto w-full max-w-4xl space-y-3 overflow-y-auto p-2 mb-2">
             <div className="flex flex-wrap gap-2">
               {messages.length === 0 ? (
                 suggestions.map((suggestion) => (
@@ -307,12 +336,11 @@ export function ChatMainPanel({
                 submitMessage(text)
               }}
             >
-              <PromptInputBody >
+              <PromptInputBody  >
                 <PromptInputTextarea
                   className="max-h-26 min-h-8"
                   disabled={isComposerDisabled}
                   onChange={(event) => setInputValue(event.currentTarget.value)}
-                  placeholder="Type your message..."
                   value={inputValue}
                 />
               </PromptInputBody>

@@ -148,13 +148,13 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
     <article
       className={cn("flex w-full items-start gap-3", isUser && "justify-end")}
     >
-      {!isUser ? (
+      {/* {!isUser ? (
         <Avatar className="mt-1 size-8 border border-border">
           <AvatarFallback className="bg-muted text-muted-foreground">
             <Bot className="size-4" />
           </AvatarFallback>
         </Avatar>
-      ) : null}
+      ) : null} */}
 
       <Message
         from={isUser ? "user" : "assistant"}
@@ -167,86 +167,86 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
           className={cn(
             "max-w-full space-y-3 overflow-visible rounded-2xl px-4 py-3",
             isUser
-              ? "w-fit border border-border/70 bg-muted/65 text-foreground group-[.is-user]:bg-muted/65 group-[.is-user]:text-foreground"
+              ? "w-fit mr-3  border-border/70 bg-muted/65 text-foreground group-[.is-user]:bg-muted/65 group-[.is-user]:text-foreground"
               : "w-full bg-muted/60 text-foreground",
           )}
         >
-        {sources.length > 0 ? (
-          <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs">
-            <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
-              <ChevronDown className="size-3" />
-              Sources ({sources.length})
-            </summary>
-            <div className="mt-2 space-y-1">
-              {sources.map((source) => (
-                <a
-                  key={source.href}
-                  href={source.href}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block truncate text-primary hover:underline"
-                >
-                  {source.title}
-                </a>
+          {sources.length > 0 ? (
+            <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs">
+              <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
+                <ChevronDown className="size-3" />
+                Sources ({sources.length})
+              </summary>
+              <div className="mt-2 space-y-1">
+                {sources.map((source) => (
+                  <a
+                    key={source.href}
+                    href={source.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block truncate text-primary hover:underline"
+                  >
+                    {source.title}
+                  </a>
+                ))}
+              </div>
+            </details>
+          ) : null}
+
+          {reasoning ? (
+            <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs">
+              <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
+                <ChevronDown className="size-3" />
+                Reasoning
+                {typeof reasoning.duration === "number" ? (
+                  <span>({reasoning.duration}s)</span>
+                ) : null}
+              </summary>
+              <div className="mt-2 whitespace-pre-wrap text-foreground">{reasoning.content}</div>
+            </details>
+          ) : null}
+
+          {isAI ? (
+            message.content ? (
+              <MarkdownContent content={message.content} />
+            ) : message.is_streaming ? (
+              <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                <span className="inline-flex gap-1">
+                  <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+                  <span className="size-1.5 animate-bounce rounded-full bg-current" />
+                </span>
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No visible output.</p>
+            )
+          ) : (
+            <p className="whitespace-pre-wrap break-words text-sm leading-6">
+              {message.content || "No visible output."}
+            </p>
+          )}
+
+          {message.tool_calls.length > 0 ? (
+            <div className="space-y-2">
+              {message.tool_calls.map((call) => (
+                <div key={call.id} className="space-y-2 rounded-xl border bg-background/80 p-3">
+                  <div className="flex items-center gap-2">
+                    <Badge variant="outline">Tool</Badge>
+                    <span className="text-xs font-medium">{call.name}</span>
+                  </div>
+                  <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs text-foreground">
+                    {JSON.stringify(call.args, null, 2)}
+                  </pre>
+                </div>
               ))}
             </div>
-          </details>
-        ) : null}
+          ) : null}
 
-        {reasoning ? (
-          <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs">
-            <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
-              <ChevronDown className="size-3" />
-              Reasoning
-              {typeof reasoning.duration === "number" ? (
-                <span>({reasoning.duration}s)</span>
-              ) : null}
-            </summary>
-            <div className="mt-2 whitespace-pre-wrap text-foreground">{reasoning.content}</div>
-          </details>
-        ) : null}
-
-        {isAI ? (
-          message.content ? (
-            <MarkdownContent content={message.content} />
-          ) : message.is_streaming ? (
-            <div className="flex items-center gap-1 text-sm text-muted-foreground">
-              <span className="inline-flex gap-1">
-                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-current" />
-              </span>
-            </div>
-          ) : (
-            <p className="text-sm text-muted-foreground">No visible output.</p>
-          )
-        ) : (
-          <p className="whitespace-pre-wrap break-words text-sm leading-6">
-            {message.content || "No visible output."}
-          </p>
-        )}
-
-        {message.tool_calls.length > 0 ? (
-          <div className="space-y-2">
-            {message.tool_calls.map((call) => (
-              <div key={call.id} className="space-y-2 rounded-xl border bg-background/80 p-3">
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">Tool</Badge>
-                  <span className="text-xs font-medium">{call.name}</span>
-                </div>
-                <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs text-foreground">
-                  {JSON.stringify(call.args, null, 2)}
-                </pre>
-              </div>
-            ))}
-          </div>
-        ) : null}
-
-        {message.type === "tool" ? (
-          <Badge variant="secondary" className="font-normal">
-            tool call id: {message.tool_call_id || "unknown"}
-          </Badge>
-        ) : null}
+          {message.type === "tool" ? (
+            <Badge variant="secondary" className="font-normal">
+              tool call id: {message.tool_call_id || "unknown"}
+            </Badge>
+          ) : null}
         </MessageContent>
 
         {isAI && !message.is_streaming ? (
@@ -255,6 +255,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
               onClick={() => {
                 void handleCopy()
               }}
+              className="cursor-pointer"
               tooltip={copied ? "Copied" : "Copy"}
               label={copied ? "Copied response" : "Copy response"}
             >
@@ -264,6 +265,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
               onClick={onRetry}
               tooltip="Retry"
               label="Retry response"
+              className="cursor-pointer"
               disabled={!onRetry || retryDisabled}
             >
               <RefreshCcwIcon className="size-4" />
@@ -272,13 +274,13 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
         ) : null}
       </Message>
 
-      {isUser ? (
+      {/* {isUser ? (
         <Avatar className="mt-1 size-8 border border-border">
           <AvatarFallback className="bg-primary/10 text-primary">
             <User className="size-4" />
           </AvatarFallback>
         </Avatar>
-      ) : null}
+      ) : null} */}
     </article>
   )
 }

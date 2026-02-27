@@ -67,7 +67,7 @@ export function ChatSidebar({
                       <div className="group/item relative">
                         <SidebarMenuButton
                           isActive={isActive}
-                          className="h-auto items-start py-2 pr-10"
+                          className="h-auto items-start py-2 pr-10 cursor-pointer"
                           onClick={() => onOpenConversation(conversation)}
                         >
                           <div className="min-w-0">
@@ -85,7 +85,7 @@ export function ChatSidebar({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="absolute top-1.5 right-1 size-7 text-sidebar-foreground/65"
+                              className="absolute top-1.5 cursor-pointer right-1 size-7 text-sidebar-foreground/65"
                               onClick={(event) => {
                                 event.stopPropagation()
                               }}
@@ -96,6 +96,7 @@ export function ChatSidebar({
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-36">
                             <DropdownMenuItem
+                              className="cursor-pointer"
                               onClick={() => onRenameConversation(conversation)}
                             >
                               <PencilLine className="size-4" />
@@ -103,6 +104,7 @@ export function ChatSidebar({
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               variant="destructive"
+                              className="cursor-pointer"
                               onClick={() => onDeleteConversation(conversation)}
                             >
                               <Trash2 className="size-4" />

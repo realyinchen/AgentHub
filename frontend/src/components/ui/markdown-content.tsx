@@ -159,11 +159,11 @@ function CopyCodeButton({ code }: { code: string }) {
 			type="button"
 			variant="secondary"
 			size="sm"
-			className="absolute right-2 top-2 z-10 h-7 gap-1 px-2 text-xs"
+			className="absolute cursor-pointer right-2 top-2 z-10 h-7 gap-1 px-2 text-xs"
 			onClick={handleCopy}
 		>
 			{copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
-			{copied ? "Copied" : "Copy"}
+
 		</Button>
 	);
 }
