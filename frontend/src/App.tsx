@@ -631,6 +631,8 @@ function App() {
         <ChatSidebar
           threadId={threadId}
           conversations={conversations}
+          onCreateConversation={resetToNewConversation}
+          disableCreateConversation={isInitializing || isLoadingConversation}
           onOpenConversation={(conversation) => {
             void openConversation(
               conversation.thread_id,
@@ -655,7 +657,6 @@ function App() {
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
             onSelectAgent={pickAgentForCurrentConversation}
-            onCreateConversation={resetToNewConversation}
           />
         </SidebarInset>
       </SidebarProvider>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, MessageSquarePlus } from "lucide-react"
+import { ArrowDown } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage } from "@/types"
 import {
@@ -17,9 +17,6 @@ import {
   PromptInputSubmit,
   PromptInputTextarea,
 } from "@/components/ai/prompt-input"
-import { SidebarTrigger } from "@/components/ui/sidebar"
-
-
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { Loader } from "~/components/ai/loader"
 
@@ -35,7 +32,6 @@ type ChatMainPanelProps = {
   onSendMessage: (rawInput: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
-  onCreateConversation: () => void
 }
 
 const suggestions = [
@@ -60,7 +56,6 @@ export function ChatMainPanel({
   onSendMessage,
   onStopStreaming,
   onSelectAgent,
-  onCreateConversation,
 }: ChatMainPanelProps) {
   const [inputValue, setInputValue] = useState("")
 
@@ -174,22 +169,7 @@ export function ChatMainPanel({
 
   return (
     <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[3rem_minmax(0,1fr)_auto] overflow-hidden bg-background">
-      <header className="z-20 flex h-12 w-full items-center justify-between gap-3 bg-background px-4 md:px-6">
-        <div className="inline-flex items-center rounded-lg border bg-muted/25 p-1">
-          <SidebarTrigger className="size-8 cursor-pointer rounded-md disabled:cursor-not-allowed" />
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            className="size-8 cursor-pointer rounded-md disabled:cursor-not-allowed"
-            onClick={onCreateConversation}
-            disabled={isInitializing || isLoadingConversation}
-          >
-            <MessageSquarePlus className="size-4" />
-            <span className="sr-only">New conversation</span>
-          </Button>
-        </div>
-
+      <header className="z-20 flex h-12 w-full items-center justify-end gap-3 bg-background px-4 md:px-6">
         {!isAwaitingAgentSelection ? (
           <Badge variant="secondary" className="font-medium">
             {normalizedAgentStatus}

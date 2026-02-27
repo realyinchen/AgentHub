@@ -1,4 +1,4 @@
-import { MoreHorizontal, PencilLine, Trash2 } from "lucide-react"
+import { MessageSquarePlus, MoreHorizontal, PencilLine, Trash2 } from "lucide-react"
 
 import type { ConversationInDB } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -19,6 +19,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
+  SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import agentHubLogo from "@/assets/agenthub.png"
 
@@ -30,6 +32,8 @@ type ChatSidebarProps = {
   onOpenConversation: (conversation: ConversationInDB) => void
   onRenameConversation: (conversation: ConversationInDB) => void
   onDeleteConversation: (conversation: ConversationInDB) => void
+  onCreateConversation: () => void
+  disableCreateConversation: boolean
 }
 
 export function ChatSidebar({
@@ -38,19 +42,54 @@ export function ChatSidebar({
   onOpenConversation,
   onRenameConversation,
   onDeleteConversation,
+  onCreateConversation,
+  disableCreateConversation,
 }: ChatSidebarProps) {
+  const { state } = useSidebar()
+  const isCollapsed = state === "collapsed"
+
   return (
-    <Sidebar collapsible="offcanvas" variant="sidebar">
-      <SidebarHeader className="gap-3 p-4">
-        <div className="flex items-center justify-center">
-          <img src={agentHubLogo} alt="" className="h-9 w-auto" />
-        </div>
+    <Sidebar collapsible="icon" variant="sidebar">
+      <SidebarHeader className={isCollapsed ? "gap-3 " : "gap-3 p-4"}>
+        {isCollapsed ? (
+          <div className="group/logo relative mx-auto flex size-9 items-center justify-center">
+            <img
+              src="/vite.svg"
+              alt="Sidebar logo"
+              className="size-7 transition-all duration-150 group-hover/logo:scale-90 group-hover/logo:opacity-0"
+            />
+            <SidebarTrigger className="absolute inset-0 size-9 scale-90 cursor-pointer rounded-md opacity-0 pointer-events-none transition-all duration-150 group-hover/logo:scale-100 group-hover/logo:opacity-100 group-hover/logo:pointer-events-auto" />
+          </div>
+        ) : (
+          <div className="flex w-full items-center justify-between gap-3">
+            <img src={agentHubLogo} alt="" className="h-9 w-auto" />
+            <SidebarTrigger className="size-8 cursor-pointer rounded-md" />
+          </div>
+        )}
       </SidebarHeader>
 
       <SidebarSeparator />
 
-      <SidebarContent className="px-2 pb-3">
-        <SidebarGroup className="pt-2">
+      <SidebarContent className={isCollapsed ? " pb-3" : "px-1 pb-3"}>
+        <SidebarGroup className="pt-2 mt-2">
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  className="cursor-pointer"
+                  tooltip="新会话"
+                  onClick={onCreateConversation}
+                  disabled={disableCreateConversation}
+                >
+                  <MessageSquarePlus className="size-4" />
+                  <span>新会话</span>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup className="pt-1 group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel className="px-2">Recent</SidebarGroupLabel>
           <SidebarGroupContent>
             {conversations.length === 0 ? (
