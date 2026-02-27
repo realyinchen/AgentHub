@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { useI18n } from "@/i18n"
 
 type ConversationRenameDialogProps = {
   open: boolean
@@ -30,13 +31,15 @@ export function ConversationRenameDialog({
   onCancel,
   onSave,
 }: ConversationRenameDialogProps) {
+  const { t } = useI18n()
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Edit conversation title</DialogTitle>
+          <DialogTitle>{t("conversation.editTitle")}</DialogTitle>
           <DialogDescription>
-            Update the selected conversation title (max 64 characters).
+            {t("conversation.editDescription")}
           </DialogDescription>
         </DialogHeader>
 
@@ -44,21 +47,21 @@ export function ConversationRenameDialog({
           value={draftTitle}
           onChange={(event) => onDraftTitleChange(event.target.value)}
           maxLength={64}
-          placeholder="Conversation title"
+          placeholder={t("conversation.titlePlaceholder")}
         />
 
         <DialogFooter>
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button onClick={onSave} disabled={isSavingTitle}>
             {isSavingTitle ? (
               <>
                 <LoaderCircle className="mr-2 size-4 animate-spin" />
-                Saving
+                {t("common.saving")}
               </>
             ) : (
-              "Save"
+              t("common.save")
             )}
           </Button>
         </DialogFooter>

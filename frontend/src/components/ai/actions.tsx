@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 import { Message, MessageContent } from "~/components/ai/message"
+import { useI18n } from "@/i18n"
 
 export type ActionsProps = ComponentProps<"div">
 
@@ -60,26 +61,29 @@ export const Action = ({
 
 /** Demo component for preview */
 export default function ActionsDemo() {
+  const { t } = useI18n()
+
   return (
     <div className="flex w-full flex-col gap-4 p-6">
       <Message from="assistant">
         <MessageContent>
-          Here's a quick example of how to use React hooks. The useState hook lets you add state to
-          functional components, while useEffect handles side effects like data fetching or
-          subscriptions.
+          {t("actions.demo.message")}
         </MessageContent>
 
         <Actions>
-          <Action onClick={() => console.log("Copied!")} tooltip="Copy to clipboard">
+          <Action onClick={() => console.log(t("actions.demo.copiedLog"))} tooltip={t("actions.demo.copyTooltip")}>
             <CopyIcon className="size-4" />
           </Action>
-          <Action onClick={() => console.log("Regenerating...")} tooltip="Regenerate response">
+          <Action
+            onClick={() => console.log(t("actions.demo.regeneratingLog"))}
+            tooltip={t("actions.demo.regenerateTooltip")}
+          >
             <RefreshCcwIcon className="size-4" />
           </Action>
-          <Action onClick={() => console.log("Thumbs up!")} tooltip="Good response">
+          <Action onClick={() => console.log(t("actions.demo.thumbsUpLog"))} tooltip={t("actions.demo.goodTooltip")}>
             <ThumbsUpIcon className="size-4" />
           </Action>
-          <Action onClick={() => console.log("Thumbs down!")} tooltip="Bad response">
+          <Action onClick={() => console.log(t("actions.demo.thumbsDownLog"))} tooltip={t("actions.demo.badTooltip")}>
             <ThumbsDownIcon className="size-4" />
           </Action>
         </Actions>

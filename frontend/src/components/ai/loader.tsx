@@ -1,11 +1,13 @@
 import type { HTMLAttributes } from "react"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/i18n"
 
 interface LoaderIconProps {
   size?: number
+  title: string
 }
 
-const LoaderIcon = ({ size = 16 }: LoaderIconProps) => (
+const LoaderIcon = ({ size = 16, title }: LoaderIconProps) => (
   <svg
     height={size}
     strokeLinejoin="round"
@@ -13,7 +15,7 @@ const LoaderIcon = ({ size = 16 }: LoaderIconProps) => (
     viewBox="0 0 16 16"
     width={size}
   >
-    <title>Loader</title>
+    <title>{title}</title>
     <g clipPath="url(#clip0_2393_1490)">
       <path d="M8 0V4" stroke="currentColor" strokeWidth="1.5" />
       <path d="M8 16V12" opacity="0.5" stroke="currentColor" strokeWidth="1.5" />
@@ -78,27 +80,33 @@ export type LoaderProps = HTMLAttributes<HTMLDivElement> & {
   size?: number
 }
 
-export const Loader = ({ className, size = 16, ...props }: LoaderProps) => (
-  <div className={cn("inline-flex animate-spin items-center justify-center", className)} {...props}>
-    <LoaderIcon size={size} />
-  </div>
-)
+export const Loader = ({ className, size = 16, ...props }: LoaderProps) => {
+  const { t } = useI18n()
+
+  return (
+    <div className={cn("inline-flex animate-spin items-center justify-center", className)} {...props}>
+      <LoaderIcon size={size} title={t("loader.title")} />
+    </div>
+  )
+}
 
 /** Demo component for preview */
 export default function LoaderDemo() {
+  const { t } = useI18n()
+
   return (
     <div className="flex flex-col items-center justify-center gap-6 p-8">
       <div className="flex items-center gap-4">
         <Loader size={16} />
-        <span className="text-sm text-muted-foreground">Default (16px)</span>
+        <span className="text-sm text-muted-foreground">{t("loader.demo.default")}</span>
       </div>
       <div className="flex items-center gap-4">
         <Loader size={24} />
-        <span className="text-sm text-muted-foreground">Medium (24px)</span>
+        <span className="text-sm text-muted-foreground">{t("loader.demo.medium")}</span>
       </div>
       <div className="flex items-center gap-4">
         <Loader size={32} />
-        <span className="text-sm text-muted-foreground">Large (32px)</span>
+        <span className="text-sm text-muted-foreground">{t("loader.demo.large")}</span>
       </div>
     </div>
   )

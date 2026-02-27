@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils"
 import type { LocalChatMessage } from "@/types"
 import { Badge } from "@/components/ui/badge"
 import { MarkdownContent } from "@/components/ui/markdown-content"
+import { useI18n } from "@/i18n"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
@@ -113,6 +114,7 @@ function parseReasoning(message: LocalChatMessage): { content: string; duration?
 }
 
 export function ChatMessageItem({ message, onRetry, retryDisabled = false }: ChatMessageItemProps) {
+  const { t } = useI18n()
   const isUser = message.type === "human"
   const isAI = message.type === "ai"
   const isStreamingPlaceholder = isAI && message.is_streaming && !message.content.trim()
@@ -179,7 +181,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
             <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs">
               <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
                 <ChevronDown className="size-3" />
-                Sources ({sources.length})
+                {t("message.sources", { count: sources.length })}
               </summary>
               <div className="mt-2 space-y-1">
                 {sources.map((source) => (
@@ -201,7 +203,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
             <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs">
               <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
                 <ChevronDown className="size-3" />
-                Reasoning
+                {t("message.reasoning")}
                 {typeof reasoning.duration === "number" ? (
                   <span>({reasoning.duration}s)</span>
                 ) : null}
@@ -222,11 +224,11 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
                 </span>
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground">No visible output.</p>
+              <p className="text-sm text-muted-foreground">{t("message.noOutput")}</p>
             )
           ) : (
             <p className="whitespace-pre-wrap break-words text-sm leading-6">
-              {message.content || "No visible output."}
+              {message.content || t("message.noOutput")}
             </p>
           )}
 
@@ -235,7 +237,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
               {message.tool_calls.map((call) => (
                 <div key={call.id} className="space-y-2 rounded-xl border bg-background/80 p-3">
                   <div className="flex items-center gap-2">
-                    <Badge variant="outline">Tool</Badge>
+                    <Badge variant="outline">{t("message.tool")}</Badge>
                     <span className="text-xs font-medium">{call.name}</span>
                   </div>
                   <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs text-foreground">
@@ -248,7 +250,9 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
 
           {message.type === "tool" ? (
             <Badge variant="secondary" className="font-normal">
-              tool call id: {message.tool_call_id || "unknown"}
+              {t("message.toolCallId", {
+                id: message.tool_call_id || t("common.unknown"),
+              })}
             </Badge>
           ) : null}
         </MessageContent>
@@ -260,15 +264,15 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
                 void handleCopy()
               }}
               className="cursor-pointer"
-              tooltip={copied ? "Copied" : "Copy"}
-              label={copied ? "Copied response" : "Copy response"}
+              tooltip={copied ? t("common.copied") : t("common.copy")}
+              label={copied ? t("message.copiedResponse") : t("message.copyResponse")}
             >
               {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
             </Action>
             <Action
               onClick={onRetry}
-              tooltip="Retry"
-              label="Retry response"
+              tooltip={t("common.retry")}
+              label={t("message.retryResponse")}
               className="cursor-pointer"
               disabled={!onRetry || retryDisabled}
             >

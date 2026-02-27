@@ -25,25 +25,29 @@ import {
 } from "@/features/chat/components"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
-  DEFAULT_CONVERSATION_TITLE,
   getErrorMessage,
+  isDefaultConversationTitle,
   normalizeChatMessage,
   readThreadIdFromUrl,
   sanitizeTitle,
   sortConversationsByUpdatedAt,
   toLocalMessage,
 } from "@/features/chat/utils"
+import { useI18n } from "@/i18n"
 
 function App() {
+  const { t } = useI18n()
+  const defaultConversationTitle = t("conversation.defaultTitle")
+
   const [agents, setAgents] = useState<AgentInDB[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState("chatbot")
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
   const [conversationTitle, setConversationTitleState] = useState(
-    DEFAULT_CONVERSATION_TITLE,
+    defaultConversationTitle,
   )
-  const [draftTitle, setDraftTitle] = useState(DEFAULT_CONVERSATION_TITLE)
+  const [draftTitle, setDraftTitle] = useState(defaultConversationTitle)
 
   const [messages, setMessages] = useState<LocalChatMessage[]>([])
 
@@ -88,7 +92,7 @@ function App() {
       try {
         const created = await createConversation({
           thread_id: targetThreadId,
-          title: sanitizeTitle(title) || DEFAULT_CONVERSATION_TITLE,
+          title: sanitizeTitle(title) || defaultConversationTitle,
         })
 
         setConversations((previous) =>
@@ -142,20 +146,24 @@ function App() {
           const fallbackTitle =
             knownConversations.find(
               (conversation) => conversation.thread_id === targetThreadId,
-            )?.title ?? DEFAULT_CONVERSATION_TITLE
+            )?.title ?? defaultConversationTitle
           setConversationTitleState(fallbackTitle)
           setDraftTitle(fallbackTitle)
         }
       } catch (error) {
-        setAppError(`Failed to load conversation: ${getErrorMessage(error)}`)
+        setAppError(
+          t("error.loadConversation", {
+            details: getErrorMessage(error, t("error.unexpected")),
+          }),
+        )
         setMessages([])
-        setConversationTitleState(DEFAULT_CONVERSATION_TITLE)
-        setDraftTitle(DEFAULT_CONVERSATION_TITLE)
+        setConversationTitleState(defaultConversationTitle)
+        setDraftTitle(defaultConversationTitle)
       } finally {
         setIsLoadingConversation(false)
       }
     },
-    [conversations, writeThreadIdToUrl],
+    [conversations, defaultConversationTitle, t, writeThreadIdToUrl],
   )
 
   const resetToNewConversation = useCallback(() => {
@@ -166,12 +174,12 @@ function App() {
     setThreadId(newThreadId)
     writeThreadIdToUrl(null)
     setMessages([])
-    setConversationTitleState(DEFAULT_CONVERSATION_TITLE)
-    setDraftTitle(DEFAULT_CONVERSATION_TITLE)
+    setConversationTitleState(defaultConversationTitle)
+    setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
     setIsAwaitingAgentSelection(true)
     setAppError(null)
-  }, [writeThreadIdToUrl])
+  }, [defaultConversationTitle, writeThreadIdToUrl])
 
   const pickAgentForCurrentConversation = useCallback((agentId: string) => {
     setSelectedAgentId(agentId)
@@ -295,13 +303,11 @@ function App() {
 
   const maybeGenerateTitle = useCallback(
     async (userInput: string, targetThreadId: string, currentTitle: string) => {
-      if (currentTitle !== DEFAULT_CONVERSATION_TITLE || !targetThreadId) {
+      if (!isDefaultConversationTitle(currentTitle) || !targetThreadId) {
         return
       }
 
-      const titlePrompt =
-        "Generate a concise title under 50 characters for this conversation. " +
-        `First user message: ${userInput}`
+      const titlePrompt = t("app.titlePrompt", { input: userInput })
 
       try {
         const titleResponse = await invoke({
@@ -338,7 +344,7 @@ function App() {
         // Title generation should never block the main chat flow.
       }
     },
-    [],
+    [t],
   )
 
   const handleSendMessage = useCallback(
@@ -393,7 +399,10 @@ function App() {
             setAppError(event.content)
             setMessages((previous) => [
               ...previous,
-              toLocalMessage({ type: "ai", content: `Error: ${event.content}` }),
+              toLocalMessage({
+                type: "ai",
+                content: t("error.streamPrefix", { details: event.content }),
+              }),
             ])
           },
           controller.signal,
@@ -411,11 +420,14 @@ function App() {
         await maybeGenerateTitle(trimmed, targetThreadId, currentTitle)
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          const details = getErrorMessage(error)
-          setAppError(`Failed to generate response: ${details}`)
+          const details = getErrorMessage(error, t("error.unexpected"))
+          setAppError(t("error.generateResponse", { details }))
           setMessages((previous) => [
             ...previous,
-            toLocalMessage({ type: "ai", content: `Error: ${details}` }),
+            toLocalMessage({
+              type: "ai",
+              content: t("error.streamPrefix", { details }),
+            }),
           ])
         }
       } finally {
@@ -435,6 +447,7 @@ function App() {
       maybeGenerateTitle,
       refreshConversations,
       selectedAgentId,
+      t,
       threadId,
     ],
   )
@@ -447,7 +460,7 @@ function App() {
 
     const nextTitle = sanitizeTitle(draftTitle)
     if (!nextTitle) {
-      setAppError("Title cannot be empty")
+      setAppError(t("error.titleEmpty"))
       return
     }
 
@@ -480,16 +493,27 @@ function App() {
         await refreshConversations()
       }
     } catch (error) {
-      setAppError(`Failed to update title: ${getErrorMessage(error)}`)
+      setAppError(
+        t("error.updateTitle", {
+          details: getErrorMessage(error, t("error.unexpected")),
+        }),
+      )
     } finally {
       setIsSavingTitle(false)
     }
-  }, [draftTitle, ensureConversationExists, refreshConversations, renameTarget, threadId])
+  }, [
+    draftTitle,
+    ensureConversationExists,
+    refreshConversations,
+    renameTarget,
+    t,
+    threadId,
+  ])
 
   const startRenameConversation = useCallback((conversation: ConversationInDB) => {
     setRenameTarget(conversation)
-    setDraftTitle(sanitizeTitle(conversation.title) || DEFAULT_CONVERSATION_TITLE)
-  }, [])
+    setDraftTitle(sanitizeTitle(conversation.title) || defaultConversationTitle)
+  }, [defaultConversationTitle])
 
   const confirmDeleteConversation = useCallback(async () => {
     if (!deleteTarget) {
@@ -499,7 +523,7 @@ function App() {
     try {
       await setConversationTitle({
         thread_id: deleteTarget.thread_id,
-        title: sanitizeTitle(deleteTarget.title) || "Untitled",
+        title: sanitizeTitle(deleteTarget.title) || t("conversation.untitled"),
         is_deleted: true,
       })
 
@@ -511,32 +535,45 @@ function App() {
         resetToNewConversation()
       }
     } catch (error) {
-      setAppError(`Failed to delete conversation: ${getErrorMessage(error)}`)
+      setAppError(
+        t("error.deleteConversation", {
+          details: getErrorMessage(error, t("error.unexpected")),
+        }),
+      )
     } finally {
       setDeleteTarget(null)
     }
-  }, [deleteTarget, resetToNewConversation, threadId])
+  }, [deleteTarget, resetToNewConversation, t, threadId])
 
   const handleRenameDialogChange = useCallback(
     (open: boolean) => {
       if (!open) {
         setRenameTarget(null)
-        setDraftTitle(DEFAULT_CONVERSATION_TITLE)
+        setDraftTitle(defaultConversationTitle)
       }
     },
-    [],
+    [defaultConversationTitle],
   )
 
   const handleRenameCancel = useCallback(() => {
     setRenameTarget(null)
-    setDraftTitle(DEFAULT_CONVERSATION_TITLE)
-  }, [])
+    setDraftTitle(defaultConversationTitle)
+  }, [defaultConversationTitle])
 
   const handleDeleteDialogChange = useCallback((open: boolean) => {
     if (!open) {
       setDeleteTarget(null)
     }
   }, [])
+
+  useEffect(() => {
+    setConversationTitleState((current) =>
+      isDefaultConversationTitle(current) ? defaultConversationTitle : current,
+    )
+    setDraftTitle((current) =>
+      isDefaultConversationTitle(current) ? defaultConversationTitle : current,
+    )
+  }, [defaultConversationTitle])
 
   useEffect(() => {
     let cancelled = false
@@ -590,7 +627,7 @@ function App() {
             const fallbackTitle =
               sorted.find(
                 (conversation) => conversation.thread_id === queryThreadId,
-              )?.title ?? DEFAULT_CONVERSATION_TITLE
+              )?.title ?? defaultConversationTitle
             setConversationTitleState(fallbackTitle)
             setDraftTitle(fallbackTitle)
           }
@@ -599,15 +636,19 @@ function App() {
         } else {
           const newThreadId = crypto.randomUUID()
           setThreadId(newThreadId)
-          setConversationTitleState(DEFAULT_CONVERSATION_TITLE)
-          setDraftTitle(DEFAULT_CONVERSATION_TITLE)
+          setConversationTitleState(defaultConversationTitle)
+          setDraftTitle(defaultConversationTitle)
           setMessages([])
           setIsAwaitingAgentSelection(true)
           writeThreadIdToUrl(null)
         }
       } catch (error) {
         if (!cancelled) {
-          setAppError(`Failed to initialize app: ${getErrorMessage(error)}`)
+          setAppError(
+            t("error.initApp", {
+              details: getErrorMessage(error, t("error.unexpected")),
+            }),
+          )
         }
       } finally {
         if (!cancelled) {
@@ -623,7 +664,7 @@ function App() {
       cancelled = true
       abortControllerRef.current?.abort()
     }
-  }, [writeThreadIdToUrl])
+  }, [defaultConversationTitle, t, writeThreadIdToUrl])
 
   return (
     <>

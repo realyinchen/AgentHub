@@ -37,6 +37,7 @@ import {
 	InputGroupText,
 } from "@/components/ui/input-group";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/i18n";
 
 export type ChatInputValue = JSONContent;
 
@@ -173,11 +174,12 @@ export interface ChatInputEditorProps {
 export function ChatInputEditor({
 	disabled,
 	onEnter,
-	placeholder = "Type a message...",
+	placeholder,
 	className,
 	value,
 	onChange,
 }: ChatInputEditorProps) {
+	const { t } = useI18n();
 	const {
 		mentionConfigs,
 		onSubmit,
@@ -189,6 +191,7 @@ export function ChatInputEditor({
 
 	const effectiveValue = value ?? contextValue;
 	const effectiveOnChange = onChange ?? contextOnChange;
+	const resolvedPlaceholder = placeholder ?? t("chatInput.typeMessage");
 	const [isMounted, setIsMounted] = useState(false);
 
 	useEffect(() => {
@@ -204,7 +207,7 @@ export function ChatInputEditor({
 	const extensions = useMemo(
 		() => [
 			StarterKit,
-			Placeholder.configure({ placeholder }),
+			Placeholder.configure({ placeholder: resolvedPlaceholder }),
 			KeyboardShortcuts.configure({
 				getOnEnter: () => onEnterRef.current,
 			}),
@@ -226,7 +229,7 @@ export function ChatInputEditor({
 				});
 			}),
 		],
-		[mentionConfigs, placeholder],
+		[mentionConfigs, resolvedPlaceholder],
 	);
 
 	const onUpdate = useCallback(
@@ -359,6 +362,7 @@ const GenericMentionList = forwardRef(
 		props: GenericMentionListProps<T>,
 		ref: React.Ref<GenericMentionListRef>,
 	) => {
+		const { t } = useI18n();
 		const { items, command, renderItem } = props;
 		const [selectedIndex, setSelectedIndex] = useState(0);
 		const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -460,7 +464,7 @@ const GenericMentionList = forwardRef(
 					))
 				) : (
 					<div className="text-sm text-muted-foreground px-2 py-1.5">
-						No results found
+						{t("command.noResults")}
 					</div>
 				)}
 			</div>
@@ -551,6 +555,7 @@ export function ChatInputSubmitButton({
 	disabled,
 	...props
 }: ChatInputSubmitButtonProps) {
+	const { t } = useI18n();
 	const {
 		onSubmit,
 		onStop: onStopContext,
@@ -577,9 +582,9 @@ export function ChatInputSubmitButton({
 				disabled={effectiveDisabled}
 				{...props}
 			>
-				<StopIcon className="h-4 w-4" />
+				<StopIcon className="h-4 w-4" title={t("common.stop")} />
 
-				<span className="sr-only">Stop</span>
+				<span className="sr-only">{t("common.stop")}</span>
 			</InputGroupButton>
 		);
 	}
@@ -595,7 +600,7 @@ export function ChatInputSubmitButton({
 				{...props}
 			>
 				<Loader2 className="h-4 w-4 animate-spin" />
-				<span className="sr-only">Loading</span>
+				<span className="sr-only">{t("common.loading")}</span>
 			</InputGroupButton>
 		);
 	}
@@ -610,12 +615,12 @@ export function ChatInputSubmitButton({
 			{...props}
 		>
 			<ArrowUpIcon />
-			<span className="sr-only">Send</span>
+			<span className="sr-only">{t("common.send")}</span>
 		</InputGroupButton>
 	);
 }
 
-const StopIcon = ({ className }: { className?: string }) => (
+const StopIcon = ({ className, title }: { className?: string; title: string }) => (
 	<svg
 		width="16"
 		height="16"
@@ -624,7 +629,7 @@ const StopIcon = ({ className }: { className?: string }) => (
 		className={className}
 		aria-hidden="true"
 	>
-		<title>Stop</title>
+		<title>{title}</title>
 		<rect x="2" y="2" width="12" height="12" rx="2" fill="currentColor" />
 	</svg>
 );
@@ -633,6 +638,7 @@ export function ChatInputMentionButton({
 	className,
 	...props
 }: ComponentProps<typeof InputGroupButton>) {
+	const { t } = useI18n();
 	const { mentionConfigs, editor } = useContext(ChatInputContext);
 
 	if (!mentionConfigs.length) {
@@ -649,7 +655,7 @@ export function ChatInputMentionButton({
 					{...props}
 				>
 					<PlusIcon className="h-4 w-4" />
-					<span className="sr-only">Add Mention</span>
+					<span className="sr-only">{t("chatInput.addMention")}</span>
 				</InputGroupButton>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-48">

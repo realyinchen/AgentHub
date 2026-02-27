@@ -8,6 +8,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import { useI18n } from "@/i18n"
 
 type DeleteConversationDialogProps = {
   open: boolean
@@ -22,19 +23,22 @@ export function DeleteConversationDialog({
   onOpenChange,
   onConfirm,
 }: DeleteConversationDialogProps) {
+  const { t } = useI18n()
+
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
+          <AlertDialogTitle>{t("conversation.deleteTitle")}</AlertDialogTitle>
           <AlertDialogDescription>
-            This action marks{title ? ` "${title}"` : " the conversation"} as deleted
-            and removes it from your recent list.
+            {title
+              ? t("conversation.deleteDescriptionWithTitle", { title })
+              : t("conversation.deleteDescriptionWithoutTitle")}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>Delete</AlertDialogAction>
+          <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
+          <AlertDialogAction onClick={onConfirm}>{t("common.delete")}</AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, Languages } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage } from "@/types"
 import {
@@ -19,6 +19,7 @@ import {
 } from "@/components/ai/prompt-input"
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { Loader } from "~/components/ai/loader"
+import { useI18n } from "@/i18n"
 
 type ChatMainPanelProps = {
   agents: AgentInDB[]
@@ -34,12 +35,6 @@ type ChatMainPanelProps = {
   onSelectAgent: (agentId: string) => void
 }
 
-const suggestions = [
-  "你是谁？你能做些什么？",
-  "帮我写一个Langchain工具链",
-  "给我讲一个笑话",
-  "Agentic-Rag是什么？",
-]
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
 const SCROLL_BUTTON_SHOW_OFFSET = 180
 const SCROLLBAR_FADE_OUT_DELAY = 420
@@ -60,6 +55,7 @@ export function ChatMainPanel({
   onStopStreaming,
   onSelectAgent,
 }: ChatMainPanelProps) {
+  const { t, toggleLocale } = useI18n()
   const [inputValue, setInputValue] = useState("")
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
@@ -71,6 +67,16 @@ export function ChatMainPanel({
   const lastKnownScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
+
+  const suggestions = useMemo(
+    () => [
+      t("chat.suggestion.1"),
+      t("chat.suggestion.2"),
+      t("chat.suggestion.3"),
+      t("chat.suggestion.4"),
+    ],
+    [t],
+  )
 
   const status: "streaming" | "submitted" | "ready" = useMemo(() => {
     if (isStreaming) {
@@ -97,16 +103,16 @@ export function ChatMainPanel({
       return [
         {
           agent_id: "chatbot",
-          description: "Default assistant",
+          description: t("chat.defaultAssistant"),
         },
       ]
     }
 
     return agents.map((agent) => ({
       agent_id: agent.agent_id,
-      description: agent.description || "No description provided.",
+      description: agent.description || t("chat.noDescription"),
     }))
-  }, [agents])
+  }, [agents, t])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current
@@ -244,15 +250,28 @@ export function ChatMainPanel({
     : !inputValue.trim() || status !== "ready" || isComposerDisabled
   const shouldShowScrollButton =
     showScrollButton && !isAwaitingAgentSelection && !isLoadingConversation
+  const agentStatusLabel =
+    normalizedAgentStatus === "rag-agent" ? t("chat.status.rag") : t("chat.status.chatbot")
 
   return (
     <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[3rem_minmax(0,1fr)_auto] overflow-hidden bg-background">
       <header className="z-20 flex h-12 w-full items-center justify-end gap-3 bg-background px-4 md:px-6">
         {!isAwaitingAgentSelection ? (
           <Badge variant="secondary" className="font-medium">
-            {normalizedAgentStatus}
+            {agentStatusLabel}
           </Badge>
         ) : null}
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="cursor-pointer gap-1.5"
+          onClick={toggleLocale}
+          aria-label={t("language.switch")}
+        >
+          <Languages className="size-4" />
+          {t("language.toggleLabel")}
+        </Button>
       </header>
 
       <div
@@ -260,7 +279,7 @@ export function ChatMainPanel({
       >
         {appError ? (
           <Alert variant="destructive" className="mt-4">
-            <AlertTitle>Request failed</AlertTitle>
+            <AlertTitle>{t("chat.requestFailed")}</AlertTitle>
             <AlertDescription>{appError}</AlertDescription>
           </Alert>
         ) : null}
@@ -282,7 +301,7 @@ export function ChatMainPanel({
               <div className="grid min-h-full place-items-center px-2 py-6">
                 <div className="mx-auto flex w-full max-w-4xl -translate-y-6 flex-col items-center gap-4 md:-translate-y-8">
                   <div className="w-full space-y-1 text-center">
-                    <h1 className="mb-8 text-4xl font-semibold">Choose an agent to start</h1>
+                    <h1 className="mb-8 text-4xl font-semibold">{t("chat.chooseAgent")}</h1>
                   </div>
 
                   <div className="mx-auto flex w-full flex-wrap justify-center gap-3">
@@ -316,7 +335,7 @@ export function ChatMainPanel({
                 {messages.length === 0 ? (
 
                   <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-                    Start chatting with your selected agent.
+                    {t("chat.startChatting")}
                   </div>
                 ) : (
                   messages.map((message, index) => {
@@ -404,6 +423,7 @@ export function ChatMainPanel({
                   disabled={isComposerDisabled}
                   onChange={(event) => setInputValue(event.currentTarget.value)}
                   value={inputValue}
+                  placeholder={t("prompt.placeholder")}
                 />
               </PromptInputBody>
               <PromptInputFooter className="pb-3 justify-end">

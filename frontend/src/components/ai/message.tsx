@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group"
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
+import { useI18n } from "@/i18n"
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
   from: UIMessage["role"]
@@ -204,11 +205,12 @@ export const MessageBranchSelector = ({
 export type MessageBranchPreviousProps = ComponentProps<typeof Button>
 
 export const MessageBranchPrevious = ({ children, ...props }: MessageBranchPreviousProps) => {
+  const { t } = useI18n()
   const { goToPrevious, totalBranches } = useMessageBranch()
 
   return (
     <Button
-      aria-label="Previous branch"
+      aria-label={t("message.previousBranch")}
       disabled={totalBranches <= 1}
       onClick={goToPrevious}
       size="icon-sm"
@@ -224,11 +226,12 @@ export const MessageBranchPrevious = ({ children, ...props }: MessageBranchPrevi
 export type MessageBranchNextProps = ComponentProps<typeof Button>
 
 export const MessageBranchNext = ({ children, className, ...props }: MessageBranchNextProps) => {
+  const { t } = useI18n()
   const { goToNext, totalBranches } = useMessageBranch()
 
   return (
     <Button
-      aria-label="Next branch"
+      aria-label={t("message.nextBranch")}
       disabled={totalBranches <= 1}
       onClick={goToNext}
       size="icon-sm"
@@ -244,6 +247,7 @@ export const MessageBranchNext = ({ children, className, ...props }: MessageBran
 export type MessageBranchPageProps = HTMLAttributes<HTMLSpanElement>
 
 export const MessageBranchPage = ({ className, ...props }: MessageBranchPageProps) => {
+  const { t } = useI18n()
   const { currentBranch, totalBranches } = useMessageBranch()
 
   return (
@@ -251,7 +255,11 @@ export const MessageBranchPage = ({ className, ...props }: MessageBranchPageProp
       className={cn("border-none bg-transparent text-muted-foreground shadow-none", className)}
       {...props}
     >
-      {currentBranch + 1} of {totalBranches}
+      {t("message.branchIndex", {
+        current: currentBranch + 1,
+        of: t("common.of"),
+        total: totalBranches,
+      })}
     </ButtonGroupText>
   )
 }
@@ -277,17 +285,18 @@ export type MessageAttachmentProps = HTMLAttributes<HTMLDivElement> & {
 }
 
 export function MessageAttachment({ data, className, onRemove, ...props }: MessageAttachmentProps) {
+  const { t } = useI18n()
   const filename = data.filename || ""
   const mediaType = data.mediaType?.startsWith("image/") && data.url ? "image" : "file"
   const isImage = mediaType === "image"
-  const attachmentLabel = filename || (isImage ? "Image" : "Attachment")
+  const attachmentLabel = filename || (isImage ? t("prompt.image") : t("prompt.attachment"))
 
   return (
     <div className={cn("group relative size-24 overflow-hidden rounded-lg", className)} {...props}>
       {isImage ? (
         <>
           <img
-            alt={filename || "attachment"}
+            alt={filename || t("prompt.attachmentAlt")}
             className="size-full object-cover"
             height={100}
             src={data.url}
@@ -295,7 +304,7 @@ export function MessageAttachment({ data, className, onRemove, ...props }: Messa
           />
           {onRemove && (
             <Button
-              aria-label="Remove attachment"
+              aria-label={t("prompt.removeAttachment")}
               className="absolute top-2 right-2 size-6 rounded-full bg-background/80 p-0 opacity-0 backdrop-blur-sm transition-opacity hover:bg-background group-hover:opacity-100 [&>svg]:size-3"
               onClick={e => {
                 e.stopPropagation()
@@ -305,7 +314,7 @@ export function MessageAttachment({ data, className, onRemove, ...props }: Messa
               variant="ghost"
             >
               <XIcon />
-              <span className="sr-only">Remove</span>
+              <span className="sr-only">{t("prompt.remove")}</span>
             </Button>
           )}
         </>
@@ -323,7 +332,7 @@ export function MessageAttachment({ data, className, onRemove, ...props }: Messa
           </Tooltip>
           {onRemove && (
             <Button
-              aria-label="Remove attachment"
+              aria-label={t("prompt.removeAttachment")}
               className="size-6 shrink-0 rounded-full p-0 opacity-0 transition-opacity hover:bg-accent group-hover:opacity-100 [&>svg]:size-3"
               onClick={e => {
                 e.stopPropagation()
@@ -333,7 +342,7 @@ export function MessageAttachment({ data, className, onRemove, ...props }: Messa
               variant="ghost"
             >
               <XIcon />
-              <span className="sr-only">Remove</span>
+              <span className="sr-only">{t("prompt.remove")}</span>
             </Button>
           )}
         </>
@@ -366,28 +375,26 @@ export const MessageToolbar = ({ className, children, ...props }: MessageToolbar
 
 /** Demo component for preview */
 export default function MessageDemo() {
+  const { t } = useI18n()
+
   return (
     <TooltipProvider>
       <div className="flex w-full max-w-2xl flex-col gap-4 p-6">
         <Message from="user">
           <MessageContent>
-            <p>Can you explain how React hooks work?</p>
+            <p>{t("message.demo.question1")}</p>
           </MessageContent>
         </Message>
         <Message from="assistant">
           <MessageContent>
             <MessageResponse>
-              React hooks are functions that let you **hook into** React state and lifecycle
-              features from function components. The most common hooks are: - `useState` - for
-              managing local state - `useEffect` - for side effects like data fetching -
-              `useContext` - for consuming context values Would you like me to show you some
-              examples?
+              {t("message.demo.answer1")}
             </MessageResponse>
           </MessageContent>
         </Message>
         <Message from="user">
           <MessageContent>
-            <p>Yes please, show me a useState example!</p>
+            <p>{t("message.demo.question2")}</p>
           </MessageContent>
         </Message>
       </div>

@@ -1,6 +1,7 @@
 import type { ChatMessage, ConversationInDB, LocalChatMessage } from "@/types"
+import type { Locale } from "@/i18n"
 
-export const DEFAULT_CONVERSATION_TITLE = "New conversation"
+const FALLBACK_DEFAULT_TITLES = ["New conversation", "新会话"]
 
 export function normalizeChatMessage(message: Partial<ChatMessage>): ChatMessage {
   const toolCalls = Array.isArray(message.tool_calls)
@@ -57,20 +58,25 @@ export function sanitizeTitle(rawTitle: string): string {
   return rawTitle.trim().replace(/\s+/g, " ").slice(0, 64)
 }
 
-export function getErrorMessage(error: unknown): string {
+export function isDefaultConversationTitle(rawTitle: string): boolean {
+  const title = sanitizeTitle(rawTitle)
+  return title.length === 0 || FALLBACK_DEFAULT_TITLES.includes(title)
+}
+
+export function getErrorMessage(error: unknown, fallback = "Unexpected error"): string {
   if (error instanceof Error) {
     return error.message
   }
-  return "Unexpected error"
+  return fallback
 }
 
-export function formatUpdatedAt(isoString: string): string {
+export function formatUpdatedAt(isoString: string, locale: Locale): string {
   const date = new Date(isoString)
   if (Number.isNaN(date.getTime())) {
     return ""
   }
 
-  return date.toLocaleString([], {
+  return date.toLocaleString(locale === "zh" ? "zh-CN" : "en-US", {
     hour12: false,
     month: "2-digit",
     day: "2-digit",

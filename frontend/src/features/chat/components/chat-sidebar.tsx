@@ -25,6 +25,7 @@ import {
 import agentHubLogo from "@/assets/agenthub.png"
 
 import { formatUpdatedAt } from "@/features/chat/utils"
+import { useI18n } from "@/i18n"
 
 type ChatSidebarProps = {
   threadId: string
@@ -45,6 +46,7 @@ export function ChatSidebar({
   onCreateConversation,
   disableCreateConversation,
 }: ChatSidebarProps) {
+  const { locale, t } = useI18n()
   const { state } = useSidebar()
   const isCollapsed = state === "collapsed"
 
@@ -55,7 +57,7 @@ export function ChatSidebar({
           <div className="group/logo relative mx-auto flex size-9 items-center justify-center">
             <img
               src="/vite.svg"
-              alt="Sidebar logo"
+              alt={t("sidebar.logoAlt")}
               className="size-7 transition-all duration-150 group-hover/logo:scale-90 group-hover/logo:opacity-0"
             />
             <SidebarTrigger className="absolute inset-0 size-9 scale-90 cursor-pointer rounded-md opacity-0 pointer-events-none transition-all duration-150 group-hover/logo:scale-100 group-hover/logo:opacity-100 group-hover/logo:pointer-events-auto" />
@@ -77,12 +79,12 @@ export function ChatSidebar({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   className="cursor-pointer"
-                  tooltip="新会话"
+                  tooltip={t("conversation.new")}
                   onClick={onCreateConversation}
                   disabled={disableCreateConversation}
                 >
                   <MessageSquarePlus className="size-4" />
-                  <span>新会话</span>
+                  <span>{t("conversation.new")}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
@@ -90,11 +92,11 @@ export function ChatSidebar({
         </SidebarGroup>
 
         <SidebarGroup className="pt-1 group-data-[collapsible=icon]:hidden">
-          <SidebarGroupLabel className="px-2">Recent</SidebarGroupLabel>
+          <SidebarGroupLabel className="px-2">{t("conversation.recent")}</SidebarGroupLabel>
           <SidebarGroupContent>
             {conversations.length === 0 ? (
               <p className="mt-3 rounded-lg border border-dashed p-3 text-sm text-sidebar-foreground/70">
-                No saved conversations yet.
+                {t("conversation.none")}
               </p>
             ) : (
               <SidebarMenu>
@@ -114,7 +116,7 @@ export function ChatSidebar({
                               {conversation.title}
                             </p>
                             <p className="text-xs text-sidebar-foreground/60">
-                              {formatUpdatedAt(conversation.updated_at)}
+                              {formatUpdatedAt(conversation.updated_at, locale)}
                             </p>
                           </div>
                         </SidebarMenuButton>
@@ -128,7 +130,7 @@ export function ChatSidebar({
                               onClick={(event) => {
                                 event.stopPropagation()
                               }}
-                              aria-label="Conversation actions"
+                              aria-label={t("conversation.actions")}
                             >
                               <MoreHorizontal className="size-4" />
                             </Button>
@@ -139,7 +141,7 @@ export function ChatSidebar({
                               onClick={() => onRenameConversation(conversation)}
                             >
                               <PencilLine className="size-4" />
-                              重命名
+                              {t("common.rename")}
                             </DropdownMenuItem>
                             <DropdownMenuItem
                               variant="destructive"
@@ -147,7 +149,7 @@ export function ChatSidebar({
                               onClick={() => onDeleteConversation(conversation)}
                             >
                               <Trash2 className="size-4" />
-                              删除
+                              {t("common.delete")}
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
