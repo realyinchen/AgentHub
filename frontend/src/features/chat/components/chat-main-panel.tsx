@@ -365,7 +365,7 @@ export function ChatMainPanel({
           {!isAwaitingAgentSelection ? (
             <div
               aria-hidden="true"
-              className="chat-messages-bottom-fade pointer-events-none absolute inset-x-0 bottom-0 z-10 mx-auto h-14 max-w-4xl"
+              className="chat-messages-bottom-fade pointer-events-none absolute inset-x-0 bottom-0 z-10 mx-auto h-8 max-w-4xl"
             />
           ) : null}
 
@@ -412,7 +412,7 @@ export function ChatMainPanel({
             </div>
 
             <PromptInput
-              className="h-auto min-h-12 bg-background"
+              className="h-auto min-h-12 bg-background [&_[data-slot=input-group]]:rounded-2xl"
               onSubmit={({ text }) => {
                 submitMessage(text)
               }}
