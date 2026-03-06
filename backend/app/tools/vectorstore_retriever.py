@@ -1,5 +1,6 @@
 from typing import List
 from langchain_core.documents import Document
+from langchain_core.tools import tool
 from langchain_qdrant import QdrantVectorStore
 
 from app.core.models import embedding_model
@@ -15,17 +16,26 @@ def _get_vectorstore(collection_name: str) -> QdrantVectorStore:
     )
 
 
+@tool
 def retrieve_from_vectorstore(
     collection_name: str, query: str
 ) -> tuple[str, List[Document]]:
     """Retrieve information to help answer a query.
 
+    This tool searches a vector store collection for documents similar to the query.
+    Use this when you need to retrieve relevant information from a knowledge base.
+
     Args:
-        collection_name (str): Collection name of a vector store.
-        query (str): User query.
+        collection_name: Name of the vector store collection to search.
+        query: The search query to find relevant documents.
 
     Returns:
-        (serialized_content: str, documents: List[Document])
+        A tuple containing:
+        - serialized_content: Formatted string with retrieved documents
+        - documents: List of retrieved Document objects
+
+    Examples:
+        >>> retrieve_from_vectorstore.invoke({"collection_name": "docs", "query": "What is AI?"})
     """
     vectorstore = _get_vectorstore(collection_name)
     retrieved_docs = vectorstore.similarity_search(query, k=2)

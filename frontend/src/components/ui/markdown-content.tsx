@@ -204,13 +204,13 @@ const createMarkdownComponents = (
 	disableCodeHighlight: boolean,
 ): Partial<Components> => ({
 	h1: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
-		<h1 className="mt-2 scroll-m-20 text-4xl font-bold" {...props}>
+		<h1 className="scroll-m-20 text-2xl font-bold" {...props}>
 			{children}
 		</h1>
 	),
 	h2: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h2
-			className="mt-8 scroll-m-20 border-b pb-2 text-2xl font-semibold tracking-tight first:mt-0"
+			className="scroll-m-20 border-b pb-1 text-xl font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -218,7 +218,7 @@ const createMarkdownComponents = (
 	),
 	h3: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h3
-			className="mt-4 scroll-m-20 text-xl font-semibold tracking-tight"
+			className="scroll-m-20 text-lg font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -226,7 +226,7 @@ const createMarkdownComponents = (
 	),
 	h4: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h4
-			className="mt-4 scroll-m-20 text-lg font-semibold tracking-tight"
+			className="scroll-m-20 text-base font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -234,7 +234,7 @@ const createMarkdownComponents = (
 	),
 	h5: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h5
-			className="mt-4 scroll-m-20 text-lg font-semibold tracking-tight"
+			className="scroll-m-20 text-base font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -242,14 +242,14 @@ const createMarkdownComponents = (
 	),
 	h6: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h6
-			className="mt-4 scroll-m-20 text-base font-semibold tracking-tight"
+			className="scroll-m-20 text-sm font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
 		</h6>
 	),
 	p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => (
-		<p className="leading-6 not-first:mt-4 break-all" {...props}>
+		<p className="leading-7 break-words" {...props}>
 			{children}
 		</p>
 	),
@@ -309,17 +309,17 @@ const createMarkdownComponents = (
 		</a>
 	),
 	ol: ({ children, ...props }: React.HTMLAttributes<HTMLOListElement>) => (
-		<ol className="my-4 ml-6 list-decimal" {...props}>
+		<ol className="ml-6 list-decimal [&>li]:mt-0" {...props}>
 			{children}
 		</ol>
 	),
 	ul: ({ children, ...props }: React.HTMLAttributes<HTMLUListElement>) => (
-		<ul className="my-4 ml-6 list-disc" {...props}>
+		<ul className="ml-6 list-disc [&>li]:mt-0" {...props}>
 			{children}
 		</ul>
 	),
 	li: ({ children, ...props }: React.LiHTMLAttributes<HTMLLIElement>) => (
-		<li className="mt-2 break-all" {...props}>
+		<li className="break-words" {...props}>
 			{children}
 		</li>
 	),
@@ -327,7 +327,7 @@ const createMarkdownComponents = (
 		children,
 		...props
 	}: React.HTMLAttributes<HTMLQuoteElement>) => (
-		<blockquote className="mt-4 border-l-2 pl-6 italic" {...props}>
+		<blockquote className="border-l-2 pl-4 italic" {...props}>
 			{children}
 		</blockquote>
 	),

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, Languages } from "lucide-react"
+import { ArrowDown, Languages, Moon, Share2, Sun } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage } from "@/types"
 import {
@@ -7,9 +7,22 @@ import {
   AlertDescription,
   AlertTitle,
 } from "@/components/ui/alert"
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   PromptInput,
   PromptInputBody,
@@ -20,6 +33,7 @@ import {
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { Loader } from "~/components/ai/loader"
 import { useI18n } from "@/i18n"
+import { useTheme } from "@/hooks/use-theme"
 
 type ChatMainPanelProps = {
   agents: AgentInDB[]
@@ -56,6 +70,7 @@ export function ChatMainPanel({
   onSelectAgent,
 }: ChatMainPanelProps) {
   const { t, toggleLocale } = useI18n()
+  const { theme, toggleTheme } = useTheme()
   const [inputValue, setInputValue] = useState("")
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
@@ -67,6 +82,14 @@ export function ChatMainPanel({
   const lastKnownScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
+  const [showShareDialog, setShowShareDialog] = useState(false)
+
+  const handleShare = useCallback(() => {
+    const url = window.location.href
+    navigator.clipboard.writeText(url).then(() => {
+      setShowShareDialog(true)
+    })
+  }, [])
 
   const suggestions = useMemo(
     () => [
@@ -108,11 +131,23 @@ export function ChatMainPanel({
       ]
     }
 
-    return agents.map((agent) => ({
+    const mapped = agents.map((agent) => ({
       agent_id: agent.agent_id,
       description: agent.description || t("chat.noDescription"),
     }))
-  }, [agents, t])
+
+    // 当前选中的 agent 排在第一位，其余按原顺序排列
+    const currentIndex = mapped.findIndex(
+      (agent) => agent.agent_id === selectedAgentId
+    )
+    if (currentIndex > 0) {
+      const current = mapped[currentIndex]
+      const others = mapped.filter((_, index) => index !== currentIndex)
+      return [current, ...others]
+    }
+
+    return mapped
+  }, [agents, selectedAgentId, t])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current
@@ -250,28 +285,87 @@ export function ChatMainPanel({
     : !inputValue.trim() || status !== "ready" || isComposerDisabled
   const shouldShowScrollButton =
     showScrollButton && !isAwaitingAgentSelection && !isLoadingConversation
-  const agentStatusLabel =
-    normalizedAgentStatus === "rag-agent" ? t("chat.status.rag") : t("chat.status.chatbot")
+  const handleAgentChange = useCallback(
+    (value: string) => {
+      if (isStreaming || isComposerDisabled) {
+        return
+      }
+      onSelectAgent(value)
+    },
+    [isComposerDisabled, isStreaming, onSelectAgent],
+  )
+
+  const getAgentDisplayName = useCallback(
+    (agentId: string) => {
+      if (agentId.toLowerCase().includes("rag")) {
+        return t("chat.status.rag")
+      }
+      if (agentId === "chatbot") {
+        return t("chat.status.chatbot")
+      }
+      return agentId
+    },
+    [t],
+  )
 
   return (
-    <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[3rem_minmax(0,1fr)_auto] overflow-hidden bg-background">
-      <header className="z-20 flex h-12 w-full items-center justify-end gap-3 bg-background px-4 md:px-6">
+    <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background">
+      <header className="z-20 flex w-full flex-col items-end gap-2 bg-background px-4 pt-3 md:px-6">
+        <div className="flex items-center gap-1.5">
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="cursor-pointer gap-1.5"
+            onClick={handleShare}
+            aria-label={t("share.button")}
+          >
+            <Share2 className="size-4" />
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="cursor-pointer gap-1.5"
+            onClick={toggleTheme}
+            aria-label={t("theme.switch")}
+          >
+            {theme === "light" ? (
+              <Sun className="size-4" />
+            ) : (
+              <Moon className="size-4" />
+            )}
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="cursor-pointer gap-1.5"
+            onClick={toggleLocale}
+            aria-label={t("language.switch")}
+          >
+            <Languages className="size-4" />
+            {t("language.toggleLabel")}
+          </Button>
+        </div>
         {!isAwaitingAgentSelection ? (
-          <Badge variant="secondary" className="font-medium">
-            {agentStatusLabel}
-          </Badge>
+          <Select
+            value={selectedAgentId}
+            onValueChange={handleAgentChange}
+            disabled={isStreaming || isComposerDisabled}
+          >
+            <SelectTrigger className="w-40" size="sm">
+              <SelectValue placeholder={t("chat.selectAgent")} />
+            </SelectTrigger>
+            <SelectContent>
+              {selectableAgents.map((agent) => (
+                <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                  {getAgentDisplayName(agent.agent_id)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         ) : null}
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="cursor-pointer gap-1.5"
-          onClick={toggleLocale}
-          aria-label={t("language.switch")}
-        >
-          <Languages className="size-4" />
-          {t("language.toggleLabel")}
-        </Button>
       </header>
 
       <div
@@ -332,12 +426,7 @@ export function ChatMainPanel({
               </div>
             ) : (
               <div className="mx-auto flex w-full  flex-col gap-4 py-3 p-3 ">
-                {messages.length === 0 ? (
-
-                  <div className="rounded-xl border border-dashed p-4 text-sm text-muted-foreground">
-                    {t("chat.startChatting")}
-                  </div>
-                ) : (
+                {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const retrySource = message.type === "ai"
                       ? messages
@@ -439,6 +528,15 @@ export function ChatMainPanel({
           </div>
         </footer>
       ) : null}
+
+      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>{t("share.title")}</DialogTitle>
+            <DialogDescription>{t("share.description")}</DialogDescription>
+          </DialogHeader>
+        </DialogContent>
+      </Dialog>
     </section>
   )
 }

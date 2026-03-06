@@ -33,6 +33,11 @@ import {
   sortConversationsByUpdatedAt,
   toLocalMessage,
 } from "@/features/chat/utils"
+
+function readAgentIdFromUrl(): string | null {
+  const params = new URLSearchParams(window.location.search)
+  return params.get("agent_id")
+}
 import { useI18n } from "@/i18n"
 
 function App() {
@@ -179,7 +184,7 @@ function App() {
     setRenameTarget(null)
     setIsAwaitingAgentSelection(true)
     setAppError(null)
-  }, [defaultConversationTitle, writeThreadIdToUrl])
+  }, [writeThreadIdToUrl])
 
   const pickAgentForCurrentConversation = useCallback((agentId: string) => {
     setSelectedAgentId(agentId)
@@ -575,6 +580,14 @@ function App() {
     )
   }, [defaultConversationTitle])
 
+  // 使用 ref 存储 t 函数和 defaultConversationTitle，避免语言切换时重新初始化
+  const tRef = useRef(t)
+  const defaultConversationTitleRef = useRef(defaultConversationTitle)
+  useEffect(() => {
+    tRef.current = t
+    defaultConversationTitleRef.current = defaultConversationTitle
+  }, [t, defaultConversationTitle])
+
   useEffect(() => {
     let cancelled = false
 
@@ -594,20 +607,39 @@ function App() {
 
         setAgents(agentList)
         const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
-        setSelectedAgentId(defaultAgentId)
 
         const sorted = sortConversationsByUpdatedAt(conversationList)
         setConversations(sorted)
 
         const queryThreadId = readThreadIdFromUrl()
+        const queryAgentId = readAgentIdFromUrl()
+
+        // 如果 URL 中有 agent_id 参数，直接使用该 agent
+        if (queryAgentId) {
+          const validAgentId = agentList.some(
+            (agent) => agent.agent_id === queryAgentId
+          )
+            ? queryAgentId
+            : defaultAgentId
+          setSelectedAgentId(validAgentId)
+        } else {
+          setSelectedAgentId(defaultAgentId)
+        }
+
         if (queryThreadId) {
           setIsAwaitingAgentSelection(false)
           setThreadId(queryThreadId)
           writeThreadIdToUrl(queryThreadId)
           setIsLoadingConversation(true)
 
+          const agentToUse = queryAgentId
+            ? agentList.some((agent) => agent.agent_id === queryAgentId)
+              ? queryAgentId
+              : defaultAgentId
+            : defaultAgentId
+
           const [historyResult, titleResult] = await Promise.allSettled([
-            getHistory(defaultAgentId, queryThreadId),
+            getHistory(agentToUse, queryThreadId),
             getConversationTitle(queryThreadId),
           ])
 
@@ -639,14 +671,20 @@ function App() {
           setConversationTitleState(defaultConversationTitle)
           setDraftTitle(defaultConversationTitle)
           setMessages([])
-          setIsAwaitingAgentSelection(true)
+
+          // 如果 URL 中有 agent_id，直接进入聊天界面，不需要选择 agent
+          if (queryAgentId) {
+            setIsAwaitingAgentSelection(false)
+          } else {
+            setIsAwaitingAgentSelection(true)
+          }
           writeThreadIdToUrl(null)
         }
       } catch (error) {
         if (!cancelled) {
           setAppError(
-            t("error.initApp", {
-              details: getErrorMessage(error, t("error.unexpected")),
+            tRef.current("error.initApp", {
+              details: getErrorMessage(error, tRef.current("error.unexpected")),
             }),
           )
         }
@@ -664,7 +702,7 @@ function App() {
       cancelled = true
       abortControllerRef.current?.abort()
     }
-  }, [defaultConversationTitle, t, writeThreadIdToUrl])
+  }, [writeThreadIdToUrl])
 
   return (
     <>

@@ -10,7 +10,6 @@ import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
 import type { LocalChatMessage } from "@/types"
-import { Badge } from "@/components/ui/badge"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { useI18n } from "@/i18n"
 
@@ -117,10 +116,16 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
   const { t } = useI18n()
   const isUser = message.type === "human"
   const isAI = message.type === "ai"
+  const isTool = message.type === "tool"
   const isStreamingPlaceholder = isAI && message.is_streaming && !message.content.trim()
   const sources = parseSources(message)
   const reasoning = parseReasoning(message)
   const [copied, setCopied] = useState(false)
+
+  // 不渲染工具类型的消息（工具调用结果）
+  if (isTool) {
+    return null
+  }
 
   useEffect(() => {
     if (!copied) {
@@ -169,7 +174,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
       >
         <MessageContent
           className={cn(
-            "max-w-full space-y-3 overflow-visible rounded-2xl px-4 py-3",
+            "max-w-full overflow-visible rounded-2xl px-4 py-3",
             isUser
               ? "w-fit mr-3  border-border/70 bg-muted/65 text-foreground group-[.is-user]:bg-muted/65 group-[.is-user]:text-foreground"
               : isStreamingPlaceholder
@@ -223,38 +228,13 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
                   <span className="size-1.5 animate-bounce rounded-full bg-current" />
                 </span>
               </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">{t("message.noOutput")}</p>
-            )
+            ) : null
           ) : (
             <p className="whitespace-pre-wrap break-words text-sm leading-6">
-              {message.content || t("message.noOutput")}
+              {message.content}
             </p>
           )}
 
-          {message.tool_calls.length > 0 ? (
-            <div className="space-y-2">
-              {message.tool_calls.map((call) => (
-                <div key={call.id} className="space-y-2 rounded-xl border bg-background/80 p-3">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline">{t("message.tool")}</Badge>
-                    <span className="text-xs font-medium">{call.name}</span>
-                  </div>
-                  <pre className="overflow-x-auto rounded-md bg-muted p-2 text-xs text-foreground">
-                    {JSON.stringify(call.args, null, 2)}
-                  </pre>
-                </div>
-              ))}
-            </div>
-          ) : null}
-
-          {message.type === "tool" ? (
-            <Badge variant="secondary" className="font-normal">
-              {t("message.toolCallId", {
-                id: message.tool_call_id || t("common.unknown"),
-              })}
-            </Badge>
-          ) : null}
         </MessageContent>
 
         {isAI && !message.is_streaming ? (

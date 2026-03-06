@@ -132,7 +132,10 @@ AgentHub/
 
 ## 🤖 Available Agents
 
-- **chatbot** — Simple conversational agent without tools
+- **chatbot** — Conversational agent with tools:
+  - `get_current_time` — Get current time in any timezone
+  - `web_search` — Search the web for real-time information (via Tavily)
+  - Supports real-time queries (weather, news, current time, etc.)
 - **rag-agent** — Advanced RAG agent with:
   - Question routing (vector store / web search / direct answer)
   - Qdrant vector store retrieval
