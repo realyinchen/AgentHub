@@ -7,7 +7,7 @@
 
 A modular AI Agent collection framework that provides a modern web interface for experimenting with LangChain and LangGraph agents. Built with FastAPI (backend) and React (frontend), featuring a clean separation of concerns and modern development practices.
 
-This is the GUI version of the [learn_langchain_langgraph](https://github.com/realyinchen/learn_langchain_langgraph) project.
+This is the GUI version of the [AgentLab](https://github.com/realyinchen/AgentLab) project.
 
 Inspired by: [agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)
 
@@ -43,6 +43,8 @@ AgentHub/
 │   │   ├── api/            # API routes
 │   │   ├── core/           # Core configurations
 │   │   ├── database/       # Database managers and checkpointer
+│   │   ├── tools/          # LangChain tools collection
+│   │   ├── prompt/         # Centralized prompt templates
 │   │   └── ...             # Other modules
 │   ├── scripts/            # Database initialization scripts
 │   │   └── init_database.py # Initialize PostgreSQL and Qdrant

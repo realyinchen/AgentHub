@@ -7,7 +7,7 @@
 
 一个提供现代 Web 界面的模块化 AI 智能体集合框架，用于实验 LangChain 和 LangGraph 智能体。采用 FastAPI（后端）和 React（前端）构建，具有清晰的关注点分离和现代化开发实践。
 
-这是 [learn_langchain_langgraph](https://github.com/realyinchen/learn_langchain_langgraph) 项目的 GUI 版本。
+这是 [AgentLab](https://github.com/realyinchen/AgentLab) 项目的 GUI 版本。
 
 灵感来源：[agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)
 
@@ -43,6 +43,8 @@ AgentHub/
 │   │   ├── api/            # API 路由
 │   │   ├── core/           # 核心配置
 │   │   ├── database/       # 数据库管理器和检查点
+│   │   ├── tools/          # LangChain 工具集合
+│   │   ├── prompt/         # 集中管理的提示词模板
 │   │   └── ...             # 其他模块
 │   ├── scripts/            # 数据库初始化脚本
 │   │   └── init_database.py # 初始化 PostgreSQL 和 Qdrant
