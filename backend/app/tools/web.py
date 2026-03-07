@@ -28,10 +28,13 @@ def create_web_search(
         >>> search = create_web_search(max_results=5)
         >>> search = create_web_search(search_depth="advanced")
     """
-    return TavilySearch(
+    tool = TavilySearch(
         max_results=max_results,
         include_answer=include_answer,
         include_raw_content=include_raw_content,
         search_depth=search_depth,
         **kwargs,
     )
+    # Rename to generic name regardless of underlying implementation
+    tool.name = "web_search"
+    return tool
