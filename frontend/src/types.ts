@@ -37,6 +37,7 @@ export type AgentInDB = {
 export type ConversationInDB = {
   thread_id: string
   title: string
+  agent_id?: string | null
   created_at: string
   updated_at: string
   is_deleted: boolean
@@ -46,6 +47,26 @@ export type UserInput = {
   content: string
   agent_id: string
   thread_id?: string | null
+}
+
+export type ToolCallEvent = {
+  name: string
+  id: string
+  args?: Record<string, unknown>
+}
+
+export type ToolResultEvent = {
+  name: string
+  id: string
+  output: string
+}
+
+export type ToolCallInfo = {
+  name: string
+  id: string
+  args: Record<string, unknown>
+  output?: string
+  status: "calling" | "completed"
 }
 
 export type StreamEvent =
@@ -60,4 +81,12 @@ export type StreamEvent =
   | {
       type: "error"
       content: string
+    }
+  | {
+      type: "tool_call"
+      content: ToolCallEvent
+    }
+  | {
+      type: "tool_result"
+      content: ToolResultEvent
     }

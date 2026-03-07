@@ -35,6 +35,7 @@ SQLs = [
     CREATE TABLE public.conversations (
         thread_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
         title VARCHAR(64) NOT NULL,
+        agent_id VARCHAR(64) DEFAULT 'chatbot',
         is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
         created_at TIMESTAMPTZ DEFAULT NOW(),
         updated_at TIMESTAMPTZ DEFAULT NOW()

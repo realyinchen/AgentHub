@@ -33,6 +33,6 @@ if __name__ == "__main__":
         host=settings.HOST,
         port=settings.PORT,
         reload=settings.is_dev(),
-        reload_dirs=[str(Path("src/app").resolve())],
+        reload_dirs=[str(Path("backend/app").resolve())],
         timeout_graceful_shutdown=settings.GRACEFUL_SHUTDOWN_TIMEOUT,
     )

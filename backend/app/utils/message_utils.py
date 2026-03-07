@@ -58,6 +58,7 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                 type="tool",
                 content=convert_message_content_to_string(message.content),
                 tool_call_id=message.tool_call_id,
+                name=getattr(message, "name", None),  # Tool name if available
             )
             return tool_message
         case _:
@@ -75,6 +76,9 @@ async def streaming_message_generator(
     kwargs = await handle_input(user_input, agent)
     started_at = time.perf_counter()
     first_chunk_sent = False
+    sent_tool_calls: set[str] = set()  # Track sent tool call IDs to avoid duplicates
+    # Map tool_call_id to tool name for tool_result events
+    tool_call_id_to_name: dict[str, str] = {}
 
     # Send an SSE comment prelude immediately to encourage early flush in proxies.
     yield f": {' ' * 2048}\n\n"
@@ -94,20 +98,44 @@ async def streaming_message_generator(
                     # In a more sophisticated implementation, we could add
                     # some structured ChatMessage type to return the interrupt value.
                     if node == "__interrupt__":
-                        # for interrupt in updates:
-                        #     new_messages.append(
-                        #         InterruptMessage(
-                        #             content="",
-                        #             action_requests=interrupt.value["action_requests"],
-                        #             review_configs=interrupt.value["review_configs"],
-                        #         )
-                        #     )
                         continue
                     updates = updates or {}
                     update_messages = updates.get("messages", [])
                     new_messages.extend(update_messages)
 
             for message in new_messages:
+                # Send tool_call event when AI message has tool_calls
+                if isinstance(message, AIMessage) and message.tool_calls:
+                    for tool_call in message.tool_calls:
+                        tool_call_id = tool_call.get("id", "")
+                        tool_name = tool_call.get("name", "unknown")
+                        tool_args = tool_call.get("args", {})
+                        # Store mapping for tool_result
+                        if tool_call_id:
+                            tool_call_id_to_name[tool_call_id] = tool_name
+                        # Avoid sending duplicate tool calls
+                        if tool_call_id and tool_call_id not in sent_tool_calls:
+                            sent_tool_calls.add(tool_call_id)
+                            if not first_chunk_sent:
+                                first_chunk_sent = True
+                                logger.info(
+                                    "stream first chunk (tool_call) in %.1f ms (agent_id=%s, thread_id=%s)",
+                                    (time.perf_counter() - started_at) * 1000,
+                                    user_input.agent_id,
+                                    user_input.thread_id,
+                                )
+                            yield f"data: {json.dumps({'type': 'tool_call', 'content': {'name': tool_name, 'id': tool_call_id, 'args': tool_args}})}\n\n"
+                
+                # Send tool_result event when ToolMessage is received
+                if isinstance(message, ToolMessage):
+                    tool_call_id = message.tool_call_id
+                    tool_name = tool_call_id_to_name.get(tool_call_id, "unknown")
+                    tool_output = convert_message_content_to_string(message.content)
+                    # Truncate very long outputs for SSE
+                    if len(tool_output) > 2000:
+                        tool_output = tool_output[:2000] + "..."
+                    yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': tool_call_id, 'output': tool_output}})}\n\n"
+                
                 try:
                     chat_message = langchain_to_chat_message(message)
                 except Exception as e:
@@ -119,6 +147,9 @@ async def streaming_message_generator(
                     chat_message.type == "human"
                     and chat_message.content == user_input.content
                 ):
+                    continue
+                # Skip tool messages in the main message stream (we already sent tool_result)
+                if chat_message.type == "tool":
                     continue
                 if not first_chunk_sent:
                     first_chunk_sent = True

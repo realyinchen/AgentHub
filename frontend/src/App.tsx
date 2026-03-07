@@ -16,6 +16,8 @@ import type {
   ConversationInDB,
   LocalChatMessage,
   StreamEvent,
+  ToolCallEvent,
+  ToolCallInfo,
 } from "@/types"
 import {
   ChatMainPanel,
@@ -62,6 +64,9 @@ function App() {
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const [isAwaitingAgentSelection, setIsAwaitingAgentSelection] = useState(false)
+  const [isAgentThinking, setIsAgentThinking] = useState(false)
+  const [activeToolCall, setActiveToolCall] = useState<ToolCallEvent | null>(null)
+  const [calledTools, setCalledTools] = useState<ToolCallInfo[]>([])
 
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
@@ -85,7 +90,7 @@ function App() {
   }, [])
 
   const ensureConversationExists = useCallback(
-    async (targetThreadId: string, title: string) => {
+    async (targetThreadId: string, title: string, agentId?: string) => {
       const exists = conversations.some(
         (conversation) => conversation.thread_id === targetThreadId,
       )
@@ -98,6 +103,7 @@ function App() {
         const created = await createConversation({
           thread_id: targetThreadId,
           title: sanitizeTitle(title) || defaultConversationTitle,
+          agent_id: agentId || selectedAgentId,
         })
 
         setConversations((previous) =>
@@ -107,14 +113,14 @@ function App() {
         await refreshConversations()
       }
     },
-    [conversations, refreshConversations],
+    [conversations, refreshConversations, selectedAgentId],
   )
 
   const openConversation = useCallback(
     async (
       targetThreadId: string,
-      agentId: string,
       knownConversations: ConversationInDB[] = conversations,
+      agentList: AgentInDB[] = agents,
     ) => {
       if (!targetThreadId) {
         return
@@ -129,9 +135,24 @@ function App() {
       setIsLoadingConversation(true)
       setAppError(null)
 
+      // Find the conversation to get its agent_id
+      const conversation = knownConversations.find(
+        (c) => c.thread_id === targetThreadId,
+      )
+      
+      // Determine agent to use: prefer saved agent_id, fall back to default
+      const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
+      const savedAgentId = conversation?.agent_id
+      const agentToUse = savedAgentId && agentList.some((a) => a.agent_id === savedAgentId)
+        ? savedAgentId
+        : defaultAgentId
+      
+      // Update selected agent if different
+      setSelectedAgentId(agentToUse)
+
       try {
         const [historyResult, titleResult] = await Promise.allSettled([
-          getHistory(agentId, targetThreadId),
+          getHistory(agentToUse, targetThreadId),
           getConversationTitle(targetThreadId),
         ])
 
@@ -168,7 +189,7 @@ function App() {
         setIsLoadingConversation(false)
       }
     },
-    [conversations, defaultConversationTitle, t, writeThreadIdToUrl],
+    [agents, conversations, defaultConversationTitle, t, writeThreadIdToUrl],
   )
 
   const resetToNewConversation = useCallback(() => {
@@ -252,20 +273,48 @@ function App() {
       setMessages((previous) => {
         if (normalized.type === "ai") {
           const placeholderId = streamingPlaceholderIdRef.current
-          if (placeholderId && normalized.content) {
-            streamingPlaceholderIdRef.current = null
-            return previous.map((item) =>
-              item.local_id === placeholderId
-                ? {
-                    ...item,
-                    ...normalized,
-                    local_id: placeholderId,
-                    is_streaming: false,
-                  }
-                : item,
-            )
+          const hasToolCalls = normalized.tool_calls && normalized.tool_calls.length > 0
+          const hasContent = normalized.content && normalized.content.trim().length > 0
+          
+          // If we have a placeholder, update it with new content
+          if (placeholderId) {
+            // If this message has tool_calls, it means more content is coming
+            // Update the placeholder but keep it alive for the final response
+            if (hasToolCalls) {
+              // Update placeholder with current content, but don't clear the ref
+              return previous.map((item) =>
+                item.local_id === placeholderId
+                  ? {
+                      ...item,
+                      ...normalized,
+                      local_id: placeholderId,
+                      is_streaming: true,
+                    }
+                  : item,
+              )
+            }
+            
+            // If this message has content but no tool_calls, it's the final response
+            // Update the placeholder and clear the ref
+            if (hasContent) {
+              streamingPlaceholderIdRef.current = null
+              return previous.map((item) =>
+                item.local_id === placeholderId
+                  ? {
+                      ...item,
+                      ...normalized,
+                      local_id: placeholderId,
+                      is_streaming: false,
+                    }
+                  : item,
+              )
+            }
+            
+            // No content and no tool calls, keep placeholder as is
+            return previous
           }
 
+          // No placeholder - check for duplicates before adding new message
           const duplicatedByRunId =
             normalized.run_id &&
             previous.some(
@@ -384,6 +433,10 @@ function App() {
         const controller = new AbortController()
         abortControllerRef.current = controller
 
+        // Reset thinking state and called tools for new message
+        setIsAgentThinking(true)
+        setCalledTools([])
+
         await streamChat(
           {
             content: trimmed,
@@ -392,15 +445,66 @@ function App() {
           },
           (event: StreamEvent) => {
             if (event.type === "token") {
+              // When we start receiving tokens, agent is no longer "thinking"
+              setIsAgentThinking(false)
+              setActiveToolCall(null)
               addStreamToken(event.content)
               return
             }
 
             if (event.type === "message") {
-              addMessageFromStream(event.content)
+              const message = event.content
+              // When we receive an AI message with actual content (not just tool_calls), 
+              // agent is no longer "thinking"
+              if (message.type === "ai") {
+                const hasContent = message.content && message.content.trim().length > 0
+                const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
+                // Only stop thinking if we have content and no pending tool calls
+                if (hasContent && !hasToolCalls) {
+                  setIsAgentThinking(false)
+                  setActiveToolCall(null)
+                }
+              }
+              addMessageFromStream(message)
               return
             }
 
+            if (event.type === "tool_call") {
+              // Agent is calling a tool, show thinking state
+              setIsAgentThinking(true)
+              setActiveToolCall(event.content)
+              // Add tool call info to list
+              setCalledTools((prev) => {
+                const existing = prev.find((t) => t.id === event.content.id)
+                if (existing) {
+                  return prev
+                }
+                return [
+                  ...prev,
+                  {
+                    name: event.content.name,
+                    id: event.content.id,
+                    args: event.content.args || {},
+                    status: "calling" as const,
+                  },
+                ]
+              })
+              return
+            }
+
+            if (event.type === "tool_result") {
+              // Tool execution completed, update the tool call info
+              setCalledTools((prev) =>
+                prev.map((t) =>
+                  t.id === event.content.id
+                    ? { ...t, output: event.content.output, status: "completed" as const }
+                    : t,
+                ),
+              )
+              return
+            }
+
+            // error event
             setAppError(event.content)
             setMessages((previous) => [
               ...previous,
@@ -632,11 +736,22 @@ function App() {
           writeThreadIdToUrl(queryThreadId)
           setIsLoadingConversation(true)
 
-          const agentToUse = queryAgentId
-            ? agentList.some((agent) => agent.agent_id === queryAgentId)
-              ? queryAgentId
-              : defaultAgentId
-            : defaultAgentId
+          // Find the conversation to get its saved agent_id
+          const conversation = sorted.find(
+            (c) => c.thread_id === queryThreadId,
+          )
+          const savedAgentId = conversation?.agent_id
+
+          // Determine agent to use: URL param > saved agent_id > default
+          let agentToUse = defaultAgentId
+          if (queryAgentId && agentList.some((agent) => agent.agent_id === queryAgentId)) {
+            agentToUse = queryAgentId
+          } else if (savedAgentId && agentList.some((agent) => agent.agent_id === savedAgentId)) {
+            agentToUse = savedAgentId
+          }
+
+          // Update selected agent
+          setSelectedAgentId(agentToUse)
 
           const [historyResult, titleResult] = await Promise.allSettled([
             getHistory(agentToUse, queryThreadId),
@@ -715,8 +830,8 @@ function App() {
           onOpenConversation={(conversation) => {
             void openConversation(
               conversation.thread_id,
-              selectedAgentId,
               conversations,
+              agents,
             )
           }}
           onRenameConversation={startRenameConversation}
@@ -732,6 +847,9 @@ function App() {
             isInitializing={isInitializing}
             isLoadingConversation={isLoadingConversation}
             isAwaitingAgentSelection={isAwaitingAgentSelection}
+            isAgentThinking={isAgentThinking}
+            activeToolCall={activeToolCall}
+            calledTools={calledTools}
             messages={messages}
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, Languages, Moon, Share2, Sun } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage } from "@/types"
+import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
 import {
   Alert,
   AlertDescription,
@@ -43,6 +43,9 @@ type ChatMainPanelProps = {
   isInitializing: boolean
   isLoadingConversation: boolean
   isAwaitingAgentSelection: boolean
+  isAgentThinking: boolean
+  activeToolCall: ToolCallEvent | null
+  calledTools: ToolCallInfo[]
   messages: LocalChatMessage[]
   onSendMessage: (rawInput: string) => Promise<void>
   onStopStreaming: () => void
@@ -64,6 +67,9 @@ export function ChatMainPanel({
   isInitializing,
   isLoadingConversation,
   isAwaitingAgentSelection,
+  isAgentThinking,
+  activeToolCall,
+  calledTools,
   messages,
   onSendMessage,
   onStopStreaming,
@@ -113,13 +119,6 @@ export function ChatMainPanel({
 
   const isComposerDisabled =
     isInitializing || isLoadingConversation || isAwaitingAgentSelection
-
-  const normalizedAgentStatus = useMemo(() => {
-    if (selectedAgentId.toLowerCase().includes("rag")) {
-      return "rag-agent"
-    }
-    return "chatbot"
-  }, [selectedAgentId])
 
   const selectableAgents = useMemo(() => {
     if (agents.length === 0) {
@@ -437,12 +436,21 @@ export function ChatMainPanel({
                         ))
                       : null
 
+                    // Only show calledTools and thinking state on the last AI message
+                    const isLastAIMessage = message.type === "ai" && index === messages.length - 1
+                    const toolsForMessage = isLastAIMessage ? calledTools : []
+                    const thinkingForMessage = isLastAIMessage ? isAgentThinking : false
+                    const toolNameForMessage = isLastAIMessage ? activeToolCall?.name : null
+
                     return (
                       <ChatMessageItem
                         key={message.local_id}
                         message={message}
                         onRetry={retrySource ? () => submitMessage(retrySource.content) : undefined}
                         retryDisabled={isStreaming || isComposerDisabled}
+                        calledTools={toolsForMessage}
+                        isAgentThinking={thinkingForMessage}
+                        activeToolName={toolNameForMessage}
                       />
                     )
                   })

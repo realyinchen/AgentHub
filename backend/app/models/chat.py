@@ -15,6 +15,7 @@ class Conversation(Base):
 
     thread_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     title = Column(String(64), nullable=False)
+    agent_id = Column(String(64), nullable=True, default="chatbot")
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(

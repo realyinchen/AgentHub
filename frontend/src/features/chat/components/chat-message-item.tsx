@@ -3,13 +3,14 @@ import {
   ChevronDown,
   CopyIcon,
   RefreshCcwIcon,
+  WrenchIcon,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
-import type { LocalChatMessage } from "@/types"
+import type { LocalChatMessage, ToolCallInfo } from "@/types"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { useI18n } from "@/i18n"
 
@@ -17,6 +18,9 @@ type ChatMessageItemProps = {
   message: LocalChatMessage
   onRetry?: () => void
   retryDisabled?: boolean
+  calledTools?: ToolCallInfo[]
+  isAgentThinking?: boolean
+  activeToolName?: string | null
 }
 
 type SourceLink = {
@@ -112,7 +116,14 @@ function parseReasoning(message: LocalChatMessage): { content: string; duration?
   return null
 }
 
-export function ChatMessageItem({ message, onRetry, retryDisabled = false }: ChatMessageItemProps) {
+export function ChatMessageItem({ 
+  message, 
+  onRetry, 
+  retryDisabled = false, 
+  calledTools = [], 
+  isAgentThinking = false,
+  activeToolName = null,
+}: ChatMessageItemProps) {
   const { t } = useI18n()
   const isUser = message.type === "human"
   const isAI = message.type === "ai"
@@ -121,6 +132,7 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
   const sources = parseSources(message)
   const reasoning = parseReasoning(message)
   const [copied, setCopied] = useState(false)
+  const [showTools, setShowTools] = useState(false)
 
   // 不渲染工具类型的消息（工具调用结果）
   if (isTool) {
@@ -149,18 +161,18 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
     }
   }
 
+  // Deduplicate tools by name
+  const uniqueTools = calledTools.reduce<ToolCallInfo[]>((acc, tool) => {
+    if (!acc.some(t => t.name === tool.name)) {
+      acc.push(tool)
+    }
+    return acc
+  }, [])
+
   return (
     <article
       className={cn("flex w-full items-start gap-3", isUser && "justify-end")}
     >
-      {/* {!isUser ? (
-        <Avatar className="mt-1 size-8 border border-border">
-          <AvatarFallback className="bg-muted text-muted-foreground">
-            <Bot className="size-4" />
-          </AvatarFallback>
-        </Avatar>
-      ) : null} */}
-
       <Message
         from={isUser ? "user" : "assistant"}
         className={cn(
@@ -217,58 +229,102 @@ export function ChatMessageItem({ message, onRetry, retryDisabled = false }: Cha
             </details>
           ) : null}
 
+          {/* Thinking state for streaming placeholder */}
+          {isStreamingPlaceholder && isAgentThinking ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span className="inline-flex gap-1">
+                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-current" />
+              </span>
+              <span>
+                {activeToolName
+                  ? t("message.callingTool", { tool: activeToolName })
+                  : t("message.thinking")}
+              </span>
+            </div>
+          ) : null}
+
           {isAI ? (
             message.content ? (
               <MarkdownContent content={message.content} isStreaming={message.is_streaming} />
-            ) : message.is_streaming ? (
-              <div className="flex items-center gap-1 text-sm text-muted-foreground">
-                <span className="inline-flex gap-1">
-                  <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                  <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                  <span className="size-1.5 animate-bounce rounded-full bg-current" />
-                </span>
-              </div>
             ) : null
           ) : (
             <p className="whitespace-pre-wrap break-words text-sm leading-6">
               {message.content}
             </p>
           )}
-
         </MessageContent>
 
+        {/* Actions area: copy, retry, tools */}
         {isAI && !message.is_streaming ? (
-          <Actions className={cn("pt-1", isUser ? "justify-end" : "justify-start")}>
-            <Action
-              onClick={() => {
-                void handleCopy()
-              }}
-              className="cursor-pointer"
-              tooltip={copied ? t("common.copied") : t("common.copy")}
-              label={copied ? t("message.copiedResponse") : t("message.copyResponse")}
-            >
-              {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-            </Action>
-            <Action
-              onClick={onRetry}
-              tooltip={t("common.retry")}
-              label={t("message.retryResponse")}
-              className="cursor-pointer"
-              disabled={!onRetry || retryDisabled}
-            >
-              <RefreshCcwIcon className="size-4" />
-            </Action>
-          </Actions>
+          <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
+            <Actions className={cn("pt-1", isUser ? "justify-end" : "justify-start")}>
+              <Action
+                onClick={() => {
+                  void handleCopy()
+                }}
+                className="cursor-pointer"
+                tooltip={copied ? t("common.copied") : t("common.copy")}
+                label={copied ? t("message.copiedResponse") : t("message.copyResponse")}
+              >
+                {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+              </Action>
+              <Action
+                onClick={onRetry}
+                tooltip={t("common.retry")}
+                label={t("message.retryResponse")}
+                className="cursor-pointer"
+                disabled={!onRetry || retryDisabled}
+              >
+                <RefreshCcwIcon className="size-4" />
+              </Action>
+              {uniqueTools.length > 0 ? (
+                <Action
+                  onClick={() => setShowTools(!showTools)}
+                  tooltip={showTools ? t("message.hideTools") : t("message.showTools")}
+                  label={t("message.toolsUsedCount", { count: uniqueTools.length })}
+                  className="cursor-pointer"
+                >
+                  <WrenchIcon className="size-4" />
+                </Action>
+              ) : null}
+            </Actions>
+            
+            {/* Tool calls detail panel */}
+            {uniqueTools.length > 0 && showTools ? (
+              <div className="mt-2 w-full max-w-md rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
+                <div className="mb-2 font-medium text-muted-foreground">
+                  {t("message.toolsUsedCount", { count: uniqueTools.length })}
+                </div>
+                <div className="space-y-2">
+                  {uniqueTools.map((tool) => (
+                    <div key={tool.id} className="rounded border border-border/40 bg-background/30 p-2">
+                      <div className="font-medium text-foreground">{tool.name}</div>
+                      {Object.keys(tool.args).length > 0 ? (
+                        <div className="mt-1 text-muted-foreground">
+                          <span className="font-medium">{t("message.toolInput")}:</span>
+                          <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px]">
+                            {JSON.stringify(tool.args, null, 2)}
+                          </pre>
+                        </div>
+                      ) : null}
+                      {tool.output ? (
+                        <div className="mt-1 text-muted-foreground">
+                          <span className="font-medium">{t("message.toolOutput")}:</span>
+                          <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px] max-h-32 overflow-y-auto">
+                            {tool.output}
+                          </pre>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </div>
         ) : null}
       </Message>
-
-      {/* {isUser ? (
-        <Avatar className="mt-1 size-8 border border-border">
-          <AvatarFallback className="bg-primary/10 text-primary">
-            <User className="size-4" />
-          </AvatarFallback>
-        </Avatar>
-      ) : null} */}
     </article>
   )
 }

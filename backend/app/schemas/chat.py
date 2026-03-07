@@ -44,6 +44,11 @@ class ChatMessage(BaseModel):
         default=None,
         examples=["call_Jja7J89XsjrOLA5r!MEOW!SL"],
     )
+    name: str | None = Field(
+        description="Name of the tool (for tool messages).",
+        default=None,
+        examples=["web_search"],
+    )
     run_id: str | None = Field(
         description="Run ID of the message.",
         default=None,
@@ -86,6 +91,11 @@ class Conversation(BaseModel):
         examples=["Hello"],
         min_length=1,
         max_length=64,
+    )
+    agent_id: str | None = Field(
+        description="The agent ID used in this conversation.",
+        default="chatbot",
+        examples=["chatbot", "agentic_rag"],
     )
 
 
