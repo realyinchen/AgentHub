@@ -15,6 +15,7 @@ export type ChatMessage = {
   run_id: string | null
   response_metadata: Record<string, unknown>
   custom_data: Record<string, unknown>
+  reasoning_content?: string | null  // 推理/思考内容（用于推理模型）
 }
 
 export type LocalChatMessage = ChatMessage & {
@@ -78,6 +79,7 @@ export type StoredToolCallInfo = {
   id: string
   args: Record<string, unknown>
   output?: string | null
+  order: number  // 调用顺序索引
 }
 
 export type StreamEvent =

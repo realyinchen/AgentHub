@@ -133,7 +133,7 @@ def _collect_tool_calls_for_final_response(
     4. AI generates final response (with content)
 
     This function looks backward from the final AI response to find all tool calls
-    and their corresponding results.
+    and their corresponding results, preserving the original call order.
     """
     tool_info_list: list[dict[str, Any]] = []
     tool_call_id_to_output: dict[str, str] = {}
@@ -159,8 +159,13 @@ def _collect_tool_calls_for_final_response(
                     output = output[:2000] + "..."
                 tool_call_id_to_output[tool_call_id] = output
 
-    # Look backward from the final AI message to find intermediate AI messages with tool_calls
-    # Stop when we hit a HumanMessage (that's the start of this turn)
+    # Collect all tool calls from preceding AI messages, preserving order
+    # Since we scan backward, we need to:
+    # 1. For each AIMessage, collect its tool_calls in reverse order
+    # 2. Then reverse the entire list at the end
+    # This gives us the correct final order
+    temp_tool_calls: list[dict[str, Any]] = []
+    
     for i in range(final_ai_index - 1, -1, -1):
         msg = messages[i]
 
@@ -171,6 +176,9 @@ def _collect_tool_calls_for_final_response(
         if isinstance(msg, AIMessage):
             # Found an intermediate AI message with tool_calls
             if msg.tool_calls:
+                # Collect tool calls from this AIMessage in reverse order
+                # because we're scanning backward
+                batch_tool_calls: list[dict[str, Any]] = []
                 for tool_call in msg.tool_calls:
                     # Handle both dict and object types for tool_call
                     if isinstance(tool_call, dict):
@@ -191,9 +199,20 @@ def _collect_tool_calls_for_final_response(
                             "args": tool_args,
                             "output": tool_call_id_to_output.get(tool_call_id),
                         }
-                        tool_info_list.insert(
-                            0, tool_info
-                        )  # Insert at beginning to maintain order
+                        batch_tool_calls.append(tool_info)
+                
+                # Reverse this batch and add to temp list
+                # This ensures tool calls within the same AIMessage stay in correct order
+                batch_tool_calls.reverse()
+                temp_tool_calls.extend(batch_tool_calls)
+
+    # Reverse the entire list to get the original call order (first call first)
+    temp_tool_calls.reverse()
+    
+    # Add order field to each tool call
+    for order, tool_info in enumerate(temp_tool_calls):
+        tool_info["order"] = order
+        tool_info_list.append(tool_info)
 
     return tool_info_list
 
@@ -217,8 +236,21 @@ async def history(
         messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
 
         # Convert messages and add tool call info
+        # Skip intermediate messages (ToolMessage and AIMessage with only tool_calls but no content)
         chat_messages: list[ChatMessage] = []
         for i, msg in enumerate(messages):
+            # Skip ToolMessage - tool results are embedded in the final AI message's tool_info
+            if isinstance(msg, ToolMessage):
+                continue
+            
+            # Skip intermediate AIMessage that only has tool_calls but no content
+            # These are just tool call requests, not actual AI responses
+            if isinstance(msg, AIMessage):
+                content_str = str(msg.content).strip() if msg.content else ""
+                if not content_str and msg.tool_calls:
+                    # This is an intermediate AI message with only tool calls, skip it
+                    continue
+
             chat_message = langchain_to_chat_message(msg)
 
             # For AI messages with content (final response), collect tool calls from preceding messages
