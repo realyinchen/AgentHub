@@ -10,7 +10,7 @@ import { useEffect, useState } from "react"
 import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
-import type { LocalChatMessage, ToolCallInfo } from "@/types"
+import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo } from "@/types"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { useI18n } from "@/i18n"
 
@@ -116,6 +116,29 @@ function parseReasoning(message: LocalChatMessage): { content: string; duration?
   return null
 }
 
+/**
+ * Parse stored tool info from message custom_data.
+ * This is used to display tool calls from conversation history.
+ */
+function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
+  const toolInfo = message.custom_data?.tool_info
+  
+  if (!Array.isArray(toolInfo) || toolInfo.length === 0) {
+    return []
+  }
+
+  return toolInfo.map((info): ToolCallInfo => {
+    const stored = info as StoredToolCallInfo
+    return {
+      name: stored.name || "unknown",
+      id: stored.id || crypto.randomUUID(),
+      args: stored.args || {},
+      output: stored.output || undefined,
+      status: "completed" as const, // Historical tool calls are always completed
+    }
+  })
+}
+
 export function ChatMessageItem({ 
   message, 
   onRetry, 
@@ -161,8 +184,12 @@ export function ChatMessageItem({
     }
   }
 
+  // Merge calledTools from streaming with stored tool_info from history
+  // For streaming messages, use calledTools; for history messages, use stored tool_info
+  const streamingTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
+  
   // Deduplicate tools by name
-  const uniqueTools = calledTools.reduce<ToolCallInfo[]>((acc, tool) => {
+  const uniqueTools = streamingTools.reduce<ToolCallInfo[]>((acc, tool) => {
     if (!acc.some(t => t.name === tool.name)) {
       acc.push(tool)
     }

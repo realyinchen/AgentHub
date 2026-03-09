@@ -3,7 +3,7 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse
 from langchain_core.runnables import RunnableConfig
-from langchain_core.messages import AIMessage, AnyMessage
+from langchain_core.messages import AIMessage, AnyMessage, ToolMessage, HumanMessage
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, List
@@ -120,12 +120,90 @@ async def invoke(user_input: UserInput) -> ChatMessage:
         raise HTTPException(status_code=500, detail="Unexpected error")
 
 
+def _collect_tool_calls_for_final_response(
+    messages: list[AnyMessage], final_ai_index: int
+) -> list[dict[str, Any]]:
+    """
+    Collect all tool calls from preceding AI messages that belong to a final AI response.
+
+    In LangGraph execution flow:
+    1. User sends a message
+    2. AI responds with tool_calls (intermediate message)
+    3. Tool executes and returns ToolMessage
+    4. AI generates final response (with content)
+
+    This function looks backward from the final AI response to find all tool calls
+    and their corresponding results.
+    """
+    tool_info_list: list[dict[str, Any]] = []
+    tool_call_id_to_output: dict[str, str] = {}
+
+    # First, build mapping from tool_call_id to tool output by scanning all ToolMessages
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            tool_call_id = msg.tool_call_id
+            if tool_call_id:
+                content = msg.content
+                if isinstance(content, str):
+                    output = content
+                elif isinstance(content, list):
+                    output = "".join(
+                        item.get("text", str(item))
+                        if isinstance(item, dict)
+                        else str(item)
+                        for item in content
+                    )
+                else:
+                    output = str(content)
+                if len(output) > 2000:
+                    output = output[:2000] + "..."
+                tool_call_id_to_output[tool_call_id] = output
+
+    # Look backward from the final AI message to find intermediate AI messages with tool_calls
+    # Stop when we hit a HumanMessage (that's the start of this turn)
+    for i in range(final_ai_index - 1, -1, -1):
+        msg = messages[i]
+
+        if isinstance(msg, HumanMessage):
+            # Stop when we reach the user's message
+            break
+
+        if isinstance(msg, AIMessage):
+            # Found an intermediate AI message with tool_calls
+            if msg.tool_calls:
+                for tool_call in msg.tool_calls:
+                    # Handle both dict and object types for tool_call
+                    if isinstance(tool_call, dict):
+                        tool_call_id = str(tool_call.get("id", "") or "")
+                        tool_name = str(tool_call.get("name", "unknown") or "unknown")
+                        tool_args = tool_call.get("args") or {}
+                    else:
+                        tool_call_id = str(getattr(tool_call, "id", "") or "")
+                        tool_name = str(
+                            getattr(tool_call, "name", "unknown") or "unknown"
+                        )
+                        tool_args = getattr(tool_call, "args", {}) or {}
+
+                    if tool_call_id:
+                        tool_info = {
+                            "name": tool_name,
+                            "id": tool_call_id,
+                            "args": tool_args,
+                            "output": tool_call_id_to_output.get(tool_call_id),
+                        }
+                        tool_info_list.insert(
+                            0, tool_info
+                        )  # Insert at beginning to maintain order
+
+    return tool_info_list
+
+
 @api_router.get("/history/{agent_id}/{thread_id}")
 async def history(
     agent_id: str | None = None, thread_id: UUID | None = None
 ) -> ChatHistory:
     """
-    Get chat history.
+    Get chat history with tool call information.
     """
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is not provided")
@@ -137,9 +215,19 @@ async def history(
     try:
         state_snapshot = await agent.aget_state(config=config)
         messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
-        chat_messages: list[ChatMessage] = [
-            langchain_to_chat_message(m) for m in messages
-        ]
+
+        # Convert messages and add tool call info
+        chat_messages: list[ChatMessage] = []
+        for i, msg in enumerate(messages):
+            chat_message = langchain_to_chat_message(msg)
+
+            # For AI messages with content (final response), collect tool calls from preceding messages
+            if isinstance(msg, AIMessage) and msg.content and str(msg.content).strip():
+                tool_info = _collect_tool_calls_for_final_response(messages, i)
+                if tool_info:
+                    chat_message.custom_data["tool_info"] = tool_info
+
+            chat_messages.append(chat_message)
         return ChatHistory(messages=chat_messages)
     except Exception as e:
         logger.error(f"An exception occurred: {e}")

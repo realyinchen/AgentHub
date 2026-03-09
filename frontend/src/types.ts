@@ -69,6 +69,17 @@ export type ToolCallInfo = {
   status: "calling" | "completed"
 }
 
+/**
+ * Tool info stored in message custom_data for history persistence.
+ * This is the format returned by the backend history API.
+ */
+export type StoredToolCallInfo = {
+  name: string
+  id: string
+  args: Record<string, unknown>
+  output?: string | null
+}
+
 export type StreamEvent =
   | {
       type: "token"
