@@ -324,7 +324,7 @@ export function ChatMainPanel({
                 </div>
               </div>
             ) : (
-              <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-0">
+              <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-8">
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const retrySource = message.type === "ai"
