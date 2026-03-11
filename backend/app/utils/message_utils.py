@@ -50,9 +50,15 @@ def _extract_thinking_content(message: AIMessage) -> str:
     
     # 1. Check structured content (DashScope thinking models)
     if isinstance(message.content, list):
+        thinking_blocks = []
         for block in message.content:
             if isinstance(block, dict) and block.get("type") == "thinking":
-                thinking += block.get("thinking", "") + "\n"
+                content = block.get("thinking", "")
+                if content:
+                    thinking_blocks.append(content)
+        # Join thinking blocks directly without adding newlines
+        # Each block is already a chunk of the streaming output
+        thinking = "".join(thinking_blocks)
     
     # 2. Check reasoning_content attribute (DeepSeek-R1 style)
     if not thinking:

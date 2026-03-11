@@ -68,7 +68,11 @@
 
 ## Current Status
 
-**Stable** - Thinking mode feature is complete and functional. All bugs fixed. Ready for RAG agent development.
+**Stable** - Thinking mode feature is complete and functional. Bug fix for thinking content fragmentation in history applied. Ready for RAG agent development.
+
+### Recent Bug Fixes
+
+**Thinking Content Fragmentation (3/11/2026)**: Fixed an issue where thinking process content appeared fragmented when viewing historical conversations. The root cause was improper joining of streaming chunks with newlines in `_extract_thinking_content()`. Changed to join blocks directly without adding separators.
 
 ## Evolution of Project Decisions
 
