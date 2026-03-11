@@ -52,7 +52,7 @@ export function ChatSidebar({
 
   return (
     <Sidebar collapsible="icon" variant="sidebar">
-      <SidebarHeader className={isCollapsed ? "gap-3 " : "gap-3 p-4"}>
+      <SidebarHeader className={isCollapsed ? "gap-2" : "gap-2 p-3"}>
         {isCollapsed ? (
           <div className="group/logo relative mx-auto flex size-9 items-center justify-center">
             <a

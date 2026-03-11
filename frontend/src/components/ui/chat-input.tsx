@@ -7,7 +7,7 @@ import type { Editor, JSONContent } from "@tiptap/react";
 import { EditorContent, ReactRenderer, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import type { SuggestionProps } from "@tiptap/suggestion";
-import { ArrowUpIcon, Loader2, PlusIcon } from "lucide-react";
+import { Loader2, PlusIcon, SendIcon } from "lucide-react";
 
 import {
 	type ComponentProps,
@@ -614,7 +614,7 @@ export function ChatInputSubmitButton({
 			disabled={effectiveDisabled}
 			{...props}
 		>
-			<ArrowUpIcon />
+			<SendIcon className="h-4 w-4" />
 			<span className="sr-only">{t("common.send")}</span>
 		</InputGroupButton>
 	);
