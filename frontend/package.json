@@ -1,5 +1,5 @@
 {
-  "name": "front-demo",
+  "name": "agenthub",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -17,10 +17,13 @@
     "@tiptap/react": "^3.20.0",
     "@tiptap/starter-kit": "^3.20.0",
     "@tiptap/suggestion": "^3.20.0",
+    "ai": "^6.0.101",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "cmdk": "^1.1.1",
     "lucide-react": "^0.575.0",
     "marked": "^17.0.3",
+    "nanoid": "^5.1.6",
     "radix-ui": "^1.4.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
@@ -28,6 +31,7 @@
     "rehype-raw": "^7.0.0",
     "remark-gfm": "^4.0.1",
     "shiki": "^3.22.0",
+    "streamdown": "^2.3.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.2.1",
     "tippy.js": "^6.3.7"

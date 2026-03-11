@@ -46,6 +46,7 @@ export async function listConversations(limit = 100): Promise<ConversationInDB[]
 export async function createConversation(input: {
   thread_id: string
   title: string
+  agent_id?: string
 }): Promise<ConversationInDB> {
   return requestJson<ConversationInDB>("/chat/conversations", {
     method: "POST",
@@ -164,4 +165,8 @@ export async function streamChat(
       separatorIndex = buffer.indexOf("\n\n")
     }
   }
+}
+
+export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
+  return requestJson<{ available: boolean }>("/chat/thinking-mode")
 }
