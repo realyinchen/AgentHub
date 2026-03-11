@@ -15,7 +15,7 @@ AgentHub was created to bridge the gap between learning LangChain/LangGraph conc
 ## How It Works (Target State after Frontend Migration)
 
 ### User Flow
-1. User opens the modern React frontend at `http://localhost:9527`.
+1. User opens the modern React frontend at `http://localhost:5173`.
 2. User sees a clean layout: top-left logo, agent selector dropdown, left sidebar for conversation history, main right area for chat.
 3. User selects an agent from the dropdown (dynamically loaded from backend).
 4. User types a message in the chat input and submits.

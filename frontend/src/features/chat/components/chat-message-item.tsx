@@ -519,7 +519,7 @@ export function ChatMessageItem({
             
             {/* Thinking process detail panel */}
             {showThinkingButton && showThinkingProcess ? (
-              <div className="mt-2 w-full max-w-md rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
+              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
                 <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
                   <BrainIcon className="size-3" />
                   {t("message.thinkingProcess")}
@@ -532,7 +532,7 @@ export function ChatMessageItem({
             
             {/* Tool calls detail panel */}
             {showToolCallButton && showToolCalls ? (
-              <div className="mt-2 w-full max-w-md rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
+              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
                 <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
                   <WrenchIcon className="size-3" />
                   {t("message.toolCallsCount", { count: allTools.length })}

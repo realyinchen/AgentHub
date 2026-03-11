@@ -9,7 +9,6 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import {
   PromptInput,
   PromptInputBody,
@@ -19,6 +18,7 @@ import {
 } from "@/components/ai/prompt-input"
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { Loader } from "~/components/ai/loader"
+import { AgentGrid } from "@/components/agent"
 import { useI18n } from "@/i18n"
 
 type ChatMainPanelProps = {
@@ -38,12 +38,10 @@ type ChatMainPanelProps = {
   onSendMessage: (rawInput: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
-  // Thinking mode props
   thinkingMode: boolean
   onToggleThinkingMode: () => void
   isThinkingModeAvailable: boolean
   isThinkingModeLoading: boolean
-  // Edit message props
   onEditMessage?: (newContent: string) => Promise<void>
 }
 
@@ -67,6 +65,7 @@ export function ChatMainPanel({
   thinkingContent,
   messages,
   agents,
+  selectedAgentId,
   onSendMessage,
   onStopStreaming,
   onSelectAgent,
@@ -112,7 +111,7 @@ export function ChatMainPanel({
   const isComposerDisabled =
     isInitializing || isLoadingConversation || isAwaitingAgentSelection
 
-  const selectableAgents = useMemo(() => {
+  useMemo(() => {
     if (agents.length === 0) {
       return [
         {
@@ -297,30 +296,11 @@ export function ChatMainPanel({
                     <h1 className="mb-8 text-4xl font-semibold">{t("chat.chooseAgent")}</h1>
                   </div>
 
-                  <div className="mx-auto flex w-full flex-wrap justify-center gap-3">
-                    {selectableAgents.map((agent) => (
-                      <Card
-                        key={agent.agent_id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => onSelectAgent(agent.agent_id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault()
-                            onSelectAgent(agent.agent_id)
-                          }
-                        }}
-                        className="w-full max-w-sm cursor-pointer gap-4 px-1 py-5 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md md:basis-[calc(50%-0.375rem)] xl:basis-[calc(33.333%-0.5rem)]"
-                      >
-                        <CardHeader className="gap-2 px-5">
-                          <CardTitle className="text-base">{agent.agent_id}</CardTitle>
-                          <CardDescription className="line-clamp-3">
-                            {agent.description}
-                          </CardDescription>
-                        </CardHeader>
-                      </Card>
-                    ))}
-                  </div>
+                  <AgentGrid
+                    agents={agents}
+                    selectedAgentId={selectedAgentId}
+                    onSelectAgent={onSelectAgent}
+                  />
                 </div>
               </div>
             ) : (

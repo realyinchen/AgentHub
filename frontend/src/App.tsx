@@ -366,6 +366,41 @@ function App() {
           if (duplicatedByRunId || duplicatedByContent) {
             return previous
           }
+
+          // If streaming is still in progress and the last message is an AI message,
+          // merge the content instead of creating a new bubble.
+          // This handles cases where the backend sends multiple intermediate messages
+          // (e.g., "Let me check..." followed by the actual response).
+          // We merge regardless of whether the last message is still marked as streaming,
+          // as long as the overall streaming session is still active.
+          const shouldMergeContent = isStreaming && lastMessage?.type === "ai" && hasContent
+
+          if (shouldMergeContent) {
+            // Merge content and tool calls into the last message
+            const mergedContent = (lastMessage.content || "") + (normalized.content || "")
+            const mergedToolCalls = [
+              ...(lastMessage.tool_calls || []),
+              ...(normalized.tool_calls || []),
+            ]
+            const mergedThinking = normalized.custom_data?.thinking || lastMessage.custom_data?.thinking
+
+            return previous.map((item, index) => {
+              if (index === previous.length - 1) {
+                return {
+                  ...item,
+                  content: mergedContent,
+                  tool_calls: mergedToolCalls,
+                  custom_data: {
+                    ...item.custom_data,
+                    ...(mergedThinking ? { thinking: mergedThinking } : {}),
+                  },
+                  // Keep streaming state - will be marked as complete when streaming ends
+                  is_streaming: true,
+                }
+              }
+              return item
+            })
+          }
         }
 
         if (
@@ -379,7 +414,7 @@ function App() {
         return [...previous, toLocalMessage(normalized)]
       })
     },
-    [],
+    [isStreaming],
   )
 
   const stopStreaming = useCallback(() => {
@@ -962,7 +997,7 @@ function App() {
 
         {/* Right Panel */}
         <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-3 w-fit">
-          {/* First row: three buttons horizontally */}
+          {/* Three buttons horizontally */}
           <div className="flex gap-1 w-full">
             <Button
               type="button"
@@ -1006,31 +1041,41 @@ function App() {
               <Languages className="size-4" />
             </Button>
           </div>
-          {/* Second row: Agent selector */}
-          <Select
-            value={selectedAgentId}
-            onValueChange={(value) => {
-              if (!isStreaming && !isInitializing && !isLoadingConversation) {
-                pickAgentForCurrentConversation(value)
-              }
-            }}
-            disabled={isStreaming || isInitializing || isLoadingConversation}
-          >
-            <SelectTrigger size="sm" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {agents.map((agent) => (
-                <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                  {agent.agent_id.toLowerCase().includes("rag")
-                    ? t("chat.status.rag")
-                    : agent.agent_id === "chatbot"
-                      ? t("chat.status.chatbot")
-                      : agent.agent_id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Agent selector - only show when not awaiting agent selection */}
+          {!isAwaitingAgentSelection && (
+            <Select
+              value={selectedAgentId}
+              onValueChange={(value) => {
+                if (!isStreaming && !isInitializing && !isLoadingConversation) {
+                  pickAgentForCurrentConversation(value)
+                }
+              }}
+              disabled={isStreaming || isInitializing || isLoadingConversation}
+            >
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(() => {
+                  // Sort agents to always show current selected agent first
+                  const sortedAgents = [...agents].sort((a, b) => {
+                    if (a.agent_id === selectedAgentId) return -1
+                    if (b.agent_id === selectedAgentId) return 1
+                    return 0
+                  })
+                  return sortedAgents.map((agent) => (
+                    <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                      {agent.agent_id.toLowerCase().includes("rag")
+                        ? t("chat.status.rag")
+                        : agent.agent_id === "chatbot"
+                          ? t("chat.status.chatbot")
+                          : agent.agent_id}
+                    </SelectItem>
+                  ))
+                })()}
+              </SelectContent>
+            </Select>
+          )}
         </aside>
       </SidebarProvider>
 
