@@ -113,7 +113,7 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
 
 3. **克隆并进入项目目录**
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/realyinchen/AgentHub.git
    cd AgentHub
    ```
 

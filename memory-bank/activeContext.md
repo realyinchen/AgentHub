@@ -16,6 +16,27 @@ The thinking mode feature is complete and stable. The next major goal is to buil
 
 ## Recent Changes
 
+### Bug Fix: Thinking Content Fragmentation in History (3/11/2026)
+
+**Problem**: When viewing historical conversations or refreshing the page, thinking content was displayed fragmented - each streaming token appeared on a separate line, breaking the original flow.
+
+**Root Cause**: In `_extract_thinking_content()` function in `backend/app/utils/message_utils.py`, each thinking block was appended with `+ "\n"`, causing newline characters between streaming chunks when the message was retrieved from LangGraph checkpoint.
+
+**Solution**: Modified `_extract_thinking_content()` to collect all thinking blocks first and join them directly without adding newlines:
+```python
+# Before (broken):
+thinking += block.get("thinking", "") + "\n"
+
+# After (fixed):
+thinking_blocks = []
+for block in message.content:
+    if isinstance(block, dict) and block.get("type") == "thinking":
+        content = block.get("thinking", "")
+        if content:
+            thinking_blocks.append(content)
+thinking = "".join(thinking_blocks)
+```
+
 ### Thinking Mode Feature Complete (3/10/2026 - 3/11/2026)
 
 **Frontend Components:**
