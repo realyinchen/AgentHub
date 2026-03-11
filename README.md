@@ -21,6 +21,9 @@ Follow my WeChat official account for the latest updates:
 ✅ **Modern React Frontend** — Interactive web interface built with Vite + React + TypeScript + Tailwind CSS + shadcn/ui for superior user experience.  
 ✅ **LangChain/LangGraph Integration** — Easy to build, design, and connect multi-agent reasoning workflows with visualization.  
 ✅ **Streaming & Event-Driven** — Real-time token streaming and agent execution event visualization.  
+✅ **Thinking Mode** — Toggle between standard and thinking modes for deeper reasoning with separate UI for thought process and tool calls.  
+✅ **Multi-language Support** — Built-in internationalization with English and Chinese translations.  
+✅ **Dark/Light Theme** — Customizable theme support for comfortable viewing.  
 
 ## 🧩 Perfect For:
 

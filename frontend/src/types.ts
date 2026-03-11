@@ -48,6 +48,7 @@ export type UserInput = {
   content: string
   agent_id: string
   thread_id?: string | null
+  thinking_mode?: boolean
 }
 
 export type ToolCallEvent = {
@@ -85,6 +86,10 @@ export type StoredToolCallInfo = {
 export type StreamEvent =
   | {
       type: "token"
+      content: string
+    }
+  | {
+      type: "thinking"
       content: string
     }
   | {

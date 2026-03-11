@@ -166,3 +166,7 @@ export async function streamChat(
     }
   }
 }
+
+export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
+  return requestJson<{ available: boolean }>("/chat/thinking-mode")
+}

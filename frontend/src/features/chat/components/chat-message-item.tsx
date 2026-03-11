@@ -4,6 +4,7 @@ import {
   ChevronDown,
   CopyIcon,
   RefreshCcwIcon,
+  WrenchIcon,
 } from "lucide-react"
 import { useEffect, useState } from "react"
 
@@ -21,6 +22,9 @@ type ChatMessageItemProps = {
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
   activeToolName?: string | null
+  thinkingContent?: string // Accumulated thinking content (streaming)
+  isProcessing?: boolean // Processing, no content received yet
+  isStreaming?: boolean // Whether the current message is streaming
 }
 
 type SourceLink = {
@@ -77,41 +81,33 @@ function parseSources(message: LocalChatMessage): SourceLink[] {
   return []
 }
 
-function parseReasoning(message: LocalChatMessage): { content: string; duration?: number } | null {
-  const candidates = [
-    message.custom_data?.reasoning,
-    message.response_metadata?.reasoning,
-    message.response_metadata?.thinking,
-    message.reasoning_content,
-  ]
+/**
+ * Parse thinking content from message.
+ * Checks multiple sources for compatibility.
+ */
+function parseThinkingContent(message: LocalChatMessage): string | null {
+  // 1. Check custom_data.thinking (saved from backend)
+  const thinkingFromCustomData = message.custom_data?.thinking
+  if (typeof thinkingFromCustomData === "string" && thinkingFromCustomData.trim()) {
+    return thinkingFromCustomData.trim()
+  }
 
-  for (const candidate of candidates) {
-    if (!candidate) {
-      continue
-    }
+  // 2. Check response_metadata.thinking
+  const thinkingFromMetadata = message.response_metadata?.thinking
+  if (typeof thinkingFromMetadata === "string" && thinkingFromMetadata.trim()) {
+    return thinkingFromMetadata.trim()
+  }
 
-    if (typeof candidate === "string" && candidate.trim()) {
-      return { content: candidate.trim() }
-    }
+  // 3. Check reasoning_content
+  const reasoningContent = message.reasoning_content
+  if (typeof reasoningContent === "string" && reasoningContent.trim()) {
+    return reasoningContent.trim()
+  }
 
-    if (candidate && typeof candidate === "object") {
-      const record = candidate as Record<string, unknown>
-      const content =
-        typeof record.content === "string"
-          ? record.content
-          : typeof record.text === "string"
-            ? record.text
-            : null
-
-      if (!content || !content.trim()) {
-        continue
-      }
-
-      return {
-        content: content.trim(),
-        duration: typeof record.duration === "number" ? record.duration : undefined,
-      }
-    }
+  // 4. Check custom_data.reasoning
+  const reasoningFromCustomData = message.custom_data?.reasoning
+  if (typeof reasoningFromCustomData === "string" && reasoningFromCustomData.trim()) {
+    return reasoningFromCustomData.trim()
   }
 
   return null
@@ -122,36 +118,43 @@ function parseReasoning(message: LocalChatMessage): { content: string; duration?
  * This is used to display tool calls from conversation history.
  */
 function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
-  const toolInfo = message.custom_data?.tool_info
-  
-  if (!Array.isArray(toolInfo) || toolInfo.length === 0) {
+  try {
+    const toolInfo = message.custom_data?.tool_info
+    
+    if (!Array.isArray(toolInfo) || toolInfo.length === 0) {
+      return []
+    }
+
+    // Check if all items have order field - if so, sort by order
+    // Otherwise, keep original array order (which should be correct from backend)
+    const hasOrderField = toolInfo.every(
+      (item) => {
+        const stored = item as StoredToolCallInfo
+        return stored && typeof stored.order === "number"
+      }
+    )
+    
+    const sortedInfo = hasOrderField
+      ? [...toolInfo].sort((a, b) => {
+          const orderA = (a as StoredToolCallInfo).order as number
+          const orderB = (b as StoredToolCallInfo).order as number
+          return orderA - orderB
+        })
+      : toolInfo
+
+    return sortedInfo.map((info, index): ToolCallInfo => {
+      const stored = info as StoredToolCallInfo
+      return {
+        name: (stored?.name as string) || "unknown",
+        id: (stored?.id as string) || `tool-${index}-${Date.now()}`,
+        args: (stored?.args as Record<string, unknown>) || {},
+        output: (stored?.output as string | undefined) || undefined,
+        status: "completed" as const,
+      }
+    })
+  } catch {
     return []
   }
-
-  // Check if all items have order field - if so, sort by order
-  // Otherwise, keep original array order (which should be correct from backend)
-  const hasOrderField = toolInfo.every(
-    (item) => typeof (item as StoredToolCallInfo).order === "number"
-  )
-  
-  const sortedInfo = hasOrderField
-    ? [...toolInfo].sort((a, b) => {
-        const orderA = (a as StoredToolCallInfo).order as number
-        const orderB = (b as StoredToolCallInfo).order as number
-        return orderA - orderB
-      })
-    : toolInfo
-
-  return sortedInfo.map((info): ToolCallInfo => {
-    const stored = info as StoredToolCallInfo
-    return {
-      name: stored.name || "unknown",
-      id: stored.id || crypto.randomUUID(),
-      args: stored.args || {},
-      output: stored.output || undefined,
-      status: "completed" as const,
-    }
-  })
 }
 
 /**
@@ -206,19 +209,38 @@ export function ChatMessageItem({
   calledTools = [], 
   isAgentThinking = false,
   activeToolName = null,
+  thinkingContent = "",
+  isProcessing = false,
+  isStreaming = false,
 }: ChatMessageItemProps) {
   const { t } = useI18n()
   const isUser = message.type === "human"
   const isAI = message.type === "ai"
   const isTool = message.type === "tool"
-  const isStreamingPlaceholder = isAI && message.is_streaming && !message.content.trim()
   const sources = parseSources(message)
-  const reasoning = parseReasoning(message)
   const [copied, setCopied] = useState(false)
   const [showThinkingProcess, setShowThinkingProcess] = useState(false)
+  const [showToolCalls, setShowToolCalls] = useState(false)
+  
+  // Parse thinking content from message (for history) or use streaming content
+  const historicalThinking = parseThinkingContent(message)
+  const displayThinkingContent = thinkingContent || historicalThinking || ""
+  const hasThinkingContent = Boolean(displayThinkingContent)
+  
+  // Merge calledTools from streaming with stored tool_info from history
+  // For streaming messages, use calledTools; for history messages, use stored tool_info
+  const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
+  const hasToolCalls = allTools.length > 0
 
-  // 不渲染工具类型的消息（工具调用结果）
+  // Don't render tool type messages (tool call results)
   if (isTool) {
+    return null
+  }
+
+  // For AI messages, don't render if there's no content, thinking content, or tool calls
+  // This avoids empty bubbles
+  // But during streaming, show processing state even without content
+  if (isAI && !isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
     return null
   }
 
@@ -244,12 +266,9 @@ export function ChatMessageItem({
     }
   }
 
-  // Merge calledTools from streaming with stored tool_info from history
-  // For streaming messages, use calledTools; for history messages, use stored tool_info
-  const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
-  
-  // Check if we have any thinking process content (reasoning or tool calls)
-  const hasThinkingProcess = reasoning !== null || allTools.length > 0
+  // Determine what to show in the action bar
+  const showThinkingButton = hasThinkingContent
+  const showToolCallButton = hasToolCalls
 
   return (
     <article
@@ -261,23 +280,21 @@ export function ChatMessageItem({
           "min-w-0 shrink-0",
           isUser
             ? "w-auto max-w-[72%] items-end"
-            : isStreamingPlaceholder
-              ? "w-auto max-w-[85%]"
-              : "w-full max-w-[85%]",
+            : "w-full max-w-[85%]",
         )}
       >
         <MessageContent
           className={cn(
             "max-w-full overflow-visible rounded-2xl px-4 py-3",
             isUser
-              ? "w-fit mr-3  border-border/70 bg-muted/65 text-foreground group-[.is-user]:bg-muted/65 group-[.is-user]:text-foreground"
-              : isStreamingPlaceholder
-                ? "w-fit min-w-14 bg-muted/60 text-foreground"
-                : "w-full bg-muted/60 text-foreground",
+              ? "w-fit mr-3 text-white"
+              : "w-full bg-muted/60 text-foreground",
           )}
+          style={isUser ? { backgroundColor: "#1AAD19" } : undefined}
         >
+          {/* Sources */}
           {sources.length > 0 ? (
-            <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs">
+            <details className="rounded-lg border border-border/80 bg-background/70 p-2 text-xs mb-2">
               <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
                 <ChevronDown className="size-3" />
                 {t("message.sources", { count: sources.length })}
@@ -298,70 +315,81 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Thinking state for streaming placeholder - show tool calls dynamically */}
-          {isStreamingPlaceholder && isAgentThinking ? (
-            <div className="space-y-2">
-              {/* Thinking indicator */}
-              <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="inline-flex gap-1">
-                  <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                  <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                  <span className="size-1.5 animate-bounce rounded-full bg-current" />
-                </span>
-                <span>{t("message.thinking")}</span>
-              </div>
-              
-              {/* Tool calls during streaming - show grouped consecutive calls */}
-              {allTools.length > 0 ? (
-                <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs">
-                  <div className="space-y-1.5">
-                    {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => {
-                      // Check if any tool in the group is still calling
-                      const hasCallingTool = group.tools.some(t => t.status === "calling")
-                      
-                      return (
-                        <div key={`group-${groupIndex}`} className="flex items-center gap-2">
-                          {hasCallingTool ? (
-                            <span className="inline-flex gap-1">
-                              <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                              <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                              <span className="size-1 animate-bounce rounded-full bg-current" />
-                            </span>
-                          ) : (
-                            <CheckIcon className="size-3 text-green-500" />
-                          )}
-                          <span className={hasCallingTool ? "text-muted-foreground" : "text-foreground"}>
-                            {group.name}
-                            {group.count > 1 ? (
-                              <span className="ml-1 text-muted-foreground">×{group.count}</span>
-                            ) : null}
-                          </span>
-                          {hasCallingTool ? (
-                            <span className="text-muted-foreground">...</span>
-                          ) : null}
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              ) : activeToolName ? (
-                <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex gap-1">
-                      <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                      <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                      <span className="size-1 animate-bounce rounded-full bg-current" />
-                    </span>
-                    <span className="text-muted-foreground">{activeToolName}...</span>
-                  </div>
-                </div>
-              ) : null}
+          {/* Processing state - show loading animation before any content arrives */}
+          {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <span className="inline-flex gap-1">
+                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+                <span className="size-1.5 animate-bounce rounded-full bg-current" />
+              </span>
+              <span>{t("message.processing")}</span>
             </div>
           ) : null}
 
+          {/* Thinking process - only show when there is actual thinking content */}
+          {isAI && hasThinkingContent && isStreaming && !message.content.trim() ? (
+            <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2" open>
+              <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
+                <BrainIcon className="size-3" />
+                {t("message.thinking")}
+              </summary>
+              <div className="mt-2 whitespace-pre-wrap text-muted-foreground max-h-40 overflow-y-auto">
+                {displayThinkingContent}
+              </div>
+            </details>
+          ) : null}
+
+          {/* Tool calls during streaming - show grouped consecutive calls */}
+          {isAI && allTools.length > 0 && isStreaming && !message.content.trim() ? (
+            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
+              <div className="space-y-1.5">
+                {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => {
+                  // Check if any tool in the group is still calling
+                  const hasCallingTool = group.tools.some(t => t.status === "calling")
+                  
+                  return (
+                    <div key={`group-${groupIndex}`} className="flex items-center gap-2">
+                      {hasCallingTool ? (
+                        <span className="inline-flex gap-1">
+                          <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+                          <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+                          <span className="size-1 animate-bounce rounded-full bg-current" />
+                        </span>
+                      ) : (
+                        <CheckIcon className="size-3 text-green-500" />
+                      )}
+                      <span className={hasCallingTool ? "text-muted-foreground" : "text-foreground"}>
+                        {group.name}
+                        {group.count > 1 ? (
+                          <span className="ml-1 text-muted-foreground">×{group.count}</span>
+                        ) : null}
+                      </span>
+                      {hasCallingTool ? (
+                        <span className="text-muted-foreground">...</span>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : activeToolName && isStreaming && !message.content.trim() ? (
+            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
+              <div className="flex items-center gap-2">
+                <span className="inline-flex gap-1">
+                  <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+                  <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+                  <span className="size-1 animate-bounce rounded-full bg-current" />
+                </span>
+                <span className="text-muted-foreground">{activeToolName}...</span>
+              </div>
+            </div>
+          ) : null}
+
+          {/* Main message content */}
           {isAI ? (
             message.content ? (
-              <MarkdownContent content={message.content} isStreaming={message.is_streaming} />
+              <MarkdownContent content={message.content} isStreaming={isStreaming} />
             ) : null
           ) : (
             <p className="whitespace-pre-wrap break-words text-sm leading-6">
@@ -370,8 +398,8 @@ export function ChatMessageItem({
           )}
         </MessageContent>
 
-        {/* Actions area: copy, retry, thinking process */}
-        {isAI && !message.is_streaming ? (
+        {/* Actions area: copy, retry, thinking process, tool calls */}
+        {isAI && !isStreaming ? (
           <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
             <Actions className={cn("pt-1", isUser ? "justify-end" : "justify-start")}>
               <Action
@@ -393,7 +421,7 @@ export function ChatMessageItem({
               >
                 <RefreshCcwIcon className="size-4" />
               </Action>
-              {hasThinkingProcess ? (
+              {showThinkingButton ? (
                 <Action
                   onClick={() => setShowThinkingProcess(!showThinkingProcess)}
                   tooltip={showThinkingProcess ? t("message.hideThinkingProcess") : t("message.showThinkingProcess")}
@@ -403,73 +431,80 @@ export function ChatMessageItem({
                   <BrainIcon className="size-4" />
                 </Action>
               ) : null}
+              {showToolCallButton ? (
+                <Action
+                  onClick={() => setShowToolCalls(!showToolCalls)}
+                  tooltip={showToolCalls ? t("message.hideToolCalls") : t("message.showToolCalls")}
+                  label={t("message.toolCalls")}
+                  className="cursor-pointer"
+                >
+                  <WrenchIcon className="size-4" />
+                </Action>
+              ) : null}
             </Actions>
             
-            {/* Thinking process detail panel - show reasoning and tool calls in order */}
-            {hasThinkingProcess && showThinkingProcess ? (
+            {/* Thinking process detail panel */}
+            {showThinkingButton && showThinkingProcess ? (
               <div className="mt-2 w-full max-w-md rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
-                <div className="mb-2 font-medium text-muted-foreground">
+                <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
+                  <BrainIcon className="size-3" />
                   {t("message.thinkingProcess")}
                 </div>
-                
-                {/* Reasoning content (if available) */}
-                {reasoning ? (
-                  <div className="mb-3 rounded border border-border/40 bg-background/30 p-2">
-                    <div className="font-medium text-foreground mb-1">{t("message.reasoning")}</div>
-                    <div className="whitespace-pre-wrap text-muted-foreground">
-                      {reasoning.content}
-                    </div>
-                  </div>
-                ) : null}
-                
-                {/* Tool calls - show grouped consecutive calls */}
-                {allTools.length > 0 ? (
-                  <div className="space-y-2">
-                    <div className="font-medium text-foreground">
-                      {t("message.toolCallsCount", { count: allTools.length })}
-                    </div>
-                    {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => (
-                      <details key={`group-${groupIndex}`} className="rounded border border-border/40 bg-background/30">
-                        <summary className="flex cursor-pointer list-none items-center gap-2 p-2">
-                          <CheckIcon className="size-3 text-green-500" />
-                          <div className="font-medium text-foreground">
-                            {group.name}
+                <div className="whitespace-pre-wrap text-muted-foreground max-h-60 overflow-y-auto">
+                  {displayThinkingContent}
+                </div>
+              </div>
+            ) : null}
+            
+            {/* Tool calls detail panel */}
+            {showToolCallButton && showToolCalls ? (
+              <div className="mt-2 w-full max-w-md rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
+                <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
+                  <WrenchIcon className="size-3" />
+                  {t("message.toolCallsCount", { count: allTools.length })}
+                </div>
+                <div className="space-y-2">
+                  {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => (
+                    <details key={`group-${groupIndex}`} className="rounded border border-border/40 bg-background/30">
+                      <summary className="flex cursor-pointer list-none items-center gap-2 p-2">
+                        <CheckIcon className="size-3 text-green-500" />
+                        <div className="font-medium text-foreground">
+                          {group.name}
+                          {group.count > 1 ? (
+                            <span className="ml-1 text-muted-foreground">×{group.count}</span>
+                          ) : null}
+                        </div>
+                      </summary>
+                      <div className="border-t border-border/30 p-2 space-y-2">
+                        {group.tools.map((tool, toolIndex) => (
+                          <div key={`${tool.id}-${toolIndex}`} className="text-muted-foreground">
                             {group.count > 1 ? (
-                              <span className="ml-1 text-muted-foreground">×{group.count}</span>
+                              <div className="font-medium text-foreground mb-1 text-[11px]">
+                                #{toolIndex + 1}
+                              </div>
+                            ) : null}
+                            {Object.keys(tool.args).length > 0 ? (
+                              <div className="mb-1">
+                                <span className="font-medium">{t("message.toolInput")}:</span>
+                                <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px]">
+                                  {JSON.stringify(tool.args, null, 2)}
+                                </pre>
+                              </div>
+                            ) : null}
+                            {tool.output ? (
+                              <div>
+                                <span className="font-medium">{t("message.toolOutput")}:</span>
+                                <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px] max-h-32 overflow-y-auto">
+                                  {tool.output}
+                                </pre>
+                              </div>
                             ) : null}
                           </div>
-                        </summary>
-                        <div className="border-t border-border/30 p-2 space-y-2">
-                          {group.tools.map((tool, toolIndex) => (
-                            <div key={`${tool.id}-${toolIndex}`} className="text-muted-foreground">
-                              {group.count > 1 ? (
-                                <div className="font-medium text-foreground mb-1 text-[11px]">
-                                  #{toolIndex + 1}
-                                </div>
-                              ) : null}
-                              {Object.keys(tool.args).length > 0 ? (
-                                <div className="mb-1">
-                                  <span className="font-medium">{t("message.toolInput")}:</span>
-                                  <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px]">
-                                    {JSON.stringify(tool.args, null, 2)}
-                                  </pre>
-                                </div>
-                              ) : null}
-                              {tool.output ? (
-                                <div>
-                                  <span className="font-medium">{t("message.toolOutput")}:</span>
-                                  <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px] max-h-32 overflow-y-auto">
-                                    {tool.output}
-                                  </pre>
-                                </div>
-                              ) : null}
-                            </div>
-                          ))}
-                        </div>
-                      </details>
-                    ))}
-                  </div>
-                ) : null}
+                        ))}
+                      </div>
+                    </details>
+                  ))}
+                </div>
               </div>
             ) : null}
           </div>

@@ -1,10 +1,4 @@
-from typing import Dict
-from langgraph.graph.state import CompiledStateGraph
+from app.agents.chatbot import chatbot
+from app.agents.agentic_rag import rag_agent
 
-from .chatbot import chatbot
-from .agentic_rag import rag_agent
-
-agents: Dict[str, CompiledStateGraph] = {
-    "chatbot": chatbot,
-    "rag-agent": rag_agent,
-}
+__all__ = ["chatbot", "rag_agent"]

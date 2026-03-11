@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 
 import {
   createConversation,
@@ -19,6 +19,7 @@ import type {
   ToolCallEvent,
   ToolCallInfo,
 } from "@/types"
+import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import {
   ChatMainPanel,
   ChatSidebar,
@@ -51,6 +52,14 @@ function App() {
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
+  
+  // Thinking mode state - persisted per conversation in localStorage
+  const {
+    thinkingMode,
+    toggleThinkingMode,
+    isAvailable: isThinkingModeAvailable,
+    isLoading: isThinkingModeLoading,
+  } = useThinkingMode(threadId)
   const [conversationTitle, setConversationTitleState] = useState(
     defaultConversationTitle,
   )
@@ -64,15 +73,24 @@ function App() {
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const [isAwaitingAgentSelection, setIsAwaitingAgentSelection] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false) // 正在处理，尚未收到任何内容
   const [isAgentThinking, setIsAgentThinking] = useState(false)
   const [activeToolCall, setActiveToolCall] = useState<ToolCallEvent | null>(null)
   const [calledTools, setCalledTools] = useState<ToolCallInfo[]>([])
+  const [thinkingContent, setThinkingContent] = useState("") // 累积的思考内容
 
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
+  const isProcessingRef = useRef(false)
+  const thinkingModeRef = useRef(thinkingMode)
+  
+  // Keep thinkingModeRef in sync with thinkingMode state
+  useEffect(() => {
+    thinkingModeRef.current = thinkingMode
+  }, [thinkingMode])
 
   const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
     const url = new URL(window.location.href)
@@ -433,17 +451,39 @@ function App() {
         const controller = new AbortController()
         abortControllerRef.current = controller
 
-        // Reset thinking state and called tools for new message
-        setIsAgentThinking(true)
+        // Reset state for new message
+        setIsProcessing(true) // 开始处理，尚未收到任何内容
+        isProcessingRef.current = true
+        setIsAgentThinking(false)
         setCalledTools([])
+        setThinkingContent("")
 
+        // Use ref to get the latest thinkingMode value to avoid stale closure
+        const currentThinkingMode = thinkingModeRef.current
+        
         await streamChat(
           {
             content: trimmed,
             agent_id: selectedAgentId,
             thread_id: targetThreadId,
+            thinking_mode: currentThinkingMode,
           },
           (event: StreamEvent) => {
+            // 收到任何内容，停止显示"正在处理..."
+            if (isProcessingRef.current) {
+              setIsProcessing(false)
+              isProcessingRef.current = false
+            }
+
+            if (event.type === "thinking") {
+              // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
+              setIsAgentThinking(true)
+              setActiveToolCall(null)
+              // 累积思考内容
+              setThinkingContent((prev) => prev + event.content)
+              return
+            }
+
             if (event.type === "token") {
               // When we start receiving tokens, agent is no longer "thinking"
               setIsAgentThinking(false)
@@ -517,9 +557,10 @@ function App() {
           controller.signal,
         )
 
+        // Ensure all streaming placeholders are marked as complete
         setMessages((previous) =>
           previous.map((message) =>
-            message.local_id === streamingPlaceholderIdRef.current
+            message.is_streaming
               ? { ...message, is_streaming: false }
               : message,
           ),
@@ -847,13 +888,19 @@ function App() {
             isInitializing={isInitializing}
             isLoadingConversation={isLoadingConversation}
             isAwaitingAgentSelection={isAwaitingAgentSelection}
+            isProcessing={isProcessing}
             isAgentThinking={isAgentThinking}
             activeToolCall={activeToolCall}
             calledTools={calledTools}
+            thinkingContent={thinkingContent}
             messages={messages}
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
             onSelectAgent={pickAgentForCurrentConversation}
+            thinkingMode={thinkingMode}
+            onToggleThinkingMode={toggleThinkingMode}
+            isThinkingModeAvailable={isThinkingModeAvailable}
+            isThinkingModeLoading={isThinkingModeLoading}
           />
         </SidebarInset>
       </SidebarProvider>

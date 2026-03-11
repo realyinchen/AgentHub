@@ -66,7 +66,7 @@ export function ChatSidebar({
                 className="size-7"
               />
             </a>
-            <SidebarTrigger className="absolute inset-0 size-9 scale-90 cursor-pointer rounded-md opacity-0 pointer-events-none transition-all duration-150 group-hover/logo:scale-100 group-hover/logo:opacity-100 group-hover/logo:pointer-events-auto" />
+            <SidebarTrigger className="absolute inset-0 size-9 scale-[1.35] cursor-pointer rounded-md opacity-0 pointer-events-none transition-all duration-150 group-hover/logo:scale-150 group-hover/logo:opacity-100 group-hover/logo:pointer-events-auto" />
           </div>
         ) : (
           <div className="flex w-full items-center justify-between gap-3">
@@ -77,7 +77,7 @@ export function ChatSidebar({
             >
               <img src={agentHubLogo} alt="" className="h-9 w-auto cursor-pointer" />
             </a>
-            <SidebarTrigger className="size-8 cursor-pointer rounded-md" />
+            <SidebarTrigger className="size-8 cursor-pointer rounded-md scale-150" />
           </div>
         )}
       </SidebarHeader>

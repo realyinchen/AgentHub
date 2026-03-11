@@ -12,6 +12,7 @@ from app.database import adb_manager
 from app.schemas.chat import ConversationCreate, ConversationInDB, ConversationUpdate
 from app.utils.agent_utils import get_agent
 from app.schemas.chat import ChatMessage, UserInput, ChatHistory
+from app.core.models import is_thinking_mode_available
 from app.utils.message_utils import (
     handle_input,
     langchain_to_chat_message,
@@ -63,10 +64,20 @@ async def stream(user_input: UserInput) -> StreamingResponse:
     is also attached to all messages for recording feedback.
 
     Set `stream_tokens=false` to return intermediate messages but not token-by-token.
+    
+    Set `thinking_mode=true` to enable thinking mode for models that support it
+    (e.g., DeepSeek-R1, Qwen3). This requires THINKING_LLM_NAME to be configured.
     """
     agent_id = user_input.agent_id
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is not provided")
+
+    logger.info(
+        "stream endpoint called: agent_id=%s, thread_id=%s, thinking_mode=%s",
+        agent_id,
+        user_input.thread_id,
+        user_input.thinking_mode,
+    )
 
     agent: CompiledStateGraph = await get_agent(agent_id)
     return StreamingResponse(
@@ -365,3 +376,14 @@ async def save_conversation(
         raise HTTPException(
             status_code=500, detail=f"Error creating conversation: {str(e)}"
         )
+
+
+@api_router.get("/thinking-mode")
+async def get_thinking_mode_status() -> dict[str, bool]:
+    """
+    Check if thinking mode is available.
+    
+    Returns:
+        dict: {"available": bool} - Whether thinking mode is available
+    """
+    return {"available": is_thinking_mode_available()}

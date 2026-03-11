@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, Languages, Moon, Share2, Sun } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
+import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
 import {
   Alert,
   AlertDescription,
@@ -43,13 +44,20 @@ type ChatMainPanelProps = {
   isInitializing: boolean
   isLoadingConversation: boolean
   isAwaitingAgentSelection: boolean
+  isProcessing: boolean // Processing, no content received yet
   isAgentThinking: boolean
   activeToolCall: ToolCallEvent | null
   calledTools: ToolCallInfo[]
+  thinkingContent: string // Accumulated thinking content
   messages: LocalChatMessage[]
   onSendMessage: (rawInput: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
+  // Thinking mode props
+  thinkingMode: boolean
+  onToggleThinkingMode: () => void
+  isThinkingModeAvailable: boolean
+  isThinkingModeLoading: boolean
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -67,13 +75,19 @@ export function ChatMainPanel({
   isInitializing,
   isLoadingConversation,
   isAwaitingAgentSelection,
+  isProcessing,
   isAgentThinking,
   activeToolCall,
   calledTools,
+  thinkingContent,
   messages,
   onSendMessage,
   onStopStreaming,
   onSelectAgent,
+  thinkingMode,
+  onToggleThinkingMode,
+  isThinkingModeAvailable,
+  isThinkingModeLoading,
 }: ChatMainPanelProps) {
   const { t, toggleLocale } = useI18n()
   const { theme, toggleTheme } = useTheme()
@@ -135,7 +149,7 @@ export function ChatMainPanel({
       description: agent.description || t("chat.noDescription"),
     }))
 
-    // 当前选中的 agent 排在第一位，其余按原顺序排列
+    // Put the currently selected agent first, others in original order
     const currentIndex = mapped.findIndex(
       (agent) => agent.agent_id === selectedAgentId
     )
@@ -310,12 +324,12 @@ export function ChatMainPanel({
   return (
     <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background">
       <header className="z-20 flex w-full flex-col items-end gap-2 bg-background px-4 pt-3 md:px-6">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 w-40">
           <Button
             type="button"
             size="sm"
             variant="outline"
-            className="cursor-pointer gap-1.5"
+            className="cursor-pointer gap-1.5 flex-1"
             onClick={handleShare}
             aria-label={t("share.button")}
           >
@@ -325,7 +339,7 @@ export function ChatMainPanel({
             type="button"
             size="sm"
             variant="outline"
-            className="cursor-pointer gap-1.5"
+            className="cursor-pointer gap-1.5 flex-1"
             onClick={toggleTheme}
             aria-label={t("theme.switch")}
           >
@@ -339,7 +353,7 @@ export function ChatMainPanel({
             type="button"
             size="sm"
             variant="outline"
-            className="cursor-pointer gap-1.5"
+            className="cursor-pointer gap-1.5 flex-1"
             onClick={toggleLocale}
             aria-label={t("language.switch")}
           >
@@ -441,6 +455,7 @@ export function ChatMainPanel({
                     const toolsForMessage = isLastAIMessage ? calledTools : []
                     const thinkingForMessage = isLastAIMessage ? isAgentThinking : false
                     const toolNameForMessage = isLastAIMessage ? activeToolCall?.name : null
+                    const thinkingContentForMessage = isLastAIMessage ? thinkingContent : ""
 
                     return (
                       <ChatMessageItem
@@ -451,6 +466,9 @@ export function ChatMainPanel({
                         calledTools={toolsForMessage}
                         isAgentThinking={thinkingForMessage}
                         activeToolName={toolNameForMessage}
+                        thinkingContent={thinkingContentForMessage}
+                        isProcessing={isLastAIMessage && isProcessing}
+                        isStreaming={message.is_streaming}
                       />
                     )
                   })
@@ -523,7 +541,13 @@ export function ChatMainPanel({
                   placeholder={t("prompt.placeholder")}
                 />
               </PromptInputBody>
-              <PromptInputFooter className="pb-3 justify-end">
+              <PromptInputFooter className="pb-3 justify-between">
+                <ThinkingModeToggle
+                  enabled={thinkingMode}
+                  available={isThinkingModeAvailable}
+                  loading={isThinkingModeLoading}
+                  onToggle={onToggleThinkingMode}
+                />
                 <PromptInputSubmit
                   disabled={submitButtonDisabled}
                   onClick={isStreaming ? onStopStreaming : undefined}
