@@ -1,13 +1,15 @@
 import { marked } from "marked";
 import type * as React from "react";
-import { isValidElement, memo, Suspense, useMemo } from "react";
+import { isValidElement, memo, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_PRE_BLOCK_CLASS =
-	"my-4 overflow-x-auto w-fit rounded-xl bg-zinc-950 text-zinc-50 dark:bg-zinc-900 border border-border p-4";
+	"my-4 w-full max-w-full overflow-x-auto rounded-xl border border-border bg-zinc-950 p-4 text-zinc-50 dark:bg-zinc-900";
 
 const extractTextContent = (node: React.ReactNode): string => {
 	if (typeof node === "string") {
@@ -25,115 +27,190 @@ const extractTextContent = (node: React.ReactNode): string => {
 
 interface HighlightedPreProps extends React.HTMLAttributes<HTMLPreElement> {
 	language: string;
+	disableHighlight?: boolean;
 }
 
-const HighlightedPre = memo(
-	async ({
-		children,
-		className,
-		language,
-		...props
-	}: HighlightedPreProps) => {
-		const { codeToTokens, bundledLanguages } = await import("shiki");
-		const code = extractTextContent(children);
+type HighlightedLine = Array<{
+	content: string;
+	style: React.CSSProperties | undefined;
+}>;
 
-		if (!(language in bundledLanguages)) {
-			return (
-				<pre
-					{...props}
-					className={cn(DEFAULT_PRE_BLOCK_CLASS, className)}
-				>
-					<code className="whitespace-pre-wrap">{children}</code>
-				</pre>
-			);
+const HighlightedPre = memo(({
+	children,
+	className,
+	language,
+	disableHighlight = false,
+	...props
+}: HighlightedPreProps) => {
+	const code = useMemo(() => extractTextContent(children), [children]);
+	const [lines, setLines] = useState<HighlightedLine[] | null>(null);
+
+	useEffect(() => {
+		if (disableHighlight) {
+			return;
 		}
 
-		const { tokens } = await codeToTokens(code, {
-			lang: language as keyof typeof bundledLanguages,
-			themes: {
-				light: "github-dark",
-				dark: "github-dark",
-			},
-		});
+		let cancelled = false;
 
+		const highlight = async () => {
+			try {
+				const { codeToTokens, bundledLanguages } = await import("shiki");
+				if (!(language in bundledLanguages)) {
+					if (!cancelled) {
+						setLines([]);
+					}
+					return;
+				}
+
+				const { tokens } = await codeToTokens(code, {
+					lang: language as keyof typeof bundledLanguages,
+					themes: {
+						light: "github-dark",
+						dark: "github-dark",
+					},
+				});
+
+				if (cancelled) {
+					return;
+				}
+
+				setLines(tokens.map((line) => line.map((token) => ({
+					content: token.content,
+					style: typeof token.htmlStyle === "string" ? undefined : token.htmlStyle,
+				}))));
+			} catch {
+				if (!cancelled) {
+					setLines([]);
+				}
+			}
+		};
+
+		void highlight();
+
+		return () => {
+			cancelled = true;
+		};
+	}, [code, disableHighlight, language]);
+
+	if (disableHighlight || !lines || lines.length === 0) {
 		return (
-			<pre {...props} className={cn(DEFAULT_PRE_BLOCK_CLASS, className)}>
-				<code className="whitespace-pre-wrap break-all">
-					{tokens.map((line, lineIndex) => (
-						<span
-							key={`line-${
-								// biome-ignore lint/suspicious/noArrayIndexKey: Needed for react key
-								lineIndex
-								}`}
-						>
-							{line.map((token, tokenIndex) => {
-								const style =
-									typeof token.htmlStyle === "string"
-										? undefined
-										: token.htmlStyle;
-
-								return (
-									<span
-										key={`token-${
-											// biome-ignore lint/suspicious/noArrayIndexKey: Needed for react key
-											tokenIndex
-											}`}
-										style={style}
-									>
-										{token.content}
-									</span>
-								);
-							})}
-							{lineIndex !== tokens.length - 1 && "\n"}
-						</span>
-					))}
-				</code>
+			<pre
+				{...props}
+				className={cn(DEFAULT_PRE_BLOCK_CLASS, className)}
+			>
+				<code className="whitespace-pre-wrap">{children}</code>
 			</pre>
 		);
-	},
-);
+	}
+
+	return (
+		<pre {...props} className={cn(DEFAULT_PRE_BLOCK_CLASS, className)}>
+			<code className="whitespace-pre-wrap break-all">
+				{lines.map((line, lineIndex) => (
+					<span
+						key={`line-${
+							// biome-ignore lint/suspicious/noArrayIndexKey: Needed for react key
+							lineIndex
+							}`}
+					>
+						{line.map((token, tokenIndex) => (
+							<span
+								key={`token-${
+									// biome-ignore lint/suspicious/noArrayIndexKey: Needed for react key
+									tokenIndex
+									}`}
+								style={token.style}
+							>
+								{token.content}
+							</span>
+						))}
+						{lineIndex !== lines.length - 1 && "\n"}
+					</span>
+				))}
+			</code>
+		</pre>
+	);
+});
 
 HighlightedPre.displayName = "HighlightedPre";
 
 interface CodeBlockProps extends React.HTMLAttributes<HTMLPreElement> {
 	language: string;
+	disableHighlight?: boolean;
+}
+
+function CopyCodeButton({ code }: { code: string }) {
+	const [copied, setCopied] = useState(false);
+
+	useEffect(() => {
+		if (!copied) {
+			return;
+		}
+
+		const timer = window.setTimeout(() => setCopied(false), 1500);
+		return () => window.clearTimeout(timer);
+	}, [copied]);
+
+	const handleCopy = async () => {
+		try {
+			await navigator.clipboard.writeText(code);
+			setCopied(true);
+		} catch {
+			// Ignore clipboard failures in unsupported environments.
+		}
+	};
+
+	return (
+		<Button
+			type="button"
+			variant="secondary"
+			size="sm"
+			className="absolute cursor-pointer right-2 top-2 z-10 h-7 gap-1 px-2 text-xs"
+			onClick={handleCopy}
+		>
+			{copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+
+		</Button>
+	);
 }
 
 const CodeBlock = ({
 	children,
 	language,
+	disableHighlight = false,
 	className,
 	...props
 }: CodeBlockProps) => {
+	const code = extractTextContent(children);
+
 	return (
-		<Suspense
-			fallback={
-				<pre
-					{...props}
-					className={cn(DEFAULT_PRE_BLOCK_CLASS, className)}
-				>
-					<code className="whitespace-pre-wrap">{children}</code>
-				</pre>
-			}
-		>
-			<HighlightedPre language={language} {...props}>
+		<div className="relative w-full max-w-full">
+			<CopyCodeButton code={code} />
+			<HighlightedPre
+				language={language}
+				disableHighlight={disableHighlight}
+				className={className}
+				{...props}
+			>
 				{children}
 			</HighlightedPre>
-		</Suspense>
+		</div>
 	);
 };
 
 CodeBlock.displayName = "CodeBlock";
 
-const components: Partial<Components> = {
+const createMarkdownComponents = (
+	disableCodeHighlight: boolean,
+): Partial<Components> => ({
 	h1: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
-		<h1 className="mt-2 scroll-m-20 text-4xl font-bold" {...props}>
+		<h1 className="scroll-m-20 text-2xl font-bold" {...props}>
 			{children}
 		</h1>
 	),
 	h2: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h2
-			className="mt-8 scroll-m-20 border-b pb-2 text-2xl font-semibold tracking-tight first:mt-0"
+			className="scroll-m-20 border-b pb-1 text-xl font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -141,7 +218,7 @@ const components: Partial<Components> = {
 	),
 	h3: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h3
-			className="mt-4 scroll-m-20 text-xl font-semibold tracking-tight"
+			className="scroll-m-20 text-lg font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -149,7 +226,7 @@ const components: Partial<Components> = {
 	),
 	h4: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h4
-			className="mt-4 scroll-m-20 text-lg font-semibold tracking-tight"
+			className="scroll-m-20 text-base font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -157,7 +234,7 @@ const components: Partial<Components> = {
 	),
 	h5: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h5
-			className="mt-4 scroll-m-20 text-lg font-semibold tracking-tight"
+			className="scroll-m-20 text-base font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
@@ -165,14 +242,14 @@ const components: Partial<Components> = {
 	),
 	h6: ({ children, ...props }: React.HTMLAttributes<HTMLHeadingElement>) => (
 		<h6
-			className="mt-4 scroll-m-20 text-base font-semibold tracking-tight"
+			className="scroll-m-20 text-sm font-semibold tracking-tight"
 			{...props}
 		>
 			{children}
 		</h6>
 	),
 	p: ({ children, ...props }: React.HTMLAttributes<HTMLParagraphElement>) => (
-		<p className="leading-6 not-first:mt-4 break-all" {...props}>
+		<p className="leading-7 break-words" {...props}>
 			{children}
 		</p>
 	),
@@ -232,17 +309,17 @@ const components: Partial<Components> = {
 		</a>
 	),
 	ol: ({ children, ...props }: React.HTMLAttributes<HTMLOListElement>) => (
-		<ol className="my-4 ml-6 list-decimal" {...props}>
+		<ol className="ml-6 list-decimal [&>li]:mt-0" {...props}>
 			{children}
 		</ol>
 	),
 	ul: ({ children, ...props }: React.HTMLAttributes<HTMLUListElement>) => (
-		<ul className="my-4 ml-6 list-disc" {...props}>
+		<ul className="ml-6 list-disc [&>li]:mt-0" {...props}>
 			{children}
 		</ul>
 	),
 	li: ({ children, ...props }: React.LiHTMLAttributes<HTMLLIElement>) => (
-		<li className="mt-2 break-all" {...props}>
+		<li className="break-words" {...props}>
 			{children}
 		</li>
 	),
@@ -250,7 +327,7 @@ const components: Partial<Components> = {
 		children,
 		...props
 	}: React.HTMLAttributes<HTMLQuoteElement>) => (
-		<blockquote className="mt-4 border-l-2 pl-6 italic" {...props}>
+		<blockquote className="border-l-2 pl-4 italic" {...props}>
 			{children}
 		</blockquote>
 	),
@@ -298,11 +375,22 @@ const components: Partial<Components> = {
 		// biome-ignore lint/performance/noImgElement: Required for image
 		<img className="rounded-md" alt={alt} {...props} />
 	),
-	code: ({ children, node, className, ...props }) => {
+	code: ({
+		children,
+		className,
+		inline,
+		...props
+	}: React.HTMLAttributes<HTMLElement> & { inline?: boolean }) => {
 		const match = /language-(\w+)/.exec(className || "");
-		if (match) {
+		const code = extractTextContent(children);
+		const isBlock = inline === false || Boolean(match) || code.includes("\n");
+		if (isBlock) {
 			return (
-				<CodeBlock language={match[1]} className={className} {...props}>
+				<CodeBlock
+					language={match?.[1] ?? "text"}
+					disableHighlight={disableCodeHighlight}
+					className={className}
+				>
 					{children}
 				</CodeBlock>
 			);
@@ -320,7 +408,7 @@ const components: Partial<Components> = {
 		);
 	},
 	pre: ({ children }) => <>{children}</>,
-};
+});
 
 function parseMarkdownIntoBlocks(markdown: string): string[] {
 	if (!markdown) {
@@ -333,10 +421,11 @@ function parseMarkdownIntoBlocks(markdown: string): string[] {
 interface MarkdownBlockProps {
 	content: string;
 	className?: string;
+	components: Partial<Components>;
 }
 
 const MemoizedMarkdownBlock = memo(
-	({ content, className }: MarkdownBlockProps) => {
+	({ content, className, components }: MarkdownBlockProps) => {
 		return (
 			<div className={className}>
 				<ReactMarkdown
@@ -353,6 +442,9 @@ const MemoizedMarkdownBlock = memo(
 		if (prevProps.content !== nextProps.content) {
 			return false;
 		}
+		if (prevProps.components !== nextProps.components) {
+			return false;
+		}
 		return true;
 	},
 );
@@ -362,19 +454,25 @@ MemoizedMarkdownBlock.displayName = "MemoizedMarkdownBlock";
 interface MarkdownContentProps {
 	content: string;
 	className?: string;
+	isStreaming?: boolean;
 }
 
 export const MarkdownContent = memo(
-	({ content, className }: MarkdownContentProps) => {
+	({ content, className, isStreaming = false }: MarkdownContentProps) => {
 		const blocks = useMemo(
 			() => parseMarkdownIntoBlocks(content || ""),
 			[content],
+		);
+		const components = useMemo(
+			() => createMarkdownComponents(isStreaming),
+			[isStreaming],
 		);
 
 		return blocks.map((block, index) => (
 			<MemoizedMarkdownBlock
 				content={block}
 				className={className}
+				components={components}
 				key={`block_${
 					// biome-ignore lint/suspicious/noArrayIndexKey: Needed for react key
 					index

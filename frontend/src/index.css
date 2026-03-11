@@ -101,11 +101,66 @@
     @apply border-border outline-ring/50;
   }
 
+  html,
+  body,
+  #root {
+    height: 100%;
+    overflow: hidden;
+  }
+
   body {
-    @apply bg-background text-foreground;
-    min-height: 100vh;
+    @apply bg-background text-foreground antialiased;
+    margin: 0;
+    font-family: "Microsoft YaHei", "微软雅黑", "PingFang SC", "Hiragino Sans GB", "WenQuanYi Micro Hei", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    font-weight: 450;
+    font-synthesis: weight style;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
     background-image:
       radial-gradient(circle at top left, rgb(99 102 241 / 0.09), transparent 45%),
       radial-gradient(circle at bottom right, rgb(14 165 233 / 0.1), transparent 45%);
+  }
+}
+
+@layer components {
+  .chat-messages-scroll-area {
+    --chat-scrollbar-opacity: 0;
+    --chat-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 48%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .chat-messages-scroll-area::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: transparent;
+  }
+
+  .chat-messages-scroll-area::-webkit-scrollbar-track,
+  .chat-messages-scroll-area::-webkit-scrollbar-corner {
+    background: transparent;
+    border: 0;
+  }
+
+  .chat-messages-scroll-area::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--chat-scrollbar-thumb);
+    opacity: var(--chat-scrollbar-opacity);
+    transition: opacity 220ms ease-in-out;
+  }
+
+  .chat-messages-scroll-area.is-scrolling {
+    --chat-scrollbar-opacity: 1;
+    scrollbar-color: var(--chat-scrollbar-thumb) transparent;
+  }
+
+  .chat-messages-bottom-fade {
+    background: linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-background) 0%, transparent) 0%,
+      var(--color-background) 100%
+    );
   }
 }

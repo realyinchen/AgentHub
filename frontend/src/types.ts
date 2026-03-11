@@ -15,6 +15,7 @@ export type ChatMessage = {
   run_id: string | null
   response_metadata: Record<string, unknown>
   custom_data: Record<string, unknown>
+  reasoning_content?: string | null  // 推理/思考内容（用于推理模型）
 }
 
 export type LocalChatMessage = ChatMessage & {
@@ -37,6 +38,7 @@ export type AgentInDB = {
 export type ConversationInDB = {
   thread_id: string
   title: string
+  agent_id?: string | null
   created_at: string
   updated_at: string
   is_deleted: boolean
@@ -46,11 +48,48 @@ export type UserInput = {
   content: string
   agent_id: string
   thread_id?: string | null
+  thinking_mode?: boolean
+}
+
+export type ToolCallEvent = {
+  name: string
+  id: string
+  args?: Record<string, unknown>
+}
+
+export type ToolResultEvent = {
+  name: string
+  id: string
+  output: string
+}
+
+export type ToolCallInfo = {
+  name: string
+  id: string
+  args: Record<string, unknown>
+  output?: string
+  status: "calling" | "completed"
+}
+
+/**
+ * Tool info stored in message custom_data for history persistence.
+ * This is the format returned by the backend history API.
+ */
+export type StoredToolCallInfo = {
+  name: string
+  id: string
+  args: Record<string, unknown>
+  output?: string | null
+  order: number  // 调用顺序索引
 }
 
 export type StreamEvent =
   | {
       type: "token"
+      content: string
+    }
+  | {
+      type: "thinking"
       content: string
     }
   | {
@@ -60,4 +99,12 @@ export type StreamEvent =
   | {
       type: "error"
       content: string
+    }
+  | {
+      type: "tool_call"
+      content: ToolCallEvent
+    }
+  | {
+      type: "tool_result"
+      content: ToolResultEvent
     }

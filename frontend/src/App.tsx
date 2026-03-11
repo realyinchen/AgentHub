@@ -1,13 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import {
-  Bot,
-  LoaderCircle,
-  MessageSquarePlus,
-  PencilLine,
-  Sparkles,
-  Trash2,
-  User,
-} from "lucide-react"
+import { useCallback, useEffect, useRef, useState, useMemo } from "react"
 
 import {
   createConversation,
@@ -19,163 +10,60 @@ import {
   setConversationTitle,
   streamChat,
 } from "@/lib/api"
-import { cn } from "@/lib/utils"
 import type {
   AgentInDB,
   ChatMessage,
   ConversationInDB,
   LocalChatMessage,
   StreamEvent,
+  ToolCallEvent,
+  ToolCallInfo,
 } from "@/types"
+import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import {
-  Alert,
-  AlertDescription,
-  AlertTitle,
-} from "@/components/ui/alert"
+  ChatMainPanel,
+  ChatSidebar,
+  ConversationRenameDialog,
+  DeleteConversationDialog,
+} from "@/features/chat/components"
+import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
-import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
-import { ScrollArea } from "@/components/ui/scroll-area"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
-import { Separator } from "@/components/ui/separator"
-import { Skeleton } from "@/components/ui/skeleton"
-import {
-  ChatInput,
-  ChatInputEditor,
-  ChatInputGroupAddon,
-  ChatInputGroupText,
-  ChatInputSubmitButton,
-  useChatInput,
-} from "@/components/ui/chat-input"
-import { MarkdownContent } from "@/components/ui/markdown-content"
+  getErrorMessage,
+  isDefaultConversationTitle,
+  normalizeChatMessage,
+  readThreadIdFromUrl,
+  sanitizeTitle,
+  sortConversationsByUpdatedAt,
+  toLocalMessage,
+} from "@/features/chat/utils"
 
-const DEFAULT_CONVERSATION_TITLE = "New conversation"
-
-function normalizeChatMessage(message: Partial<ChatMessage>): ChatMessage {
-  const toolCalls = Array.isArray(message.tool_calls)
-    ? message.tool_calls.map((call) => ({
-        id: String(call.id ?? crypto.randomUUID()),
-        name: String(call.name ?? "tool"),
-        args:
-          call.args && typeof call.args === "object"
-            ? (call.args as Record<string, unknown>)
-            : {},
-        type: call.type,
-      }))
-    : []
-
-  return {
-    type: (message.type as ChatMessage["type"]) ?? "ai",
-    content: typeof message.content === "string" ? message.content : "",
-    tool_calls: toolCalls,
-    tool_call_id: message.tool_call_id ?? null,
-    run_id: message.run_id ?? null,
-    response_metadata:
-      message.response_metadata && typeof message.response_metadata === "object"
-        ? (message.response_metadata as Record<string, unknown>)
-        : {},
-    custom_data:
-      message.custom_data && typeof message.custom_data === "object"
-        ? (message.custom_data as Record<string, unknown>)
-        : {},
-  }
+function readAgentIdFromUrl(): string | null {
+  const params = new URLSearchParams(window.location.search)
+  return params.get("agent_id")
 }
-
-function toLocalMessage(
-  message: Partial<ChatMessage>,
-  options?: { localId?: string; isStreaming?: boolean },
-): LocalChatMessage {
-  const normalized = normalizeChatMessage(message)
-  return {
-    ...normalized,
-    local_id: options?.localId ?? crypto.randomUUID(),
-    is_streaming: options?.isStreaming,
-  }
-}
-
-function sortConversationsByUpdatedAt(
-  items: ConversationInDB[],
-): ConversationInDB[] {
-  return [...items].sort(
-    (a, b) =>
-      new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime(),
-  )
-}
-
-function sanitizeTitle(rawTitle: string): string {
-  return rawTitle.trim().replace(/\s+/g, " ").slice(0, 64)
-}
-
-function getErrorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message
-  }
-  return "Unexpected error"
-}
-
-function formatUpdatedAt(isoString: string): string {
-  const date = new Date(isoString)
-  if (Number.isNaN(date.getTime())) {
-    return ""
-  }
-
-  return date.toLocaleString([], {
-    hour12: false,
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  })
-}
-
-function readThreadIdFromUrl(): string | null {
-  const value = new URLSearchParams(window.location.search).get("thread_id")
-  return value && value.trim() ? value : null
-}
+import { useI18n } from "@/i18n"
 
 function App() {
+  const { t } = useI18n()
+  const defaultConversationTitle = t("conversation.defaultTitle")
+
   const [agents, setAgents] = useState<AgentInDB[]>([])
   const [selectedAgentId, setSelectedAgentId] = useState("chatbot")
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
+  
+  // Thinking mode state - persisted per conversation in localStorage
+  const {
+    thinkingMode,
+    toggleThinkingMode,
+    isAvailable: isThinkingModeAvailable,
+    isLoading: isThinkingModeLoading,
+  } = useThinkingMode(threadId)
   const [conversationTitle, setConversationTitleState] = useState(
-    DEFAULT_CONVERSATION_TITLE,
+    defaultConversationTitle,
   )
-  const [draftTitle, setDraftTitle] = useState(DEFAULT_CONVERSATION_TITLE)
+  const [draftTitle, setDraftTitle] = useState(defaultConversationTitle)
 
   const [messages, setMessages] = useState<LocalChatMessage[]>([])
 
@@ -184,18 +72,25 @@ function App() {
   const [isLoadingConversation, setIsLoadingConversation] = useState(false)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [isAwaitingAgentSelection, setIsAwaitingAgentSelection] = useState(false)
+  const [isProcessing, setIsProcessing] = useState(false) // 正在处理，尚未收到任何内容
+  const [isAgentThinking, setIsAgentThinking] = useState(false)
+  const [activeToolCall, setActiveToolCall] = useState<ToolCallEvent | null>(null)
+  const [calledTools, setCalledTools] = useState<ToolCallInfo[]>([])
+  const [thinkingContent, setThinkingContent] = useState("") // 累积的思考内容
 
-  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false)
+  const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
-  const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
-
-  const activeAgentIds = useMemo(
-    () => agents.map((item) => item.agent_id),
-    [agents],
-  )
+  const isProcessingRef = useRef(false)
+  const thinkingModeRef = useRef(thinkingMode)
+  
+  // Keep thinkingModeRef in sync with thinkingMode state
+  useEffect(() => {
+    thinkingModeRef.current = thinkingMode
+  }, [thinkingMode])
 
   const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
     const url = new URL(window.location.href)
@@ -213,7 +108,7 @@ function App() {
   }, [])
 
   const ensureConversationExists = useCallback(
-    async (targetThreadId: string, title: string) => {
+    async (targetThreadId: string, title: string, agentId?: string) => {
       const exists = conversations.some(
         (conversation) => conversation.thread_id === targetThreadId,
       )
@@ -225,7 +120,8 @@ function App() {
       try {
         const created = await createConversation({
           thread_id: targetThreadId,
-          title: sanitizeTitle(title) || DEFAULT_CONVERSATION_TITLE,
+          title: sanitizeTitle(title) || defaultConversationTitle,
+          agent_id: agentId || selectedAgentId,
         })
 
         setConversations((previous) =>
@@ -235,14 +131,14 @@ function App() {
         await refreshConversations()
       }
     },
-    [conversations, refreshConversations],
+    [conversations, refreshConversations, selectedAgentId],
   )
 
   const openConversation = useCallback(
     async (
       targetThreadId: string,
-      agentId: string,
       knownConversations: ConversationInDB[] = conversations,
+      agentList: AgentInDB[] = agents,
     ) => {
       if (!targetThreadId) {
         return
@@ -250,15 +146,31 @@ function App() {
 
       abortControllerRef.current?.abort()
       setIsStreaming(false)
+      setIsAwaitingAgentSelection(false)
       setThreadId(targetThreadId)
       writeThreadIdToUrl(targetThreadId)
-      setIsRenameDialogOpen(false)
+      setRenameTarget(null)
       setIsLoadingConversation(true)
       setAppError(null)
 
+      // Find the conversation to get its agent_id
+      const conversation = knownConversations.find(
+        (c) => c.thread_id === targetThreadId,
+      )
+      
+      // Determine agent to use: prefer saved agent_id, fall back to default
+      const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
+      const savedAgentId = conversation?.agent_id
+      const agentToUse = savedAgentId && agentList.some((a) => a.agent_id === savedAgentId)
+        ? savedAgentId
+        : defaultAgentId
+      
+      // Update selected agent if different
+      setSelectedAgentId(agentToUse)
+
       try {
         const [historyResult, titleResult] = await Promise.allSettled([
-          getHistory(agentId, targetThreadId),
+          getHistory(agentToUse, targetThreadId),
           getConversationTitle(targetThreadId),
         ])
 
@@ -278,20 +190,24 @@ function App() {
           const fallbackTitle =
             knownConversations.find(
               (conversation) => conversation.thread_id === targetThreadId,
-            )?.title ?? DEFAULT_CONVERSATION_TITLE
+            )?.title ?? defaultConversationTitle
           setConversationTitleState(fallbackTitle)
           setDraftTitle(fallbackTitle)
         }
       } catch (error) {
-        setAppError(`Failed to load conversation: ${getErrorMessage(error)}`)
+        setAppError(
+          t("error.loadConversation", {
+            details: getErrorMessage(error, t("error.unexpected")),
+          }),
+        )
         setMessages([])
-        setConversationTitleState(DEFAULT_CONVERSATION_TITLE)
-        setDraftTitle(DEFAULT_CONVERSATION_TITLE)
+        setConversationTitleState(defaultConversationTitle)
+        setDraftTitle(defaultConversationTitle)
       } finally {
         setIsLoadingConversation(false)
       }
     },
-    [conversations, writeThreadIdToUrl],
+    [agents, conversations, defaultConversationTitle, t, writeThreadIdToUrl],
   )
 
   const resetToNewConversation = useCallback(() => {
@@ -302,11 +218,34 @@ function App() {
     setThreadId(newThreadId)
     writeThreadIdToUrl(null)
     setMessages([])
-    setConversationTitleState(DEFAULT_CONVERSATION_TITLE)
-    setDraftTitle(DEFAULT_CONVERSATION_TITLE)
-    setIsRenameDialogOpen(false)
+    setConversationTitleState(defaultConversationTitle)
+    setDraftTitle(defaultConversationTitle)
+    setRenameTarget(null)
+    setIsAwaitingAgentSelection(true)
     setAppError(null)
   }, [writeThreadIdToUrl])
+
+  const pickAgentForCurrentConversation = useCallback((agentId: string) => {
+    setSelectedAgentId(agentId)
+    setIsAwaitingAgentSelection(false)
+    setAppError(null)
+  }, [])
+
+  const createStreamingPlaceholder = useCallback(() => {
+    const placeholderId = crypto.randomUUID()
+    streamingPlaceholderIdRef.current = placeholderId
+
+    setMessages((previous) => [
+      ...previous,
+      toLocalMessage(
+        {
+          type: "ai",
+          content: "",
+        },
+        { localId: placeholderId, isStreaming: true },
+      ),
+    ])
+  }, [])
 
   const addStreamToken = useCallback((token: string) => {
     if (!token) {
@@ -341,28 +280,77 @@ function App() {
   }, [])
 
   const addMessageFromStream = useCallback(
-    (message: ChatMessage, sentText: string) => {
+    (message: ChatMessage) => {
       const normalized = normalizeChatMessage(message)
 
-      if (normalized.type === "human" && normalized.content === sentText) {
+      // The UI already appends the user's text immediately.
+      if (normalized.type === "human") {
         return
       }
 
       setMessages((previous) => {
         if (normalized.type === "ai") {
           const placeholderId = streamingPlaceholderIdRef.current
-          if (placeholderId && normalized.content) {
-            streamingPlaceholderIdRef.current = null
-            return previous.map((item) =>
-              item.local_id === placeholderId
-                ? {
-                    ...item,
-                    ...normalized,
-                    local_id: placeholderId,
-                    is_streaming: false,
-                  }
-                : item,
+          const hasToolCalls = normalized.tool_calls && normalized.tool_calls.length > 0
+          const hasContent = normalized.content && normalized.content.trim().length > 0
+          
+          // If we have a placeholder, update it with new content
+          if (placeholderId) {
+            // If this message has tool_calls, it means more content is coming
+            // Update the placeholder but keep it alive for the final response
+            if (hasToolCalls) {
+              // Update placeholder with current content, but don't clear the ref
+              return previous.map((item) =>
+                item.local_id === placeholderId
+                  ? {
+                      ...item,
+                      ...normalized,
+                      local_id: placeholderId,
+                      is_streaming: true,
+                    }
+                  : item,
+              )
+            }
+            
+            // If this message has content but no tool_calls, it's the final response
+            // Update the placeholder and clear the ref
+            if (hasContent) {
+              streamingPlaceholderIdRef.current = null
+              return previous.map((item) =>
+                item.local_id === placeholderId
+                  ? {
+                      ...item,
+                      ...normalized,
+                      local_id: placeholderId,
+                      is_streaming: false,
+                    }
+                  : item,
+              )
+            }
+            
+            // No content and no tool calls, keep placeholder as is
+            return previous
+          }
+
+          // No placeholder - check for duplicates before adding new message
+          const duplicatedByRunId =
+            normalized.run_id &&
+            previous.some(
+              (item) =>
+                item.type === "ai" &&
+                item.run_id === normalized.run_id &&
+                item.content === normalized.content,
             )
+
+          const lastMessage = previous[previous.length - 1]
+          const duplicatedByContent =
+            !normalized.run_id &&
+            lastMessage?.type === "ai" &&
+            lastMessage.content === normalized.content &&
+            normalized.content.length > 0
+
+          if (duplicatedByRunId || duplicatedByContent) {
+            return previous
           }
         }
 
@@ -387,13 +375,11 @@ function App() {
 
   const maybeGenerateTitle = useCallback(
     async (userInput: string, targetThreadId: string, currentTitle: string) => {
-      if (currentTitle !== DEFAULT_CONVERSATION_TITLE || !targetThreadId) {
+      if (!isDefaultConversationTitle(currentTitle) || !targetThreadId) {
         return
       }
 
-      const titlePrompt =
-        "Generate a concise title under 50 characters for this conversation. " +
-        `First user message: ${userInput}`
+      const titlePrompt = t("app.titlePrompt", { input: userInput })
 
       try {
         const titleResponse = await invoke({
@@ -430,13 +416,19 @@ function App() {
         // Title generation should never block the main chat flow.
       }
     },
-    [],
+    [t],
   )
 
   const handleSendMessage = useCallback(
     async (rawInput: string) => {
       const trimmed = rawInput.trim()
-      if (!trimmed || !threadId || !selectedAgentId || isStreaming) {
+      if (
+        !trimmed ||
+        !threadId ||
+        !selectedAgentId ||
+        isStreaming ||
+        isAwaitingAgentSelection
+      ) {
         return
       }
 
@@ -454,39 +446,121 @@ function App() {
 
         setIsStreaming(true)
         streamingPlaceholderIdRef.current = null
+        createStreamingPlaceholder()
 
         const controller = new AbortController()
         abortControllerRef.current = controller
 
+        // Reset state for new message
+        setIsProcessing(true) // 开始处理，尚未收到任何内容
+        isProcessingRef.current = true
+        setIsAgentThinking(false)
+        setCalledTools([])
+        setThinkingContent("")
+
+        // Use ref to get the latest thinkingMode value to avoid stale closure
+        const currentThinkingMode = thinkingModeRef.current
+        
         await streamChat(
           {
             content: trimmed,
             agent_id: selectedAgentId,
             thread_id: targetThreadId,
+            thinking_mode: currentThinkingMode,
           },
           (event: StreamEvent) => {
+            // 收到任何内容，停止显示"正在处理..."
+            if (isProcessingRef.current) {
+              setIsProcessing(false)
+              isProcessingRef.current = false
+            }
+
+            if (event.type === "thinking") {
+              // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
+              setIsAgentThinking(true)
+              setActiveToolCall(null)
+              // 累积思考内容
+              setThinkingContent((prev) => prev + event.content)
+              return
+            }
+
             if (event.type === "token") {
+              // When we start receiving tokens, agent is no longer "thinking"
+              setIsAgentThinking(false)
+              setActiveToolCall(null)
               addStreamToken(event.content)
               return
             }
 
             if (event.type === "message") {
-              addMessageFromStream(event.content, trimmed)
+              const message = event.content
+              // When we receive an AI message with actual content (not just tool_calls), 
+              // agent is no longer "thinking"
+              if (message.type === "ai") {
+                const hasContent = message.content && message.content.trim().length > 0
+                const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
+                // Only stop thinking if we have content and no pending tool calls
+                if (hasContent && !hasToolCalls) {
+                  setIsAgentThinking(false)
+                  setActiveToolCall(null)
+                }
+              }
+              addMessageFromStream(message)
               return
             }
 
+            if (event.type === "tool_call") {
+              // Agent is calling a tool, show thinking state
+              setIsAgentThinking(true)
+              setActiveToolCall(event.content)
+              // Add tool call info to list
+              setCalledTools((prev) => {
+                const existing = prev.find((t) => t.id === event.content.id)
+                if (existing) {
+                  return prev
+                }
+                return [
+                  ...prev,
+                  {
+                    name: event.content.name,
+                    id: event.content.id,
+                    args: event.content.args || {},
+                    status: "calling" as const,
+                  },
+                ]
+              })
+              return
+            }
+
+            if (event.type === "tool_result") {
+              // Tool execution completed, update the tool call info
+              setCalledTools((prev) =>
+                prev.map((t) =>
+                  t.id === event.content.id
+                    ? { ...t, output: event.content.output, status: "completed" as const }
+                    : t,
+                ),
+              )
+              return
+            }
+
+            // error event
             setAppError(event.content)
             setMessages((previous) => [
               ...previous,
-              toLocalMessage({ type: "ai", content: `Error: ${event.content}` }),
+              toLocalMessage({
+                type: "ai",
+                content: t("error.streamPrefix", { details: event.content }),
+              }),
             ])
           },
           controller.signal,
         )
 
+        // Ensure all streaming placeholders are marked as complete
         setMessages((previous) =>
           previous.map((message) =>
-            message.local_id === streamingPlaceholderIdRef.current
+            message.is_streaming
               ? { ...message, is_streaming: false }
               : message,
           ),
@@ -496,11 +570,14 @@ function App() {
         await maybeGenerateTitle(trimmed, targetThreadId, currentTitle)
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
-          const details = getErrorMessage(error)
-          setAppError(`Failed to generate response: ${details}`)
+          const details = getErrorMessage(error, t("error.unexpected"))
+          setAppError(t("error.generateResponse", { details }))
           setMessages((previous) => [
             ...previous,
-            toLocalMessage({ type: "ai", content: `Error: ${details}` }),
+            toLocalMessage({
+              type: "ai",
+              content: t("error.streamPrefix", { details }),
+            }),
           ])
         }
       } finally {
@@ -513,29 +590,27 @@ function App() {
       addMessageFromStream,
       addStreamToken,
       conversationTitle,
+      createStreamingPlaceholder,
       ensureConversationExists,
+      isAwaitingAgentSelection,
       isStreaming,
       maybeGenerateTitle,
       refreshConversations,
       selectedAgentId,
+      t,
       threadId,
     ],
   )
 
-  const composer = useChatInput({
-    onSubmit: (parsedValue) => {
-      void handleSendMessage(parsedValue.content)
-    },
-  })
-
   const handleSaveTitle = useCallback(async () => {
-    if (!threadId) {
+    const targetThreadId = renameTarget?.thread_id ?? threadId
+    if (!targetThreadId) {
       return
     }
 
     const nextTitle = sanitizeTitle(draftTitle)
     if (!nextTitle) {
-      setAppError("Title cannot be empty")
+      setAppError(t("error.titleEmpty"))
       return
     }
 
@@ -543,17 +618,19 @@ function App() {
     setAppError(null)
 
     try {
-      await ensureConversationExists(threadId, nextTitle)
+      await ensureConversationExists(targetThreadId, nextTitle)
 
       const updated = await setConversationTitle({
-        thread_id: threadId,
+        thread_id: targetThreadId,
         title: nextTitle,
         is_deleted: false,
       })
 
-      setConversationTitleState(nextTitle)
+      if (targetThreadId === threadId) {
+        setConversationTitleState(nextTitle)
+      }
       setDraftTitle(nextTitle)
-      setIsRenameDialogOpen(false)
+      setRenameTarget(null)
 
       if (updated) {
         setConversations((previous) => {
@@ -566,11 +643,27 @@ function App() {
         await refreshConversations()
       }
     } catch (error) {
-      setAppError(`Failed to update title: ${getErrorMessage(error)}`)
+      setAppError(
+        t("error.updateTitle", {
+          details: getErrorMessage(error, t("error.unexpected")),
+        }),
+      )
     } finally {
       setIsSavingTitle(false)
     }
-  }, [draftTitle, ensureConversationExists, refreshConversations, threadId])
+  }, [
+    draftTitle,
+    ensureConversationExists,
+    refreshConversations,
+    renameTarget,
+    t,
+    threadId,
+  ])
+
+  const startRenameConversation = useCallback((conversation: ConversationInDB) => {
+    setRenameTarget(conversation)
+    setDraftTitle(sanitizeTitle(conversation.title) || defaultConversationTitle)
+  }, [defaultConversationTitle])
 
   const confirmDeleteConversation = useCallback(async () => {
     if (!deleteTarget) {
@@ -580,7 +673,7 @@ function App() {
     try {
       await setConversationTitle({
         thread_id: deleteTarget.thread_id,
-        title: sanitizeTitle(deleteTarget.title) || "Untitled",
+        title: sanitizeTitle(deleteTarget.title) || t("conversation.untitled"),
         is_deleted: true,
       })
 
@@ -592,15 +685,53 @@ function App() {
         resetToNewConversation()
       }
     } catch (error) {
-      setAppError(`Failed to delete conversation: ${getErrorMessage(error)}`)
+      setAppError(
+        t("error.deleteConversation", {
+          details: getErrorMessage(error, t("error.unexpected")),
+        }),
+      )
     } finally {
       setDeleteTarget(null)
     }
-  }, [deleteTarget, resetToNewConversation, threadId])
+  }, [deleteTarget, resetToNewConversation, t, threadId])
+
+  const handleRenameDialogChange = useCallback(
+    (open: boolean) => {
+      if (!open) {
+        setRenameTarget(null)
+        setDraftTitle(defaultConversationTitle)
+      }
+    },
+    [defaultConversationTitle],
+  )
+
+  const handleRenameCancel = useCallback(() => {
+    setRenameTarget(null)
+    setDraftTitle(defaultConversationTitle)
+  }, [defaultConversationTitle])
+
+  const handleDeleteDialogChange = useCallback((open: boolean) => {
+    if (!open) {
+      setDeleteTarget(null)
+    }
+  }, [])
 
   useEffect(() => {
-    endOfMessagesRef.current?.scrollIntoView({ behavior: "smooth" })
-  }, [messages, isStreaming, isLoadingConversation])
+    setConversationTitleState((current) =>
+      isDefaultConversationTitle(current) ? defaultConversationTitle : current,
+    )
+    setDraftTitle((current) =>
+      isDefaultConversationTitle(current) ? defaultConversationTitle : current,
+    )
+  }, [defaultConversationTitle])
+
+  // 使用 ref 存储 t 函数和 defaultConversationTitle，避免语言切换时重新初始化
+  const tRef = useRef(t)
+  const defaultConversationTitleRef = useRef(defaultConversationTitle)
+  useEffect(() => {
+    tRef.current = t
+    defaultConversationTitleRef.current = defaultConversationTitle
+  }, [t, defaultConversationTitle])
 
   useEffect(() => {
     let cancelled = false
@@ -621,19 +752,50 @@ function App() {
 
         setAgents(agentList)
         const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
-        setSelectedAgentId(defaultAgentId)
 
         const sorted = sortConversationsByUpdatedAt(conversationList)
         setConversations(sorted)
 
         const queryThreadId = readThreadIdFromUrl()
+        const queryAgentId = readAgentIdFromUrl()
+
+        // 如果 URL 中有 agent_id 参数，直接使用该 agent
+        if (queryAgentId) {
+          const validAgentId = agentList.some(
+            (agent) => agent.agent_id === queryAgentId
+          )
+            ? queryAgentId
+            : defaultAgentId
+          setSelectedAgentId(validAgentId)
+        } else {
+          setSelectedAgentId(defaultAgentId)
+        }
+
         if (queryThreadId) {
+          setIsAwaitingAgentSelection(false)
           setThreadId(queryThreadId)
           writeThreadIdToUrl(queryThreadId)
           setIsLoadingConversation(true)
 
+          // Find the conversation to get its saved agent_id
+          const conversation = sorted.find(
+            (c) => c.thread_id === queryThreadId,
+          )
+          const savedAgentId = conversation?.agent_id
+
+          // Determine agent to use: URL param > saved agent_id > default
+          let agentToUse = defaultAgentId
+          if (queryAgentId && agentList.some((agent) => agent.agent_id === queryAgentId)) {
+            agentToUse = queryAgentId
+          } else if (savedAgentId && agentList.some((agent) => agent.agent_id === savedAgentId)) {
+            agentToUse = savedAgentId
+          }
+
+          // Update selected agent
+          setSelectedAgentId(agentToUse)
+
           const [historyResult, titleResult] = await Promise.allSettled([
-            getHistory(defaultAgentId, queryThreadId),
+            getHistory(agentToUse, queryThreadId),
             getConversationTitle(queryThreadId),
           ])
 
@@ -653,7 +815,7 @@ function App() {
             const fallbackTitle =
               sorted.find(
                 (conversation) => conversation.thread_id === queryThreadId,
-              )?.title ?? DEFAULT_CONVERSATION_TITLE
+              )?.title ?? defaultConversationTitle
             setConversationTitleState(fallbackTitle)
             setDraftTitle(fallbackTitle)
           }
@@ -662,14 +824,25 @@ function App() {
         } else {
           const newThreadId = crypto.randomUUID()
           setThreadId(newThreadId)
-          setConversationTitleState(DEFAULT_CONVERSATION_TITLE)
-          setDraftTitle(DEFAULT_CONVERSATION_TITLE)
+          setConversationTitleState(defaultConversationTitle)
+          setDraftTitle(defaultConversationTitle)
           setMessages([])
+
+          // 如果 URL 中有 agent_id，直接进入聊天界面，不需要选择 agent
+          if (queryAgentId) {
+            setIsAwaitingAgentSelection(false)
+          } else {
+            setIsAwaitingAgentSelection(true)
+          }
           writeThreadIdToUrl(null)
         }
       } catch (error) {
         if (!cancelled) {
-          setAppError(`Failed to initialize app: ${getErrorMessage(error)}`)
+          setAppError(
+            tRef.current("error.initApp", {
+              details: getErrorMessage(error, tRef.current("error.unexpected")),
+            }),
+          )
         }
       } finally {
         if (!cancelled) {
@@ -689,374 +862,69 @@ function App() {
 
   return (
     <>
-      <div className="mx-auto grid min-h-screen max-w-[1440px] grid-cols-1 gap-4 p-4 md:grid-cols-[330px_minmax(0,1fr)]">
-        <Card className="flex h-[calc(100vh-2rem)] flex-col overflow-hidden border-border/70">
-          <CardHeader className="space-y-4 pb-4">
-            <div className="flex items-center gap-3">
-              <div className="flex size-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Sparkles className="size-4" />
-              </div>
-              <div>
-                <CardTitle className="text-lg">Agent Hub</CardTitle>
-                <CardDescription>FastAPI + shadcn/ui + simple-ai</CardDescription>
-              </div>
-            </div>
+      <SidebarProvider defaultOpen className="h-screen overflow-hidden">
+        <ChatSidebar
+          threadId={threadId}
+          conversations={conversations}
+          onCreateConversation={resetToNewConversation}
+          disableCreateConversation={isInitializing || isLoadingConversation}
+          onOpenConversation={(conversation) => {
+            void openConversation(
+              conversation.thread_id,
+              conversations,
+              agents,
+            )
+          }}
+          onRenameConversation={startRenameConversation}
+          onDeleteConversation={setDeleteTarget}
+        />
 
-            <div className="space-y-3">
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Agent
-                </p>
-                <Select
-                  value={selectedAgentId}
-                  onValueChange={setSelectedAgentId}
-                  disabled={isInitializing || activeAgentIds.length === 0}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select an agent" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {activeAgentIds.length === 0 ? (
-                      <SelectItem value="chatbot">chatbot</SelectItem>
-                    ) : (
-                      activeAgentIds.map((agentId) => (
-                        <SelectItem key={agentId} value={agentId}>
-                          {agentId}
-                        </SelectItem>
-                      ))
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <Button
-                className="w-full justify-start"
-                onClick={resetToNewConversation}
-                disabled={isInitializing}
-              >
-                <MessageSquarePlus className="mr-2 size-4" />
-                New conversation
-              </Button>
-            </div>
-          </CardHeader>
-
-          <Separator />
-
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-4 pt-4">
-            <div className="flex items-center justify-between gap-2">
-              <div className="space-y-1">
-                <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                  Current title
-                </p>
-                <p className="line-clamp-1 text-sm font-medium">{conversationTitle}</p>
-              </div>
-              <Button
-                variant="outline"
-                size="icon"
-                onClick={() => setIsRenameDialogOpen(true)}
-                disabled={!threadId}
-              >
-                <PencilLine className="size-4" />
-              </Button>
-            </div>
-
-            <Separator />
-
-            <div className="flex min-h-0 flex-1 flex-col gap-2">
-              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
-                Recent
-              </p>
-
-              <ScrollArea className="h-full pr-3">
-                <div className="space-y-2 pb-2">
-                  {conversations.length === 0 ? (
-                    <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
-                      No saved conversations yet.
-                    </p>
-                  ) : (
-                    conversations.map((conversation) => {
-                      const isActive = conversation.thread_id === threadId
-
-                      return (
-                        <div
-                          key={conversation.thread_id}
-                          className={cn(
-                            "rounded-md border p-1",
-                            isActive
-                              ? "border-primary/60 bg-primary/5"
-                              : "border-border/70",
-                          )}
-                        >
-                          <div className="flex items-center gap-1">
-                            <Button
-                              variant="ghost"
-                              className="h-auto flex-1 justify-start px-2 py-2"
-                              onClick={() =>
-                                void openConversation(
-                                  conversation.thread_id,
-                                  selectedAgentId,
-                                  conversations,
-                                )
-                              }
-                            >
-                              <div className="w-full text-left">
-                                <p className="line-clamp-1 text-sm font-medium">
-                                  {conversation.title}
-                                </p>
-                                <p className="text-xs text-muted-foreground">
-                                  {formatUpdatedAt(conversation.updated_at)}
-                                </p>
-                              </div>
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-muted-foreground hover:text-destructive"
-                              onClick={() => setDeleteTarget(conversation)}
-                              aria-label="Delete conversation"
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-                        </div>
-                      )
-                    })
-                  )}
-                </div>
-              </ScrollArea>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="flex h-[calc(100vh-2rem)] flex-col overflow-hidden border-border/70">
-          <CardHeader className="pb-4">
-            <div className="flex items-center justify-between gap-3">
-              <div className="space-y-1">
-                <CardTitle className="line-clamp-1 text-lg">{conversationTitle}</CardTitle>
-                <CardDescription>
-                  <Badge variant="secondary" className="font-normal">
-                    {selectedAgentId || "No agent"}
-                  </Badge>
-                </CardDescription>
-              </div>
-
-              {isStreaming ? (
-                <Badge className="gap-1 bg-primary/15 text-primary hover:bg-primary/20">
-                  <LoaderCircle className="size-3 animate-spin" />
-                  Streaming
-                </Badge>
-              ) : null}
-            </div>
-          </CardHeader>
-
-          <CardContent className="flex min-h-0 flex-1 flex-col gap-4">
-            {appError ? (
-              <Alert variant="destructive">
-                <AlertTitle>Request failed</AlertTitle>
-                <AlertDescription>{appError}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            {isLoadingConversation ? (
-              <div className="space-y-3">
-                <Skeleton className="h-16 w-2/3" />
-                <Skeleton className="ml-auto h-14 w-1/2" />
-                <Skeleton className="h-18 w-3/4" />
-              </div>
-            ) : (
-              <ScrollArea className="h-full pr-4">
-                <div className="space-y-4 pb-2">
-                  {messages.length === 0 ? (
-                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                      Welcome to AgentHub. Start a conversation with your selected agent.
-                    </div>
-                  ) : (
-                    messages.map((message) => {
-                      const isUser = message.type === "human"
-                      const isAI = message.type === "ai"
-
-                      return (
-                        <article
-                          key={message.local_id}
-                          className={cn(
-                            "flex w-full items-start gap-3",
-                            isUser && "justify-end",
-                          )}
-                        >
-                          {!isUser ? (
-                            <Avatar className="mt-1 size-8 border border-border">
-                              <AvatarFallback className="bg-muted text-muted-foreground">
-                                <Bot className="size-4" />
-                              </AvatarFallback>
-                            </Avatar>
-                          ) : null}
-
-                          <Card
-                            className={cn(
-                              "max-w-[85%] border-border/70",
-                              isUser &&
-                                "bg-primary text-primary-foreground shadow-none",
-                            )}
-                          >
-                            <CardContent className="space-y-3 p-3">
-                              {isAI ? (
-                                message.content ? (
-                                  <MarkdownContent content={message.content} />
-                                ) : message.is_streaming ? (
-                                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                    <LoaderCircle className="size-4 animate-spin" />
-                                    Thinking...
-                                  </div>
-                                ) : (
-                                  <p className="text-sm text-muted-foreground">
-                                    No visible output.
-                                  </p>
-                                )
-                              ) : (
-                                <p className="whitespace-pre-wrap break-words text-sm leading-6">
-                                  {message.content || "No visible output."}
-                                </p>
-                              )}
-
-                              {message.tool_calls.length > 0 ? (
-                                <div className="space-y-2">
-                                  {message.tool_calls.map((call) => (
-                                    <Card key={call.id} className="bg-muted/50">
-                                      <CardContent className="space-y-2 p-3">
-                                        <div className="flex items-center gap-2">
-                                          <Badge variant="outline">Tool</Badge>
-                                          <span className="text-xs font-medium">
-                                            {call.name}
-                                          </span>
-                                        </div>
-                                        <pre className="overflow-x-auto rounded-md bg-background p-2 text-xs">
-                                          {JSON.stringify(call.args, null, 2)}
-                                        </pre>
-                                      </CardContent>
-                                    </Card>
-                                  ))}
-                                </div>
-                              ) : null}
-
-                              {message.type === "tool" ? (
-                                <Badge variant="secondary" className="font-normal">
-                                  tool call id: {message.tool_call_id || "unknown"}
-                                </Badge>
-                              ) : null}
-                            </CardContent>
-                          </Card>
-
-                          {isUser ? (
-                            <Avatar className="mt-1 size-8 border border-border">
-                              <AvatarFallback className="bg-primary/10 text-primary">
-                                <User className="size-4" />
-                              </AvatarFallback>
-                            </Avatar>
-                          ) : null}
-                        </article>
-                      )
-                    })
-                  )}
-                  <div ref={endOfMessagesRef} />
-                </div>
-              </ScrollArea>
-            )}
-          </CardContent>
-
-          <Separator />
-
-          <CardFooter className="pt-4">
-            <ChatInput
-              className="w-full"
-              onSubmit={composer.handleSubmit}
-              value={composer.value}
-              onChange={composer.onChange}
-              isStreaming={isStreaming}
-              onStop={stopStreaming}
-              disabled={isInitializing || isLoadingConversation}
-            >
-              <ChatInputEditor placeholder="Type your message here..." />
-              <ChatInputGroupAddon align="block-end">
-                <ChatInputGroupText>{selectedAgentId || "chatbot"}</ChatInputGroupText>
-                <ChatInputSubmitButton className="ml-auto" />
-              </ChatInputGroupAddon>
-            </ChatInput>
-          </CardFooter>
-        </Card>
-      </div>
-
-      <Dialog
-        open={isRenameDialogOpen}
-        onOpenChange={(open) => {
-          setIsRenameDialogOpen(open)
-          if (!open) {
-            setDraftTitle(conversationTitle)
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Edit conversation title</DialogTitle>
-            <DialogDescription>
-              Update the current conversation title (max 64 characters).
-            </DialogDescription>
-          </DialogHeader>
-
-          <Input
-            value={draftTitle}
-            onChange={(event) => setDraftTitle(event.target.value)}
-            maxLength={64}
-            placeholder="Conversation title"
+        <SidebarInset className="min-h-0 overflow-hidden bg-background">
+          <ChatMainPanel
+            agents={agents}
+            selectedAgentId={selectedAgentId}
+            appError={appError}
+            isStreaming={isStreaming}
+            isInitializing={isInitializing}
+            isLoadingConversation={isLoadingConversation}
+            isAwaitingAgentSelection={isAwaitingAgentSelection}
+            isProcessing={isProcessing}
+            isAgentThinking={isAgentThinking}
+            activeToolCall={activeToolCall}
+            calledTools={calledTools}
+            thinkingContent={thinkingContent}
+            messages={messages}
+            onSendMessage={handleSendMessage}
+            onStopStreaming={stopStreaming}
+            onSelectAgent={pickAgentForCurrentConversation}
+            thinkingMode={thinkingMode}
+            onToggleThinkingMode={toggleThinkingMode}
+            isThinkingModeAvailable={isThinkingModeAvailable}
+            isThinkingModeLoading={isThinkingModeLoading}
           />
+        </SidebarInset>
+      </SidebarProvider>
 
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => {
-                setDraftTitle(conversationTitle)
-                setIsRenameDialogOpen(false)
-              }}
-            >
-              Cancel
-            </Button>
-            <Button onClick={() => void handleSaveTitle()} disabled={isSavingTitle}>
-              {isSavingTitle ? (
-                <>
-                  <LoaderCircle className="mr-2 size-4 animate-spin" />
-                  Saving
-                </>
-              ) : (
-                "Save"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={Boolean(deleteTarget)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setDeleteTarget(null)
-          }
+      <ConversationRenameDialog
+        open={Boolean(renameTarget)}
+        draftTitle={draftTitle}
+        isSavingTitle={isSavingTitle}
+        onOpenChange={handleRenameDialogChange}
+        onDraftTitleChange={setDraftTitle}
+        onCancel={handleRenameCancel}
+        onSave={() => {
+          void handleSaveTitle()
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete this conversation?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This action marks the conversation as deleted and removes it from your
-              recent list.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => void confirmDeleteConversation()}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      />
+
+      <DeleteConversationDialog
+        open={Boolean(deleteTarget)}
+        title={deleteTarget?.title}
+        onOpenChange={handleDeleteDialogChange}
+        onConfirm={() => {
+          void confirmDeleteConversation()
+        }}
+      />
     </>
   )
 }
