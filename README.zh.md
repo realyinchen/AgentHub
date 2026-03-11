@@ -78,6 +78,21 @@ AgentHub/
 - **TanStack Query** - 数据获取和状态管理
 - **Lucide React** - 精美的图标库
 
+## 📦 分支说明
+
+本项目有两个分支：
+
+- **main**（默认）：稳定版本分支，包含经过测试的成熟功能。如果你想体验稳定的功能，请克隆此分支。
+- **dev**：开发版本分支，包含最新的功能和改进。如果你想体验最新的特性，请克隆此分支。
+
+```bash
+# 克隆 main 分支（稳定版）
+git clone -b main https://github.com/realyinchen/AgentHub.git
+
+# 克隆 dev 分支（最新版）
+git clone -b dev https://github.com/realyinchen/AgentHub.git
+```
+
 ## 🚀 快速开始
 
 ### 前置要求

@@ -1,0 +1,95 @@
+# Progress
+
+## What Works
+
+### Core Features
+- ✅ Multi-agent chat system with chatbot and RAG agent
+- ✅ Conversation persistence with PostgreSQL + LangGraph checkpointer
+- ✅ Message history with tool call tracking
+- ✅ Sidebar navigation for conversations
+- ✅ Internationalization (English/Chinese)
+- ✅ Dark/Light theme support
+- ✅ Agent selection UI
+- ✅ URL-based conversation sharing
+
+### Recently Completed
+
+#### Thinking Mode Feature (2026-03-10 - 2026-03-11)
+- ✅ **Frontend Thinking Mode Toggle**
+  - Brain icon button in prompt input area (left side of submit row)
+  - Colorful icon = enabled, grayscale icon = disabled
+  - Per-conversation persistence via localStorage
+  - State survives page refresh and navigation
+
+- ✅ **Frontend Message Display**
+  - Separate display for tool calls (wrench icon) vs thinking process (brain icon)
+  - Collapsible sections for both tool calls and thinking content
+  - Clean separation of concerns in UI
+
+- ✅ **Backend Thinking Mode Support**
+  - Pure LangGraph implementation with dynamic model selection
+  - `UserInput` schema with `thinking_mode` field
+  - Streaming support via `astream` method
+  - DashScope thinking mode integration with `reasoning_content` extraction
+
+- ✅ **Backend Streaming**
+  - Token-level streaming
+  - Separate `thinking` events for reasoning content
+  - Tool call streaming with status updates
+
+- ✅ **Bug Fix - Message Content Filtering**
+  - Fixed white screen bug when sending messages after previous thinking mode conversations
+  - Root cause: `thinking` type blocks are OUTPUT format, not INPUT format
+  - Added `_filter_message_content_for_model()` to filter historical messages
+  - Filters apply to both thinking and non-thinking modes
+
+- ✅ **UI Improvements**
+  - Right-aligned top buttons with consistent width (w-40)
+  - Sidebar toggle button scaled 1.5x
+  - Logo area height reduced
+  - All Chinese comments converted to English
+
+## What's Left to Build
+
+### Next Phase: Powerful RAG Agent
+- [ ] Improve document retrieval quality
+- [ ] Add hybrid search (vector + keyword)
+- [ ] Implement re-ranking for better relevance
+- [ ] Add source citation in responses
+- [ ] Support multiple document formats
+- [ ] Add document upload UI
+
+### Potential Enhancements
+- [ ] Streaming for RAG agent (currently only chatbot supports full streaming)
+- [ ] Thinking mode for RAG agent
+- [ ] Message feedback/reactions
+- [ ] Export conversation feature
+- [ ] Multiple model provider support
+
+## Current Status
+
+**Stable** - Thinking mode feature is complete and functional. All bugs fixed. Ready for RAG agent development.
+
+## Evolution of Project Decisions
+
+1. **Message Content Filtering (2026-03-11)**
+   - Discovered `thinking` type blocks cause API errors when sent as input
+   - Solution: Filter all historical messages to remove `thinking` type blocks
+   - Only keep supported INPUT types: `text`, `image_url`, `video_url`, `video`
+   - Applied universally, regardless of thinking mode
+
+2. **Thinking Mode Implementation**
+   - Initially considered storing in conversation metadata
+   - Decided on localStorage for simplicity and persistence without backend changes
+   - Per-thread storage ensures each conversation has independent settings
+
+3. **Pure LangGraph Architecture (2026-03-10)**
+   - Replaced `create_agent` + middleware pattern with pure StateGraph
+   - Dynamic model selection directly in `llm_call` node function
+   - Better async support and finer control over agent behavior
+
+4. **Tool Call vs Thinking Display**
+   - Separated the UI concerns clearly
+   - Tool calls use wrench icon (functional operations)
+   - Thinking uses brain icon (reasoning process)
+   - Both are collapsible for cleaner UX

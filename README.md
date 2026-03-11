@@ -78,6 +78,21 @@ AgentHub/
 - **TanStack Query** - Data fetching and state management
 - **Lucide React** - Beautiful icon library
 
+## 📦 Branches
+
+This project has two branches:
+
+- **main** (default): Stable release branch with tested, production-ready features. Clone this branch if you want a stable experience.
+- **dev**: Development branch with the latest features and improvements. Clone this branch if you want to try the newest capabilities.
+
+```bash
+# Clone main branch (stable)
+git clone -b main https://github.com/realyinchen/AgentHub.git
+
+# Clone dev branch (latest)
+git clone -b dev https://github.com/realyinchen/AgentHub.git
+```
+
 ## 🚀 Quick Start
 
 ### Prerequisites
