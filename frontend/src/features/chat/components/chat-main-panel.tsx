@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown, Languages, Moon, Share2, Sun } from "lucide-react"
+import { ArrowDown } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
@@ -9,21 +9,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
 import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   PromptInput,
   PromptInputBody,
@@ -34,11 +20,8 @@ import {
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { Loader } from "~/components/ai/loader"
 import { useI18n } from "@/i18n"
-import { useTheme } from "@/hooks/use-theme"
 
 type ChatMainPanelProps = {
-  agents: AgentInDB[]
-  selectedAgentId: string
   appError: string | null
   isStreaming: boolean
   isInitializing: boolean
@@ -50,6 +33,8 @@ type ChatMainPanelProps = {
   calledTools: ToolCallInfo[]
   thinkingContent: string // Accumulated thinking content
   messages: LocalChatMessage[]
+  agents: AgentInDB[]
+  selectedAgentId: string
   onSendMessage: (rawInput: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
@@ -58,6 +43,8 @@ type ChatMainPanelProps = {
   onToggleThinkingMode: () => void
   isThinkingModeAvailable: boolean
   isThinkingModeLoading: boolean
+  // Edit message props
+  onEditMessage?: (newContent: string) => Promise<void>
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -68,8 +55,6 @@ const STREAM_SCROLL_MIN_STEP = 1
 const USER_SCROLL_INTERRUPT_DELTA = -2
 
 export function ChatMainPanel({
-  agents,
-  selectedAgentId,
   appError,
   isStreaming,
   isInitializing,
@@ -81,6 +66,7 @@ export function ChatMainPanel({
   calledTools,
   thinkingContent,
   messages,
+  agents,
   onSendMessage,
   onStopStreaming,
   onSelectAgent,
@@ -88,9 +74,9 @@ export function ChatMainPanel({
   onToggleThinkingMode,
   isThinkingModeAvailable,
   isThinkingModeLoading,
+  onEditMessage,
 }: ChatMainPanelProps) {
-  const { t, toggleLocale } = useI18n()
-  const { theme, toggleTheme } = useTheme()
+  const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
@@ -102,14 +88,6 @@ export function ChatMainPanel({
   const lastKnownScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
-  const [showShareDialog, setShowShareDialog] = useState(false)
-
-  const handleShare = useCallback(() => {
-    const url = window.location.href
-    navigator.clipboard.writeText(url).then(() => {
-      setShowShareDialog(true)
-    })
-  }, [])
 
   const suggestions = useMemo(
     () => [
@@ -144,23 +122,11 @@ export function ChatMainPanel({
       ]
     }
 
-    const mapped = agents.map((agent) => ({
+    return agents.map((agent) => ({
       agent_id: agent.agent_id,
       description: agent.description || t("chat.noDescription"),
     }))
-
-    // Put the currently selected agent first, others in original order
-    const currentIndex = mapped.findIndex(
-      (agent) => agent.agent_id === selectedAgentId
-    )
-    if (currentIndex > 0) {
-      const current = mapped[currentIndex]
-      const others = mapped.filter((_, index) => index !== currentIndex)
-      return [current, ...others]
-    }
-
-    return mapped
-  }, [agents, selectedAgentId, t])
+  }, [agents, t])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current
@@ -298,89 +264,9 @@ export function ChatMainPanel({
     : !inputValue.trim() || status !== "ready" || isComposerDisabled
   const shouldShowScrollButton =
     showScrollButton && !isAwaitingAgentSelection && !isLoadingConversation
-  const handleAgentChange = useCallback(
-    (value: string) => {
-      if (isStreaming || isComposerDisabled) {
-        return
-      }
-      onSelectAgent(value)
-    },
-    [isComposerDisabled, isStreaming, onSelectAgent],
-  )
-
-  const getAgentDisplayName = useCallback(
-    (agentId: string) => {
-      if (agentId.toLowerCase().includes("rag")) {
-        return t("chat.status.rag")
-      }
-      if (agentId === "chatbot") {
-        return t("chat.status.chatbot")
-      }
-      return agentId
-    },
-    [t],
-  )
 
   return (
-    <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden bg-background">
-      <header className="z-20 flex w-full flex-col items-end gap-2 bg-background px-4 pt-3 md:px-6">
-        <div className="flex items-center gap-1.5 w-40">
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="cursor-pointer gap-1.5 flex-1"
-            onClick={handleShare}
-            aria-label={t("share.button")}
-          >
-            <Share2 className="size-4" />
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="cursor-pointer gap-1.5 flex-1"
-            onClick={toggleTheme}
-            aria-label={t("theme.switch")}
-          >
-            {theme === "light" ? (
-              <Sun className="size-4" />
-            ) : (
-              <Moon className="size-4" />
-            )}
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="cursor-pointer gap-1.5 flex-1"
-            onClick={toggleLocale}
-            aria-label={t("language.switch")}
-          >
-            <Languages className="size-4" />
-            {t("language.toggleLabel")}
-          </Button>
-        </div>
-        {!isAwaitingAgentSelection ? (
-          <Select
-            value={selectedAgentId}
-            onValueChange={handleAgentChange}
-            disabled={isStreaming || isComposerDisabled}
-          >
-            <SelectTrigger className="w-40" size="sm">
-              <SelectValue placeholder={t("chat.selectAgent")} />
-            </SelectTrigger>
-            <SelectContent>
-              {selectableAgents.map((agent) => (
-                <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                  {getAgentDisplayName(agent.agent_id)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : null}
-      </header>
-
+    <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-background">
       <div
         className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background px-4 pb-2 md:px-6"
       >
@@ -438,7 +324,7 @@ export function ChatMainPanel({
                 </div>
               </div>
             ) : (
-              <div className="mx-auto flex w-full  flex-col gap-4 py-3 p-3 ">
+              <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-0">
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const retrySource = message.type === "ai"
@@ -469,6 +355,8 @@ export function ChatMainPanel({
                         thinkingContent={thinkingContentForMessage}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
+                        onEditMessage={onEditMessage}
+                        editDisabled={isStreaming || isComposerDisabled}
                       />
                     )
                   })
@@ -560,15 +448,6 @@ export function ChatMainPanel({
           </div>
         </footer>
       ) : null}
-
-      <Dialog open={showShareDialog} onOpenChange={setShowShareDialog}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("share.title")}</DialogTitle>
-            <DialogDescription>{t("share.description")}</DialogDescription>
-          </DialogHeader>
-        </DialogContent>
-      </Dialog>
     </section>
   )
 }

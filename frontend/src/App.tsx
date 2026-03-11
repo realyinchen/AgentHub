@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState, useMemo } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { Languages, Moon, Share2, Sun } from "lucide-react"
 
 import {
   createConversation,
@@ -20,13 +21,24 @@ import type {
   ToolCallInfo,
 } from "@/types"
 import { useThinkingMode } from "@/hooks/use-thinking-mode"
+import { useTheme } from "@/hooks/use-theme"
 import {
   ChatMainPanel,
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
+  MessageRuler,
+  ShareDialog,
 } from "@/features/chat/components"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
+import { Button } from "@/components/ui/button"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 import {
   getErrorMessage,
   isDefaultConversationTitle,
@@ -44,7 +56,8 @@ function readAgentIdFromUrl(): string | null {
 import { useI18n } from "@/i18n"
 
 function App() {
-  const { t } = useI18n()
+  const { t, toggleLocale } = useI18n()
+  const { theme, toggleTheme } = useTheme()
   const defaultConversationTitle = t("conversation.defaultTitle")
 
   const [agents, setAgents] = useState<AgentInDB[]>([])
@@ -52,7 +65,7 @@ function App() {
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
-  
+
   // Thinking mode state - persisted per conversation in localStorage
   const {
     thinkingMode,
@@ -73,20 +86,21 @@ function App() {
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
   const [isAwaitingAgentSelection, setIsAwaitingAgentSelection] = useState(false)
-  const [isProcessing, setIsProcessing] = useState(false) // 正在处理，尚未收到任何内容
+  const [isProcessing, setIsProcessing] = useState(false) // Processing, no content received yet
   const [isAgentThinking, setIsAgentThinking] = useState(false)
   const [activeToolCall, setActiveToolCall] = useState<ToolCallEvent | null>(null)
   const [calledTools, setCalledTools] = useState<ToolCallInfo[]>([])
-  const [thinkingContent, setThinkingContent] = useState("") // 累积的思考内容
+  const [thinkingContent, setThinkingContent] = useState("") // Accumulated thinking content
 
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
+  const [showShareDialog, setShowShareDialog] = useState(false)
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
-  
+
   // Keep thinkingModeRef in sync with thinkingMode state
   useEffect(() => {
     thinkingModeRef.current = thinkingMode
@@ -157,14 +171,14 @@ function App() {
       const conversation = knownConversations.find(
         (c) => c.thread_id === targetThreadId,
       )
-      
+
       // Determine agent to use: prefer saved agent_id, fall back to default
       const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
       const savedAgentId = conversation?.agent_id
       const agentToUse = savedAgentId && agentList.some((a) => a.agent_id === savedAgentId)
         ? savedAgentId
         : defaultAgentId
-      
+
       // Update selected agent if different
       setSelectedAgentId(agentToUse)
 
@@ -293,7 +307,7 @@ function App() {
           const placeholderId = streamingPlaceholderIdRef.current
           const hasToolCalls = normalized.tool_calls && normalized.tool_calls.length > 0
           const hasContent = normalized.content && normalized.content.trim().length > 0
-          
+
           // If we have a placeholder, update it with new content
           if (placeholderId) {
             // If this message has tool_calls, it means more content is coming
@@ -303,15 +317,15 @@ function App() {
               return previous.map((item) =>
                 item.local_id === placeholderId
                   ? {
-                      ...item,
-                      ...normalized,
-                      local_id: placeholderId,
-                      is_streaming: true,
-                    }
+                    ...item,
+                    ...normalized,
+                    local_id: placeholderId,
+                    is_streaming: true,
+                  }
                   : item,
               )
             }
-            
+
             // If this message has content but no tool_calls, it's the final response
             // Update the placeholder and clear the ref
             if (hasContent) {
@@ -319,15 +333,15 @@ function App() {
               return previous.map((item) =>
                 item.local_id === placeholderId
                   ? {
-                      ...item,
-                      ...normalized,
-                      local_id: placeholderId,
-                      is_streaming: false,
-                    }
+                    ...item,
+                    ...normalized,
+                    local_id: placeholderId,
+                    is_streaming: false,
+                  }
                   : item,
               )
             }
-            
+
             // No content and no tool calls, keep placeholder as is
             return previous
           }
@@ -452,7 +466,7 @@ function App() {
         abortControllerRef.current = controller
 
         // Reset state for new message
-        setIsProcessing(true) // 开始处理，尚未收到任何内容
+        setIsProcessing(true) // Start processing, no content received yet
         isProcessingRef.current = true
         setIsAgentThinking(false)
         setCalledTools([])
@@ -460,7 +474,7 @@ function App() {
 
         // Use ref to get the latest thinkingMode value to avoid stale closure
         const currentThinkingMode = thinkingModeRef.current
-        
+
         await streamChat(
           {
             content: trimmed,
@@ -469,7 +483,7 @@ function App() {
             thinking_mode: currentThinkingMode,
           },
           (event: StreamEvent) => {
-            // 收到任何内容，停止显示"正在处理..."
+            // Received any content, stop showing "processing..."
             if (isProcessingRef.current) {
               setIsProcessing(false)
               isProcessingRef.current = false
@@ -479,7 +493,7 @@ function App() {
               // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
               setIsAgentThinking(true)
               setActiveToolCall(null)
-              // 累积思考内容
+              // Accumulate thinking content
               setThinkingContent((prev) => prev + event.content)
               return
             }
@@ -602,6 +616,31 @@ function App() {
     ],
   )
 
+  const handleEditMessage = useCallback(
+    async (newContent: string) => {
+      // Find the index of the last user message
+      let lastUserMessageIndex = -1
+      for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i].type === "human") {
+          lastUserMessageIndex = i
+          break
+        }
+      }
+
+      if (lastUserMessageIndex === -1) {
+        return
+      }
+
+      // Remove all messages after the edited message (including AI responses)
+      const updatedMessages = messages.slice(0, lastUserMessageIndex)
+      setMessages(updatedMessages)
+
+      // Send the new message content
+      await handleSendMessage(newContent)
+    },
+    [messages, handleSendMessage],
+  )
+
   const handleSaveTitle = useCallback(async () => {
     const targetThreadId = renameTarget?.thread_id ?? threadId
     if (!targetThreadId) {
@@ -716,6 +755,19 @@ function App() {
     }
   }, [])
 
+  // Jump to specified message
+  const jumpToMessage = useCallback((localId: string) => {
+    const element = document.getElementById(`message-${localId}`)
+    if (element) {
+      element.scrollIntoView({ behavior: "smooth", block: "center" })
+      // Add highlight effect
+      element.classList.add("ring-2", "ring-primary/50", "rounded-lg")
+      setTimeout(() => {
+        element.classList.remove("ring-2", "ring-primary/50", "rounded-lg")
+      }, 2000)
+    }
+  }, [])
+
   useEffect(() => {
     setConversationTitleState((current) =>
       isDefaultConversationTitle(current) ? defaultConversationTitle : current,
@@ -725,7 +777,7 @@ function App() {
     )
   }, [defaultConversationTitle])
 
-  // 使用 ref 存储 t 函数和 defaultConversationTitle，避免语言切换时重新初始化
+  // Use ref to store t function and defaultConversationTitle to avoid re-initialization on language switch
   const tRef = useRef(t)
   const defaultConversationTitleRef = useRef(defaultConversationTitle)
   useEffect(() => {
@@ -759,7 +811,7 @@ function App() {
         const queryThreadId = readThreadIdFromUrl()
         const queryAgentId = readAgentIdFromUrl()
 
-        // 如果 URL 中有 agent_id 参数，直接使用该 agent
+        // If URL has agent_id parameter, use that agent directly
         if (queryAgentId) {
           const validAgentId = agentList.some(
             (agent) => agent.agent_id === queryAgentId
@@ -828,7 +880,7 @@ function App() {
           setDraftTitle(defaultConversationTitle)
           setMessages([])
 
-          // 如果 URL 中有 agent_id，直接进入聊天界面，不需要选择 agent
+          // If URL has agent_id, enter chat directly without needing to select agent
           if (queryAgentId) {
             setIsAwaitingAgentSelection(false)
           } else {
@@ -862,7 +914,7 @@ function App() {
 
   return (
     <>
-      <SidebarProvider defaultOpen className="h-screen overflow-hidden">
+      <SidebarProvider defaultOpen className="h-screen min-h-0 overflow-hidden">
         <ChatSidebar
           threadId={threadId}
           conversations={conversations}
@@ -879,10 +931,8 @@ function App() {
           onDeleteConversation={setDeleteTarget}
         />
 
-        <SidebarInset className="min-h-0 overflow-hidden bg-background">
+        <SidebarInset className="min-h-0 overflow-hidden bg-background flex-1">
           <ChatMainPanel
-            agents={agents}
-            selectedAgentId={selectedAgentId}
             appError={appError}
             isStreaming={isStreaming}
             isInitializing={isInitializing}
@@ -894,6 +944,8 @@ function App() {
             calledTools={calledTools}
             thinkingContent={thinkingContent}
             messages={messages}
+            agents={agents}
+            selectedAgentId={selectedAgentId}
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
             onSelectAgent={pickAgentForCurrentConversation}
@@ -901,8 +953,85 @@ function App() {
             onToggleThinkingMode={toggleThinkingMode}
             isThinkingModeAvailable={isThinkingModeAvailable}
             isThinkingModeLoading={isThinkingModeLoading}
+            onEditMessage={handleEditMessage}
           />
         </SidebarInset>
+
+        {/* Message Ruler */}
+        <MessageRuler key={threadId} messages={messages} onJumpToMessage={jumpToMessage} />
+
+        {/* Right Panel */}
+        <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-3 w-fit">
+          {/* First row: three buttons horizontally */}
+          <div className="flex gap-1 w-full">
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-8 flex-1"
+              disabled={isAwaitingAgentSelection || messages.length === 0}
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href)
+                setShowShareDialog(true)
+              }}
+              aria-label={t("share.button")}
+              title={t("share.button")}
+            >
+              <Share2 className="size-4" />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="cursor-pointer size-8 flex-1"
+              onClick={toggleTheme}
+              aria-label={t("theme.switch")}
+              title={t("theme.switch")}
+            >
+              {theme === "light" ? (
+                <Sun className="size-4" />
+              ) : (
+                <Moon className="size-4" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="cursor-pointer size-8 flex-1"
+              onClick={toggleLocale}
+              aria-label={t("language.switch")}
+              title={t("language.switch")}
+            >
+              <Languages className="size-4" />
+            </Button>
+          </div>
+          {/* Second row: Agent selector */}
+          <Select
+            value={selectedAgentId}
+            onValueChange={(value) => {
+              if (!isStreaming && !isInitializing && !isLoadingConversation) {
+                pickAgentForCurrentConversation(value)
+              }
+            }}
+            disabled={isStreaming || isInitializing || isLoadingConversation}
+          >
+            <SelectTrigger size="sm" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {agents.map((agent) => (
+                <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                  {agent.agent_id.toLowerCase().includes("rag")
+                    ? t("chat.status.rag")
+                    : agent.agent_id === "chatbot"
+                      ? t("chat.status.chatbot")
+                      : agent.agent_id}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </aside>
       </SidebarProvider>
 
       <ConversationRenameDialog
@@ -924,6 +1053,11 @@ function App() {
         onConfirm={() => {
           void confirmDeleteConversation()
         }}
+      />
+
+      <ShareDialog
+        open={showShareDialog}
+        onOpenChange={setShowShareDialog}
       />
     </>
   )

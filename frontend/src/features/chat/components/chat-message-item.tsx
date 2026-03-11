@@ -3,10 +3,11 @@ import {
   CheckIcon,
   ChevronDown,
   CopyIcon,
+  PencilIcon,
   RefreshCcwIcon,
   WrenchIcon,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
@@ -25,6 +26,8 @@ type ChatMessageItemProps = {
   thinkingContent?: string // Accumulated thinking content (streaming)
   isProcessing?: boolean // Processing, no content received yet
   isStreaming?: boolean // Whether the current message is streaming
+  onEditMessage?: (newContent: string) => void // Callback when user edits their message
+  editDisabled?: boolean // Whether edit is disabled
 }
 
 type SourceLink = {
@@ -207,12 +210,14 @@ export function ChatMessageItem({
   onRetry, 
   retryDisabled = false, 
   calledTools = [], 
-  isAgentThinking = false,
   activeToolName = null,
   thinkingContent = "",
   isProcessing = false,
   isStreaming = false,
+  onEditMessage,
+  editDisabled = false,
 }: ChatMessageItemProps) {
+  const messageRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
   const isUser = message.type === "human"
   const isAI = message.type === "ai"
@@ -221,6 +226,10 @@ export function ChatMessageItem({
   const [copied, setCopied] = useState(false)
   const [showThinkingProcess, setShowThinkingProcess] = useState(false)
   const [showToolCalls, setShowToolCalls] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editContent, setEditContent] = useState(message.content)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const [isHovered, setIsHovered] = useState(false)
   
   // Parse thinking content from message (for history) or use streaming content
   const historicalThinking = parseThinkingContent(message)
@@ -272,6 +281,8 @@ export function ChatMessageItem({
 
   return (
     <article
+      id={`message-${message.local_id}`}
+      ref={messageRef}
       className={cn("flex w-full items-start gap-3", isUser && "justify-end")}
     >
       <Message
@@ -282,6 +293,8 @@ export function ChatMessageItem({
             ? "w-auto max-w-[72%] items-end"
             : "w-full max-w-[85%]",
         )}
+        onMouseEnter={() => isUser && setIsHovered(true)}
+        onMouseLeave={() => isUser && setIsHovered(false)}
       >
         <MessageContent
           className={cn(
@@ -391,12 +404,73 @@ export function ChatMessageItem({
             message.content ? (
               <MarkdownContent content={message.content} isStreaming={isStreaming} />
             ) : null
+          ) : isEditing ? (
+            <div className="space-y-2">
+              <textarea
+                ref={textareaRef}
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                className="w-full min-h-[60px] resize-none rounded-lg bg-white/10 p-2 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30"
+                placeholder={t("message.editPlaceholder")}
+                rows={3}
+              />
+              <div className="flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsEditing(false)
+                    setEditContent(message.content)
+                  }}
+                  className="rounded-md px-2 py-1 text-xs text-white/80 hover:bg-white/10"
+                >
+                  {t("common.cancel")}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (editContent.trim() && editContent.trim() !== message.content.trim() && onEditMessage) {
+                      onEditMessage(editContent.trim())
+                    }
+                    setIsEditing(false)
+                  }}
+                  disabled={!editContent.trim() || editContent.trim() === message.content.trim() || editDisabled}
+                  className="rounded-md bg-white/20 px-2 py-1 text-xs text-white hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {t("message.sendEdit")}
+                </button>
+              </div>
+            </div>
           ) : (
             <p className="whitespace-pre-wrap break-words text-sm leading-6">
               {message.content}
             </p>
           )}
         </MessageContent>
+
+        {/* User message actions: copy and edit - only show on hover */}
+        {isUser && !isEditing && isHovered ? (
+          <Actions className="pt-1 justify-end">
+            <Action
+              onClick={() => {
+                void handleCopy()
+              }}
+              className="cursor-pointer"
+              tooltip={copied ? t("common.copied") : t("common.copy")}
+              label={copied ? t("message.copiedMessage") : t("message.copyMessage")}
+            >
+              {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+            </Action>
+            <Action
+              onClick={() => setIsEditing(true)}
+              tooltip={t("common.edit")}
+              label={t("message.editMessage")}
+              className="cursor-pointer"
+              disabled={editDisabled}
+            >
+              <PencilIcon className="size-4" />
+            </Action>
+          </Actions>
+        ) : null}
 
         {/* Actions area: copy, retry, thinking process, tool calls */}
         {isAI && !isStreaming ? (

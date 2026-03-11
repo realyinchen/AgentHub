@@ -1,5 +1,7 @@
 export { ChatMainPanel } from "./chat-main-panel"
+export { MessageRuler } from "./message-ruler"
 export { ChatSidebar } from "./chat-sidebar"
 export { ConversationRenameDialog } from "./conversation-rename-dialog"
 export { DeleteConversationDialog } from "./delete-conversation-dialog"
+export { ShareDialog } from "./share-dialog"
 export { ThinkingModeToggle } from "./thinking-mode-toggle"

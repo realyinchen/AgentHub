@@ -1,11 +1,11 @@
 import type { ChatStatus, FileUIPart } from "ai"
 import {
-  CornerDownLeftIcon,
   ImageIcon,
   Loader2Icon,
   MicIcon,
   PaperclipIcon,
   PlusIcon,
+  SendIcon,
   SquareIcon,
   XIcon,
 } from "lucide-react"
@@ -959,7 +959,7 @@ export const PromptInputSubmit = ({
   ...props
 }: PromptInputSubmitProps) => {
   const { t } = useI18n()
-  let Icon = <CornerDownLeftIcon className="size-4" />
+  let Icon = <SendIcon className="size-4" />
 
   if (status === "submitted") {
     Icon = <Loader2Icon className="size-4 animate-spin" />
