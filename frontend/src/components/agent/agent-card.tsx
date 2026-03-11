@@ -64,7 +64,7 @@ export function AgentGrid({ agents, selectedAgentId, onSelectAgent }: AgentGridP
 
   // Maximum 9 agents displayed (3x3 grid layout)
   const MAX_DISPLAY_COUNT = 9
-  const actualCount = Math.min(agents.length, MAX_DISPLAY_COUNT)
+  // const actualCount = Math.min(agents.length, MAX_DISPLAY_COUNT)
 
   useEffect(() => {
     // Initially select first 9 or all if less than 9
