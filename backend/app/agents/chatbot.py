@@ -67,7 +67,7 @@ def _filter_message_content_for_model(message: BaseMessage) -> BaseMessage:
     
     # Update the message content
     if filtered_content:
-        message.content = filtered_content
+        message.content = "".join(filtered_content)
     else:
         # If all content was filtered, set to empty string
         message.content = ""
