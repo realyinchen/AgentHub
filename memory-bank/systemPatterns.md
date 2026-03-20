@@ -11,6 +11,7 @@ flowchart TD
 
     C --> E[chatbot<br>(LangGraph graph)]
     C --> F[rag-agent<br>(LangGraph graph)]
+    C --> N[navigator<br>(LangGraph graph)]
 
     subgraph External Services
         G[Qdrant<br>(vector store)]
@@ -24,6 +25,8 @@ flowchart TD
     F --> G
     F --> H
     F --> I
+
+    K[Amap API<br>(高德地图)] <--> N[navigator<br>(导航Agent)]
 
     J[PostgreSQL<br>- LangGraph checkpointer<br>- Conversation metadata<br>- Agent registry] <--> B
     J <--> E
@@ -121,6 +124,7 @@ backend/
     ├── agents/
     │   ├── __init__.py        # Agent registry dict
     │   ├── chatbot.py         # Chatbot agent (StateGraph with tools)
+    │   ├── navigator.py       # Navigator agent (StateGraph with Amap tools)
     │   └── agentic_rag/       # Agentic RAG agent (multi-node LangGraph)
     │       ├── graph.py       # StateGraph definition + compilation
     │       ├── state.py       # GraphState TypedDict
@@ -142,11 +146,13 @@ backend/
     │   ├── __init__.py        # Tool exports
     │   ├── time.py            # get_current_time - timezone-aware time tool
     │   ├── web.py             # create_web_search - Tavily search factory
+    │   ├── amap.py            # Amap (高德地图) tools - geocode, place_search, place_around, driving_route
     │   ├── execute_sql_query.py  # SQL query execution
     │   └── vectorstore_retriever.py  # Vector store retrieval
     ├── prompt/                # Centralized prompt templates
     │   ├── __init__.py
-    │   └── chatbot.py         # Chatbot system prompt with tool usage guidelines
+    │   ├── chatbot.py         # Chatbot system prompt with tool usage guidelines
+    │   └── navigator.py       # Navigator agent system prompt
     └── utils/
         ├── agent_utils.py     # Agent lookup + availability helpers
         └── message_utils.py   # Message conversion + streaming helpers

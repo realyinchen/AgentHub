@@ -27,6 +27,8 @@ SQLs = [
 
     INSERT INTO public.agents (agent_id, description, is_active)
     VALUES ('chatbot', 'A Simple chatbot', true);
+    INSERT INTO public.agents (agent_id, description, is_active) 
+    VALUES ('navigator', 'A smart navigation assistant based on AMap(高德地图)', true);
     INSERT INTO public.agents (agent_id, description, is_active)
     VALUES ('rag-agent', 'A RAG Agent that can search local knowledge bases and online information.', true);
     """

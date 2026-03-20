@@ -3,7 +3,7 @@
 ## What Works
 
 ### Core Features
-- ✅ Multi-agent chat system with chatbot and RAG agent
+- ✅ Multi-agent chat system with chatbot, RAG agent, and navigator agent
 - ✅ Conversation persistence with PostgreSQL + LangGraph checkpointer
 - ✅ Message history with tool call tracking
 - ✅ Sidebar navigation for conversations
@@ -48,6 +48,31 @@
   - Sidebar toggle button scaled 1.5x
   - Logo area height reduced
   - All Chinese comments converted to English
+
+#### Navigator Agent Feature (2026-03-20)
+- ✅ **Amap (高德地图) Integration**
+  - `amap_geocode` - Convert addresses to coordinates (地理编码)
+  - `amap_place_search` - Search POI by keywords (关键字搜索)
+  - `amap_place_around` - Search POI around a location (周边搜索)
+  - `amap_driving_route` - Plan driving routes with waypoints (驾车路线规划)
+
+- ✅ **Time & Weather Integration**
+  - `get_current_time` - Get current time for time-sensitive decisions
+  - `web_search` - Query weather for outdoor activities
+  - Intelligent suggestions based on time (e.g., store closing hours)
+  - Weather-based alternative recommendations (e.g., indoor activities for rain)
+
+- ✅ **Navigation Agent Implementation**
+  - Pure LangGraph StateGraph architecture
+  - Dynamic model selection with thinking mode support
+  - Streaming support for real-time responses
+  - Intelligent understanding of fuzzy descriptions
+  - Multi-step task handling capability
+  - Time context in system prompt (like chatbot)
+
+- ✅ **Configuration & Documentation**
+  - Added `AMAP_KEY` to environment configuration
+  - Updated memory bank documentation
 
 ## What's Left to Build
 

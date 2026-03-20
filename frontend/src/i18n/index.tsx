@@ -12,7 +12,7 @@ const STORAGE_KEY = "agenthub_locale"
 
 const en = {
   "app.titlePrompt":
-    "Generate a concise title under 50 characters for this conversation. First user message: {{input}}",
+    "Generate a concise title under 50 characters for this conversation. First user message: {{input}}. First AI response: {{response}}. Output the text directly, without Markdown formatting.",
   "chat.chooseAgent": "Choose an agent to start",
   "chat.startChatting": "Start chatting with your selected agent.",
   "chat.suggestion.1": "Who are you? What can you do?",
@@ -155,7 +155,7 @@ type TranslationDictionary = Record<TranslationKey, string>
 
 const zh: TranslationDictionary = {
   "app.titlePrompt":
-    "请为本次对话生成一个不超过50个字符的简洁标题。第一条用户消息：{{input}}",
+    "请为本次对话生成一个不超过10个汉字的简洁标题。第一条用户消息：{{input}}。第一条AI回复：{{response}}。直接输出文本，不要markdown格式。",
   "chat.chooseAgent": "请选择一个智能体开始对话",
   "chat.startChatting": "开始与当前选中的智能体聊天吧。",
   "chat.suggestion.1": "你是谁？你能做些什么？",

@@ -103,6 +103,7 @@ elif settings.LLM_API_KEY and settings.LLM_NAME:
                 "model": settings.LLM_NAME,
                 "api_key": api_key,
                 "api_base": settings.LLM_BASE_URL,
+                "extra_body": {"enable_thinking": False},
             },
         }]),
         model_name="default",

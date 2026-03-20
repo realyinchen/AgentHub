@@ -94,6 +94,9 @@ class Settings(BaseSettings):
     QDRANT_PORT: int | None = None
     QDRANT_COLLECTION: str = ""
 
+    # Amap (高德地图) Configuration
+    AMAP_KEY: SecretStr | None = None
+
     @computed_field
     @property
     def ASYNC_POSTGRE_URL(self) -> str:

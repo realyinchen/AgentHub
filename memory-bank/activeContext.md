@@ -2,6 +2,70 @@
 
 ## Current Work Focus
 
+**Feature: Improved Auto-Title Generation (3/20/2026)**
+
+### Problem
+The auto-generated conversation title was created immediately after the user sends the first message, using only the user's input. This resulted in less accurate titles since the AI's response context was missing.
+
+### Solution
+Modified the title generation to wait until the AI's first response is complete, then generate the title using both the first user message AND the first AI response.
+
+### Files Modified
+- `frontend/src/App.tsx`: 
+  - Updated `maybeGenerateTitle` function to accept `aiResponse` parameter
+  - Modified `handleSendMessage` to extract the last AI message content after streaming completes
+  - Pass both user input and AI response to title generation
+- `frontend/src/i18n/index.tsx`: Updated `app.titlePrompt` in both English and Chinese to include AI response
+
+### How It Works Now
+1. User sends first message in a new conversation
+2. AI processes and streams response
+3. After streaming completes, the system extracts the AI's response content
+4. Title is generated using: "First user message: {{input}}. First AI response: {{response}}"
+5. Generated title is saved to the conversation
+
+---
+
+**Bug Fix: Share Link Missing thread_id in New Conversations (3/20/2026)**
+
+### Problem
+In a new conversation, the browser URL remained as `localhost:5173` without the `thread_id` parameter. When clicking the share button, the copied link didn't include the thread_id, making it impossible to share the conversation.
+
+### Root Cause
+When creating a new conversation, `resetToNewConversation` explicitly called `writeThreadIdToUrl(null)` to remove the thread_id from URL. The thread_id was only written to URL when opening an existing conversation.
+
+### Solution
+In `handleSendMessage`, after ensuring the conversation exists, immediately write the thread_id to URL. This ensures the share link always contains the correct thread_id after the first message is sent.
+
+### Files Modified
+- `frontend/src/App.tsx`: Added `writeThreadIdToUrl(targetThreadId)` call in `handleSendMessage` function
+
+---
+
+**Bug Fix: Navigation Agent Message Display Issues (3/20/2026)**
+
+### Problem 1: Content Duplication During Streaming
+When using the navigation agent, the AI response content was displayed twice - once from `token` events (streaming) and again from `message` events (complete message).
+
+**Root Cause**: Backend sends both event types simultaneously:
+- `token` events - streaming content chunks via `stream_mode == "messages"`
+- `message` events - complete message via `stream_mode == "updates"`
+
+**Solution**: Modified `addMessageFromStream` in `frontend/src/App.tsx` to detect already-streamed content and avoid duplication.
+
+### Problem 2: Intermediate LLM Messages Shown in History
+When refreshing the page and reloading conversation history, intermediate LLM messages (like "Let me check...") were displayed, but only the final response should be shown.
+
+**Root Cause**: The `history` endpoint in `backend/app/api/v1/chat.py` only skipped AI messages with `tool_calls` but no content. Messages with both content and `tool_calls` were still shown.
+
+**Solution**: Modified the history endpoint to skip ALL AI messages that have `tool_calls`, regardless of whether they have content. These are intermediate tool call requests, not final responses. The tool calls are collected and attached to the final AI response's `custom_data.tool_info`.
+
+### Files Modified
+- `frontend/src/App.tsx`: Fixed `addMessageFromStream` function to detect and avoid content duplication
+- `backend/app/api/v1/chat.py`: Modified `history` endpoint to skip intermediate AI messages with tool_calls
+
+---
+
 **Next Phase: Building a Powerful RAG Agent (3/11/2026)**
 
 The thinking mode feature is complete and stable. The next major goal is to build a powerful RAG (Retrieval-Augmented Generation) agent.

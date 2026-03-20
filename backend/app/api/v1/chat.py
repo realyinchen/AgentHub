@@ -254,12 +254,13 @@ async def history(
             if isinstance(msg, ToolMessage):
                 continue
             
-            # Skip intermediate AIMessage that only has tool_calls but no content
-            # These are just tool call requests, not actual AI responses
+            # Skip intermediate AIMessage that has tool_calls
+            # These are tool call requests, not final AI responses
+            # The tool calls will be collected and attached to the final response
             if isinstance(msg, AIMessage):
-                content_str = str(msg.content).strip() if msg.content else ""
-                if not content_str and msg.tool_calls:
-                    # This is an intermediate AI message with only tool calls, skip it
+                if msg.tool_calls:
+                    # This is an intermediate AI message with tool calls, skip it
+                    # (whether it has content or not - content like "Let me check..." is just transitional)
                     continue
 
             chat_message = langchain_to_chat_message(msg)

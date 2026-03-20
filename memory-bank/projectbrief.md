@@ -46,6 +46,20 @@ Students and developers who want to efficiently showcase their LangChain and Lan
    - Tavily web search fallback
    - Reporter node for final answer formatting
 
+3. **navigator** — Intelligent navigation assistant powered by Amap (高德地图):
+   - `amap_geocode` — Convert addresses to coordinates (地理编码)
+   - `amap_place_search` — Search POI by keywords (关键字搜索)
+   - `amap_place_around` — Search POI around a location (周边搜索)
+   - `amap_driving_route` — Plan driving routes with waypoints (驾车路线规划)
+   - `get_current_time` — Get current time for time-sensitive decisions
+   - `web_search` — Query weather for outdoor activities
+   - Supports complex multi-step navigation requests
+   - Understands fuzzy descriptions (e.g., "合肥最大的湖" → 巢湖)
+   - Provides intelligent suggestions based on time and weather
+     - Warns about store closing hours
+     - Suggests indoor alternatives for bad weather
+     - Calculates arrival time for tight schedules
+
 ## Branches
 
 - **main** (default): Stable release branch with tested, production-ready features

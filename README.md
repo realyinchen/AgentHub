@@ -164,6 +164,14 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - Answer quality grading
   - Tavily web search fallback
   - Reporter node for final answer formatting
+- **navigator** — Navigation agent with Amap (高德地图) integration:
+  - `amap_geocode` — Convert address to coordinates (geocoding)
+  - `amap_place_search` — Search POI by keywords (restaurants, hotels, etc.)
+  - `amap_place_around` — Search POI around a location
+  - `amap_driving_route` — Plan driving route with distance and time
+  - `get_current_time` — Get current time in any timezone
+  - `web_search` — Search the web for weather information
+  - Supports location queries, route planning, and nearby place searches
 
 ## 📋 Environment Variables
 

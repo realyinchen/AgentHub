@@ -310,40 +310,52 @@ function App() {
 
           // If we have a placeholder, update it with new content
           if (placeholderId) {
-            // If this message has tool_calls, it means more content is coming
-            // Update the placeholder but keep it alive for the final response
-            if (hasToolCalls) {
-              // Update placeholder with current content, but don't clear the ref
-              return previous.map((item) =>
-                item.local_id === placeholderId
-                  ? {
-                    ...item,
-                    ...normalized,
-                    local_id: placeholderId,
-                    is_streaming: true,
-                  }
-                  : item,
-              )
-            }
-
-            // If this message has content but no tool_calls, it's the final response
-            // Update the placeholder and clear the ref
-            if (hasContent) {
-              streamingPlaceholderIdRef.current = null
-              return previous.map((item) =>
-                item.local_id === placeholderId
-                  ? {
-                    ...item,
-                    ...normalized,
-                    local_id: placeholderId,
-                    is_streaming: false,
-                  }
-                  : item,
-              )
-            }
-
-            // No content and no tool calls, keep placeholder as is
-            return previous
+            const existingItem = previous.find(item => item.local_id === placeholderId)
+            const existingContent = existingItem?.content || ""
+            const existingToolCalls = existingItem?.tool_calls || []
+            
+            // Backend sends both 'token' events (streaming) and 'message' events (complete)
+            // Check if content was already streamed via token events
+            // If existing content matches or is a prefix of the new content, tokens were already added
+            const contentAlreadyStreamed = hasContent && 
+              existingContent.length > 0 && 
+              (normalized.content === existingContent || 
+               normalized.content.startsWith(existingContent))
+            
+            // Determine final content:
+            // - If content was already streamed via tokens, keep existing content
+            // - Otherwise, use the message content (for non-streaming cases like tool calls)
+            const finalContent = contentAlreadyStreamed ? existingContent : 
+              (hasContent ? normalized.content : existingContent)
+            
+            // Merge tool calls: combine existing and new (avoid duplicates by id)
+            const mergedToolCalls = hasToolCalls
+              ? [...existingToolCalls, ...normalized.tool_calls.filter(
+                  (newTc) => !existingToolCalls.some((existingTc) => existingTc.id === newTc.id)
+                )]
+              : existingToolCalls
+            
+            // Determine if this is the final response
+            // Final response: has content AND no tool calls
+            const isFinalResponse = hasContent && !hasToolCalls
+            
+            // Update the placeholder
+            // Don't clear the ref during streaming - let the streaming end handler clear it
+            return previous.map((item) =>
+              item.local_id === placeholderId
+                ? {
+                  ...item,
+                  content: finalContent,
+                  tool_calls: mergedToolCalls,
+                  custom_data: {
+                    ...item.custom_data,
+                    ...(normalized.custom_data?.thinking ? { thinking: normalized.custom_data.thinking } : {}),
+                  },
+                  local_id: placeholderId,
+                  is_streaming: !isFinalResponse,
+                }
+                : item,
+            )
           }
 
           // No placeholder - check for duplicates before adding new message
@@ -423,12 +435,20 @@ function App() {
   }, [])
 
   const maybeGenerateTitle = useCallback(
-    async (userInput: string, targetThreadId: string, currentTitle: string) => {
+    async (
+      userInput: string,
+      aiResponse: string,
+      targetThreadId: string,
+      currentTitle: string,
+    ) => {
       if (!isDefaultConversationTitle(currentTitle) || !targetThreadId) {
         return
       }
 
-      const titlePrompt = t("app.titlePrompt", { input: userInput })
+      const titlePrompt = t("app.titlePrompt", {
+        input: userInput,
+        response: aiResponse,
+      })
 
       try {
         const titleResponse = await invoke({
@@ -492,6 +512,9 @@ function App() {
 
       try {
         await ensureConversationExists(targetThreadId, currentTitle)
+
+        // Write thread_id to URL for sharing (especially important for new conversations)
+        writeThreadIdToUrl(targetThreadId)
 
         setIsStreaming(true)
         streamingPlaceholderIdRef.current = null
@@ -607,16 +630,31 @@ function App() {
         )
 
         // Ensure all streaming placeholders are marked as complete
-        setMessages((previous) =>
-          previous.map((message) =>
+        setMessages((previous) => {
+          const updated = previous.map((message) =>
             message.is_streaming
               ? { ...message, is_streaming: false }
               : message,
-          ),
-        )
+          )
+          return updated
+        })
 
         await refreshConversations()
-        await maybeGenerateTitle(trimmed, targetThreadId, currentTitle)
+
+        // Get the last AI message content for title generation
+        // Use a callback to get the latest messages state
+        let lastAiContent = ""
+        setMessages((previous) => {
+          for (let i = previous.length - 1; i >= 0; i--) {
+            if (previous[i].type === "ai" && previous[i].content) {
+              lastAiContent = previous[i].content
+              break
+            }
+          }
+          return previous
+        })
+
+        await maybeGenerateTitle(trimmed, lastAiContent, targetThreadId, currentTitle)
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           const details = getErrorMessage(error, t("error.unexpected"))
@@ -648,6 +686,7 @@ function App() {
       selectedAgentId,
       t,
       threadId,
+      writeThreadIdToUrl,
     ],
   )
 
