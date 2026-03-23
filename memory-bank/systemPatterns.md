@@ -26,7 +26,8 @@ flowchart TD
     F --> H
     F --> I
 
-    K[Amap API<br>(高德地图)] <--> N[navigator<br>(导航Agent)]
+    K[Amap API<br>(Gaode Map)] <--> N[navigator<br>(Navigation Agent)]
+    H[Tavily<br>(search tool)] --> N
 
     J[PostgreSQL<br>- LangGraph checkpointer<br>- Conversation metadata<br>- Agent registry] <--> B
     J <--> E

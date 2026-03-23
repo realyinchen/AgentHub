@@ -14,6 +14,45 @@
 
 ### Recently Completed
 
+#### Navigator Agent Improvements (2026-03-23)
+- ✅ **Weather Checking Requirement**
+  - Added mandatory `amap_weather` call in workflow (step 3)
+  - Must check weather for all user-mentioned locations and potential waypoints
+  - Ensures user safety and pleasant travel experience
+  - Added "Weather Conditions" section in example output
+
+- ✅ **English Translation**
+  - Complete translation of navigator prompt to authentic English
+  - Maintained consistent terminology (Leg, Itinerary, etc.)
+  - Preserved all formatting, tables, and code examples
+
+- ✅ **Type Annotation Fix**
+  - Fixed Pylance error in `backend/app/tools/amap.py`
+  - Added `Any` to typing imports
+  - Added explicit type annotation: `result: dict[str, Any]`
+
+- ✅ **Web Search Integration**
+  - Added `web_search` tool (Tavily) for real-time traffic information
+  - Checks road closures, construction, traffic control, major events
+  - Mandatory step before route planning
+
+- ✅ **Simplified Output Format**
+  - Removed `amap_static_map` tool (not needed)
+  - Changed from 3-step to 2-step output
+  - Step 1: Itinerary Table
+  - Step 2: Navigation Links
+
+- ✅ **Enforced Tool Execution Order**
+  - `get_current_time` must be called FIRST
+  - `web_search` must be called BEFORE route planning
+  - `amap_weather` must check weather for all locations
+  - Clear mandatory steps in prompt
+
+- ✅ **Code Cleanup**
+  - Removed unused imports
+  - Changed Chinese comments to English in code files
+  - Updated docstrings
+
 #### Thinking Mode Feature (2026-03-10 - 2026-03-11)
 - ✅ **Frontend Thinking Mode Toggle**
   - Brain icon button in prompt input area (left side of submit row)
@@ -50,11 +89,13 @@
   - All Chinese comments converted to English
 
 #### Navigator Agent Feature (2026-03-20)
-- ✅ **Amap (高德地图) Integration**
-  - `amap_geocode` - Convert addresses to coordinates (地理编码)
-  - `amap_place_search` - Search POI by keywords (关键字搜索)
-  - `amap_place_around` - Search POI around a location (周边搜索)
-  - `amap_driving_route` - Plan driving routes with waypoints (驾车路线规划)
+- ✅ **Amap (Gaode Map) Integration**
+  - `amap_geocode` - Convert addresses to coordinates
+  - `amap_place_search` - Search POI by keywords
+  - `amap_place_around` - Search POI around a location
+  - `amap_driving_route` - Plan driving routes with waypoints
+  - `amap_route_preview` - Generate complete route URL with waypoints
+  - `amap_weather` - Query weather information
 
 - ✅ **Time & Weather Integration**
   - `get_current_time` - Get current time for time-sensitive decisions
@@ -93,7 +134,7 @@
 
 ## Current Status
 
-**Stable** - Thinking mode feature is complete and functional. Bug fix for thinking content fragmentation in history applied. Ready for RAG agent development.
+**Stable** - Navigator agent improvements complete. Thinking mode feature is complete and functional. Ready for RAG agent development.
 
 ### Recent Bug Fixes
 
@@ -101,23 +142,45 @@
 
 ## Evolution of Project Decisions
 
-1. **Message Content Filtering (2026-03-11)**
+1. **Navigator Weather Checking (2026-03-23)**
+   - Added mandatory weather checking for all user-mentioned locations
+   - Ensures user safety and pleasant travel experience
+   - Weather info displayed in output for transparency
+   - Especially important for outdoor activities
+
+2. **Navigator English Translation (2026-03-23)**
+   - Translated all prompts from Chinese to authentic English
+   - Maintained consistent terminology across the codebase
+   - Better alignment with international development standards
+
+3. **Navigator Tool Execution Order (2026-03-23)**
+   - Enforced mandatory tool call sequence
+   - `get_current_time` first for accurate time context
+   - `web_search` before planning for real-time traffic awareness
+   - Prevents outdated or incorrect route suggestions
+
+4. **Navigator Output Simplification (2026-03-23)**
+   - Removed static map generation (not practical)
+   - Focus on navigation URLs that open in Amap app/web
+   - Two-step output: table + links
+
+5. **Message Content Filtering (2026-03-11)**
    - Discovered `thinking` type blocks cause API errors when sent as input
    - Solution: Filter all historical messages to remove `thinking` type blocks
    - Only keep supported INPUT types: `text`, `image_url`, `video_url`, `video`
    - Applied universally, regardless of thinking mode
 
-2. **Thinking Mode Implementation**
+6. **Thinking Mode Implementation**
    - Initially considered storing in conversation metadata
    - Decided on localStorage for simplicity and persistence without backend changes
    - Per-thread storage ensures each conversation has independent settings
 
-3. **Pure LangGraph Architecture (2026-03-10)**
+7. **Pure LangGraph Architecture (2026-03-10)**
    - Replaced `create_agent` + middleware pattern with pure StateGraph
    - Dynamic model selection directly in `llm_call` node function
    - Better async support and finer control over agent behavior
 
-4. **Tool Call vs Thinking Display**
+8. **Tool Call vs Thinking Display**
    - Separated the UI concerns clearly
    - Tool calls use wrench icon (functional operations)
    - Thinking uses brain icon (reasoning process)
