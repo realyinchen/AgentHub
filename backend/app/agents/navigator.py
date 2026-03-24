@@ -16,7 +16,6 @@ from app.core.models import get_llm
 from app.prompt.navigator import get_navigator_prompt
 from app.tools.amap import AMAP_TOOLS
 from app.tools.time import get_current_time
-from app.tools.web import create_web_search
 
 
 class NavigatorState(MessagesState):
@@ -83,16 +82,12 @@ def _get_tools() -> list[BaseTool]:
     Tools include:
     - Amap tools for location, routing, and weather
     - Time tool for current time
-    - Web search tool for real-time information (traffic, road closures, events)
     """
     # Amap tools (includes amap_weather for weather queries)
     tools = list(AMAP_TOOLS)
 
     # Add time tool
     tools.append(get_current_time)
-
-    # Add web search tool for real-time information
-    tools.append(create_web_search(max_results=3))
 
     return tools
 

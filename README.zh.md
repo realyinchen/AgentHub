@@ -166,12 +166,14 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - Tavily 网络搜索回退
   - 最终答案格式化的报告节点
 - **navigator** — 导航智能体，集成高德地图 API：
+  - `get_current_time` — 获取任意时区的当前时间（必须首先调用）
   - `amap_geocode` — 地址转经纬度坐标（地理编码）
   - `amap_place_search` — 关键词搜索 POI（餐厅、酒店等）
   - `amap_place_around` — 周边搜索 POI
-  - `amap_driving_route` — 驾车路线规划，包含距离和时间
-  - `get_current_time` — 获取任意时区的当前时间
-  - `web_search` — 搜索网络获取天气信息
+  - `amap_driving_route` — 驾车路线规划，包含距离、时间和导航链接
+  - `amap_route_preview` — 生成包含途经点的完整路线预览链接
+  - `amap_weather` — 查询城市天气信息
+  - 特性：时间冲突检测、行程规划、天气感知建议
   - 支持位置查询、路线规划和周边地点搜索
 
 ## 📋 环境变量

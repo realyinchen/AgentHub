@@ -4,7 +4,7 @@ import { isValidElement, memo, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -297,14 +297,17 @@ const createMarkdownComponents = (
 	},
 	a: ({
 		children,
+		href,
 		...props
 	}: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
 		<a
-			className="font-medium underline underline-offset-4 whitespace-pre-wrap break-all"
+			className="inline-flex items-center gap-1.5 px-3 py-1.5 my-1 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors no-underline"
 			target="_blank"
 			rel="noreferrer"
+			href={href}
 			{...props}
 		>
+			<ExternalLinkIcon className="size-3.5" />
 			{children}
 		</a>
 	),

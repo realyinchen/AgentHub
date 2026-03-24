@@ -159,6 +159,11 @@ const en = {
   "actions.demo.regeneratingLog": "Regenerating...",
   "actions.demo.thumbsUpLog": "Thumbs up!",
   "actions.demo.thumbsDownLog": "Thumbs down!",
+  "navigation.viewRoute": "View Route",
+  "navigation.openInNewWindow": "Open in New Window",
+  "navigation.noUrl": "No navigation URL available",
+  "navigation.completeRoute": "Complete Route",
+  "navigation.segmentRoute": "Segment Navigation",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -310,6 +315,11 @@ const zh: TranslationDictionary = {
   "actions.demo.regeneratingLog": "重新生成中...",
   "actions.demo.thumbsUpLog": "点赞！",
   "actions.demo.thumbsDownLog": "点踩！",
+  "navigation.viewRoute": "查看路线",
+  "navigation.openInNewWindow": "在新窗口打开",
+  "navigation.noUrl": "暂无导航链接",
+  "navigation.completeRoute": "完整路线",
+  "navigation.segmentRoute": "分段导航",
 }
 
 const dictionaries = {
