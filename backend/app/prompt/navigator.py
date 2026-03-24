@@ -41,23 +41,60 @@ Present the complete itinerary in a Markdown table:
 
 ### Step 2: Navigation Links
 
-**Complete Route Link**: Call `amap_route_preview` to generate a navigation link containing all waypoints
-- origin: starting point coordinates
-- destination: ending point coordinates
-- waypoints: list of waypoint coordinates (note: use list format)
-- origin_name/dest_name/waypoint_names: names for each location
+**⚠️ IMPORTANT: When the itinerary involves waypoints (intermediate stops), you MUST provide BOTH types of navigation links:**
 
-Extract the `route_preview_url` field from the returned JSON and display it in Markdown link format:
-```
-[View Complete Route](route_preview_url)
+#### 2.1 Complete Route Link (Required when there are waypoints)
+
+Call `amap_route_preview` to generate a navigation link containing ALL waypoints:
+- `origin`: starting point coordinates (e.g., "117.273545,31.839476")
+- `destination`: ending point coordinates
+- `waypoints`: **JSON string of waypoint coordinates** (e.g., '["117.123456,31.234567", "117.234567,31.345678"]')
+- `origin_name`: starting point name
+- `dest_name`: destination name
+- `waypoint_names`: **JSON string of waypoint names** (e.g., '["Hot Pot Restaurant", "Company"]')
+
+**⚠️ IMPORTANT: The waypoints and waypoint_names parameters must be JSON strings, not Python lists!**
+
+Example call:
+```python
+amap_route_preview(
+    origin="117.273545,31.839476",
+    destination="117.345678,31.456789",
+    waypoints='["117.123456,31.234567", "117.234567,31.345678"]',
+    origin_name="USTC West Campus",
+    dest_name="Hefei South Station",
+    waypoint_names='["Hot Pot Restaurant", "Company"]'
+)
 ```
 
-**Segment Navigation Links**: Call `amap_driving_route` for each leg to generate independent navigation links
+Extract the `route_preview_url` field from the returned JSON and display it:
+```
+**Complete Route (All Waypoints):**
+[View Complete Route on Map](route_preview_url)
+```
+
+#### 2.2 Segment Navigation Links (Always required)
+
+Call `amap_driving_route` for each leg to generate independent navigation links:
 ```
 **Segment Navigation:**
 - [Leg 1: USTC West Campus → Hot Pot Restaurant](navigation_link_1)
 - [Leg 2: Hot Pot Restaurant → Company](navigation_link_2)
 - [Leg 3: Company → Hefei South Station](navigation_link_3)
+```
+
+#### Example Output for Multi-Waypoint Trip:
+
+```
+## Navigation Links
+
+**Complete Route (All Waypoints):**
+[View Complete Route on Map](https://uri.amap.com/navigation?from=117.273545,31.839476,中科大西校区&to=117.345678,31.456789,合肥南站&via=117.123456,31.234567,火锅店;117.234567,31.345678,公司&mode=car&coordinate=gaode)
+
+**Segment Navigation:**
+- [Leg 1: 中科大西校区 → 火锅店](https://uri.amap.com/navigation?from=117.273545,31.839476&to=117.123456,31.234567&mode=car&coordinate=gaode)
+- [Leg 2: 火锅店 → 公司](https://uri.amap.com/navigation?from=117.123456,31.234567&to=117.234567,31.345678&mode=car&coordinate=gaode)
+- [Leg 3: 公司 → 合肥南站](https://uri.amap.com/navigation?from=117.234567,31.345678&to=117.345678,31.456789&mode=car&coordinate=gaode)
 ```
 
 ## Workflow

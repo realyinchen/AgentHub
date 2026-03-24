@@ -50,36 +50,53 @@ def _generate_navigation_url(
 
     Returns:
         Amap URI for navigation
+
+    Note:
+        Amap URI API format:
+        https://uri.amap.com/navigation?from=lon,lat,name&to=lon,lat,name&mode=car&coordinate=gaode&via=lon,lat,name;lon,lat,name
     """
-    params = {
-        "to": destination,
-        "mode": mode,
-        "coordinate": "gaode",
-    }
-
+    # Build from parameter: lon,lat,name
     if origin:
-        params["from"] = origin
+        if origin_name:
+            from_value = f"{origin},{origin_name}"
+        else:
+            from_value = origin
+    else:
+        from_value = None
 
+    # Build to parameter: lon,lat,name
     if dest_name:
-        params["to"] = f"{destination},{dest_name}"
+        to_value = f"{destination},{dest_name}"
+    else:
+        to_value = destination
 
-    if origin_name and origin:
-        params["from"] = f"{origin},{origin_name}"
-
-    # Add waypoints if provided (via parameter)
+    # Build via parameter: lon,lat,name;lon,lat,name;...
+    via_value = None
     if waypoints:
-        # Amap URI uses "via" parameter for waypoints
-        # Format: via=lon1,lat1;lon2,lat2;...
         via_points = []
         for i, wp in enumerate(waypoints):
-            if waypoint_names and i < len(waypoint_names):
+            if waypoint_names and i < len(waypoint_names) and waypoint_names[i]:
                 via_points.append(f"{wp},{waypoint_names[i]}")
             else:
                 via_points.append(wp)
-        params["via"] = ";".join(via_points)
+        via_value = ";".join(via_points)
 
-    # Build URL
-    query_string = "&".join(f"{k}={v}" for k, v in params.items())
+    # Build URL with proper encoding
+    # Note: We need to encode the values but keep the delimiters (; ,) unencoded
+    query_parts = [
+        f"to={quote(to_value, safe=',')}",
+        f"mode={mode}",
+        "coordinate=gaode",
+    ]
+
+    if from_value:
+        query_parts.insert(0, f"from={quote(from_value, safe=',')}")
+
+    if via_value:
+        # For via parameter, keep ; and , unencoded as they are delimiters
+        query_parts.append(f"via={quote(via_value, safe=';,')}")
+
+    query_string = "&".join(query_parts)
     return f"{AMAP_URI_BASE}/navigation?{query_string}"
 
 
@@ -106,31 +123,13 @@ def _generate_route_preview_url(
 
     Returns:
         Amap URI for route preview
+
+    Note:
+        This function directly calls _generate_navigation_url with all waypoints.
+        The generated URL format:
+        https://uri.amap.com/navigation?from=lon,lat,name&to=lon,lat,name&via=lon,lat,name;lon,lat,name&mode=car&coordinate=gaode
     """
-    # Build the route points list
-    # Format for route preview: start;waypoint1;waypoint2;...;end
-    all_points = [origin]
-    all_names = [origin_name] if origin_name else [""]
-
-    if waypoints:
-        all_points.extend(waypoints)
-        if waypoint_names:
-            all_names.extend(waypoint_names)
-        else:
-            all_names.extend([""] * len(waypoints))
-
-    all_points.append(destination)
-    all_names.append(dest_name if dest_name else "")
-
-    # Create markers for each point
-    markers = []
-    for i, (point, name) in enumerate(zip(all_points, all_names)):
-        if name:
-            markers.append(f"{point},{name}")
-        else:
-            markers.append(point)
-
-    # Use the navigation URL with all waypoints
+    # Directly use the navigation URL with all waypoints
     return _generate_navigation_url(
         destination=destination,
         origin=origin,
@@ -526,14 +525,69 @@ async def amap_driving_route(
     return json.dumps(result, ensure_ascii=False, indent=2)
 
 
+def _parse_list_input(value: Any, param_name: str) -> Optional[list[str]]:
+    """Parse input that may be a string JSON list or an actual list.
+
+    LLMs sometimes pass list parameters as JSON strings instead of actual lists.
+    This function handles both cases gracefully.
+
+    Args:
+        value: The input value (could be list, str, or None)
+        param_name: Parameter name for error messages
+
+    Returns:
+        Parsed list of strings, or None if input is None/empty
+
+    Raises:
+        ValueError: If the input cannot be parsed as a list
+    """
+    import json
+
+    if value is None:
+        return None
+
+    # Already a list
+    if isinstance(value, list):
+        return value if value else None
+
+    # String that might be a JSON list
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return None
+
+        # Try to parse as JSON
+        if value.startswith("["):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return parsed if parsed else None
+                else:
+                    raise ValueError(
+                        f"Parameter '{param_name}' should be a list, got JSON {type(parsed).__name__}"
+                    )
+            except json.JSONDecodeError as e:
+                raise ValueError(
+                    f"Parameter '{param_name}' looks like a JSON list but failed to parse: {e}"
+                )
+        else:
+            # Single value, wrap in list
+            return [value]
+
+    # Unknown type
+    raise ValueError(
+        f"Parameter '{param_name}' should be a list or JSON string, got {type(value).__name__}"
+    )
+
+
 @tool
 async def amap_route_preview(
     origin: str,
     destination: str,
-    waypoints: Optional[list[str]] = None,
+    waypoints: Optional[Any] = None,
     origin_name: Optional[str] = None,
     dest_name: Optional[str] = None,
-    waypoint_names: Optional[list[str]] = None,
+    waypoint_names: Optional[Any] = None,
 ) -> str:
     """Generate a complete route preview URL with all waypoints on a single map.
 
@@ -544,33 +598,105 @@ async def amap_route_preview(
     Args:
         origin: Origin coordinates, format "longitude,latitude"
         destination: Destination coordinates, format "longitude,latitude"
-        waypoints: Optional, list of intermediate waypoint coordinates ["lon,lat", ...]
+        waypoints: List of intermediate waypoint coordinates ["lon,lat", ...]
+                   Can be a Python list or a JSON string like '["lon,lat", "lon,lat"]'
         origin_name: Optional, origin name for display
         dest_name: Optional, destination name for display
-        waypoint_names: Optional, list of waypoint names for display
+        waypoint_names: List of waypoint names for display
+                        Can be a Python list or a JSON string like '["name1", "name2"]'
 
     Returns:
-        JSON string containing the route preview URL
+        JSON string containing the route preview URL and any errors/warnings
     """
-    # Generate the route preview URL with all waypoints
-    preview_url = _generate_route_preview_url(
-        origin=origin,
-        destination=destination,
-        waypoints=waypoints,
-        origin_name=origin_name,
-        dest_name=dest_name,
-        waypoint_names=waypoint_names,
-    )
+    import json
 
-    # Build result
     result = {
         "origin": origin,
         "destination": destination,
-        "waypoints": waypoints or [],
-        "route_preview_url": preview_url,
+        "waypoints": [],
+        "route_preview_url": "",
+        "errors": [],
+        "warnings": [],
     }
 
-    import json
+    # Parse waypoints with error handling
+    parsed_waypoints = None
+    if waypoints is not None:
+        try:
+            parsed_waypoints = _parse_list_input(waypoints, "waypoints")
+            result["waypoints"] = parsed_waypoints or []
+        except ValueError as e:
+            result["errors"].append(str(e))
+            result["warnings"].append(
+                "Waypoints will be ignored due to parsing error. "
+                "Please provide waypoints as a list: ['lon1,lat1', 'lon2,lat2']"
+            )
+
+    # Parse waypoint_names with error handling
+    parsed_waypoint_names = None
+    if waypoint_names is not None:
+        try:
+            parsed_waypoint_names = _parse_list_input(waypoint_names, "waypoint_names")
+        except ValueError as e:
+            result["errors"].append(str(e))
+            result["warnings"].append(
+                "Waypoint names will be ignored due to parsing error. "
+                "Please provide waypoint_names as a list: ['name1', 'name2']"
+            )
+
+    # Validate coordinate format
+    def validate_coord(coord: str, name: str) -> bool:
+        try:
+            parts = coord.split(",")
+            if len(parts) != 2:
+                return False
+            float(parts[0])
+            float(parts[1])
+            return True
+        except (ValueError, AttributeError):
+            return False
+
+    if not validate_coord(origin, "origin"):
+        result["errors"].append(
+            f"Invalid origin coordinates format: '{origin}'. Expected 'longitude,latitude'"
+        )
+
+    if not validate_coord(destination, "destination"):
+        result["errors"].append(
+            f"Invalid destination coordinates format: '{destination}'. Expected 'longitude,latitude'"
+        )
+
+    if parsed_waypoints:
+        for i, wp in enumerate(parsed_waypoints):
+            if not validate_coord(wp, f"waypoint[{i}]"):
+                result["warnings"].append(
+                    f"Invalid waypoint[{i}] coordinates format: '{wp}'. Expected 'longitude,latitude'"
+                )
+
+    # Only generate URL if no critical errors
+    if not result["errors"]:
+        try:
+            preview_url = _generate_route_preview_url(
+                origin=origin,
+                destination=destination,
+                waypoints=parsed_waypoints,
+                origin_name=origin_name,
+                dest_name=dest_name,
+                waypoint_names=parsed_waypoint_names,
+            )
+            result["route_preview_url"] = preview_url
+        except Exception as e:
+            result["errors"].append(f"Failed to generate route preview URL: {str(e)}")
+    else:
+        result["warnings"].append(
+            "Route preview URL not generated due to input errors. Please fix the errors and try again."
+        )
+
+    # Clean up empty lists
+    if not result["errors"]:
+        del result["errors"]
+    if not result["warnings"]:
+        del result["warnings"]
 
     return json.dumps(result, ensure_ascii=False, indent=2)
 
