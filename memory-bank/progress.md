@@ -11,8 +11,24 @@
 - ✅ Dark/Light theme support
 - ✅ Agent selection UI
 - ✅ URL-based conversation sharing
+- ✅ **Quote message feature with persistence** (3/24/2026)
 
 ### Recently Completed
+
+#### Quote Feature Persistence Fix (2026-03-24)
+- ✅ **Problem Solved**: Quoted messages lost styling after page refresh
+- ✅ **Backend UserInput Schema**: Added `custom_data` field for persistence
+- ✅ **Backend handle_input**: Store `custom_data` in `HumanMessage.additional_kwargs`
+- ✅ **Backend langchain_to_chat_message**: Restore `custom_data` from `additional_kwargs`
+- ✅ **Frontend UserInput type**: Added `custom_data` field
+- ✅ **Frontend streamChat**: Pass `custom_data` to backend
+- ✅ **Result**: Quote blocks now persist correctly across page refreshes
+
+#### Quote Feature UI Improvements (2026-03-24)
+- ✅ **Quote display**: Truncated to 100 chars with underscore indicator
+- ✅ **Quote editing**: Only edit user content, not the quoted text
+- ✅ **Quote reconstruction**: Rebuild full content with quote on save
+- ✅ **Jump to original**: Click quote block to scroll to original message
 
 #### Navigator Agent Improvements (2026-03-23)
 - ✅ **Weather Checking Requirement**
@@ -116,6 +132,26 @@
   - Updated memory bank documentation
 
 ## What's Left to Build
+
+### Current Phase: Grok-Style Branching Chat (In Progress)
+- [x] Database: message_nodes table + current_leaf_id column
+- [x] Backend: SQLAlchemy models, Pydantic schemas, CRUD operations
+- [x] Backend: Tree-related APIs (get tree, create node, switch branch)
+- [x] Frontend: Type definitions (MessageNode, MessageTree, BranchInfo)
+- [x] Frontend: MessageTree class with path management
+- [x] Frontend: ConversationContext provider
+- [x] Frontend: useConversationTree hook
+- [x] Frontend: API functions for tree operations
+- [x] Frontend: Branch selector component
+- [x] Frontend: Quote dialog component
+- [x] Frontend: Message item with retry/quote/edit buttons
+- [ ] Frontend: Integrate ConversationProvider in App.tsx
+- [ ] Testing: New conversation + send message
+- [ ] Testing: Refresh page + load history
+- [ ] Testing: Share link locked view
+- [ ] Testing: Retry and branch switching
+- [ ] Testing: Quote functionality
+- [ ] Testing: Edit and branch functionality
 
 ### Next Phase: Powerful RAG Agent
 - [ ] Improve document retrieval quality

@@ -27,6 +27,11 @@ class UserInput(BaseModel):
         default=False,
         examples=[True, False],
     )
+    custom_data: dict[str, Any] | None = Field(
+        description="Custom data to persist with the message (e.g., quoted_message_id, user_content for quote feature).",
+        default=None,
+        examples=[{"quoted_message_id": "msg-123", "user_content": "My question"}],
+    )
 
 
 class ChatMessage(BaseModel):

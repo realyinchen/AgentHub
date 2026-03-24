@@ -489,7 +489,7 @@ function App() {
   )
 
   const handleSendMessage = useCallback(
-    async (rawInput: string) => {
+    async (rawInput: string, quotedMessageId?: string, userContent?: string) => {
       const trimmed = rawInput.trim()
       if (
         !trimmed ||
@@ -504,7 +504,15 @@ function App() {
       setAppError(null)
       setMessages((previous) => [
         ...previous,
-        toLocalMessage({ type: "human", content: trimmed }),
+        toLocalMessage(
+          { type: "human", content: trimmed },
+          { 
+            customData: quotedMessageId ? { 
+              quoted_message_id: quotedMessageId,
+              user_content: userContent,
+            } : undefined 
+          }
+        ),
       ])
 
       const targetThreadId = threadId
@@ -539,6 +547,10 @@ function App() {
             agent_id: selectedAgentId,
             thread_id: targetThreadId,
             thinking_mode: currentThinkingMode,
+            custom_data: quotedMessageId ? {
+              quoted_message_id: quotedMessageId,
+              user_content: userContent,
+            } : undefined,
           },
           (event: StreamEvent) => {
             // Received any content, stop showing "processing..."
@@ -1028,6 +1040,7 @@ function App() {
             isThinkingModeAvailable={isThinkingModeAvailable}
             isThinkingModeLoading={isThinkingModeLoading}
             onEditMessage={handleEditMessage}
+            onJumpToMessage={jumpToMessage}
           />
         </SidebarInset>
 

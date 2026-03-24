@@ -86,6 +86,9 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                 type="human",
                 content=convert_message_content_to_string(message.content),
             )
+            # Restore custom_data from additional_kwargs (for quote feature persistence)
+            if message.additional_kwargs.get("custom_data"):
+                human_message.custom_data = message.additional_kwargs["custom_data"]
             return human_message
         case AIMessage():
             ai_message = ChatMessage(
@@ -306,6 +309,9 @@ async def handle_input(
     
     thinking_mode is passed through config.configurable to the agent's nodes,
     where the LLM is dynamically selected based on this flag.
+    
+    custom_data is stored in HumanMessage.additional_kwargs for persistence,
+    and will be restored when loading history.
     """
     thread_id = user_input.thread_id or str(uuid.uuid4())
 
@@ -316,15 +322,21 @@ async def handle_input(
 
     config = RunnableConfig(configurable=configurable)
 
+    # Create HumanMessage with custom_data in additional_kwargs for persistence
+    human_message = HumanMessage(content=user_input.content)
+    if user_input.custom_data:
+        human_message.additional_kwargs["custom_data"] = user_input.custom_data
+
     input: Command | dict[str, Any]
     input = {
-        "messages": [HumanMessage(content=user_input.content)],
+        "messages": [human_message],
     }
 
     logger.info(
-        "handle_input: thread_id=%s, thinking_mode=%s",
+        "handle_input: thread_id=%s, thinking_mode=%s, has_custom_data=%s",
         thread_id,
         user_input.thinking_mode,
+        bool(user_input.custom_data),
     )
 
     kwargs = {

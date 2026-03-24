@@ -6,6 +6,13 @@ import type {
   StreamEvent,
   UserInput,
 } from "@/types"
+import type {
+  MessageNode,
+  MessageTree,
+  MessageNodeCreate,
+  MessageNodeUpdate,
+  // CurrentLeafUpdate, // Used in types but not directly in this file
+} from "@/types/message-tree"
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
 const apiBaseUrl = rawBaseUrl.replace(/\/$/, "")
@@ -169,4 +176,84 @@ export async function streamChat(
 
 export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
   return requestJson<{ available: boolean }>("/chat/thinking-mode")
+}
+
+// ============ Message Node Tree API ============
+
+/**
+ * Get the complete message tree for a conversation.
+ * @param threadId Thread ID
+ * @param leafId Optional leaf ID for share links (locks the view to a specific branch)
+ */
+export async function getMessageTree(
+  threadId: string,
+  leafId?: string,
+): Promise<MessageTree> {
+  const params = leafId ? `?leaf_id=${leafId}` : ""
+  return requestJson<MessageTree>(`/chat/tree/${threadId}${params}`)
+}
+
+/**
+ * Create a new message node.
+ */
+export async function createMessageNode(
+  node: MessageNodeCreate,
+): Promise<MessageNode> {
+  return requestJson<MessageNode>("/chat/nodes", {
+    method: "POST",
+    body: JSON.stringify(node),
+  })
+}
+
+/**
+ * Get a message node by ID.
+ */
+export async function getMessageNode(nodeId: string): Promise<MessageNode> {
+  return requestJson<MessageNode>(`/chat/nodes/${nodeId}`)
+}
+
+/**
+ * Update a message node.
+ */
+export async function updateMessageNode(
+  nodeId: string,
+  update: MessageNodeUpdate,
+): Promise<MessageNode> {
+  return requestJson<MessageNode>(`/chat/nodes/${nodeId}`, {
+    method: "PATCH",
+    body: JSON.stringify(update),
+  })
+}
+
+/**
+ * Update the current_leaf_id for a conversation.
+ */
+export async function updateCurrentLeaf(
+  threadId: string,
+  leafId: string,
+): Promise<{ success: boolean }> {
+  return requestJson<{ success: boolean }>(
+    `/chat/conversations/${threadId}/current-leaf`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ current_leaf_id: leafId }),
+    },
+  )
+}
+
+/**
+ * Get the path from root to a specific node.
+ */
+export async function getNodePath(nodeId: string): Promise<MessageNode[]> {
+  return requestJson<MessageNode[]>(`/chat/nodes/${nodeId}/path`)
+}
+
+/**
+ * Get the next branch_index for a new sibling node.
+ */
+export async function getNextBranchIndex(
+  parentId: string | null,
+): Promise<{ next_branch_index: number }> {
+  const path = parentId ? `/chat/nodes/${parentId}/next-branch-index` : "/chat/nodes/null/next-branch-index"
+  return requestJson<{ next_branch_index: number }>(path)
 }

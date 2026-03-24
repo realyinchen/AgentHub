@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, XIcon } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
@@ -9,6 +9,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
+import { Separator } from "@/components/ui/separator"
 import {
   PromptInput,
   PromptInputBody,
@@ -35,7 +36,7 @@ type ChatMainPanelProps = {
   messages: LocalChatMessage[]
   agents: AgentInDB[]
   selectedAgentId: string
-  onSendMessage: (rawInput: string) => Promise<void>
+  onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
   thinkingMode: boolean
@@ -43,6 +44,7 @@ type ChatMainPanelProps = {
   isThinkingModeAvailable: boolean
   isThinkingModeLoading: boolean
   onEditMessage?: (newContent: string) => Promise<void>
+  onJumpToMessage?: (localId: string) => void // Jump to message callback
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -74,9 +76,14 @@ export function ChatMainPanel({
   isThinkingModeAvailable,
   isThinkingModeLoading,
   onEditMessage,
+  onJumpToMessage,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
+  
+  // Quote state - show quoted content above input
+  const [quotedContent, setQuotedContent] = useState<string | null>(null)
+  const [quotedMessageId, setQuotedMessageId] = useState<string | null>(null)
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
   const conversationRef = useRef<HTMLDivElement | null>(null)
@@ -110,22 +117,6 @@ export function ChatMainPanel({
 
   const isComposerDisabled =
     isInitializing || isLoadingConversation || isAwaitingAgentSelection
-
-  useMemo(() => {
-    if (agents.length === 0) {
-      return [
-        {
-          agent_id: "chatbot",
-          description: t("chat.defaultAssistant"),
-        },
-      ]
-    }
-
-    return agents.map((agent) => ({
-      agent_id: agent.agent_id,
-      description: agent.description || t("chat.noDescription"),
-    }))
-  }, [agents, t])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current
@@ -244,9 +235,20 @@ export function ChatMainPanel({
       return
     }
 
+    // If there's quoted content, format the message and pass quotedMessageId
+    const finalContent = quotedContent 
+      ? `> ${quotedContent}\n\n${trimmed}`
+      : trimmed
+
     setInputValue("")
-    void onSendMessage(trimmed)
-  }, [isComposerDisabled, isStreaming, onSendMessage])
+    const currentQuotedMessageId = quotedMessageId
+    const currentQuotedContent = quotedContent
+    setQuotedContent(null)
+    setQuotedMessageId(null)
+    
+    // Pass quotedMessageId and userContent for display purposes
+    void onSendMessage(finalContent, currentQuotedMessageId || undefined, trimmed)
+  }, [isComposerDisabled, isStreaming, onSendMessage, quotedContent, quotedMessageId])
 
   const handleSuggestionClick = useCallback(
     (value: string) => {
@@ -263,6 +265,21 @@ export function ChatMainPanel({
     : !inputValue.trim() || status !== "ready" || isComposerDisabled
   const shouldShowScrollButton =
     showScrollButton && !isAwaitingAgentSelection && !isLoadingConversation
+
+  // Handle quote action - set quoted content and message ID
+  const handleQuote = useCallback((message: LocalChatMessage) => {
+    setQuotedContent(message.content)
+    setQuotedMessageId(message.local_id)
+    // Focus the textarea
+    const textarea = document.querySelector('textarea[name="message"]') as HTMLTextAreaElement
+    textarea?.focus()
+  }, [])
+
+  // Clear quoted content
+  const clearQuote = useCallback(() => {
+    setQuotedContent(null)
+    setQuotedMessageId(null)
+  }, [])
 
   return (
     <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-background">
@@ -337,6 +354,9 @@ export function ChatMainPanel({
                         isStreaming={message.is_streaming}
                         onEditMessage={onEditMessage}
                         editDisabled={isStreaming || isComposerDisabled}
+                        onQuote={() => handleQuote(message)}
+                        quoteDisabled={isStreaming || isComposerDisabled}
+                        onJumpToMessage={onJumpToMessage}
                       />
                     )
                   })
@@ -400,13 +420,37 @@ export function ChatMainPanel({
                 submitMessage(text)
               }}
             >
+              {/* Quoted content display above input */}
+              {quotedContent ? (
+                <div className="relative px-3 pt-3">
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                    {/* Close button */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 size-5 cursor-pointer"
+                      onClick={clearQuote}
+                    >
+                      <XIcon className="size-3" />
+                    </Button>
+                    {/* Quoted text - gray, show first 100 chars */}
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words line-clamp-3 pr-6">
+                      {quotedContent.length > 100 ? `${quotedContent.slice(0, 100)}_` : quotedContent}
+                    </p>
+                  </div>
+                  {/* Separator line */}
+                  <Separator className="mt-3" />
+                </div>
+              ) : null}
+              
               <PromptInputBody  >
                 <PromptInputTextarea
                   className="max-h-26 min-h-8"
                   disabled={isComposerDisabled}
                   onChange={(event) => setInputValue(event.currentTarget.value)}
                   value={inputValue}
-                  placeholder={t("prompt.placeholder")}
+                  placeholder={quotedContent ? t("message.addYourMessage") : t("prompt.placeholder")}
                 />
               </PromptInputBody>
               <PromptInputFooter className="pb-3 justify-between">

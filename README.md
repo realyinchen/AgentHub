@@ -22,6 +22,7 @@ Follow my WeChat official account for the latest updates:
 ✅ **LangChain/LangGraph Integration** — Easy to build, design, and connect multi-agent reasoning workflows with visualization.  
 ✅ **Streaming & Event-Driven** — Real-time token streaming and agent execution event visualization.  
 ✅ **Thinking Mode** — Toggle between standard and thinking modes for deeper reasoning with separate UI for thought process and tool calls.  
+✅ **Quote Messages** — Quote any historical message to continue the conversation with context. Quotes persist across page refreshes.  
 ✅ **Multi-language Support** — Built-in internationalization with English and Chinese translations.  
 ✅ **Dark/Light Theme** — Customizable theme support for comfortable viewing.  
 

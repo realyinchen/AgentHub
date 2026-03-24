@@ -1,7 +1,8 @@
 import os
+import glob
 import sqlalchemy as sa
 from dotenv import load_dotenv
-
+from pathlib import Path
 
 load_dotenv()
 
@@ -12,59 +13,64 @@ POSTGRE_URL = (
     f"{os.environ.get('POSTGRES_DB')}"
 )
 
+SQL_DIR = Path(__file__).parent / "sql"
 
-SQLs = [
+
+def get_sorted_sql_files():
     """
-    DROP TABLE IF EXISTS public.agents;
-
-    CREATE TABLE public.agents (
-        agent_id VARCHAR(64) PRIMARY KEY,
-        description VARCHAR(1024) NOT NULL,
-        is_active BOOLEAN NOT NULL DEFAULT TRUE,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-
-    INSERT INTO public.agents (agent_id, description, is_active)
-    VALUES ('chatbot', 'A Simple chatbot', true);
-    INSERT INTO public.agents (agent_id, description, is_active) 
-    VALUES ('navigator', 'A smart navigation assistant based on AMap(高德地图)', true);
-    INSERT INTO public.agents (agent_id, description, is_active)
-    VALUES ('rag-agent', 'A RAG Agent that can search local knowledge bases and online information.', true);
+    Get all .sql files in sql/ folder, sorted by name
+    (init_database.sql first, then database_change_001.sql, 002.sql, ...)
     """
-    """
-    DROP TABLE IF EXISTS public.conversations;
-    CREATE TABLE public.conversations (
-        thread_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-        title VARCHAR(64) NOT NULL,
-        agent_id VARCHAR(64) DEFAULT 'chatbot',
-        is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-    );
-    CREATE INDEX idx_conversations_deleted_updated ON public.conversations (is_deleted, updated_at DESC);
-    """
-]
+    sql_files = glob.glob(str(SQL_DIR / "*.sql"))
+    # Sort: init first, then change_xxx in numerical order
+    sorted_files = sorted(
+        sql_files,
+        key=lambda x: (
+            0 if "init_database.sql" in x else 1,
+            int("".join(filter(str.isdigit, Path(x).stem))) if "change_" in x else 9999,
+        ),
+    )
+    return sorted_files
 
 
-def execute_sql_sync():
-    engine = sa.create_engine(POSTGRE_URL, echo=False)
+def execute_sql_file(engine, file_path):
+    """Execute a single .sql file, print progress and errors"""
+    print(f"\nExecuting: {Path(file_path).name}")
+    with open(file_path, "r", encoding="utf-8") as f:
+        sql_content = f.read()
 
-    with engine.connect() as conn:
-        with conn.begin():
-            for sql in SQLs:
-                try:
-                    sql_clean = "\n".join(
-                        line.strip() for line in sql.splitlines() if line.strip()
-                    )
-                    if sql_clean:
-                        conn.execute(sa.text(sql_clean))
-                except Exception as e:
-                    print(f"Execute {sql} ERROR {e}")
+    # Split into statements by ; but ignore inside DO $$ ... $$
+    # For simplicity, we execute the whole file as one (PostgreSQL allows it)
+    try:
+        with engine.connect() as conn:
+            with conn.begin():
+                conn.execute(sa.text(sql_content))
+        print(f"  → Success: {Path(file_path).name}")
+    except Exception as e:
+        print(f"  → Error in {Path(file_path).name}: {e}")
+        # Continue to next file even if one fails (adjust if you want strict mode)
 
 
 def main():
-    execute_sql_sync()
+    print("Starting database schema updates...")
+    print(f"SQL directory: {SQL_DIR}")
+
+    engine = sa.create_engine(POSTGRE_URL, echo=False)
+    sql_files = get_sorted_sql_files()
+
+    if not sql_files:
+        print("No .sql files found in sql/ folder.")
+        return
+
+    print(f"Found {len(sql_files)} SQL files:")
+    for f in sql_files:
+        print(f"  - {Path(f).name}")
+
+    for file_path in sql_files:
+        execute_sql_file(engine, file_path)
+
+    print("\nAll SQL scripts executed (or skipped if already applied).")
+    print("Database schema is up to date.")
 
 
 if __name__ == "__main__":

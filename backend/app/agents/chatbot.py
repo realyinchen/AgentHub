@@ -63,11 +63,26 @@ def _filter_message_content_for_model(message: BaseMessage) -> BaseMessage:
         elif isinstance(block, dict):
             block_type = block.get('type', 'text')
             if block_type in supported_input_types:
-                filtered_content.append(block)
+                # For 'text' type, extract just the text string
+                # DashScope expects plain string content, not {"type": "text", "text": "..."}
+                if block_type == 'text':
+                    text_content = block.get('text', '')
+                    if text_content:
+                        filtered_content.append(text_content)
+                else:
+                    # Keep other supported types as-is (image_url, video_url, video)
+                    filtered_content.append(block)
     
     # Update the message content
+    # IMPORTANT: Convert to plain string if all content is text
+    # DashScope doesn't accept list of strings for message content
     if filtered_content:
-        message.content = filtered_content
+        # Check if all content is plain string
+        if all(isinstance(item, str) for item in filtered_content):
+            # Join all text content into a single string
+            message.content = "".join(filtered_content)
+        else:
+            message.content = filtered_content
     else:
         # If all content was filtered, set to empty string
         message.content = ""
