@@ -4,8 +4,9 @@ import { isValidElement, memo, useEffect, useMemo, useState } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
-import { CheckIcon, CopyIcon, ExternalLinkIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, ExternalLinkIcon, XIcon, ZoomInIcon, ZoomOutIcon, RotateCcwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const DEFAULT_PRE_BLOCK_CLASS =
@@ -200,6 +201,158 @@ const CodeBlock = ({
 
 CodeBlock.displayName = "CodeBlock";
 
+// Image component with zoom modal
+const ImageWithZoom = ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+	const [isDialogOpen, setIsDialogOpen] = useState(false);
+	const [scale, setScale] = useState(1);
+	const [position, setPosition] = useState({ x: 0, y: 0 });
+	const [isDragging, setIsDragging] = useState(false);
+	const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+	const handleZoomIn = () => {
+		setScale((prev) => Math.min(prev + 0.5, 5));
+	};
+
+	const handleZoomOut = () => {
+		setScale((prev) => {
+			const newScale = Math.max(prev - 0.5, 0.5);
+			// Reset position when zooming out to 1x or less
+			if (newScale <= 1) {
+				setPosition({ x: 0, y: 0 });
+			}
+			return newScale;
+		});
+	};
+
+	const handleReset = () => {
+		setScale(1);
+		setPosition({ x: 0, y: 0 });
+	};
+
+	const handleOpenChange = (open: boolean) => {
+		setIsDialogOpen(open);
+		if (!open) {
+			// Reset scale and position when closing
+			setScale(1);
+			setPosition({ x: 0, y: 0 });
+		}
+	};
+
+	// Mouse drag handlers
+	const handleMouseDown = (e: React.MouseEvent) => {
+		if (scale > 1) {
+			setIsDragging(true);
+			setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+		}
+	};
+
+	const handleMouseMove = (e: React.MouseEvent) => {
+		if (isDragging && scale > 1) {
+			setPosition({
+				x: e.clientX - dragStart.x,
+				y: e.clientY - dragStart.y,
+			});
+		}
+	};
+
+	const handleMouseUp = () => {
+		setIsDragging(false);
+	};
+
+	const handleMouseLeave = () => {
+		setIsDragging(false);
+	};
+
+	return (
+		<>
+			{/* biome-ignore lint/performance/noImgElement: Required for image */}
+			<img
+				className="rounded-md cursor-pointer hover:opacity-90 transition-opacity max-w-full h-auto"
+				alt={alt}
+				src={src}
+				onClick={() => setIsDialogOpen(true)}
+				{...props}
+			/>
+			<Dialog open={isDialogOpen} onOpenChange={handleOpenChange}>
+				<DialogContent className="max-w-[95vw] max-h-[95vh] p-0 overflow-hidden bg-black/90 border-none shadow-none">
+					<DialogTitle className="sr-only">{alt || "图片预览"}</DialogTitle>
+					<div className="relative w-full h-full flex flex-col items-center justify-center">
+						{/* Image container with overflow scroll for zoomed images */}
+						<div 
+							className="flex-1 overflow-hidden flex items-center justify-center p-4 w-full"
+							onMouseMove={handleMouseMove}
+							onMouseUp={handleMouseUp}
+							onMouseLeave={handleMouseLeave}
+						>
+							{/* biome-ignore lint/performance/noImgElement: Required for image */}
+							<img
+								src={src}
+								alt={alt}
+								className={cn(
+									"max-w-full max-h-[75vh] object-contain rounded-lg transition-transform duration-200",
+									scale > 1 ? "cursor-grab" : "cursor-default",
+									isDragging && "cursor-grabbing"
+								)}
+								style={{ 
+									transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+								}}
+								onMouseDown={handleMouseDown}
+								draggable={false}
+							/>
+						</div>
+						
+						{/* Control bar */}
+						<div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/70 rounded-full px-4 py-2">
+							<Button
+								variant="ghost"
+								size="icon"
+								className="text-white hover:bg-white/20"
+								onClick={handleZoomOut}
+								disabled={scale <= 0.5}
+							>
+								<ZoomOutIcon className="size-5" />
+							</Button>
+							<span className="text-white text-sm min-w-[60px] text-center">
+								{Math.round(scale * 100)}%
+							</span>
+							<Button
+								variant="ghost"
+								size="icon"
+								className="text-white hover:bg-white/20"
+								onClick={handleZoomIn}
+								disabled={scale >= 5}
+							>
+								<ZoomInIcon className="size-5" />
+							</Button>
+							<div className="w-px h-5 bg-white/30 mx-1" />
+							<Button
+								variant="ghost"
+								size="icon"
+								className="text-white hover:bg-white/20"
+								onClick={handleReset}
+							>
+								<RotateCcwIcon className="size-5" />
+							</Button>
+						</div>
+						
+						{/* Close button */}
+						<Button
+							variant="ghost"
+							size="icon"
+							className="absolute top-2 right-2 bg-black/50 hover:bg-black/70 text-white"
+							onClick={() => handleOpenChange(false)}
+						>
+							<XIcon className="size-5" />
+						</Button>
+					</div>
+				</DialogContent>
+			</Dialog>
+		</>
+	);
+};
+
+ImageWithZoom.displayName = "ImageWithZoom";
+
 const createMarkdownComponents = (
 	disableCodeHighlight: boolean,
 ): Partial<Components> => ({
@@ -374,10 +527,7 @@ const createMarkdownComponents = (
 			{children}
 		</td>
 	),
-	img: ({ alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
-		// biome-ignore lint/performance/noImgElement: Required for image
-		<img className="rounded-md" alt={alt} {...props} />
-	),
+	img: ImageWithZoom,
 	code: ({
 		children,
 		className,

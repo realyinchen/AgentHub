@@ -25,6 +25,7 @@ Follow my WeChat official account for the latest updates:
 ✅ **Quote Messages** — Quote any historical message to continue the conversation with context. Quotes persist across page refreshes.  
 ✅ **Multi-language Support** — Built-in internationalization with English and Chinese translations.  
 ✅ **Dark/Light Theme** — Customizable theme support for comfortable viewing.  
+✅ **Image Zoom & Drag** — Click any image in markdown to zoom in/out and drag to pan. Universal feature for all agents.  
 
 ## 🧩 Perfect For:
 

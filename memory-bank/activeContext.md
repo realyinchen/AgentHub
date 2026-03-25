@@ -2,7 +2,72 @@
 
 ## Current Work Focus
 
-**Navigator Agent Optimization (3/24/2026)**
+**Navigator Agent: Static Map with Image Zoom & Drag (3/25/2026)**
+
+### Changes Made
+
+#### 1. Static Map Route Preview
+- Modified `amap_driving_route` tool to generate static map image URL
+- Uses Amap v3 driving API with `extensions=all` to get polyline data
+- Extracts real route coordinates from each step's polyline
+- Generates static map with:
+  - Green marker "A" for origin
+  - Orange markers "C, D, E..." for waypoints
+  - Red marker "B" for destination
+  - Blue polyline showing the actual route
+
+#### 2. Fixed paths Parameter Format
+- Corrected paths parameter format for Amap static map API
+- Format: `weight,color,transparency,,:points` (2 commas to skip fillcolor/fillTransparency)
+- Official example: `paths=10,0x0000ff,1,,:116.31604,39.96491;...`
+
+#### 3. Added Marker Labels for Map Legend
+- Added `marker_labels` field to `amap_driving_route` output
+- Format: `[{"label": "A", "name": "起点名称", "color": "green"}, ...]`
+- Updated navigator prompt to display Map Legend below the image
+- Uses colored circles: 🟢 for origin, 🟠 for waypoints, 🔴 for destination
+
+#### 4. Image Zoom & Drag Feature (Frontend)
+- Added `ImageWithZoom` component in `markdown-content.tsx`
+- Features:
+  - Click image to open fullscreen modal
+  - Zoom in/out buttons (50%-500%)
+  - Reset zoom button
+  - **Drag to pan** when zoomed in (scale > 1)
+  - Grab cursor changes to grabbing when dragging
+  - Auto-reset position when zooming out to 1x or less
+- **Universal Design**: All markdown images automatically get zoom & drag feature
+- Any agent can use this feature by outputting `![alt](url)` syntax
+
+### Files Modified
+- `backend/app/tools/amap.py` - Added `_generate_static_map_url_from_route`, `marker_labels`, fixed paths format
+- `backend/app/prompt/navigator.py` - Updated output format with Map Legend display
+- `frontend/src/components/ui/markdown-content.tsx` - Added `ImageWithZoom` component with zoom & drag
+
+### Current Navigator Tools
+| Tool | Purpose |
+|------|---------|
+| `get_current_time` | Get current accurate time (MUST call first) |
+| `amap_geocode` | Convert address to coordinates |
+| `amap_place_search` | Search POI by keywords |
+| `amap_place_around` | Search POI around location |
+| `amap_driving_route` | Plan route + generate static map + navigation URLs + marker labels |
+| `amap_weather` | Query weather information |
+
+### amap_driving_route Output Fields
+| Field | Description |
+|-------|-------------|
+| `static_map_url` | URL to static map image showing the route |
+| `marker_labels` | List of marker labels for Map Legend |
+| `navigation_url` | Complete route with all waypoints |
+| `segment_navigation_urls` | List of segment links [{from, to, url}, ...] |
+| `distance` | Total distance in meters |
+| `duration` | Total duration in seconds |
+| `cost` | Toll, taxi fee, traffic lights info |
+
+---
+
+**Previous: Navigator Agent Optimization (3/24/2026)**
 
 ### Changes Made
 
@@ -13,39 +78,14 @@
 #### 2. Rewrote Navigator Prompt (Authentic English)
 - Complete rewrite of `backend/app/prompt/navigator.py` in authentic English
 - Simplified output format: Itinerary Table + Weather + Navigation Links
-- Added time conflict detection logic:
-  - Detect conflicts before providing navigation links
-  - Ask user if they want to adjust plans
-  - Provide practical suggestions based on priority
-- Priority reference for suggestions:
-  - Picking up/dropping off children > Personal errands
-  - Flights/High-speed rail > Regular appointments
-  - Time-sensitive reservations > Flexible arrangements
+- Added time conflict detection logic
 
 #### 3. Weather Query via amap_weather
 - Uses `amap_weather` tool instead of web_search for weather information
-- Cleaner, more reliable weather data from Amap API
 
 #### 4. Frontend Link Styling
 - All hyperlinks in markdown now display as green buttons
 - Added `ExternalLinkIcon` to indicate external links
-- Click opens link in new window/tab
-
-### Files Modified
-- `backend/app/agents/navigator.py` - Removed web_search
-- `backend/app/prompt/navigator.py` - Complete rewrite in English
-- `frontend/src/components/ui/markdown-content.tsx` - Green button style for links
-
-### Current Navigator Tools
-| Tool | Purpose |
-|------|---------|
-| `get_current_time` | Get current accurate time (MUST call first) |
-| `amap_geocode` | Convert address to coordinates |
-| `amap_place_search` | Search POI by keywords |
-| `amap_place_around` | Search POI around location |
-| `amap_driving_route` | Plan driving route + generate navigation URL |
-| `amap_route_preview` | Generate complete route URL with waypoints |
-| `amap_weather` | Query weather information |
 
 ---
 
@@ -92,6 +132,7 @@ The project has a complete core implementation:
 - ✅ Message content filtering for LLM compatibility
 - ✅ Navigator agent with Amap integration and time conflict detection
 - ✅ Green button styling for all hyperlinks in markdown
+- ✅ Image zoom & drag feature for all markdown images (universal)
 
 ## Next Steps
 
@@ -105,6 +146,7 @@ The project has a complete core implementation:
 - **No web_search for Navigator**: Uses `amap_weather` for weather, no traffic news search
 - **Time Conflict Detection**: Check for conflicts before providing navigation links
 - **Link Styling**: Green button style for all external links in markdown
+- **Image Feature**: Universal zoom & drag for all markdown images, any agent can use
 - **Message Content Filtering**: Always filter `thinking` type blocks from historical messages
 - **Pure LangGraph over create_agent**: Chose StateGraph for better control and async support
 - **LLM Provider**: Using Alibaba DashScope (Qwen models) via OpenAI-compatible API
@@ -125,3 +167,5 @@ The project has a complete core implementation:
 - **LangGraph StateGraph**: Provides fine-grained control for agent orchestration
 - **Navigator Agent**: Time conflict detection improves user experience significantly
 - **Link Styling**: Green buttons provide better visual distinction for clickable links
+- **Image Zoom & Drag**: Universal feature that works for any agent outputting markdown images
+- **Amap Static Map**: paths parameter format requires exact comma placement for optional fields

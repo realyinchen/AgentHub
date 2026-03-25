@@ -416,52 +416,159 @@ async def amap_place_around(
     return json.dumps(result_data, ensure_ascii=False, indent=2)
 
 
+def _generate_static_map_url_from_route(
+    origin: str,
+    destination: str,
+    waypoints: Optional[list[str]] = None,
+    polyline_points: Optional[list[str]] = None,
+    origin_name: Optional[str] = None,
+    dest_name: Optional[str] = None,
+    waypoint_names: Optional[list[str]] = None,
+    width: int = 600,
+    height: int = 400,
+) -> str:
+    """Generate static map URL showing the route with markers and path.
+
+    Args:
+        origin: Origin coordinates "longitude,latitude"
+        destination: Destination coordinates "longitude,latitude"
+        waypoints: List of waypoint coordinates
+        polyline_points: List of polyline points from route steps (real route)
+        origin_name: Origin name for display
+        dest_name: Destination name for display
+        waypoint_names: List of waypoint names for display
+        width: Image width in pixels
+        height: Image height in pixels
+
+    Returns:
+        Static map image URL
+
+    Note:
+        Amap static map markers format:
+        - markers=size,color,label:location1;location2...|size,color,label:location3...
+        - label only supports [0-9], [A-Z]
+        - Same style points separated by ";", different styles separated by "|"
+    """
+    key = get_amap_key()
+
+    # Build markers with correct format
+    # Labels: A=Start, B=End, C/D/E...=Waypoints (only A-Z are valid)
+    marker_groups = []
+
+    # Origin marker (green, label "A")
+    marker_groups.append(f"mid,0x008000,A:{origin}")
+
+    # Waypoint markers (orange, labels C, D, E...)
+    # Skip "B" for destination, so waypoints start from "C"
+    if waypoints:
+        waypoint_labels = "CDEFGHIJ"  # Max 8 waypoints supported (C-J)
+        for i, wp in enumerate(waypoints):
+            if i < len(waypoint_labels):
+                label = waypoint_labels[i]
+                marker_groups.append(f"mid,0xFF9900,{label}:{wp}")
+
+    # Destination marker (red, label "B")
+    marker_groups.append(f"mid,0xFF0000,B:{destination}")
+
+    # Join with "|" - different styles separated by "|"
+    markers_param = "|".join(marker_groups)
+
+    # Build paths parameter using real polyline if available
+    paths_param = None
+    if polyline_points and len(polyline_points) >= 2:
+        # Sample points if too many (URL length limit)
+        max_points = 150
+        if len(polyline_points) > max_points:
+            step = len(polyline_points) // max_points
+            sampled_points = polyline_points[::step]
+            # Always include the last point
+            if polyline_points[-1] not in sampled_points:
+                sampled_points.append(polyline_points[-1])
+            polyline_points = sampled_points
+
+        # Format: weight,color,transparency,fillcolor,fillTransparency:point1;point2;...
+        # Note: fillcolor and fillTransparency are optional, use 2 commas to skip them
+        # Official example: paths=10,0x0000ff,1,,:116.31604,39.96491;...
+        points_str = ";".join(polyline_points)
+        paths_param = f"6,0x0080FF,0.9,,:{points_str}"
+
+    # Build URL
+    query_parts = [
+        f"key={key}",
+        f"size={width}*{height}",
+        "scale=2",
+        f"markers={markers_param}",
+    ]
+
+    if paths_param:
+        query_parts.append(f"paths={paths_param}")
+
+    query_string = "&".join(query_parts)
+    return f"{AMAP_BASE_URL}/v3/staticmap?{query_string}"
+
+
 @tool
 async def amap_driving_route(
     origin: str,
     destination: str,
     waypoints: Optional[str] = None,
-    strategy: int = 32,
-    show_fields: str = "cost,tmcs,navi",
+    origin_name: Optional[str] = None,
+    dest_name: Optional[str] = None,
+    waypoint_names: Optional[str] = None,
+    strategy: int = 10,
 ) -> str:
-    """Plan driving route.
+    """Plan driving route with navigation links and static map.
 
-    Plan driving route between two points, supports waypoints.
+    Plan driving route between two points, supports waypoints. Returns:
+    - Static map image URL showing the route
+    - Complete route navigation link
+    - Segment navigation links for each leg
 
     Args:
         origin: Origin coordinates, format "longitude,latitude"
         destination: Destination coordinates, format "longitude,latitude"
         waypoints: Optional, waypoint coordinates, multiple separated by ";", max 16
-        strategy: Driving strategy, default 32 (Amap recommended)
-            - 32: Amap recommended
-            - 33: Avoid congestion
-            - 34: Highway priority
-            - 35: No highway
-            - 36: Less toll
-            - 37: Main road priority
-            - 38: Fastest speed
-        show_fields: Return field control, default includes cost, traffic, navigation info
+                   Example: "116.123,39.456;117.234,40.567"
+        origin_name: Optional, origin name for display in navigation link
+        dest_name: Optional, destination name for display in navigation link
+        waypoint_names: Optional, waypoint names separated by ";", matching waypoints order
+                        Example: "Restaurant;Company"
+        strategy: Driving strategy, default 10 (Amap recommended with multiple routes)
+            - 10: Amap recommended (returns multiple routes, avoids congestion)
+            - 12: Avoid congestion
+            - 13: No highway
+            - 14: Avoid toll
+            - 19: Highway priority
 
     Returns:
-        JSON string containing route info including distance, time, step-by-step instructions
+        JSON string containing route info including:
+        - static_map_url: URL to a static map image showing the route
+        - distance, time, tolls
+        - navigation_url: Complete route with all waypoints
+        - segment_navigation_urls: List of segment links [A->B, B->C, C->D]
     """
+    import json
+
     key = get_amap_key()
 
+    # Use v3 API to get polyline data
     params = {
         "key": key,
         "origin": origin,
         "destination": destination,
-        "strategy": strategy,
-        "show_fields": show_fields,
+        "extensions": "all",  # Required to get polyline
         "output": "JSON",
     }
 
     if waypoints:
         params["waypoints"] = waypoints
 
+    if strategy:
+        params["strategy"] = str(strategy)
+
     async with httpx.AsyncClient() as client:
         response = await client.get(
-            f"{AMAP_BASE_URL}/v5/direction/driving",
+            f"{AMAP_BASE_URL}/v3/direction/driving",
             params=params,
             timeout=15.0,
         )
@@ -477,226 +584,162 @@ async def amap_driving_route(
     if not paths:
         return "No available driving route found"
 
-    # Format the main route info
+    # Format the main route info (use first path)
     path = paths[0] if isinstance(paths, list) else paths
 
     result = {
         "origin": route.get("origin", origin),
         "destination": route.get("destination", destination),
         "distance": path.get("distance", "0"),  # Meters
-        "restriction": path.get("restriction", False),  # Has traffic restriction
+        "duration": path.get("duration", "0"),  # Seconds
+        "restriction": path.get(
+            "restriction", "0"
+        ),  # 0=no restriction, 1=has restriction
         "steps": [],
     }
 
-    # Extract cost info if available
-    cost = path.get("cost", {})
-    if cost:
-        result["cost"] = {
-            "duration": cost.get("duration", "0"),  # Seconds
-            "tolls": cost.get("tolls", "0"),  # Yuan
-            "toll_distance": cost.get("toll_distance", "0"),  # Meters
-            "taxi_fee": cost.get("taxi_fee", "0"),  # Yuan
-            "traffic_lights": cost.get(
-                "traffic_lights", "0"
-            ),  # Number of traffic lights
-        }
+    # Extract cost info
+    tolls = path.get("tolls", "0")
+    toll_distance = path.get("toll_distance", "0")
+    traffic_lights = path.get("traffic_lights", "0")
 
-    # Extract step-by-step instructions
+    result["cost"] = {
+        "duration": path.get("duration", "0"),  # Seconds
+        "tolls": tolls,  # Yuan
+        "toll_distance": toll_distance,  # Meters
+        "traffic_lights": traffic_lights,
+    }
+
+    # Extract step-by-step instructions and polyline points
     steps = path.get("steps", [])
+    all_polyline_points = []
+
     for i, step in enumerate(steps):
         step_info = {
             "index": i + 1,
             "instruction": step.get("instruction", ""),
-            "road_name": step.get("road_name", ""),
-            "distance": step.get("step_distance", "0"),
+            "road": step.get("road", ""),
+            "distance": step.get("distance", "0"),
+            "duration": step.get("duration", "0"),
         }
         result["steps"].append(step_info)
 
-    # Generate navigation URL for web browser (with waypoints if provided)
+        # Extract polyline points from this step
+        polyline = step.get("polyline", "")
+        if polyline:
+            points = [p.strip() for p in polyline.split(";") if p.strip()]
+            all_polyline_points.extend(points)
+
+    # Parse waypoint names
+    wp_names_list = None
+    if waypoint_names:
+        wp_names_list = [
+            name.strip() for name in waypoint_names.split(";") if name.strip()
+        ]
+
+    # Parse waypoints list
+    wp_list = None
+    if waypoints:
+        wp_list = [wp.strip() for wp in waypoints.split(";") if wp.strip()]
+
+    # Generate static map URL with real route polyline
+    result["static_map_url"] = _generate_static_map_url_from_route(
+        origin=origin,
+        destination=destination,
+        waypoints=wp_list,
+        polyline_points=all_polyline_points,
+        origin_name=origin_name,
+        dest_name=dest_name,
+        waypoint_names=wp_names_list,
+    )
+
+    # Generate complete navigation URL with all waypoints
     result["navigation_url"] = _generate_navigation_url(
         destination=destination,
         origin=origin,
         mode="car",
-        waypoints=waypoints.split(";") if waypoints else None,
+        dest_name=dest_name,
+        origin_name=origin_name,
+        waypoints=wp_list,
+        waypoint_names=wp_names_list,
     )
 
-    import json
+    # Generate segment navigation URLs [A->B, B->C, C->D]
+    segment_urls = []
+    all_points = [origin]  # Start with origin
+    all_names = [origin_name or "起点"]
 
-    return json.dumps(result, ensure_ascii=False, indent=2)
-
-
-def _parse_list_input(value: Any, param_name: str) -> Optional[list[str]]:
-    """Parse input that may be a string JSON list or an actual list.
-
-    LLMs sometimes pass list parameters as JSON strings instead of actual lists.
-    This function handles both cases gracefully.
-
-    Args:
-        value: The input value (could be list, str, or None)
-        param_name: Parameter name for error messages
-
-    Returns:
-        Parsed list of strings, or None if input is None/empty
-
-    Raises:
-        ValueError: If the input cannot be parsed as a list
-    """
-    import json
-
-    if value is None:
-        return None
-
-    # Already a list
-    if isinstance(value, list):
-        return value if value else None
-
-    # String that might be a JSON list
-    if isinstance(value, str):
-        value = value.strip()
-        if not value:
-            return None
-
-        # Try to parse as JSON
-        if value.startswith("["):
-            try:
-                parsed = json.loads(value)
-                if isinstance(parsed, list):
-                    return parsed if parsed else None
-                else:
-                    raise ValueError(
-                        f"Parameter '{param_name}' should be a list, got JSON {type(parsed).__name__}"
-                    )
-            except json.JSONDecodeError as e:
-                raise ValueError(
-                    f"Parameter '{param_name}' looks like a JSON list but failed to parse: {e}"
-                )
+    if wp_list:
+        all_points.extend(wp_list)
+        if wp_names_list:
+            # Pad names if needed
+            all_names.extend(wp_names_list + [""] * (len(wp_list) - len(wp_names_list)))
         else:
-            # Single value, wrap in list
-            return [value]
+            all_names.extend([f"途经点{i + 1}" for i in range(len(wp_list))])
 
-    # Unknown type
-    raise ValueError(
-        f"Parameter '{param_name}' should be a list or JSON string, got {type(value).__name__}"
+    all_points.append(destination)  # End with destination
+    all_names.append(dest_name or "终点")
+
+    # Generate segment URLs
+    for i in range(len(all_points) - 1):
+        segment_url = _generate_navigation_url(
+            destination=all_points[i + 1],
+            origin=all_points[i],
+            mode="car",
+            dest_name=all_names[i + 1],
+            origin_name=all_names[i],
+        )
+        segment_urls.append(
+            {
+                "from": all_names[i],
+                "to": all_names[i + 1],
+                "url": segment_url,
+            }
+        )
+
+    result["segment_navigation_urls"] = segment_urls
+
+    # Generate marker labels for display
+    # Format: [{"label": "A", "name": "起点名称", "color": "green"}, ...]
+    marker_labels = []
+
+    # Origin (A - green)
+    marker_labels.append(
+        {
+            "label": "A",
+            "name": origin_name or "起点",
+            "color": "green",
+        }
     )
 
-
-@tool
-async def amap_route_preview(
-    origin: str,
-    destination: str,
-    waypoints: Optional[Any] = None,
-    origin_name: Optional[str] = None,
-    dest_name: Optional[str] = None,
-    waypoint_names: Optional[Any] = None,
-) -> str:
-    """Generate a complete route preview URL with all waypoints on a single map.
-
-    This tool creates a URL that displays the entire multi-stop route on Amap,
-    showing the start point, all intermediate waypoints, and the destination.
-    Use this when the user wants to see the complete journey overview.
-
-    Args:
-        origin: Origin coordinates, format "longitude,latitude"
-        destination: Destination coordinates, format "longitude,latitude"
-        waypoints: List of intermediate waypoint coordinates ["lon,lat", ...]
-                   Can be a Python list or a JSON string like '["lon,lat", "lon,lat"]'
-        origin_name: Optional, origin name for display
-        dest_name: Optional, destination name for display
-        waypoint_names: List of waypoint names for display
-                        Can be a Python list or a JSON string like '["name1", "name2"]'
-
-    Returns:
-        JSON string containing the route preview URL and any errors/warnings
-    """
-    import json
-
-    result = {
-        "origin": origin,
-        "destination": destination,
-        "waypoints": [],
-        "route_preview_url": "",
-        "errors": [],
-        "warnings": [],
-    }
-
-    # Parse waypoints with error handling
-    parsed_waypoints = None
-    if waypoints is not None:
-        try:
-            parsed_waypoints = _parse_list_input(waypoints, "waypoints")
-            result["waypoints"] = parsed_waypoints or []
-        except ValueError as e:
-            result["errors"].append(str(e))
-            result["warnings"].append(
-                "Waypoints will be ignored due to parsing error. "
-                "Please provide waypoints as a list: ['lon1,lat1', 'lon2,lat2']"
-            )
-
-    # Parse waypoint_names with error handling
-    parsed_waypoint_names = None
-    if waypoint_names is not None:
-        try:
-            parsed_waypoint_names = _parse_list_input(waypoint_names, "waypoint_names")
-        except ValueError as e:
-            result["errors"].append(str(e))
-            result["warnings"].append(
-                "Waypoint names will be ignored due to parsing error. "
-                "Please provide waypoint_names as a list: ['name1', 'name2']"
-            )
-
-    # Validate coordinate format
-    def validate_coord(coord: str, name: str) -> bool:
-        try:
-            parts = coord.split(",")
-            if len(parts) != 2:
-                return False
-            float(parts[0])
-            float(parts[1])
-            return True
-        except (ValueError, AttributeError):
-            return False
-
-    if not validate_coord(origin, "origin"):
-        result["errors"].append(
-            f"Invalid origin coordinates format: '{origin}'. Expected 'longitude,latitude'"
-        )
-
-    if not validate_coord(destination, "destination"):
-        result["errors"].append(
-            f"Invalid destination coordinates format: '{destination}'. Expected 'longitude,latitude'"
-        )
-
-    if parsed_waypoints:
-        for i, wp in enumerate(parsed_waypoints):
-            if not validate_coord(wp, f"waypoint[{i}]"):
-                result["warnings"].append(
-                    f"Invalid waypoint[{i}] coordinates format: '{wp}'. Expected 'longitude,latitude'"
+    # Waypoints (C, D, E... - orange)
+    if wp_list:
+        waypoint_labels = "CDEFGHIJ"
+        for i, wp in enumerate(wp_list):
+            if i < len(waypoint_labels):
+                name = (
+                    wp_names_list[i]
+                    if wp_names_list and i < len(wp_names_list)
+                    else f"途经点{i + 1}"
+                )
+                marker_labels.append(
+                    {
+                        "label": waypoint_labels[i],
+                        "name": name,
+                        "color": "orange",
+                    }
                 )
 
-    # Only generate URL if no critical errors
-    if not result["errors"]:
-        try:
-            preview_url = _generate_route_preview_url(
-                origin=origin,
-                destination=destination,
-                waypoints=parsed_waypoints,
-                origin_name=origin_name,
-                dest_name=dest_name,
-                waypoint_names=parsed_waypoint_names,
-            )
-            result["route_preview_url"] = preview_url
-        except Exception as e:
-            result["errors"].append(f"Failed to generate route preview URL: {str(e)}")
-    else:
-        result["warnings"].append(
-            "Route preview URL not generated due to input errors. Please fix the errors and try again."
-        )
+    # Destination (B - red)
+    marker_labels.append(
+        {
+            "label": "B",
+            "name": dest_name or "终点",
+            "color": "red",
+        }
+    )
 
-    # Clean up empty lists
-    if not result["errors"]:
-        del result["errors"]
-    if not result["warnings"]:
-        del result["warnings"]
+    result["marker_labels"] = marker_labels
 
     return json.dumps(result, ensure_ascii=False, indent=2)
 
@@ -789,7 +832,7 @@ async def amap_static_map(
 
     # Add zoom and location if provided
     if zoom:
-        params["zoom"] = min(max(zoom, 1), 17)
+        params["zoom"] = str(min(max(zoom, 1), 17))
     if location:
         params["location"] = location
 
@@ -905,6 +948,5 @@ AMAP_TOOLS = [
     amap_place_search,
     amap_place_around,
     amap_driving_route,
-    amap_route_preview,
     amap_weather,
 ]
