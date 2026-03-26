@@ -24,10 +24,10 @@ import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import { useTheme } from "@/hooks/use-theme"
 import {
   ChatMainPanel,
+  ChatMinimap,
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
-  MessageRuler,
   ShareDialog,
 } from "@/features/chat/components"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -100,6 +100,7 @@ function App() {
   const streamingPlaceholderIdRef = useRef<string | null>(null)
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
+  const chatScrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   // Keep thinkingModeRef in sync with thinkingMode state
   useEffect(() => {
@@ -1185,11 +1186,17 @@ function App() {
             isThinkingModeLoading={isThinkingModeLoading}
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
+            scrollContainerRef={chatScrollContainerRef}
           />
         </SidebarInset>
 
-        {/* Message Ruler */}
-        <MessageRuler key={threadId} messages={messages} onJumpToMessage={jumpToMessage} />
+        {/* Chat Minimap */}
+        <ChatMinimap 
+          key={threadId} 
+          messages={messages} 
+          onJumpToMessage={jumpToMessage}
+          scrollContainerRef={chatScrollContainerRef}
+        />
 
         {/* Right Panel */}
         <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-3 w-fit">

@@ -2,38 +2,40 @@
 
 ## Current Work Focus
 
-**Unused MessageNode Tree Code Cleanup (3/26/2026)**
+**Chat Minimap Feature (3/26/2026)**
 
-Successfully removed all unused MessageNode tree-structured conversation code from both frontend and backend. This code was originally implemented for Grok-style branching chat but was never integrated into the main application flow.
+Successfully implemented a VSCode-style minimap for the chat interface, replacing the previous message ruler. The minimap provides a visual overview of the entire conversation with interactive navigation.
 
-### Deleted Files
+### Implementation Details
 
-**Frontend:**
-- `frontend/src/hooks/use-conversation-tree.ts` - Unused hook for tree management
-- `frontend/src/store/conversation-context.tsx` - Unused ConversationProvider
-- `frontend/src/store/message-tree.ts` - Unused MessageTreeManager class
-- `frontend/src/types/message-tree.ts` - Unused MessageNode/MessageTree types
-- `frontend/src/features/chat/components/branch-selector.tsx` - Unused branch selector component
-- `frontend/src/features/chat/components/quote-dialog.tsx` - Unused quote dialog component
+**New Files:**
+- `frontend/src/features/chat/components/chat-minimap.tsx` - VSCode-style minimap component
 
-**Backend:**
-- `backend/app/crud/message_node.py` - Unused CRUD operations for message nodes
-- `backend/app/models/message_node.py` - Unused SQLAlchemy model
-- `backend/app/schemas/message_node.py` - Unused Pydantic schemas
+**Modified Files:**
+- `frontend/src/App.tsx` - Integrated ChatMinimap, added scrollContainerRef
+- `frontend/src/features/chat/components/chat-main-panel.tsx` - Added scrollContainerRef prop
+- `frontend/src/features/chat/components/index.ts` - Export ChatMinimap
+- `frontend/src/index.css` - Added minimap-preview CSS styles
 
-### Modified Files
+### Features
 
-**Frontend:**
-- `frontend/src/lib/api.ts` - Removed unused API functions: `getMessageTree`, `createMessageNode`, `getMessageNode`, `updateMessageNode`, `updateCurrentLeaf`, `getNodePath`, `getNextBranchIndex`
-- `frontend/src/features/chat/components/index.ts` - Removed exports for deleted components
+1. **Mini Text Display**: Shows actual conversation text in miniature (2.5px font size)
+2. **Color Coding**: User messages in cyan, AI messages in violet
+3. **Viewport Indicator**: Semi-transparent slider showing current scroll position
+4. **Hover Preview**: Mouse hover on viewport shows visible messages with Markdown rendering
+5. **Click to Jump**: Click any line to jump to that message
+6. **Drag to Scroll**: Drag the viewport indicator for fast navigation
+7. **Immediate Close**: Preview closes immediately when mouse leaves viewport or tooltip
 
-**Backend:**
-- `backend/app/api/v1/chat.py` - Removed MessageNode API endpoints: `/tree/{thread_id}`, `/nodes`, `/nodes/{node_id}`, `/conversations/{thread_id}/current-leaf`, `/nodes/{node_id}/path`, `/nodes/{parent_id}/next-branch-index`
-- `backend/app/models/chat.py` - Removed `current_leaf_id` column and `current_leaf` relationship to MessageNode
-- `backend/app/models/__init__.py` - Removed MessageNode import
+### Bug Fixes (3/26/2026)
 
-### Reason for Removal
-The MessageNode tree structure was a complex implementation that was never actually used. The current application uses LangGraph's built-in checkpointer for conversation persistence, which is simpler and works well. The tree structure added unnecessary complexity without providing any benefit.
+1. **Viewport Click Navigation**: Fixed transparent viewport block not responding to clicks. Now clicking on the viewport indicator scrolls to the clicked position.
+
+2. **Preview Tooltip Close**: Fixed preview tooltip not closing when mouse leaves. Now the preview closes immediately when mouse leaves either the viewport or the tooltip content.
+
+3. **Bottom Position Preview**: Fixed "暂无消息" (no messages) showing when viewport is at the bottom. The visible messages calculation now correctly uses minimap line positions instead of estimated message heights.
+
+4. **Message ID Matching**: Fixed minimap message IDs to match ChatMainPanel's `msg-${index}` format for correct jump-to-message functionality.
 
 ---
 
@@ -53,8 +55,16 @@ The project has a complete core implementation:
 - ✅ Image zoom & drag feature for all markdown images (universal, full-screen immersive viewer)
 - ✅ Quote message feature (Grok-style with `> quoted content` format)
 - ✅ Edit message feature (creates new branch from edited message)
+- ✅ **Chat Minimap** (VSCode-style minimap with hover preview and navigation)
 
 ### Core Features
+
+#### Chat Minimap Feature
+- VSCode-style minimap showing miniature conversation text
+- Viewport indicator with hover preview
+- Markdown rendering in preview (images, code blocks, lists, etc.)
+- Click to jump, drag to scroll
+- Delayed close for better UX
 
 #### Quote Message Feature
 - Click quote button on any message (user or assistant)
@@ -92,6 +102,7 @@ The project has a complete core implementation:
 - **Pure LangGraph over create_agent**: Chose StateGraph for better control and async support
 - **LLM Provider**: Using Alibaba DashScope (Qwen models) via OpenAI-compatible API
 - **Simple State Management**: Use React useState instead of complex context providers
+- **Minimap Width**: 100px fixed width, balances visibility and space efficiency
 
 ## Important Patterns and Preferences
 
@@ -112,3 +123,4 @@ The project has a complete core implementation:
 - **Image Zoom & Drag**: Universal feature that works for any agent outputting markdown images
 - **Amap Static Map**: paths parameter format requires exact comma placement for optional fields
 - **Code Cleanup**: Remove unused code early to avoid maintenance burden
+- **Tooltip Hover State**: Need delayed close + combined hover state for tooltip to remain visible when mouse moves to content
