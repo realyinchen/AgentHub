@@ -703,28 +703,172 @@ function App() {
   )
 
   const handleEditMessage = useCallback(
-    async (newContent: string) => {
-      // Find the index of the last user message
-      let lastUserMessageIndex = -1
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].type === "human") {
-          lastUserMessageIndex = i
-          break
-        }
-      }
-
-      if (lastUserMessageIndex === -1) {
+    async (newContent: string, messageIndex: number) => {
+      if (!threadId || !selectedAgentId || isStreaming) {
         return
       }
 
-      // Remove all messages after the edited message (including AI responses)
-      const updatedMessages = messages.slice(0, lastUserMessageIndex)
-      setMessages(updatedMessages)
+      // Validate the message index
+      if (messageIndex < 0 || messageIndex >= messages.length) {
+        return
+      }
 
-      // Send the new message content
-      await handleSendMessage(newContent)
+      // Ensure the message at the index is a user message
+      const messageToEdit = messages[messageIndex]
+      if (messageToEdit.type !== "human") {
+        return
+      }
+
+      // Keep messages before the edited message
+      const previousMessages = messages.slice(0, messageIndex)
+
+      // Create placeholder ID before any state updates
+      const placeholderId = crypto.randomUUID()
+      streamingPlaceholderIdRef.current = placeholderId
+
+      // Keep messages before the edited message, then add the edited user message
+      // This ensures history is visible while editing
+      const editedUserMessage = toLocalMessage(
+        { type: "human", content: newContent },
+        { customData: messageToEdit.custom_data }
+      )
+      
+      // Create AI placeholder in the same state update to avoid race condition
+      const aiPlaceholder = toLocalMessage(
+        { type: "ai", content: "" },
+        { localId: placeholderId, isStreaming: true }
+      )
+      
+      // Single state update with all messages
+      setMessages([...previousMessages, editedUserMessage, aiPlaceholder])
+
+      setAppError(null)
+      setIsStreaming(true)
+
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
+      // Reset state
+      setIsProcessing(true)
+      isProcessingRef.current = true
+      setIsAgentThinking(false)
+      setCalledTools([])
+      setThinkingContent("")
+
+      const currentThinkingMode = thinkingModeRef.current
+
+      try {
+        // Stream with the new content
+        await streamChat(
+          {
+            content: newContent,
+            agent_id: selectedAgentId,
+            thread_id: threadId,
+            thinking_mode: currentThinkingMode,
+          },
+          (event: StreamEvent) => {
+            if (isProcessingRef.current) {
+              setIsProcessing(false)
+              isProcessingRef.current = false
+            }
+
+            if (event.type === "thinking") {
+              setIsAgentThinking(true)
+              setActiveToolCall(null)
+              setThinkingContent((prev) => prev + event.content)
+              return
+            }
+
+            if (event.type === "token") {
+              setIsAgentThinking(false)
+              setActiveToolCall(null)
+              addStreamToken(event.content)
+              return
+            }
+
+            if (event.type === "message") {
+              const message = event.content
+              if (message.type === "ai") {
+                const hasContent = message.content && message.content.trim().length > 0
+                const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
+                if (hasContent && !hasToolCalls) {
+                  setIsAgentThinking(false)
+                  setActiveToolCall(null)
+                }
+              }
+              addMessageFromStream(message)
+              return
+            }
+
+            if (event.type === "tool_call") {
+              setIsAgentThinking(true)
+              setActiveToolCall(event.content)
+              setCalledTools((prev) => {
+                const existing = prev.find((t) => t.id === event.content.id)
+                if (existing) {
+                  return prev
+                }
+                return [
+                  ...prev,
+                  {
+                    name: event.content.name,
+                    id: event.content.id,
+                    args: event.content.args || {},
+                    status: "calling" as const,
+                  },
+                ]
+              })
+              return
+            }
+
+            if (event.type === "tool_result") {
+              setCalledTools((prev) =>
+                prev.map((t) =>
+                  t.id === event.content.id
+                    ? { ...t, output: event.content.output, status: "completed" as const }
+                    : t,
+                ),
+              )
+              return
+            }
+
+            setAppError(event.content)
+          },
+          controller.signal,
+        )
+
+        // Mark streaming complete
+        setMessages((previous) => {
+          const updated = previous.map((message) =>
+            message.is_streaming
+              ? { ...message, is_streaming: false }
+              : message,
+          )
+          return updated
+        })
+
+        await refreshConversations()
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          const details = getErrorMessage(error, t("error.unexpected"))
+          setAppError(t("error.generateResponse", { details }))
+        }
+      } finally {
+        setIsStreaming(false)
+        streamingPlaceholderIdRef.current = null
+        abortControllerRef.current = null
+      }
     },
-    [messages, handleSendMessage],
+    [
+      addMessageFromStream,
+      addStreamToken,
+      isStreaming,
+      messages,
+      refreshConversations,
+      selectedAgentId,
+      t,
+      threadId,
+    ],
   )
 
   const handleSaveTitle = useCallback(async () => {

@@ -9,16 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, List
 
 from app.database import adb_manager
-from app.schemas.chat import ConversationCreate, ConversationInDB, ConversationUpdate
-from app.schemas.message_node import (
-    MessageNodeCreate,
-    MessageNodeUpdate,
-    MessageNodeInDB,
-    MessageTree,
-    CurrentLeafUpdate,
+from app.schemas.chat import (
+    ConversationCreate,
+    ConversationInDB,
+    ConversationUpdate,
+    ChatMessage,
+    UserInput,
+    ChatHistory,
 )
 from app.utils.agent_utils import get_agent
-from app.schemas.chat import ChatMessage, UserInput, ChatHistory
 from app.core.models import is_thinking_mode_available
 from app.utils.message_utils import (
     handle_input,
@@ -30,15 +29,6 @@ from app.crud.chat import (
     update_conversation_by_thread_id,
     list_conversations,
     create_conversation,
-)
-from app.crud.message_node import (
-    create_message_node,
-    get_message_node_by_id,
-    get_message_tree,
-    update_message_node,
-    update_current_leaf_id,
-    get_path_to_node,
-    get_next_branch_index,
 )
 
 
@@ -80,7 +70,7 @@ async def stream(user_input: UserInput) -> StreamingResponse:
     is also attached to all messages for recording feedback.
 
     Set `stream_tokens=false` to return intermediate messages but not token-by-token.
-    
+
     Set `thinking_mode=true` to enable thinking mode for models that support it
     (e.g., DeepSeek-R1, Qwen3). This requires THINKING_LLM_NAME to be configured.
     """
@@ -192,7 +182,7 @@ def _collect_tool_calls_for_final_response(
     # 2. Then reverse the entire list at the end
     # This gives us the correct final order
     temp_tool_calls: list[dict[str, Any]] = []
-    
+
     for i in range(final_ai_index - 1, -1, -1):
         msg = messages[i]
 
@@ -227,7 +217,7 @@ def _collect_tool_calls_for_final_response(
                             "output": tool_call_id_to_output.get(tool_call_id),
                         }
                         batch_tool_calls.append(tool_info)
-                
+
                 # Reverse this batch and add to temp list
                 # This ensures tool calls within the same AIMessage stay in correct order
                 batch_tool_calls.reverse()
@@ -235,7 +225,7 @@ def _collect_tool_calls_for_final_response(
 
     # Reverse the entire list to get the original call order (first call first)
     temp_tool_calls.reverse()
-    
+
     # Add order field to each tool call
     for order, tool_info in enumerate(temp_tool_calls):
         tool_info["order"] = order
@@ -246,7 +236,8 @@ def _collect_tool_calls_for_final_response(
 
 @api_router.get("/history/{agent_id}/{thread_id}")
 async def history(
-    agent_id: str | None = None, thread_id: UUID | None = None
+    agent_id: str | None = None,
+    thread_id: UUID | None = None,
 ) -> ChatHistory:
     """
     Get chat history with tool call information.
@@ -257,6 +248,7 @@ async def history(
     if not thread_id:
         return ChatHistory(messages=[])
     agent: CompiledStateGraph = await get_agent(agent_id)
+
     config = RunnableConfig({"configurable": {"thread_id": thread_id}})
     try:
         state_snapshot = await agent.aget_state(config=config)
@@ -269,7 +261,7 @@ async def history(
             # Skip ToolMessage - tool results are embedded in the final AI message's tool_info
             if isinstance(msg, ToolMessage):
                 continue
-            
+
             # Skip intermediate AIMessage that has tool_calls
             # These are tool call requests, not final AI responses
             # The tool calls will be collected and attached to the final response
@@ -399,175 +391,8 @@ async def save_conversation(
 async def get_thinking_mode_status() -> dict[str, bool]:
     """
     Check if thinking mode is available.
-    
+
     Returns:
         dict: {"available": bool} - Whether thinking mode is available
     """
     return {"available": is_thinking_mode_available()}
-
-
-# ============ Message Node Tree API ============
-
-
-@api_router.get("/tree/{thread_id}", response_model=MessageTree)
-async def get_tree(
-    thread_id: UUID,
-    leaf_id: UUID | None = Query(None, description="Leaf ID for share links"),
-    db: AsyncSession = Depends(get_db),
-) -> MessageTree:
-    """
-    Get the complete message tree for a conversation.
-    
-    Args:
-        thread_id: Thread ID
-        leaf_id: Optional leaf ID for share links (locks the view to a specific branch)
-    
-    Returns:
-        MessageTree with all nodes, root_id, and current_leaf_id
-    """
-    try:
-        return await get_message_tree(db, thread_id, leaf_id)
-    except Exception as e:
-        logger.error(f"Error retrieving message tree for thread {thread_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error retrieving message tree: {str(e)}"
-        )
-
-
-@api_router.post("/nodes", response_model=MessageNodeInDB)
-async def create_node(
-    node_in: MessageNodeCreate,
-    db: AsyncSession = Depends(get_db),
-) -> MessageNodeInDB:
-    """
-    Create a new message node.
-    
-    This is used for:
-    - Adding new messages to a conversation
-    - Creating branches (retry, edit)
-    """
-    try:
-        node = await create_message_node(db, node_in)
-        await db.commit()
-        return node
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error creating message node: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error creating message node: {str(e)}"
-        )
-
-
-@api_router.get("/nodes/{node_id}", response_model=MessageNodeInDB)
-async def get_node(
-    node_id: UUID,
-    db: AsyncSession = Depends(get_db),
-) -> MessageNodeInDB:
-    """
-    Get a message node by ID.
-    """
-    try:
-        node = await get_message_node_by_id(db, node_id)
-        if not node:
-            raise HTTPException(status_code=404, detail="Node not found")
-        return node
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error retrieving message node {node_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error retrieving message node: {str(e)}"
-        )
-
-
-@api_router.patch("/nodes/{node_id}", response_model=MessageNodeInDB)
-async def update_node(
-    node_id: UUID,
-    node_update: MessageNodeUpdate,
-    db: AsyncSession = Depends(get_db),
-) -> MessageNodeInDB:
-    """
-    Update a message node.
-    
-    Used for updating content after streaming completes.
-    """
-    try:
-        node = await update_message_node(db, node_id, node_update)
-        if not node:
-            raise HTTPException(status_code=404, detail="Node not found")
-        await db.commit()
-        return node
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error updating message node {node_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error updating message node: {str(e)}"
-        )
-
-
-@api_router.patch("/conversations/{thread_id}/current-leaf")
-async def update_current_leaf(
-    thread_id: UUID,
-    leaf_update: CurrentLeafUpdate,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, bool]:
-    """
-    Update the current_leaf_id for a conversation.
-    
-    This is called when:
-    - A new message is added
-    - User switches to a different branch
-    """
-    try:
-        success = await update_current_leaf_id(db, thread_id, leaf_update.current_leaf_id)
-        if not success:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-        await db.commit()
-        return {"success": True}
-    except HTTPException:
-        raise
-    except Exception as e:
-        await db.rollback()
-        logger.error(f"Error updating current leaf for thread {thread_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error updating current leaf: {str(e)}"
-        )
-
-
-@api_router.get("/nodes/{node_id}/path", response_model=List[MessageNodeInDB])
-async def get_node_path(
-    node_id: UUID,
-    db: AsyncSession = Depends(get_db),
-) -> List[MessageNodeInDB]:
-    """
-    Get the path from root to a specific node.
-    
-    Returns nodes in order from root to the target node.
-    """
-    try:
-        return await get_path_to_node(db, node_id)
-    except Exception as e:
-        logger.error(f"Error retrieving path to node {node_id}: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error retrieving path: {str(e)}"
-        )
-
-
-@api_router.get("/nodes/{parent_id}/next-branch-index")
-async def get_next_branch(
-    parent_id: UUID | None = None,
-    db: AsyncSession = Depends(get_db),
-) -> dict[str, int]:
-    """
-    Get the next branch_index for a new sibling node.
-    """
-    try:
-        next_index = await get_next_branch_index(db, parent_id)
-        return {"next_branch_index": next_index}
-    except Exception as e:
-        logger.error(f"Error getting next branch index: {e}")
-        raise HTTPException(
-            status_code=500, detail=f"Error getting next branch index: {str(e)}"
-        )

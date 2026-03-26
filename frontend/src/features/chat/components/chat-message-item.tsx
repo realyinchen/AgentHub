@@ -5,7 +5,6 @@ import {
   CopyIcon,
   PencilIcon,
   QuoteIcon,
-  RefreshCcwIcon,
   WrenchIcon,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -20,15 +19,14 @@ import { useI18n } from "@/i18n"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
-  onRetry?: () => void
-  retryDisabled?: boolean
+  messageIndex: number // Index in messages array for edit functionality
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
   activeToolName?: string | null
   thinkingContent?: string // Accumulated thinking content (streaming)
   isProcessing?: boolean // Processing, no content received yet
   isStreaming?: boolean // Whether the current message is streaming
-  onEditMessage?: (newContent: string) => void // Callback when user edits their message
+  onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
   editDisabled?: boolean // Whether edit is disabled
   onQuote?: () => void // Callback when user wants to quote this message
   quoteDisabled?: boolean // Whether quote is disabled
@@ -241,8 +239,7 @@ function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
 
 export function ChatMessageItem({ 
   message, 
-  onRetry, 
-  retryDisabled = false, 
+  messageIndex,
   calledTools = [], 
   activeToolName = null,
   thinkingContent = "",
@@ -493,12 +490,12 @@ export function ChatMessageItem({
                         const newFullContent = `> ${quotedParts.quotedContent}\n\n${editContent.trim()}`
                         // Only send if content actually changed
                         if (newFullContent !== message.content.trim()) {
-                          onEditMessage(newFullContent)
+                          onEditMessage(newFullContent, messageIndex)
                         }
                       } else {
                         // Regular message - check if content changed
                         if (editContent.trim() !== message.content.trim()) {
-                          onEditMessage(editContent.trim())
+                          onEditMessage(editContent.trim(), messageIndex)
                         }
                       }
                     }
@@ -581,7 +578,7 @@ export function ChatMessageItem({
           </Actions>
         ) : null}
 
-        {/* Actions area: copy, retry, thinking process, tool calls */}
+        {/* Actions area: copy, thinking process, tool calls */}
         {isAI && !isStreaming ? (
           <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
             <Actions className={cn("pt-1", isUser ? "justify-end" : "justify-start")}>
@@ -594,15 +591,6 @@ export function ChatMessageItem({
                 label={copied ? t("message.copiedResponse") : t("message.copyResponse")}
               >
                 {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-              </Action>
-              <Action
-                onClick={onRetry}
-                tooltip={t("common.retry")}
-                label={t("message.retryResponse")}
-                className="cursor-pointer"
-                disabled={!onRetry || retryDisabled}
-              >
-                <RefreshCcwIcon className="size-4" />
               </Action>
               {onQuote ? (
                 <Action

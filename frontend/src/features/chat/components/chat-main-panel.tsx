@@ -43,7 +43,7 @@ type ChatMainPanelProps = {
   onToggleThinkingMode: () => void
   isThinkingModeAvailable: boolean
   isThinkingModeLoading: boolean
-  onEditMessage?: (newContent: string) => Promise<void>
+  onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to message callback
 }
 
@@ -242,7 +242,6 @@ export function ChatMainPanel({
 
     setInputValue("")
     const currentQuotedMessageId = quotedMessageId
-    const currentQuotedContent = quotedContent
     setQuotedContent(null)
     setQuotedMessageId(null)
     
@@ -267,9 +266,11 @@ export function ChatMainPanel({
     showScrollButton && !isAwaitingAgentSelection && !isLoadingConversation
 
   // Handle quote action - set quoted content and message ID
-  const handleQuote = useCallback((message: LocalChatMessage) => {
+  // Use message index as stable ID for jump functionality
+  const handleQuote = useCallback((message: LocalChatMessage, messageIndex: number) => {
     setQuotedContent(message.content)
-    setQuotedMessageId(message.local_id)
+    // Use index as stable ID (works after page refresh)
+    setQuotedMessageId(`msg-${messageIndex}`)
     // Focus the textarea
     const textarea = document.querySelector('textarea[name="message"]') as HTMLTextAreaElement
     textarea?.focus()
@@ -324,37 +325,22 @@ export function ChatMainPanel({
               <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-8">
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
-                    const retrySource = message.type === "ai"
-                      ? messages
-                        .slice(0, index)
-                        .reverse()
-                        .find((candidate) => (
-                          candidate.type === "human" && candidate.content.trim().length > 0
-                        ))
-                      : null
-
-                    // Only show calledTools and thinking state on the last AI message
-                    const isLastAIMessage = message.type === "ai" && index === messages.length - 1
-                    const toolsForMessage = isLastAIMessage ? calledTools : []
-                    const thinkingForMessage = isLastAIMessage ? isAgentThinking : false
-                    const toolNameForMessage = isLastAIMessage ? activeToolCall?.name : null
-                    const thinkingContentForMessage = isLastAIMessage ? thinkingContent : ""
-
+                    const isLastAIMessage = index === messages.length - 1 && message.type === "ai"
+                    
                     return (
                       <ChatMessageItem
-                        key={message.local_id}
-                        message={message}
-                        onRetry={retrySource ? () => submitMessage(retrySource.content) : undefined}
-                        retryDisabled={isStreaming || isComposerDisabled}
-                        calledTools={toolsForMessage}
-                        isAgentThinking={thinkingForMessage}
-                        activeToolName={toolNameForMessage}
-                        thinkingContent={thinkingContentForMessage}
+                        key={`msg-${index}`}
+                        message={{ ...message, local_id: `msg-${index}` }}
+                        messageIndex={index}
+                        calledTools={isLastAIMessage ? calledTools : []}
+                        isAgentThinking={isLastAIMessage ? isAgentThinking : false}
+                        activeToolName={isLastAIMessage ? activeToolCall?.name : null}
+                        thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
                         onEditMessage={onEditMessage}
                         editDisabled={isStreaming || isComposerDisabled}
-                        onQuote={() => handleQuote(message)}
+                        onQuote={() => handleQuote(message, index)}
                         quoteDisabled={isStreaming || isComposerDisabled}
                         onJumpToMessage={onJumpToMessage}
                       />
