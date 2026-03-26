@@ -4,7 +4,7 @@ import {
   ChevronDown,
   CopyIcon,
   PencilIcon,
-  RefreshCcwIcon,
+  QuoteIcon,
   WrenchIcon,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
@@ -14,25 +14,57 @@ import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
 import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo } from "@/types"
 import { MarkdownContent } from "@/components/ui/markdown-content"
+import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
-  onRetry?: () => void
-  retryDisabled?: boolean
+  messageIndex: number // Index in messages array for edit functionality
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
   activeToolName?: string | null
   thinkingContent?: string // Accumulated thinking content (streaming)
   isProcessing?: boolean // Processing, no content received yet
   isStreaming?: boolean // Whether the current message is streaming
-  onEditMessage?: (newContent: string) => void // Callback when user edits their message
+  onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
   editDisabled?: boolean // Whether edit is disabled
+  onQuote?: () => void // Callback when user wants to quote this message
+  quoteDisabled?: boolean // Whether quote is disabled
+  onJumpToMessage?: (localId: string) => void // Jump to quoted message
 }
 
 type SourceLink = {
   href: string
   title: string
+}
+
+/**
+ * Parse quoted content from message.
+ * Format: "> quoted content\n\nnew message"
+ * Returns { quotedContent, newContent } or null if not a quoted message.
+ */
+function parseQuotedContent(content: string): { quotedContent: string; newContent: string } | null {
+  // Check if message starts with "> "
+  if (!content.startsWith("> ")) {
+    return null
+  }
+  
+  // Find the separator "\n\n" after the quoted content
+  const separatorIndex = content.indexOf("\n\n")
+  if (separatorIndex === -1) {
+    return null
+  }
+  
+  // Extract quoted content (remove "> " prefix)
+  const quotedContent = content.slice(2, separatorIndex)
+  // Extract new content (after "\n\n")
+  const newContent = content.slice(separatorIndex + 2)
+  
+  if (!quotedContent.trim() || !newContent.trim()) {
+    return null
+  }
+  
+  return { quotedContent, newContent }
 }
 
 function parseSources(message: LocalChatMessage): SourceLink[] {
@@ -207,8 +239,7 @@ function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
 
 export function ChatMessageItem({ 
   message, 
-  onRetry, 
-  retryDisabled = false, 
+  messageIndex,
   calledTools = [], 
   activeToolName = null,
   thinkingContent = "",
@@ -216,6 +247,9 @@ export function ChatMessageItem({
   isStreaming = false,
   onEditMessage,
   editDisabled = false,
+  onQuote,
+  quoteDisabled = false,
+  onJumpToMessage,
 }: ChatMessageItemProps) {
   const messageRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
@@ -227,7 +261,10 @@ export function ChatMessageItem({
   const [showThinkingProcess, setShowThinkingProcess] = useState(false)
   const [showToolCalls, setShowToolCalls] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
-  const [editContent, setEditContent] = useState(message.content)
+  // For quoted messages, edit only the user_content; otherwise edit the full content
+  const [editContent, setEditContent] = useState(
+    (isUser && message.custom_data?.user_content as string | undefined) || message.content
+  )
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isHovered, setIsHovered] = useState(false)
   
@@ -278,6 +315,25 @@ export function ChatMessageItem({
   // Determine what to show in the action bar
   const showThinkingButton = hasThinkingContent
   const showToolCallButton = hasToolCalls
+  
+  // Get quoted message ID and user content from custom_data
+  const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
+  const userContent = message.custom_data?.user_content as string | undefined
+  
+  // Check if this is a quoted message (has quoted_message_id and user_content)
+  const isQuotedMessage = isUser && quotedMessageId && userContent
+  
+  // Parse quoted content from message content for display
+  // Format: "> quoted content\n\nuser message"
+  const quotedParts = isQuotedMessage ? parseQuotedContent(message.content) : null
+  
+  // Truncate quoted content to 100 chars with underscore
+  const getTruncatedQuote = (content: string) => {
+    if (content.length > 100) {
+      return `${content.slice(0, 100)}_`
+    }
+    return content
+  }
 
   return (
     <article
@@ -300,10 +356,9 @@ export function ChatMessageItem({
           className={cn(
             "max-w-full overflow-visible rounded-2xl px-4 py-3",
             isUser
-              ? "w-fit mr-3 text-white"
-              : "w-full bg-muted/60 text-foreground",
+              ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground shadow-lg dark:shadow-cyan-500/20"
+              : "w-full bg-ai-bubble text-foreground",
           )}
-          style={isUser ? { backgroundColor: "#1AAD19" } : undefined}
         >
           {/* Sources */}
           {sources.length > 0 ? (
@@ -410,7 +465,7 @@ export function ChatMessageItem({
                 ref={textareaRef}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-h-[60px] resize-none rounded-lg bg-white/10 p-2 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30"
+                className="w-full min-h-[60px] resize-none rounded-lg bg-user-bubble-foreground/10 p-2 text-sm text-user-bubble-foreground placeholder-user-bubble-foreground/50 focus:outline-none focus:ring-2 focus:ring-user-bubble-foreground/30"
                 placeholder={t("message.editPlaceholder")}
                 rows={3}
               />
@@ -421,24 +476,63 @@ export function ChatMessageItem({
                     setIsEditing(false)
                     setEditContent(message.content)
                   }}
-                  className="rounded-md px-2 py-1 text-xs text-white/80 hover:bg-white/10"
+                  className="rounded-md px-2 py-1 text-xs text-user-bubble-foreground/80 hover:bg-user-bubble-foreground/10"
                 >
                   {t("common.cancel")}
                 </button>
                 <button
                   type="button"
                   onClick={() => {
-                    if (editContent.trim() && editContent.trim() !== message.content.trim() && onEditMessage) {
-                      onEditMessage(editContent.trim())
+                    if (editContent.trim() && onEditMessage) {
+                      // For quoted messages, reconstruct the full content with quote
+                      if (isQuotedMessage && quotedParts) {
+                        const newFullContent = `> ${quotedParts.quotedContent}\n\n${editContent.trim()}`
+                        // Only send if content actually changed
+                        if (newFullContent !== message.content.trim()) {
+                          onEditMessage(newFullContent, messageIndex)
+                        }
+                      } else {
+                        // Regular message - check if content changed
+                        if (editContent.trim() !== message.content.trim()) {
+                          onEditMessage(editContent.trim(), messageIndex)
+                        }
+                      }
                     }
                     setIsEditing(false)
                   }}
-                  disabled={!editContent.trim() || editContent.trim() === message.content.trim() || editDisabled}
-                  className="rounded-md bg-white/20 px-2 py-1 text-xs text-white hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={!editContent.trim() || editDisabled}
+                  className="rounded-md bg-user-bubble-foreground/20 px-2 py-1 text-xs text-user-bubble-foreground hover:bg-user-bubble-foreground/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t("message.sendEdit")}
                 </button>
               </div>
+            </div>
+          ) : isQuotedMessage ? (
+            // Render quoted message with separator - use user_content for display
+            <div className="space-y-2">
+              {/* Quoted content - clickable to jump to original, truncated to 100 chars */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (quotedMessageId && onJumpToMessage) {
+                    onJumpToMessage(quotedMessageId)
+                  }
+                }}
+                disabled={!quotedMessageId || !onJumpToMessage}
+                className={cn(
+                  "text-sm text-user-bubble-foreground/70 whitespace-pre-wrap break-words text-left w-full",
+                  quotedMessageId && onJumpToMessage && "cursor-pointer hover:text-user-bubble-foreground/90 underline underline-offset-2"
+                )}
+                title={quotedMessageId && onJumpToMessage ? t("message.jumpToOriginal") : undefined}
+              >
+                {quotedParts ? getTruncatedQuote(quotedParts.quotedContent) : "引用消息"}
+              </button>
+              {/* Separator line */}
+              <Separator className="bg-user-bubble-foreground/30" />
+              {/* User content - use user_content from custom_data */}
+              <p className="whitespace-pre-wrap break-words text-sm leading-6">
+                {userContent}
+              </p>
             </div>
           ) : (
             <p className="whitespace-pre-wrap break-words text-sm leading-6">
@@ -447,7 +541,7 @@ export function ChatMessageItem({
           )}
         </MessageContent>
 
-        {/* User message actions: copy and edit - only show on hover */}
+        {/* User message actions: copy, edit, quote - only show on hover */}
         {isUser && !isEditing && isHovered ? (
           <Actions className="pt-1 justify-end">
             <Action
@@ -469,10 +563,21 @@ export function ChatMessageItem({
             >
               <PencilIcon className="size-4" />
             </Action>
+            {onQuote ? (
+              <Action
+                onClick={onQuote}
+                tooltip={t("message.quote")}
+                label={t("message.quote")}
+                className="cursor-pointer"
+                disabled={quoteDisabled}
+              >
+                <QuoteIcon className="size-4" />
+              </Action>
+            ) : null}
           </Actions>
         ) : null}
 
-        {/* Actions area: copy, retry, thinking process, tool calls */}
+        {/* Actions area: copy, thinking process, tool calls */}
         {isAI && !isStreaming ? (
           <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
             <Actions className={cn("pt-1", isUser ? "justify-end" : "justify-start")}>
@@ -486,15 +591,17 @@ export function ChatMessageItem({
               >
                 {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
               </Action>
-              <Action
-                onClick={onRetry}
-                tooltip={t("common.retry")}
-                label={t("message.retryResponse")}
-                className="cursor-pointer"
-                disabled={!onRetry || retryDisabled}
-              >
-                <RefreshCcwIcon className="size-4" />
-              </Action>
+              {onQuote ? (
+                <Action
+                  onClick={onQuote}
+                  tooltip={t("message.quote")}
+                  label={t("message.quote")}
+                  className="cursor-pointer"
+                  disabled={quoteDisabled}
+                >
+                  <QuoteIcon className="size-4" />
+                </Action>
+              ) : null}
               {showThinkingButton ? (
                 <Action
                   onClick={() => setShowThinkingProcess(!showThinkingProcess)}
@@ -519,7 +626,7 @@ export function ChatMessageItem({
             
             {/* Thinking process detail panel */}
             {showThinkingButton && showThinkingProcess ? (
-              <div className="mt-2 w-full max-w-md rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
+              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
                 <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
                   <BrainIcon className="size-3" />
                   {t("message.thinkingProcess")}
@@ -532,7 +639,7 @@ export function ChatMessageItem({
             
             {/* Tool calls detail panel */}
             {showToolCallButton && showToolCalls ? (
-              <div className="mt-2 w-full max-w-md rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
+              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
                 <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
                   <WrenchIcon className="size-3" />
                   {t("message.toolCallsCount", { count: allTools.length })}

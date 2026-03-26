@@ -2,95 +2,107 @@
 
 ## Current Work Focus
 
-**Next Phase: Building a Powerful RAG Agent (3/11/2026)**
+**Chat Minimap Feature (3/26/2026)**
 
-The thinking mode feature is complete and stable. The next major goal is to build a powerful RAG (Retrieval-Augmented Generation) agent.
+Successfully implemented a VSCode-style minimap for the chat interface, replacing the previous message ruler. The minimap provides a visual overview of the entire conversation with interactive navigation.
 
-### Planned RAG Agent Enhancements
-- [ ] Improve document retrieval quality
-- [ ] Add hybrid search (vector + keyword)
-- [ ] Implement re-ranking for better relevance
-- [ ] Add source citation in responses
-- [ ] Support multiple document formats
-- [ ] Add document upload UI
+### Implementation Details
 
-## Recent Changes
+**New Files:**
+- `frontend/src/features/chat/components/chat-minimap.tsx` - VSCode-style minimap component
 
-### Bug Fix: Thinking Content Fragmentation in History (3/11/2026)
+**Modified Files:**
+- `frontend/src/App.tsx` - Integrated ChatMinimap, added scrollContainerRef
+- `frontend/src/features/chat/components/chat-main-panel.tsx` - Added scrollContainerRef prop
+- `frontend/src/features/chat/components/index.ts` - Export ChatMinimap
+- `frontend/src/index.css` - Added minimap-preview CSS styles
 
-**Problem**: When viewing historical conversations or refreshing the page, thinking content was displayed fragmented - each streaming token appeared on a separate line, breaking the original flow.
+### Features
 
-**Root Cause**: In `_extract_thinking_content()` function in `backend/app/utils/message_utils.py`, each thinking block was appended with `+ "\n"`, causing newline characters between streaming chunks when the message was retrieved from LangGraph checkpoint.
+1. **Mini Text Display**: Shows actual conversation text in miniature (2.5px font size)
+2. **Color Coding**: User messages in cyan, AI messages in violet
+3. **Viewport Indicator**: Semi-transparent slider showing current scroll position
+4. **Hover Preview**: Mouse hover on viewport shows visible messages with Markdown rendering
+5. **Click to Jump**: Click any line to jump to that message
+6. **Drag to Scroll**: Drag the viewport indicator for fast navigation
+7. **Immediate Close**: Preview closes immediately when mouse leaves viewport or tooltip
 
-**Solution**: Modified `_extract_thinking_content()` to collect all thinking blocks first and join them directly without adding newlines:
-```python
-# Before (broken):
-thinking += block.get("thinking", "") + "\n"
+### Bug Fixes (3/26/2026)
 
-# After (fixed):
-thinking_blocks = []
-for block in message.content:
-    if isinstance(block, dict) and block.get("type") == "thinking":
-        content = block.get("thinking", "")
-        if content:
-            thinking_blocks.append(content)
-thinking = "".join(thinking_blocks)
-```
+1. **Viewport Click Navigation**: Fixed transparent viewport block not responding to clicks. Now clicking on the viewport indicator scrolls to the clicked position.
 
-### Thinking Mode Feature Complete (3/10/2026 - 3/11/2026)
+2. **Preview Tooltip Close**: Fixed preview tooltip not closing when mouse leaves. Now the preview closes immediately when mouse leaves either the viewport or the tooltip content.
 
-**Frontend Components:**
-1. `frontend/src/features/chat/components/thinking-mode-toggle.tsx` - Brain icon toggle button
-2. `frontend/src/hooks/use-thinking-mode.ts` - Custom hook for per-conversation thinking mode state
+3. **Bottom Position Preview**: Fixed "暂无消息" (no messages) showing when viewport is at the bottom. The visible messages calculation now correctly uses minimap line positions instead of estimated message heights.
 
-**Backend Changes:**
-1. `backend/app/agents/chatbot.py` - Pure LangGraph implementation with dynamic model selection
-2. `backend/app/api/v1/chat.py` - Added thinking_mode persistence endpoints
-3. `backend/app/utils/message_utils.py` - Streaming support for thinking content
+4. **Message ID Matching**: Fixed minimap message IDs to match ChatMainPanel's `msg-${index}` format for correct jump-to-message functionality.
 
-**Bug Fix - Message Content Filtering:**
-- Fixed critical bug where `thinking` type content blocks caused API errors
-- Root cause: `thinking` is an OUTPUT format, not an INPUT format
-- Added `_filter_message_content_for_model()` to filter historical messages
-
-**UI Improvements:**
-- Right-aligned top buttons with consistent width
-- Sidebar toggle button scaled 1.5x
-- Logo area height reduced
-- All Chinese comments converted to English
+---
 
 ## Current State of the Project
 
 The project has a complete core implementation:
 - ✅ FastAPI backend with `/api/v1/chat` and `/api/v1/agent` endpoints
 - ✅ Modern React frontend with i18n, theme toggle, thinking mode toggle
-- ✅ 2 agents registered: `chatbot` (pure LangGraph with thinking mode), `rag-agent`
+- ✅ 3 agents registered: `chatbot`, `rag-agent`, `navigator`
 - ✅ PostgreSQL integration (async + sync managers, LangGraph checkpointer)
 - ✅ Qdrant vector store integration
 - ✅ LangSmith tracing integration
 - ✅ Thinking mode with separate UI for thinking process and tool calls
 - ✅ Message content filtering for LLM compatibility
+- ✅ Navigator agent with Amap integration and time conflict detection
+- ✅ Green button styling for all hyperlinks in markdown
+- ✅ Image zoom & drag feature for all markdown images (universal, full-screen immersive viewer)
+- ✅ Quote message feature (Grok-style with `> quoted content` format)
+- ✅ Edit message feature (creates new branch from edited message)
+- ✅ **Chat Minimap** (VSCode-style minimap with hover preview and navigation)
+
+### Core Features
+
+#### Chat Minimap Feature
+- VSCode-style minimap showing miniature conversation text
+- Viewport indicator with hover preview
+- Markdown rendering in preview (images, code blocks, lists, etc.)
+- Click to jump, drag to scroll
+- Delayed close for better UX
+
+#### Quote Message Feature
+- Click quote button on any message (user or assistant)
+- Shows quoted content preview above input (truncated to 100 chars)
+- Sends message with format: `> quoted content\n\nuser's new message`
+- Quoted messages display with special styling and can jump to original
+
+#### Edit Message Feature
+- Edit button only shows on user messages (on hover)
+- Click to enter edit mode with textarea
+- Save creates new branch: removes messages from edited index onwards
+- Streams new AI response automatically
+
+#### Image Viewer Feature
+- Full-screen immersive viewer (no dialog popup)
+- Mouse wheel zoom (0.5x - 5x)
+- Free drag when zoomed in (no boundary limits, no black borders)
+- Keyboard support: ESC to close, +/- to zoom, 0 to reset
+- Click outside image to close
 
 ## Next Steps
 
-**RAG Agent Development:**
-- [ ] Analyze current RAG agent implementation
-- [ ] Design enhanced RAG architecture
-- [ ] Implement improved retrieval strategies
-- [ ] Add document management features
-
-**Other Backend Development Priorities:**
 - [ ] Add more agents to the hub (e.g., SQL agent, code agent, multi-agent workflows)
 - [ ] Document upload UI for Qdrant population
 - [ ] Unit/integration tests for backend
 
 ## Active Decisions and Considerations
 
-- **Message Content Filtering**: Always filter `thinking` type blocks from historical messages before sending to any LLM
+- **Navigator Tool Order**: `get_current_time` first, then weather check, then other tools
+- **No web_search for Navigator**: Uses `amap_weather` for weather, no traffic news search
+- **Time Conflict Detection**: Check for conflicts before providing navigation links
+- **Link Styling**: Green button style for all external links in markdown
+- **Image Feature**: Universal zoom & drag for all markdown images, any agent can use
+- **Message Content Filtering**: Always filter `thinking` type blocks from historical messages
 - **Pure LangGraph over create_agent**: Chose StateGraph for better control and async support
-- **Lazy tool initialization**: Tools are created at runtime to avoid import-time API key errors
 - **LLM Provider**: Using Alibaba DashScope (Qwen models) via OpenAI-compatible API
-- **Thinking vs Tool UI**: Separate display - Brain icon for thinking, Wrench icon for tool calls
+- **Simple State Management**: Use React useState instead of complex context providers
+- **Minimap Width**: 100px fixed width, balances visibility and space efficiency
 
 ## Important Patterns and Preferences
 
@@ -104,8 +116,11 @@ The project has a complete core implementation:
 
 ## Learnings and Project Insights
 
-- **Thinking Type is OUTPUT only**: `thinking` type content blocks are output formats, not input formats - must be filtered from historical messages
+- **Thinking Type is OUTPUT only**: `thinking` type content blocks are output formats, not input formats
 - **LangGraph StateGraph**: Provides fine-grained control for agent orchestration
-- **MessagesState**: Use as base class for custom state to get `add_messages` reducer
-- **Dynamic Model Selection**: Can be done directly in node functions with state access
-- Frontend modernization completed successfully with React + TypeScript + Tailwind + shadcn/ui
+- **Navigator Agent**: Time conflict detection improves user experience significantly
+- **Link Styling**: Green buttons provide better visual distinction for clickable links
+- **Image Zoom & Drag**: Universal feature that works for any agent outputting markdown images
+- **Amap Static Map**: paths parameter format requires exact comma placement for optional fields
+- **Code Cleanup**: Remove unused code early to avoid maintenance burden
+- **Tooltip Hover State**: Need delayed close + combined hover state for tooltip to remain visible when mouse moves to content

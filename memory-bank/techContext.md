@@ -167,6 +167,9 @@ QDRANT_COLLECTION=agentic_rag_survey
 
 # Tavily Search
 TAVILY_API_KEY=tvly-...
+
+# Amap (高德地图)
+AMAP_KEY=your_amap_key_here
 ```
 
 #### Frontend (frontend/.env)

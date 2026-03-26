@@ -1,5 +1,5 @@
 export { ChatMainPanel } from "./chat-main-panel"
-export { MessageRuler } from "./message-ruler"
+export { ChatMinimap } from "./chat-minimap"
 export { ChatSidebar } from "./chat-sidebar"
 export { ConversationRenameDialog } from "./conversation-rename-dialog"
 export { DeleteConversationDialog } from "./delete-conversation-dialog"

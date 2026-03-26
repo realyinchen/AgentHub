@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { ArrowDown } from "lucide-react"
+import { ArrowDown, XIcon } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
@@ -9,7 +9,7 @@ import {
   AlertTitle,
 } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
-import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Separator } from "@/components/ui/separator"
 import {
   PromptInput,
   PromptInputBody,
@@ -19,6 +19,7 @@ import {
 } from "@/components/ai/prompt-input"
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { Loader } from "~/components/ai/loader"
+import { AgentGrid } from "@/components/agent"
 import { useI18n } from "@/i18n"
 
 type ChatMainPanelProps = {
@@ -35,16 +36,16 @@ type ChatMainPanelProps = {
   messages: LocalChatMessage[]
   agents: AgentInDB[]
   selectedAgentId: string
-  onSendMessage: (rawInput: string) => Promise<void>
+  onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
-  // Thinking mode props
   thinkingMode: boolean
   onToggleThinkingMode: () => void
   isThinkingModeAvailable: boolean
   isThinkingModeLoading: boolean
-  // Edit message props
-  onEditMessage?: (newContent: string) => Promise<void>
+  onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
+  onJumpToMessage?: (localId: string) => void // Jump to message callback
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null> // Ref for scroll container (used by minimap)
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -67,6 +68,7 @@ export function ChatMainPanel({
   thinkingContent,
   messages,
   agents,
+  selectedAgentId,
   onSendMessage,
   onStopStreaming,
   onSelectAgent,
@@ -75,9 +77,15 @@ export function ChatMainPanel({
   isThinkingModeAvailable,
   isThinkingModeLoading,
   onEditMessage,
+  onJumpToMessage,
+  scrollContainerRef: externalScrollContainerRef,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
+  
+  // Quote state - show quoted content above input
+  const [quotedContent, setQuotedContent] = useState<string | null>(null)
+  const [quotedMessageId, setQuotedMessageId] = useState<string | null>(null)
 
   const endOfMessagesRef = useRef<HTMLDivElement | null>(null)
   const conversationRef = useRef<HTMLDivElement | null>(null)
@@ -88,6 +96,13 @@ export function ChatMainPanel({
   const lastKnownScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
+
+  // Sync conversationRef with external ref for minimap
+  useEffect(() => {
+    if (externalScrollContainerRef && 'current' in externalScrollContainerRef) {
+      (externalScrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = conversationRef.current
+    }
+  }, [externalScrollContainerRef, conversationRef.current])
 
   const suggestions = useMemo(
     () => [
@@ -111,22 +126,6 @@ export function ChatMainPanel({
 
   const isComposerDisabled =
     isInitializing || isLoadingConversation || isAwaitingAgentSelection
-
-  const selectableAgents = useMemo(() => {
-    if (agents.length === 0) {
-      return [
-        {
-          agent_id: "chatbot",
-          description: t("chat.defaultAssistant"),
-        },
-      ]
-    }
-
-    return agents.map((agent) => ({
-      agent_id: agent.agent_id,
-      description: agent.description || t("chat.noDescription"),
-    }))
-  }, [agents, t])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current
@@ -245,9 +244,19 @@ export function ChatMainPanel({
       return
     }
 
+    // If there's quoted content, format the message and pass quotedMessageId
+    const finalContent = quotedContent 
+      ? `> ${quotedContent}\n\n${trimmed}`
+      : trimmed
+
     setInputValue("")
-    void onSendMessage(trimmed)
-  }, [isComposerDisabled, isStreaming, onSendMessage])
+    const currentQuotedMessageId = quotedMessageId
+    setQuotedContent(null)
+    setQuotedMessageId(null)
+    
+    // Pass quotedMessageId and userContent for display purposes
+    void onSendMessage(finalContent, currentQuotedMessageId || undefined, trimmed)
+  }, [isComposerDisabled, isStreaming, onSendMessage, quotedContent, quotedMessageId])
 
   const handleSuggestionClick = useCallback(
     (value: string) => {
@@ -264,6 +273,23 @@ export function ChatMainPanel({
     : !inputValue.trim() || status !== "ready" || isComposerDisabled
   const shouldShowScrollButton =
     showScrollButton && !isAwaitingAgentSelection && !isLoadingConversation
+
+  // Handle quote action - set quoted content and message ID
+  // Use message index as stable ID for jump functionality
+  const handleQuote = useCallback((message: LocalChatMessage, messageIndex: number) => {
+    setQuotedContent(message.content)
+    // Use index as stable ID (works after page refresh)
+    setQuotedMessageId(`msg-${messageIndex}`)
+    // Focus the textarea
+    const textarea = document.querySelector('textarea[name="message"]') as HTMLTextAreaElement
+    textarea?.focus()
+  }, [])
+
+  // Clear quoted content
+  const clearQuote = useCallback(() => {
+    setQuotedContent(null)
+    setQuotedMessageId(null)
+  }, [])
 
   return (
     <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-background">
@@ -297,66 +323,35 @@ export function ChatMainPanel({
                     <h1 className="mb-8 text-4xl font-semibold">{t("chat.chooseAgent")}</h1>
                   </div>
 
-                  <div className="mx-auto flex w-full flex-wrap justify-center gap-3">
-                    {selectableAgents.map((agent) => (
-                      <Card
-                        key={agent.agent_id}
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => onSelectAgent(agent.agent_id)}
-                        onKeyDown={(event) => {
-                          if (event.key === "Enter" || event.key === " ") {
-                            event.preventDefault()
-                            onSelectAgent(agent.agent_id)
-                          }
-                        }}
-                        className="w-full max-w-sm cursor-pointer gap-4 px-1 py-5 transition hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md md:basis-[calc(50%-0.375rem)] xl:basis-[calc(33.333%-0.5rem)]"
-                      >
-                        <CardHeader className="gap-2 px-5">
-                          <CardTitle className="text-base">{agent.agent_id}</CardTitle>
-                          <CardDescription className="line-clamp-3">
-                            {agent.description}
-                          </CardDescription>
-                        </CardHeader>
-                      </Card>
-                    ))}
-                  </div>
+                  <AgentGrid
+                    agents={agents}
+                    selectedAgentId={selectedAgentId}
+                    onSelectAgent={onSelectAgent}
+                  />
                 </div>
               </div>
             ) : (
-              <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-0">
+              <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-8">
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
-                    const retrySource = message.type === "ai"
-                      ? messages
-                        .slice(0, index)
-                        .reverse()
-                        .find((candidate) => (
-                          candidate.type === "human" && candidate.content.trim().length > 0
-                        ))
-                      : null
-
-                    // Only show calledTools and thinking state on the last AI message
-                    const isLastAIMessage = message.type === "ai" && index === messages.length - 1
-                    const toolsForMessage = isLastAIMessage ? calledTools : []
-                    const thinkingForMessage = isLastAIMessage ? isAgentThinking : false
-                    const toolNameForMessage = isLastAIMessage ? activeToolCall?.name : null
-                    const thinkingContentForMessage = isLastAIMessage ? thinkingContent : ""
-
+                    const isLastAIMessage = index === messages.length - 1 && message.type === "ai"
+                    
                     return (
                       <ChatMessageItem
-                        key={message.local_id}
-                        message={message}
-                        onRetry={retrySource ? () => submitMessage(retrySource.content) : undefined}
-                        retryDisabled={isStreaming || isComposerDisabled}
-                        calledTools={toolsForMessage}
-                        isAgentThinking={thinkingForMessage}
-                        activeToolName={toolNameForMessage}
-                        thinkingContent={thinkingContentForMessage}
+                        key={`msg-${index}`}
+                        message={{ ...message, local_id: `msg-${index}` }}
+                        messageIndex={index}
+                        calledTools={isLastAIMessage ? calledTools : []}
+                        isAgentThinking={isLastAIMessage ? isAgentThinking : false}
+                        activeToolName={isLastAIMessage ? activeToolCall?.name : null}
+                        thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
                         onEditMessage={onEditMessage}
                         editDisabled={isStreaming || isComposerDisabled}
+                        onQuote={() => handleQuote(message, index)}
+                        quoteDisabled={isStreaming || isComposerDisabled}
+                        onJumpToMessage={onJumpToMessage}
                       />
                     )
                   })
@@ -420,13 +415,37 @@ export function ChatMainPanel({
                 submitMessage(text)
               }}
             >
+              {/* Quoted content display above input */}
+              {quotedContent ? (
+                <div className="relative px-3 pt-3">
+                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                    {/* Close button */}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute top-2 right-2 size-5 cursor-pointer"
+                      onClick={clearQuote}
+                    >
+                      <XIcon className="size-3" />
+                    </Button>
+                    {/* Quoted text - gray, show first 100 chars */}
+                    <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words line-clamp-3 pr-6">
+                      {quotedContent.length > 100 ? `${quotedContent.slice(0, 100)}_` : quotedContent}
+                    </p>
+                  </div>
+                  {/* Separator line */}
+                  <Separator className="mt-3" />
+                </div>
+              ) : null}
+              
               <PromptInputBody  >
                 <PromptInputTextarea
                   className="max-h-26 min-h-8"
                   disabled={isComposerDisabled}
                   onChange={(event) => setInputValue(event.currentTarget.value)}
                   value={inputValue}
-                  placeholder={t("prompt.placeholder")}
+                  placeholder={quotedContent ? t("message.addYourMessage") : t("prompt.placeholder")}
                 />
               </PromptInputBody>
               <PromptInputFooter className="pb-3 justify-between">

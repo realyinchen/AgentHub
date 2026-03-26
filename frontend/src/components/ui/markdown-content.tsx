@@ -1,10 +1,10 @@
 import { marked } from "marked";
 import type * as React from "react";
-import { isValidElement, memo, useEffect, useMemo, useState } from "react";
+import { isValidElement, memo, useEffect, useMemo, useState, useCallback } from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
-import { CheckIcon, CopyIcon } from "lucide-react";
+import { CheckIcon, CopyIcon, ExternalLinkIcon, XIcon, ZoomInIcon, ZoomOutIcon, RotateCcwIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
@@ -200,6 +200,224 @@ const CodeBlock = ({
 
 CodeBlock.displayName = "CodeBlock";
 
+// Full-screen immersive image viewer
+const ImageWithZoom = ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => {
+	const [isOpen, setIsOpen] = useState(false);
+	const [scale, setScale] = useState(1);
+	const [position, setPosition] = useState({ x: 0, y: 0 });
+	const [isDragging, setIsDragging] = useState(false);
+	const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+
+	const handleZoomIn = useCallback(() => {
+		setScale((prev) => Math.min(prev + 0.5, 5));
+	}, []);
+
+	const handleZoomOut = useCallback(() => {
+		setScale((prev) => {
+			const newScale = Math.max(prev - 0.5, 0.5);
+			if (newScale <= 1) {
+				setPosition({ x: 0, y: 0 });
+			}
+			return newScale;
+		});
+	}, []);
+
+	const handleReset = useCallback(() => {
+		setScale(1);
+		setPosition({ x: 0, y: 0 });
+	}, []);
+
+	const openViewer = useCallback(() => {
+		setIsOpen(true);
+		setScale(1);
+		setPosition({ x: 0, y: 0 });
+	}, []);
+
+	const closeViewer = useCallback(() => {
+		setIsOpen(false);
+		setScale(1);
+		setPosition({ x: 0, y: 0 });
+	}, []);
+
+	// Mouse drag handlers
+	const handleMouseDown = useCallback((e: React.MouseEvent) => {
+		if (scale > 1) {
+			setIsDragging(true);
+			setDragStart({ x: e.clientX - position.x, y: e.clientY - position.y });
+		}
+	}, [scale, position]);
+
+	const handleMouseMove = useCallback((e: React.MouseEvent) => {
+		if (isDragging && scale > 1) {
+			setPosition({
+				x: e.clientX - dragStart.x,
+				y: e.clientY - dragStart.y,
+			});
+		}
+	}, [isDragging, scale, dragStart]);
+
+	const handleMouseUp = useCallback(() => {
+		setIsDragging(false);
+	}, []);
+
+	// Wheel zoom handler
+	const handleWheel = useCallback((e: React.WheelEvent) => {
+		e.preventDefault();
+		const delta = e.deltaY > 0 ? -0.25 : 0.25;
+		setScale((prev) => {
+			const newScale = Math.max(0.5, Math.min(5, prev + delta));
+			if (newScale <= 1) {
+				setPosition({ x: 0, y: 0 });
+			}
+			return newScale;
+		});
+	}, []);
+
+	// Keyboard handler
+	useEffect(() => {
+		if (!isOpen) return;
+
+		const handleKeyDown = (e: KeyboardEvent) => {
+			if (e.key === "Escape") {
+				closeViewer();
+			} else if (e.key === "+" || e.key === "=") {
+				handleZoomIn();
+			} else if (e.key === "-") {
+				handleZoomOut();
+			} else if (e.key === "0") {
+				handleReset();
+			}
+		};
+
+		window.addEventListener("keydown", handleKeyDown);
+		return () => window.removeEventListener("keydown", handleKeyDown);
+	}, [isOpen, closeViewer, handleZoomIn, handleZoomOut, handleReset]);
+
+	// Prevent body scroll when viewer is open
+	useEffect(() => {
+		if (isOpen) {
+			document.body.style.overflow = "hidden";
+		} else {
+			document.body.style.overflow = "";
+		}
+		return () => {
+			document.body.style.overflow = "";
+		};
+	}, [isOpen]);
+
+	return (
+		<>
+			{/* Thumbnail image */}
+			{/* biome-ignore lint/performance/noImgElement: Required for image */}
+			<img
+				className="rounded-md cursor-pointer hover:opacity-90 transition-opacity max-w-full h-auto"
+				alt={alt}
+				src={src}
+				onClick={openViewer}
+				{...props}
+			/>
+			
+			{/* Full-screen immersive viewer */}
+			{isOpen && (
+				<div
+					className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+					onClick={(e) => {
+						// Close only when clicking on the background, not the image
+						if (e.target === e.currentTarget) {
+							closeViewer();
+						}
+					}}
+					onMouseMove={handleMouseMove}
+					onMouseUp={handleMouseUp}
+					onMouseLeave={handleMouseUp}
+					onWheel={handleWheel}
+				>
+					{/* Image - can be dragged freely without boundaries */}
+					{/* biome-ignore lint/performance/noImgElement: Required for image */}
+					<img
+						src={src}
+						alt={alt}
+						className={cn(
+							"max-w-[90vw] max-h-[90vh] object-contain select-none transition-transform duration-100",
+							scale > 1 ? "cursor-grab" : "cursor-default",
+							isDragging && "cursor-grabbing"
+						)}
+						style={{
+							transform: `scale(${scale}) translate(${position.x / scale}px, ${position.y / scale}px)`,
+						}}
+						onMouseDown={handleMouseDown}
+						draggable={false}
+						onClick={(e) => e.stopPropagation()}
+					/>
+					
+					{/* Control bar */}
+					<div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg">
+						<Button
+							variant="ghost"
+							size="icon"
+							className="text-white hover:bg-white/20 h-8 w-8"
+							onClick={(e) => {
+								e.stopPropagation();
+								handleZoomOut();
+							}}
+							disabled={scale <= 0.5}
+						>
+							<ZoomOutIcon className="size-4" />
+						</Button>
+						<span className="text-white text-sm min-w-[60px] text-center font-medium">
+							{Math.round(scale * 100)}%
+						</span>
+						<Button
+							variant="ghost"
+							size="icon"
+							className="text-white hover:bg-white/20 h-8 w-8"
+							onClick={(e) => {
+								e.stopPropagation();
+								handleZoomIn();
+							}}
+							disabled={scale >= 5}
+						>
+							<ZoomInIcon className="size-4" />
+						</Button>
+						<div className="w-px h-5 bg-white/30 mx-1" />
+						<Button
+							variant="ghost"
+							size="icon"
+							className="text-white hover:bg-white/20 h-8 w-8"
+							onClick={(e) => {
+								e.stopPropagation();
+								handleReset();
+							}}
+						>
+							<RotateCcwIcon className="size-4" />
+						</Button>
+					</div>
+					
+					{/* Close button */}
+					<Button
+						variant="ghost"
+						size="icon"
+						className="absolute top-4 right-4 bg-black/50 hover:bg-black/70 text-white h-10 w-10 rounded-full"
+						onClick={(e) => {
+							e.stopPropagation();
+							closeViewer();
+						}}
+					>
+						<XIcon className="size-5" />
+					</Button>
+					
+					{/* Hint text */}
+					<div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/60 text-sm">
+						滚轮缩放 · 拖动平移 · ESC 或点击空白处关闭
+					</div>
+				</div>
+			)}
+		</>
+	);
+};
+
+ImageWithZoom.displayName = "ImageWithZoom";
+
 const createMarkdownComponents = (
 	disableCodeHighlight: boolean,
 ): Partial<Components> => ({
@@ -297,14 +515,17 @@ const createMarkdownComponents = (
 	},
 	a: ({
 		children,
+		href,
 		...props
 	}: React.AnchorHTMLAttributes<HTMLAnchorElement>) => (
 		<a
-			className="font-medium underline underline-offset-4 whitespace-pre-wrap break-all"
+			className="inline-flex items-center gap-1.5 px-3 py-1.5 my-1 text-sm font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors no-underline"
 			target="_blank"
 			rel="noreferrer"
+			href={href}
 			{...props}
 		>
+			<ExternalLinkIcon className="size-3.5" />
 			{children}
 		</a>
 	),
@@ -371,10 +592,7 @@ const createMarkdownComponents = (
 			{children}
 		</td>
 	),
-	img: ({ alt, ...props }: React.ImgHTMLAttributes<HTMLImageElement>) => (
-		// biome-ignore lint/performance/noImgElement: Required for image
-		<img className="rounded-md" alt={alt} {...props} />
-	),
+	img: ImageWithZoom,
 	code: ({
 		children,
 		className,
@@ -473,7 +691,7 @@ export const MarkdownContent = memo(
 				content={block}
 				className={className}
 				components={components}
-				key={`block_${
+				key={`block-${
 					// biome-ignore lint/suspicious/noArrayIndexKey: Needed for react key
 					index
 					}`}

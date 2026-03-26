@@ -37,17 +37,17 @@ def convert_message_content_to_string(content: str | list[str | dict]) -> str:
 def _extract_thinking_content(message: AIMessage) -> str:
     """
     Extract thinking/reasoning content from an AIMessage.
-    
+
     Handles multiple formats:
     1. Structured content: [{"type": "thinking", "thinking": "..."}, ...]
     2. reasoning_content attribute (DeepSeek-R1 style)
     3. additional_kwargs.reasoning_content
-    
+
     Returns:
         str: Extracted thinking content, or empty string if none found
     """
     thinking = ""
-    
+
     # 1. Check structured content (DashScope thinking models)
     if isinstance(message.content, list):
         thinking_blocks = []
@@ -59,7 +59,7 @@ def _extract_thinking_content(message: AIMessage) -> str:
         # Join thinking blocks directly without adding newlines
         # Each block is already a chunk of the streaming output
         thinking = "".join(thinking_blocks)
-    
+
     # 2. Check reasoning_content attribute (DeepSeek-R1 style)
     if not thinking:
         reasoning_attr = getattr(message, "reasoning_content", None)
@@ -68,13 +68,13 @@ def _extract_thinking_content(message: AIMessage) -> str:
                 thinking = reasoning_attr
             elif isinstance(reasoning_attr, list):
                 thinking = convert_message_content_to_string(reasoning_attr)
-    
+
     # 3. Check additional_kwargs for reasoning_content
     if not thinking:
         reasoning_from_kwargs = message.additional_kwargs.get("reasoning_content", "")
         if reasoning_from_kwargs:
             thinking = reasoning_from_kwargs
-    
+
     return thinking.strip()
 
 
@@ -86,6 +86,9 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                 type="human",
                 content=convert_message_content_to_string(message.content),
             )
+            # Restore custom_data from additional_kwargs (for quote feature persistence)
+            if message.additional_kwargs.get("custom_data"):
+                human_message.custom_data = message.additional_kwargs["custom_data"]
             return human_message
         case AIMessage():
             ai_message = ChatMessage(
@@ -96,12 +99,12 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                 ai_message.tool_calls = message.tool_calls
             if message.response_metadata:
                 ai_message.response_metadata = message.response_metadata
-            
+
             # Extract and save thinking content to custom_data
             thinking_content = _extract_thinking_content(message)
             if thinking_content:
                 ai_message.custom_data["thinking"] = thinking_content
-            
+
             return ai_message
         case ToolMessage():
             tool_message = ChatMessage(
@@ -122,7 +125,7 @@ async def streaming_message_generator(
     Generate a stream of messages from the agent.
 
     This is the workhorse method for the /stream endpoint.
-    
+
     Args:
         user_input: User input containing content, agent_id, thread_id, and thinking_mode
         agent: The compiled state graph agent to use
@@ -163,7 +166,7 @@ async def streaming_message_generator(
                     type(message).__name__,
                     str(message.content)[:100] if message.content else "",
                 )
-                
+
                 # Send tool_call event when AI message has tool_calls
                 if isinstance(message, AIMessage) and message.tool_calls:
                     logger.info(
@@ -189,7 +192,7 @@ async def streaming_message_generator(
                                     user_input.thread_id,
                                 )
                             yield f"data: {json.dumps({'type': 'tool_call', 'content': {'name': tool_name, 'id': tool_call_id, 'args': tool_args}})}\n\n"
-                
+
                 # Send tool_result event when ToolMessage is received
                 if isinstance(message, ToolMessage):
                     tool_call_id = message.tool_call_id
@@ -199,7 +202,7 @@ async def streaming_message_generator(
                     if len(tool_output) > 2000:
                         tool_output = tool_output[:2000] + "..."
                     yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': tool_call_id, 'output': tool_output}})}\n\n"
-                
+
                 try:
                     chat_message = langchain_to_chat_message(message)
                 except Exception as e:
@@ -230,18 +233,18 @@ async def streaming_message_generator(
                 # non-LLM nodes will send extra messages, like ToolMessage, we need to drop them.
                 if not isinstance(msg, AIMessageChunk):
                     continue
-                
+
                 # Handle thinking content from DashScope thinking models
                 # The content can be structured as list[dict] with 'type' field
                 # e.g., [{'type': 'thinking', 'thinking': '...'}, {'type': 'text', 'text': '...'}]
                 if isinstance(msg.content, list):
                     for block in msg.content:
                         if isinstance(block, dict):
-                            block_type = block.get('type')
-                            
+                            block_type = block.get("type")
+
                             # Handle thinking block
-                            if block_type == 'thinking':
-                                thinking_content = block.get('thinking', '')
+                            if block_type == "thinking":
+                                thinking_content = block.get("thinking", "")
                                 if thinking_content:
                                     if not first_chunk_sent:
                                         first_chunk_sent = True
@@ -250,10 +253,10 @@ async def streaming_message_generator(
                                             (time.perf_counter() - started_at) * 1000,
                                         )
                                     yield f"data: {json.dumps({'type': 'thinking', 'content': thinking_content})}\n\n"
-                            
+
                             # Handle text block (final answer)
-                            elif block_type == 'text':
-                                text_content = block.get('text', '')
+                            elif block_type == "text":
+                                text_content = block.get("text", "")
                                 if text_content:
                                     if not first_chunk_sent:
                                         first_chunk_sent = True
@@ -262,9 +265,9 @@ async def streaming_message_generator(
                                             (time.perf_counter() - started_at) * 1000,
                                         )
                                     yield f"data: {json.dumps({'type': 'token', 'content': text_content})}\n\n"
-                
+
                 # Handle reasoning_content attribute (DeepSeek-R1 style)
-                reasoning_content = getattr(msg, 'reasoning_content', None)
+                reasoning_content = getattr(msg, "reasoning_content", None)
                 if reasoning_content:
                     if not first_chunk_sent:
                         first_chunk_sent = True
@@ -275,7 +278,7 @@ async def streaming_message_generator(
                             user_input.thread_id,
                         )
                     yield f"data: {json.dumps({'type': 'thinking', 'content': convert_message_content_to_string(reasoning_content)})}\n\n"
-                
+
                 # Handle string content (normal streaming)
                 content = msg.content
                 if content and isinstance(content, str):
@@ -303,9 +306,12 @@ async def handle_input(
 ) -> dict[str, Any]:
     """
     Parse user input and returns kwargs for agent invocation.
-    
+
     thinking_mode is passed through config.configurable to the agent's nodes,
     where the LLM is dynamically selected based on this flag.
+
+    custom_data is stored in HumanMessage.additional_kwargs for persistence,
+    and will be restored when loading history.
     """
     thread_id = user_input.thread_id or str(uuid.uuid4())
 
@@ -316,15 +322,21 @@ async def handle_input(
 
     config = RunnableConfig(configurable=configurable)
 
+    # Create HumanMessage with custom_data in additional_kwargs for persistence
+    human_message = HumanMessage(content=user_input.content)
+    if user_input.custom_data:
+        human_message.additional_kwargs["custom_data"] = user_input.custom_data
+
     input: Command | dict[str, Any]
     input = {
-        "messages": [HumanMessage(content=user_input.content)],
+        "messages": [human_message],
     }
 
     logger.info(
-        "handle_input: thread_id=%s, thinking_mode=%s",
+        "handle_input: thread_id=%s, thinking_mode=%s, has_custom_data=%s",
         thread_id,
         user_input.thinking_mode,
+        bool(user_input.custom_data),
     )
 
     kwargs = {

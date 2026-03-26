@@ -24,10 +24,10 @@ import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import { useTheme } from "@/hooks/use-theme"
 import {
   ChatMainPanel,
+  ChatMinimap,
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
-  MessageRuler,
   ShareDialog,
 } from "@/features/chat/components"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
@@ -100,6 +100,7 @@ function App() {
   const streamingPlaceholderIdRef = useRef<string | null>(null)
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
+  const chatScrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   // Keep thinkingModeRef in sync with thinkingMode state
   useEffect(() => {
@@ -310,40 +311,52 @@ function App() {
 
           // If we have a placeholder, update it with new content
           if (placeholderId) {
-            // If this message has tool_calls, it means more content is coming
-            // Update the placeholder but keep it alive for the final response
-            if (hasToolCalls) {
-              // Update placeholder with current content, but don't clear the ref
-              return previous.map((item) =>
-                item.local_id === placeholderId
-                  ? {
-                    ...item,
-                    ...normalized,
-                    local_id: placeholderId,
-                    is_streaming: true,
-                  }
-                  : item,
-              )
-            }
-
-            // If this message has content but no tool_calls, it's the final response
-            // Update the placeholder and clear the ref
-            if (hasContent) {
-              streamingPlaceholderIdRef.current = null
-              return previous.map((item) =>
-                item.local_id === placeholderId
-                  ? {
-                    ...item,
-                    ...normalized,
-                    local_id: placeholderId,
-                    is_streaming: false,
-                  }
-                  : item,
-              )
-            }
-
-            // No content and no tool calls, keep placeholder as is
-            return previous
+            const existingItem = previous.find(item => item.local_id === placeholderId)
+            const existingContent = existingItem?.content || ""
+            const existingToolCalls = existingItem?.tool_calls || []
+            
+            // Backend sends both 'token' events (streaming) and 'message' events (complete)
+            // Check if content was already streamed via token events
+            // If existing content matches or is a prefix of the new content, tokens were already added
+            const contentAlreadyStreamed = hasContent && 
+              existingContent.length > 0 && 
+              (normalized.content === existingContent || 
+               normalized.content.startsWith(existingContent))
+            
+            // Determine final content:
+            // - If content was already streamed via tokens, keep existing content
+            // - Otherwise, use the message content (for non-streaming cases like tool calls)
+            const finalContent = contentAlreadyStreamed ? existingContent : 
+              (hasContent ? normalized.content : existingContent)
+            
+            // Merge tool calls: combine existing and new (avoid duplicates by id)
+            const mergedToolCalls = hasToolCalls
+              ? [...existingToolCalls, ...normalized.tool_calls.filter(
+                  (newTc) => !existingToolCalls.some((existingTc) => existingTc.id === newTc.id)
+                )]
+              : existingToolCalls
+            
+            // Determine if this is the final response
+            // Final response: has content AND no tool calls
+            const isFinalResponse = hasContent && !hasToolCalls
+            
+            // Update the placeholder
+            // Don't clear the ref during streaming - let the streaming end handler clear it
+            return previous.map((item) =>
+              item.local_id === placeholderId
+                ? {
+                  ...item,
+                  content: finalContent,
+                  tool_calls: mergedToolCalls,
+                  custom_data: {
+                    ...item.custom_data,
+                    ...(normalized.custom_data?.thinking ? { thinking: normalized.custom_data.thinking } : {}),
+                  },
+                  local_id: placeholderId,
+                  is_streaming: !isFinalResponse,
+                }
+                : item,
+            )
           }
 
           // No placeholder - check for duplicates before adding new message
@@ -366,6 +379,41 @@ function App() {
           if (duplicatedByRunId || duplicatedByContent) {
             return previous
           }
+
+          // If streaming is still in progress and the last message is an AI message,
+          // merge the content instead of creating a new bubble.
+          // This handles cases where the backend sends multiple intermediate messages
+          // (e.g., "Let me check..." followed by the actual response).
+          // We merge regardless of whether the last message is still marked as streaming,
+          // as long as the overall streaming session is still active.
+          const shouldMergeContent = isStreaming && lastMessage?.type === "ai" && hasContent
+
+          if (shouldMergeContent) {
+            // Merge content and tool calls into the last message
+            const mergedContent = (lastMessage.content || "") + (normalized.content || "")
+            const mergedToolCalls = [
+              ...(lastMessage.tool_calls || []),
+              ...(normalized.tool_calls || []),
+            ]
+            const mergedThinking = normalized.custom_data?.thinking || lastMessage.custom_data?.thinking
+
+            return previous.map((item, index) => {
+              if (index === previous.length - 1) {
+                return {
+                  ...item,
+                  content: mergedContent,
+                  tool_calls: mergedToolCalls,
+                  custom_data: {
+                    ...item.custom_data,
+                    ...(mergedThinking ? { thinking: mergedThinking } : {}),
+                  },
+                  // Keep streaming state - will be marked as complete when streaming ends
+                  is_streaming: true,
+                }
+              }
+              return item
+            })
+          }
         }
 
         if (
@@ -379,7 +427,7 @@ function App() {
         return [...previous, toLocalMessage(normalized)]
       })
     },
-    [],
+    [isStreaming],
   )
 
   const stopStreaming = useCallback(() => {
@@ -388,12 +436,20 @@ function App() {
   }, [])
 
   const maybeGenerateTitle = useCallback(
-    async (userInput: string, targetThreadId: string, currentTitle: string) => {
+    async (
+      userInput: string,
+      aiResponse: string,
+      targetThreadId: string,
+      currentTitle: string,
+    ) => {
       if (!isDefaultConversationTitle(currentTitle) || !targetThreadId) {
         return
       }
 
-      const titlePrompt = t("app.titlePrompt", { input: userInput })
+      const titlePrompt = t("app.titlePrompt", {
+        input: userInput,
+        response: aiResponse,
+      })
 
       try {
         const titleResponse = await invoke({
@@ -434,7 +490,7 @@ function App() {
   )
 
   const handleSendMessage = useCallback(
-    async (rawInput: string) => {
+    async (rawInput: string, quotedMessageId?: string, userContent?: string) => {
       const trimmed = rawInput.trim()
       if (
         !trimmed ||
@@ -449,7 +505,15 @@ function App() {
       setAppError(null)
       setMessages((previous) => [
         ...previous,
-        toLocalMessage({ type: "human", content: trimmed }),
+        toLocalMessage(
+          { type: "human", content: trimmed },
+          { 
+            customData: quotedMessageId ? { 
+              quoted_message_id: quotedMessageId,
+              user_content: userContent,
+            } : undefined 
+          }
+        ),
       ])
 
       const targetThreadId = threadId
@@ -457,6 +521,9 @@ function App() {
 
       try {
         await ensureConversationExists(targetThreadId, currentTitle)
+
+        // Write thread_id to URL for sharing (especially important for new conversations)
+        writeThreadIdToUrl(targetThreadId)
 
         setIsStreaming(true)
         streamingPlaceholderIdRef.current = null
@@ -481,6 +548,10 @@ function App() {
             agent_id: selectedAgentId,
             thread_id: targetThreadId,
             thinking_mode: currentThinkingMode,
+            custom_data: quotedMessageId ? {
+              quoted_message_id: quotedMessageId,
+              user_content: userContent,
+            } : undefined,
           },
           (event: StreamEvent) => {
             // Received any content, stop showing "processing..."
@@ -572,16 +643,31 @@ function App() {
         )
 
         // Ensure all streaming placeholders are marked as complete
-        setMessages((previous) =>
-          previous.map((message) =>
+        setMessages((previous) => {
+          const updated = previous.map((message) =>
             message.is_streaming
               ? { ...message, is_streaming: false }
               : message,
-          ),
-        )
+          )
+          return updated
+        })
 
         await refreshConversations()
-        await maybeGenerateTitle(trimmed, targetThreadId, currentTitle)
+
+        // Get the last AI message content for title generation
+        // Use a callback to get the latest messages state
+        let lastAiContent = ""
+        setMessages((previous) => {
+          for (let i = previous.length - 1; i >= 0; i--) {
+            if (previous[i].type === "ai" && previous[i].content) {
+              lastAiContent = previous[i].content
+              break
+            }
+          }
+          return previous
+        })
+
+        await maybeGenerateTitle(trimmed, lastAiContent, targetThreadId, currentTitle)
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           const details = getErrorMessage(error, t("error.unexpected"))
@@ -613,32 +699,177 @@ function App() {
       selectedAgentId,
       t,
       threadId,
+      writeThreadIdToUrl,
     ],
   )
 
   const handleEditMessage = useCallback(
-    async (newContent: string) => {
-      // Find the index of the last user message
-      let lastUserMessageIndex = -1
-      for (let i = messages.length - 1; i >= 0; i--) {
-        if (messages[i].type === "human") {
-          lastUserMessageIndex = i
-          break
-        }
-      }
-
-      if (lastUserMessageIndex === -1) {
+    async (newContent: string, messageIndex: number) => {
+      if (!threadId || !selectedAgentId || isStreaming) {
         return
       }
 
-      // Remove all messages after the edited message (including AI responses)
-      const updatedMessages = messages.slice(0, lastUserMessageIndex)
-      setMessages(updatedMessages)
+      // Validate the message index
+      if (messageIndex < 0 || messageIndex >= messages.length) {
+        return
+      }
 
-      // Send the new message content
-      await handleSendMessage(newContent)
+      // Ensure the message at the index is a user message
+      const messageToEdit = messages[messageIndex]
+      if (messageToEdit.type !== "human") {
+        return
+      }
+
+      // Keep messages before the edited message
+      const previousMessages = messages.slice(0, messageIndex)
+
+      // Create placeholder ID before any state updates
+      const placeholderId = crypto.randomUUID()
+      streamingPlaceholderIdRef.current = placeholderId
+
+      // Keep messages before the edited message, then add the edited user message
+      // This ensures history is visible while editing
+      const editedUserMessage = toLocalMessage(
+        { type: "human", content: newContent },
+        { customData: messageToEdit.custom_data }
+      )
+      
+      // Create AI placeholder in the same state update to avoid race condition
+      const aiPlaceholder = toLocalMessage(
+        { type: "ai", content: "" },
+        { localId: placeholderId, isStreaming: true }
+      )
+      
+      // Single state update with all messages
+      setMessages([...previousMessages, editedUserMessage, aiPlaceholder])
+
+      setAppError(null)
+      setIsStreaming(true)
+
+      const controller = new AbortController()
+      abortControllerRef.current = controller
+
+      // Reset state
+      setIsProcessing(true)
+      isProcessingRef.current = true
+      setIsAgentThinking(false)
+      setCalledTools([])
+      setThinkingContent("")
+
+      const currentThinkingMode = thinkingModeRef.current
+
+      try {
+        // Stream with the new content
+        await streamChat(
+          {
+            content: newContent,
+            agent_id: selectedAgentId,
+            thread_id: threadId,
+            thinking_mode: currentThinkingMode,
+          },
+          (event: StreamEvent) => {
+            if (isProcessingRef.current) {
+              setIsProcessing(false)
+              isProcessingRef.current = false
+            }
+
+            if (event.type === "thinking") {
+              setIsAgentThinking(true)
+              setActiveToolCall(null)
+              setThinkingContent((prev) => prev + event.content)
+              return
+            }
+
+            if (event.type === "token") {
+              setIsAgentThinking(false)
+              setActiveToolCall(null)
+              addStreamToken(event.content)
+              return
+            }
+
+            if (event.type === "message") {
+              const message = event.content
+              if (message.type === "ai") {
+                const hasContent = message.content && message.content.trim().length > 0
+                const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
+                if (hasContent && !hasToolCalls) {
+                  setIsAgentThinking(false)
+                  setActiveToolCall(null)
+                }
+              }
+              addMessageFromStream(message)
+              return
+            }
+
+            if (event.type === "tool_call") {
+              setIsAgentThinking(true)
+              setActiveToolCall(event.content)
+              setCalledTools((prev) => {
+                const existing = prev.find((t) => t.id === event.content.id)
+                if (existing) {
+                  return prev
+                }
+                return [
+                  ...prev,
+                  {
+                    name: event.content.name,
+                    id: event.content.id,
+                    args: event.content.args || {},
+                    status: "calling" as const,
+                  },
+                ]
+              })
+              return
+            }
+
+            if (event.type === "tool_result") {
+              setCalledTools((prev) =>
+                prev.map((t) =>
+                  t.id === event.content.id
+                    ? { ...t, output: event.content.output, status: "completed" as const }
+                    : t,
+                ),
+              )
+              return
+            }
+
+            setAppError(event.content)
+          },
+          controller.signal,
+        )
+
+        // Mark streaming complete
+        setMessages((previous) => {
+          const updated = previous.map((message) =>
+            message.is_streaming
+              ? { ...message, is_streaming: false }
+              : message,
+          )
+          return updated
+        })
+
+        await refreshConversations()
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          const details = getErrorMessage(error, t("error.unexpected"))
+          setAppError(t("error.generateResponse", { details }))
+        }
+      } finally {
+        setIsStreaming(false)
+        streamingPlaceholderIdRef.current = null
+        abortControllerRef.current = null
+      }
     },
-    [messages, handleSendMessage],
+    [
+      addMessageFromStream,
+      addStreamToken,
+      isStreaming,
+      messages,
+      refreshConversations,
+      selectedAgentId,
+      t,
+      threadId,
+    ],
   )
 
   const handleSaveTitle = useCallback(async () => {
@@ -954,15 +1185,22 @@ function App() {
             isThinkingModeAvailable={isThinkingModeAvailable}
             isThinkingModeLoading={isThinkingModeLoading}
             onEditMessage={handleEditMessage}
+            onJumpToMessage={jumpToMessage}
+            scrollContainerRef={chatScrollContainerRef}
           />
         </SidebarInset>
 
-        {/* Message Ruler */}
-        <MessageRuler key={threadId} messages={messages} onJumpToMessage={jumpToMessage} />
+        {/* Chat Minimap */}
+        <ChatMinimap 
+          key={threadId} 
+          messages={messages} 
+          onJumpToMessage={jumpToMessage}
+          scrollContainerRef={chatScrollContainerRef}
+        />
 
         {/* Right Panel */}
         <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-3 w-fit">
-          {/* First row: three buttons horizontally */}
+          {/* Three buttons horizontally */}
           <div className="flex gap-1 w-full">
             <Button
               type="button"
@@ -1006,31 +1244,41 @@ function App() {
               <Languages className="size-4" />
             </Button>
           </div>
-          {/* Second row: Agent selector */}
-          <Select
-            value={selectedAgentId}
-            onValueChange={(value) => {
-              if (!isStreaming && !isInitializing && !isLoadingConversation) {
-                pickAgentForCurrentConversation(value)
-              }
-            }}
-            disabled={isStreaming || isInitializing || isLoadingConversation}
-          >
-            <SelectTrigger size="sm" className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {agents.map((agent) => (
-                <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                  {agent.agent_id.toLowerCase().includes("rag")
-                    ? t("chat.status.rag")
-                    : agent.agent_id === "chatbot"
-                      ? t("chat.status.chatbot")
-                      : agent.agent_id}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {/* Agent selector - only show when not awaiting agent selection */}
+          {!isAwaitingAgentSelection && (
+            <Select
+              value={selectedAgentId}
+              onValueChange={(value) => {
+                if (!isStreaming && !isInitializing && !isLoadingConversation) {
+                  pickAgentForCurrentConversation(value)
+                }
+              }}
+              disabled={isStreaming || isInitializing || isLoadingConversation}
+            >
+              <SelectTrigger size="sm" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(() => {
+                  // Sort agents to always show current selected agent first
+                  const sortedAgents = [...agents].sort((a, b) => {
+                    if (a.agent_id === selectedAgentId) return -1
+                    if (b.agent_id === selectedAgentId) return 1
+                    return 0
+                  })
+                  return sortedAgents.map((agent) => (
+                    <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                      {agent.agent_id.toLowerCase().includes("rag")
+                        ? t("chat.status.rag")
+                        : agent.agent_id === "chatbot"
+                          ? t("chat.status.chatbot")
+                          : agent.agent_id}
+                    </SelectItem>
+                  ))
+                })()}
+              </SelectContent>
+            </Select>
+          )}
         </aside>
       </SidebarProvider>
 

@@ -1,0 +1,7 @@
+{
+  "css.customData": ["frontend/.vscode/tailwind.json"],
+  "css.validate": true,
+  "tailwindCSS.experimental.classRegex": [
+    ["cn\\(([^)]*)\\)", "[\"'`]([^\"'`]*).*?[\"'`]"]
+  ]
+}

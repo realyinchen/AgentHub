@@ -9,9 +9,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, List
 
 from app.database import adb_manager
-from app.schemas.chat import ConversationCreate, ConversationInDB, ConversationUpdate
+from app.schemas.chat import (
+    ConversationCreate,
+    ConversationInDB,
+    ConversationUpdate,
+    ChatMessage,
+    UserInput,
+    ChatHistory,
+)
 from app.utils.agent_utils import get_agent
-from app.schemas.chat import ChatMessage, UserInput, ChatHistory
 from app.core.models import is_thinking_mode_available
 from app.utils.message_utils import (
     handle_input,
@@ -64,7 +70,7 @@ async def stream(user_input: UserInput) -> StreamingResponse:
     is also attached to all messages for recording feedback.
 
     Set `stream_tokens=false` to return intermediate messages but not token-by-token.
-    
+
     Set `thinking_mode=true` to enable thinking mode for models that support it
     (e.g., DeepSeek-R1, Qwen3). This requires THINKING_LLM_NAME to be configured.
     """
@@ -176,7 +182,7 @@ def _collect_tool_calls_for_final_response(
     # 2. Then reverse the entire list at the end
     # This gives us the correct final order
     temp_tool_calls: list[dict[str, Any]] = []
-    
+
     for i in range(final_ai_index - 1, -1, -1):
         msg = messages[i]
 
@@ -211,7 +217,7 @@ def _collect_tool_calls_for_final_response(
                             "output": tool_call_id_to_output.get(tool_call_id),
                         }
                         batch_tool_calls.append(tool_info)
-                
+
                 # Reverse this batch and add to temp list
                 # This ensures tool calls within the same AIMessage stay in correct order
                 batch_tool_calls.reverse()
@@ -219,7 +225,7 @@ def _collect_tool_calls_for_final_response(
 
     # Reverse the entire list to get the original call order (first call first)
     temp_tool_calls.reverse()
-    
+
     # Add order field to each tool call
     for order, tool_info in enumerate(temp_tool_calls):
         tool_info["order"] = order
@@ -230,7 +236,8 @@ def _collect_tool_calls_for_final_response(
 
 @api_router.get("/history/{agent_id}/{thread_id}")
 async def history(
-    agent_id: str | None = None, thread_id: UUID | None = None
+    agent_id: str | None = None,
+    thread_id: UUID | None = None,
 ) -> ChatHistory:
     """
     Get chat history with tool call information.
@@ -241,6 +248,7 @@ async def history(
     if not thread_id:
         return ChatHistory(messages=[])
     agent: CompiledStateGraph = await get_agent(agent_id)
+
     config = RunnableConfig({"configurable": {"thread_id": thread_id}})
     try:
         state_snapshot = await agent.aget_state(config=config)
@@ -253,13 +261,14 @@ async def history(
             # Skip ToolMessage - tool results are embedded in the final AI message's tool_info
             if isinstance(msg, ToolMessage):
                 continue
-            
-            # Skip intermediate AIMessage that only has tool_calls but no content
-            # These are just tool call requests, not actual AI responses
+
+            # Skip intermediate AIMessage that has tool_calls
+            # These are tool call requests, not final AI responses
+            # The tool calls will be collected and attached to the final response
             if isinstance(msg, AIMessage):
-                content_str = str(msg.content).strip() if msg.content else ""
-                if not content_str and msg.tool_calls:
-                    # This is an intermediate AI message with only tool calls, skip it
+                if msg.tool_calls:
+                    # This is an intermediate AI message with tool calls, skip it
+                    # (whether it has content or not - content like "Let me check..." is just transitional)
                     continue
 
             chat_message = langchain_to_chat_message(msg)
@@ -382,7 +391,7 @@ async def save_conversation(
 async def get_thinking_mode_status() -> dict[str, bool]:
     """
     Check if thinking mode is available.
-    
+
     Returns:
         dict: {"available": bool} - Whether thinking mode is available
     """

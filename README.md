@@ -22,8 +22,11 @@ Follow my WeChat official account for the latest updates:
 ✅ **LangChain/LangGraph Integration** — Easy to build, design, and connect multi-agent reasoning workflows with visualization.  
 ✅ **Streaming & Event-Driven** — Real-time token streaming and agent execution event visualization.  
 ✅ **Thinking Mode** — Toggle between standard and thinking modes for deeper reasoning with separate UI for thought process and tool calls.  
+✅ **Quote Messages** — Quote any historical message to continue the conversation with context. Quotes persist across page refreshes.  
 ✅ **Multi-language Support** — Built-in internationalization with English and Chinese translations.  
 ✅ **Dark/Light Theme** — Customizable theme support for comfortable viewing.  
+✅ **Image Zoom & Drag** — Click any image in markdown to zoom in/out and drag to pan. Universal feature for all agents.  
+✅ **Chat Minimap** — VSCode-style minimap showing miniature conversation text with hover preview, click-to-jump, and drag-to-scroll navigation. Fixed viewport click navigation, preview tooltip close behavior, and bottom position preview display.  
 
 ## 🧩 Perfect For:
 
@@ -164,6 +167,16 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - Answer quality grading
   - Tavily web search fallback
   - Reporter node for final answer formatting
+- **navigator** — Navigation agent with Amap (高德地图) integration:
+  - `get_current_time` — Get current time in any timezone (MUST call first)
+  - `amap_geocode` — Convert address to coordinates (geocoding)
+  - `amap_place_search` — Search POI by keywords (restaurants, hotels, etc.)
+  - `amap_place_around` — Search POI around a location
+  - `amap_driving_route` — Plan driving route with distance, time, and navigation URL
+  - `amap_route_preview` — Generate complete route preview URL with waypoints
+  - `amap_weather` — Query weather information for a city
+  - Features: Time conflict detection, itinerary planning, weather-aware suggestions
+  - Supports location queries, route planning, and nearby place searches
 
 ## 📋 Environment Variables
 

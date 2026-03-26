@@ -35,13 +35,17 @@ export function normalizeChatMessage(message: Partial<ChatMessage>): ChatMessage
 
 export function toLocalMessage(
   message: Partial<ChatMessage>,
-  options?: { localId?: string; isStreaming?: boolean },
+  options?: { localId?: string; isStreaming?: boolean; customData?: Record<string, unknown> },
 ): LocalChatMessage {
   const normalized = normalizeChatMessage(message)
   return {
     ...normalized,
     local_id: options?.localId ?? crypto.randomUUID(),
     is_streaming: options?.isStreaming,
+    custom_data: {
+      ...normalized.custom_data,
+      ...options?.customData,
+    },
   }
 }
 

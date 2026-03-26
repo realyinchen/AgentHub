@@ -49,7 +49,9 @@ export type UserInput = {
   agent_id: string
   thread_id?: string | null
   thinking_mode?: boolean
+  custom_data?: Record<string, unknown> | null
 }
+
 
 export type ToolCallEvent = {
   name: string
