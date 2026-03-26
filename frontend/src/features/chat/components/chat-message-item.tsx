@@ -356,10 +356,9 @@ export function ChatMessageItem({
           className={cn(
             "max-w-full overflow-visible rounded-2xl px-4 py-3",
             isUser
-              ? "w-fit mr-3 text-white"
-              : "w-full bg-muted/60 text-foreground",
+              ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground shadow-lg dark:shadow-cyan-500/20"
+              : "w-full bg-ai-bubble text-foreground",
           )}
-          style={isUser ? { backgroundColor: "#1AAD19" } : undefined}
         >
           {/* Sources */}
           {sources.length > 0 ? (
@@ -466,7 +465,7 @@ export function ChatMessageItem({
                 ref={textareaRef}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-h-[60px] resize-none rounded-lg bg-white/10 p-2 text-sm text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-white/30"
+                className="w-full min-h-[60px] resize-none rounded-lg bg-user-bubble-foreground/10 p-2 text-sm text-user-bubble-foreground placeholder-user-bubble-foreground/50 focus:outline-none focus:ring-2 focus:ring-user-bubble-foreground/30"
                 placeholder={t("message.editPlaceholder")}
                 rows={3}
               />
@@ -477,7 +476,7 @@ export function ChatMessageItem({
                     setIsEditing(false)
                     setEditContent(message.content)
                   }}
-                  className="rounded-md px-2 py-1 text-xs text-white/80 hover:bg-white/10"
+                  className="rounded-md px-2 py-1 text-xs text-user-bubble-foreground/80 hover:bg-user-bubble-foreground/10"
                 >
                   {t("common.cancel")}
                 </button>
@@ -502,7 +501,7 @@ export function ChatMessageItem({
                     setIsEditing(false)
                   }}
                   disabled={!editContent.trim() || editDisabled}
-                  className="rounded-md bg-white/20 px-2 py-1 text-xs text-white hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-md bg-user-bubble-foreground/20 px-2 py-1 text-xs text-user-bubble-foreground hover:bg-user-bubble-foreground/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t("message.sendEdit")}
                 </button>
@@ -521,15 +520,15 @@ export function ChatMessageItem({
                 }}
                 disabled={!quotedMessageId || !onJumpToMessage}
                 className={cn(
-                  "text-sm text-white/70 whitespace-pre-wrap break-words text-left w-full",
-                  quotedMessageId && onJumpToMessage && "cursor-pointer hover:text-white/90 underline underline-offset-2"
+                  "text-sm text-user-bubble-foreground/70 whitespace-pre-wrap break-words text-left w-full",
+                  quotedMessageId && onJumpToMessage && "cursor-pointer hover:text-user-bubble-foreground/90 underline underline-offset-2"
                 )}
                 title={quotedMessageId && onJumpToMessage ? t("message.jumpToOriginal") : undefined}
               >
                 {quotedParts ? getTruncatedQuote(quotedParts.quotedContent) : "引用消息"}
               </button>
               {/* Separator line */}
-              <Separator className="bg-white/30" />
+              <Separator className="bg-user-bubble-foreground/30" />
               {/* User content - use user_content from custom_data */}
               <p className="whitespace-pre-wrap break-words text-sm leading-6">
                 {userContent}
