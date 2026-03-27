@@ -31,14 +31,16 @@ def _build_model_list_for_router(model_list: list[dict]) -> list[dict]:
     for model_config in model_list:
         model_name = model_config.get("model_name")
         litellm_params = model_config.get("litellm_params", {})
-        
+
         if not model_name or not litellm_params:
             continue
-            
-        result.append({
-            "model_name": model_name,
-            "litellm_params": litellm_params,
-        })
+
+        result.append(
+            {
+                "model_name": model_name,
+                "litellm_params": litellm_params,
+            }
+        )
     return result
 
 
@@ -46,6 +48,7 @@ def _build_model_list_for_router(model_list: list[dict]) -> list[dict]:
 llm = None
 thinking_llm = None
 embedding_model = None
+litellm_router = None
 
 # Get model list from configuration
 model_list = settings.get_model_list()
@@ -53,17 +56,17 @@ model_list = settings.get_model_list()
 if model_list:
     # Router mode: use ChatLiteLLMRouter for multi-model management
     logger.info("Initializing LLMs in Router mode with %d models", len(model_list))
-    
+
     # Build model list for router
     router_model_list = _build_model_list_for_router(model_list)
-    
+
     # Create litellm Router
     litellm_router = Router(model_list=router_model_list)
-    
+
     # Get default and thinking model names
     default_model_name = settings.LLM_DEFAULT_MODEL
     thinking_model_name = settings.LLM_THINKING_MODEL
-    
+
     # Create LLM instances
     if default_model_name:
         llm = ChatLiteLLMRouter(
@@ -72,7 +75,7 @@ if model_list:
             temperature=0,
         )
         logger.info("Created default LLM with model_name=%s", default_model_name)
-    
+
     if thinking_model_name:
         thinking_llm = ChatLiteLLMRouter(
             router=litellm_router,
@@ -80,7 +83,7 @@ if model_list:
             temperature=0,
         )
         logger.info("Created thinking LLM with model_name=%s", thinking_model_name)
-    
+
     # Initialize embedding model
     api_key = _get_api_key_from_model_list(model_list)
     if api_key and settings.EMBEDDING_MODEL_NAME:
@@ -93,58 +96,96 @@ if model_list:
 elif settings.LLM_API_KEY and settings.LLM_NAME:
     # Legacy single model mode
     logger.info("Initializing LLMs in single model mode")
-    
+
     api_key = settings.LLM_API_KEY.get_secret_value()
-    
+
     llm = ChatLiteLLMRouter(
-        router=Router(model_list=[{
-            "model_name": "default",
-            "litellm_params": {
-                "model": settings.LLM_NAME,
-                "api_key": api_key,
-                "api_base": settings.LLM_BASE_URL,
-                "extra_body": {"enable_thinking": False},
-            },
-        }]),
+        router=Router(
+            model_list=[
+                {
+                    "model_name": "default",
+                    "litellm_params": {
+                        "model": settings.LLM_NAME,
+                        "api_key": api_key,
+                        "api_base": settings.LLM_BASE_URL,
+                        "extra_body": {"enable_thinking": False},
+                    },
+                }
+            ]
+        ),
         model_name="default",
         temperature=0,
     )
-    
+
     # In single model mode, thinking mode uses the same model with enable_thinking
     if settings.LLM_BASE_URL:
         thinking_llm = ChatLiteLLMRouter(
-            router=Router(model_list=[{
-                "model_name": "thinking",
-                "litellm_params": {
-                    "model": settings.LLM_NAME,
-                    "api_key": api_key,
-                    "api_base": settings.LLM_BASE_URL,
-                    "extra_body": {"enable_thinking": True},
-                },
-            }]),
+            router=Router(
+                model_list=[
+                    {
+                        "model_name": "thinking",
+                        "litellm_params": {
+                            "model": settings.LLM_NAME,
+                            "api_key": api_key,
+                            "api_base": settings.LLM_BASE_URL,
+                            "extra_body": {"enable_thinking": True},
+                        },
+                    }
+                ]
+            ),
             model_name="thinking",
             temperature=0,
         )
-    
+
     if settings.EMBEDDING_MODEL_NAME:
         embedding_model = DashScopeEmbeddings(
             model=settings.EMBEDDING_MODEL_NAME,
             dashscope_api_key=api_key,
         )
 else:
-    logger.warning("No LLM configuration found. Please set LLM_MODELS or LLM_API_KEY/LLM_NAME.")
+    logger.warning(
+        "No LLM configuration found. Please set LLM_MODELS or LLM_API_KEY/LLM_NAME."
+    )
 
 
-def get_llm(thinking_mode: bool = False) -> ChatLiteLLMRouter | None:
+# Cache for dynamically created LLM instances
+_llm_cache: dict[str, ChatLiteLLMRouter] = {}
+
+
+def get_llm(
+    thinking_mode: bool = False, model_name: str | None = None
+) -> ChatLiteLLMRouter | None:
     """
-    Get the appropriate LLM based on thinking_mode.
+    Get the appropriate LLM based on thinking_mode or model_name.
 
     Args:
         thinking_mode: If True, return the thinking model; otherwise return the normal model.
+        model_name: If provided, return the LLM for this specific model name (takes precedence).
 
     Returns:
         ChatLiteLLMRouter instance or None if not configured
     """
+    # If model_name is provided, get or create LLM for that specific model
+    if model_name:
+        # Check cache first
+        if model_name in _llm_cache:
+            logger.debug("get_llm: returning cached LLM for model_name=%s", model_name)
+            return _llm_cache[model_name]
+
+        # Create new LLM instance if router is available
+        if litellm_router:
+            new_llm = ChatLiteLLMRouter(
+                router=litellm_router,
+                model_name=model_name,
+                temperature=0,
+            )
+            _llm_cache[model_name] = new_llm
+            logger.debug("get_llm: created new LLM for model_name=%s", model_name)
+            return new_llm
+
+        logger.warning("model_name provided but router not available")
+
+    # Fall back to thinking_mode logic
     if thinking_mode:
         if thinking_llm:
             logger.debug("get_llm: returning thinking_llm")
@@ -153,7 +194,9 @@ def get_llm(thinking_mode: bool = False) -> ChatLiteLLMRouter | None:
     if llm:
         logger.debug("get_llm: returning default llm")
         return llm
-    raise ValueError("No LLM configured. Please set LLM_MODELS or LLM_API_KEY/LLM_NAME.")
+    raise ValueError(
+        "No LLM configured. Please set LLM_MODELS or LLM_API_KEY/LLM_NAME."
+    )
 
 
 def is_thinking_mode_available() -> bool:
@@ -164,12 +207,12 @@ def is_thinking_mode_available() -> bool:
 def extract_thinking_and_answer(msg: AIMessage) -> dict:
     """
     Extract thinking content and final answer from AIMessage.
-    
+
     Handles both structured content (list of blocks) and string content.
-    
+
     Args:
         msg: AIMessage from LLM response
-        
+
     Returns:
         dict with 'thinking' and 'final_answer' keys
     """

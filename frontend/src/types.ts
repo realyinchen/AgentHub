@@ -15,7 +15,7 @@ export type ChatMessage = {
   run_id: string | null
   response_metadata: Record<string, unknown>
   custom_data: Record<string, unknown>
-  reasoning_content?: string | null  // 推理/思考内容（用于推理模型）
+  reasoning_content?: string | null  // Reasoning/thinking content (for reasoning models)
 }
 
 export type LocalChatMessage = ChatMessage & {
@@ -48,8 +48,14 @@ export type UserInput = {
   content: string
   agent_id: string
   thread_id?: string | null
+  model_name?: string | null
   thinking_mode?: boolean
   custom_data?: Record<string, unknown> | null
+}
+
+export type ModelInfo = {
+  name: string
+  is_thinking: boolean
 }
 
 
@@ -82,7 +88,7 @@ export type StoredToolCallInfo = {
   id: string
   args: Record<string, unknown>
   output?: string | null
-  order: number  // 调用顺序索引
+  order: number  // Call order index
 }
 
 export type StreamEvent =

@@ -153,5 +153,32 @@ class Settings(BaseSettings):
         """Check if the app is configured to use ChatLiteLLMRouter mode."""
         return self.get_model_list() is not None
 
+    def get_model_info_list(self) -> list[dict[str, Any]]:
+        """
+        Get list of model info with name and is_thinking flag.
+
+        A model is considered a "thinking" model if its model_name ends with "thinking".
+
+        Returns:
+            List of dicts with 'name' and 'is_thinking' keys
+        """
+        model_list = self.get_model_list()
+        if not model_list:
+            return []
+
+        result = []
+        for model_config in model_list:
+            model_name = model_config.get("model_name")
+            if model_name:
+                # Check if model_name ends with "thinking" (case-insensitive)
+                is_thinking = model_name.lower().endswith("thinking")
+                result.append(
+                    {
+                        "name": model_name,
+                        "is_thinking": is_thinking,
+                    }
+                )
+        return result
+
 
 settings = Settings()

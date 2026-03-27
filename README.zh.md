@@ -182,38 +182,68 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
 
 ### 后端（backend/.env）
 ```env
-# 应用程序
-MODE=dev                          # "dev" 启用 uvicorn 自动重载
+# 应用程序模式。"dev" 启用 uvicorn 自动重载
+MODE=dev
 
-# 服务器
+# Web 服务器配置
 HOST=0.0.0.0
 PORT=8080
 
-# LLM（OpenAI 兼容 API）
-COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-COMPATIBLE_API_KEY=sk-...
-LLM_NAME=qwen3-max
+# =============================================================================
+# LLM 配置 - 通过 LLM_MODELS 支持多模型（推荐）
+# =============================================================================
+# 模型命名约定：
+#   - 普通模型：名称不含 "thinking" 后缀（如 "default"、"gpt-4"、"glm-4"）
+#   - 思考模型：名称必须以 "thinking" 结尾（如 "deepseek-thinking"、"qwen-thinking"）
+#   - "thinking" 后缀决定模型是否出现在思考模式选择器中
+#
+# 支持的提供商：dashscope（阿里云）、zai（智谱）等
+# 完整提供商列表请参阅 LiteLLM 文档：https://docs.litellm.ai/docs/providers
+
+LLM_MODELS=[{"model_name":"qwen3.5-27b","litellm_params":{"model":"dashscope/qwen3.5-27b","api_key":"sk-xxx","extra_body":{"enable_thinking":false}}},{"model_name":"qwen3.5-flash-thinking","litellm_params":{"model":"dashscope/qwen3.5-flash-2026-02-23","api_key":"sk-xxx","extra_body":{"enable_thinking":true}}},{"model_name":"glm5","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"disabled"}}}},{"model_name":"glm5-thinking","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"enabled"}}}}]
+
+# 普通聊天的默认模型（必须与 LLM_MODELS 中的 model_name 匹配）
+LLM_DEFAULT_MODEL=qwen3.5-27b
+# 默认思考模型（必须与以 "thinking" 结尾的 model_name 匹配）
+LLM_THINKING_MODEL=qwen3.5-flash-thinking
+
+# 嵌入模型
 EMBEDDING_MODEL_NAME=text-embedding-v4
 
-# LangSmith 追踪
+# =============================================================================
+# LangSmith 配置
+# =============================================================================
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_PROJECT="AgentHub"
-LANGCHAIN_API_KEY=lsv2_...
+LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+LANGCHAIN_API_KEY=lsv2_pt_xxx...
 
-# PostgreSQL
+# =============================================================================
+# PostgreSQL 配置
+# =============================================================================
 POSTGRES_USER=langchain
 POSTGRES_PASSWORD=langgraph
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=agentdb
 
-# Qdrant
+# =============================================================================
+# Qdrant 配置
+# =============================================================================
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION=agentic_rag_survey
 
-# Tavily 搜索
-TAVILY_API_KEY=tvly-...
+# =============================================================================
+# Tavily 搜索 API
+# =============================================================================
+TAVILY_API_KEY=tvly-dev-xxx...
+
+# =============================================================================
+# 高德地图配置
+# =============================================================================
+# 获取 API 密钥：https://lbs.amap.com/api/webservice/guide/create-project/get-key
+AMAP_KEY=your_amap_api_key_here
 ```
 
 ### 前端（frontend/.env）

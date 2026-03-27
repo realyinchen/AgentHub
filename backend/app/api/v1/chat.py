@@ -19,6 +19,7 @@ from app.schemas.chat import (
 )
 from app.utils.agent_utils import get_agent
 from app.core.models import is_thinking_mode_available
+from app.core.config import settings
 from app.utils.message_utils import (
     handle_input,
     langchain_to_chat_message,
@@ -396,3 +397,21 @@ async def get_thinking_mode_status() -> dict[str, bool]:
         dict: {"available": bool} - Whether thinking mode is available
     """
     return {"available": is_thinking_mode_available()}
+
+
+@api_router.get("/models")
+async def get_available_models() -> dict[str, Any]:
+    """
+    Get all available models from .env configuration.
+
+    A model is considered a "thinking" model if its model_name ends with "thinking".
+
+    Returns:
+        dict: {
+            "models": [{"name": str, "is_thinking": bool}, ...],
+            "default_model": str | null
+        }
+    """
+    models = settings.get_model_info_list()
+    default_model = settings.LLM_DEFAULT_MODEL
+    return {"models": models, "default_model": default_model}

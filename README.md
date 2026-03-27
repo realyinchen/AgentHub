@@ -182,38 +182,68 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
 
 ### Backend (backend/.env)
 ```env
-# Application
-MODE=dev                          # "dev" enables uvicorn auto-reload
+# Application mode. If the value is "dev", it will enable uvicorn reload
+MODE=dev
 
-# Server
+# Web server configuration
 HOST=0.0.0.0
 PORT=8080
 
-# LLM (OpenAI-compatible API)
-COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-COMPATIBLE_API_KEY=sk-...
-LLM_NAME=qwen3-max
+# =============================================================================
+# LLM Configuration - Multi-model via LLM_MODELS (Recommended)
+# =============================================================================
+# Model Naming Convention:
+#   - Regular models: any name without "thinking" suffix (e.g., "default", "gpt-4", "glm-4")
+#   - Thinking models: name MUST end with "thinking" (e.g., "deepseek-thinking", "qwen-thinking")
+#   - The "thinking" suffix determines if the model appears in thinking mode selector in UI
+#
+# Supported providers: dashscope (阿里云), zai (智谱) etc.
+# See LiteLLM documentation for full provider list: https://docs.litellm.ai/docs/providers
+
+LLM_MODELS=[{"model_name":"qwen3.5-27b","litellm_params":{"model":"dashscope/qwen3.5-27b","api_key":"sk-xxx","extra_body":{"enable_thinking":false}}},{"model_name":"qwen3.5-flash-thinking","litellm_params":{"model":"dashscope/qwen3.5-flash-2026-02-23","api_key":"sk-xxx","extra_body":{"enable_thinking":true}}},{"model_name":"glm5","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"disabled"}}}},{"model_name":"glm5-thinking","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"enabled"}}}}]
+
+# Default model for regular chat (must match a model_name in LLM_MODELS)
+LLM_DEFAULT_MODEL=qwen3.5-27b
+# Default thinking model (must match a model_name ending with "thinking")
+LLM_THINKING_MODEL=qwen3.5-flash-thinking
+
+# Embedding model
 EMBEDDING_MODEL_NAME=text-embedding-v4
 
-# LangSmith Tracing
+# =============================================================================
+# LangSmith Configuration
+# =============================================================================
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_PROJECT="AgentHub"
-LANGCHAIN_API_KEY=lsv2_...
+LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+LANGCHAIN_API_KEY=lsv2_pt_xxx...
 
-# PostgreSQL
+# =============================================================================
+# PostgreSQL Configuration
+# =============================================================================
 POSTGRES_USER=langchain
 POSTGRES_PASSWORD=langgraph
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=agentdb
 
-# Qdrant
+# =============================================================================
+# Qdrant Configuration
+# =============================================================================
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION=agentic_rag_survey
 
-# Tavily Search
-TAVILY_API_KEY=tvly-...
+# =============================================================================
+# Tavily Search API
+# =============================================================================
+TAVILY_API_KEY=tvly-dev-xxx...
+
+# =============================================================================
+# Amap (高德地图) Configuration
+# =============================================================================
+# Get your API key from: https://lbs.amap.com/api/webservice/guide/create-project/get-key
+AMAP_KEY=your_amap_api_key_here
 ```
 
 ### Frontend (frontend/.env)
