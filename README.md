@@ -101,6 +101,22 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
 ### Prerequisites
 1. Install [VS Code](https://code.visualstudio.com/Download) and [Miniconda](https://docs.anaconda.com/miniconda/miniconda-install/)
 2. Install [Node.js 18+](https://nodejs.org/) for frontend development
+3. **Start PostgreSQL and Qdrant** (required for both local development and Docker deployment):
+   ```bash
+   # Start PostgreSQL
+   docker run -d --name agenthub-postgres \
+     -e POSTGRES_USER=langchain \
+     -e POSTGRES_PASSWORD=langgraph \
+     -e POSTGRES_DB=agentdb \
+     -p 5432:5432 \
+     postgres:latest
+
+   # Start Qdrant
+   docker run -d --name agenthub-qdrant \
+     -p 6333:6333 \
+     -p 6334:6334 \
+     qdrant/qdrant:latest
+   ```
 
 ### Setup Instructions
 
@@ -182,38 +198,68 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
 
 ### Backend (backend/.env)
 ```env
-# Application
-MODE=dev                          # "dev" enables uvicorn auto-reload
+# Application mode. If the value is "dev", it will enable uvicorn reload
+MODE=dev
 
-# Server
+# Web server configuration
 HOST=0.0.0.0
 PORT=8080
 
-# LLM (OpenAI-compatible API)
-COMPATIBLE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
-COMPATIBLE_API_KEY=sk-...
-LLM_NAME=qwen3-max
+# =============================================================================
+# LLM Configuration - Multi-model via LLM_MODELS (Recommended)
+# =============================================================================
+# Model Naming Convention:
+#   - Regular models: any name without "thinking" suffix (e.g., "default", "gpt-4", "glm-4")
+#   - Thinking models: name MUST end with "thinking" (e.g., "deepseek-thinking", "qwen-thinking")
+#   - The "thinking" suffix determines if the model appears in thinking mode selector in UI
+#
+# Supported providers: dashscope (阿里云), zai (智谱) etc.
+# See LiteLLM documentation for full provider list: https://docs.litellm.ai/docs/providers
+
+LLM_MODELS=[{"model_name":"qwen3.5-27b","litellm_params":{"model":"dashscope/qwen3.5-27b","api_key":"sk-xxx","extra_body":{"enable_thinking":false}}},{"model_name":"qwen3.5-flash-thinking","litellm_params":{"model":"dashscope/qwen3.5-flash-2026-02-23","api_key":"sk-xxx","extra_body":{"enable_thinking":true}}},{"model_name":"glm5","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"disabled"}}}},{"model_name":"glm5-thinking","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"enabled"}}}}]
+
+# Default model for regular chat (must match a model_name in LLM_MODELS)
+LLM_DEFAULT_MODEL=qwen3.5-27b
+# Default thinking model (must match a model_name ending with "thinking")
+LLM_THINKING_MODEL=qwen3.5-flash-thinking
+
+# Embedding model
 EMBEDDING_MODEL_NAME=text-embedding-v4
 
-# LangSmith Tracing
+# =============================================================================
+# LangSmith Configuration
+# =============================================================================
 LANGCHAIN_TRACING_V2=true
 LANGCHAIN_PROJECT="AgentHub"
-LANGCHAIN_API_KEY=lsv2_...
+LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+LANGCHAIN_API_KEY=lsv2_pt_xxx...
 
-# PostgreSQL
+# =============================================================================
+# PostgreSQL Configuration
+# =============================================================================
 POSTGRES_USER=langchain
 POSTGRES_PASSWORD=langgraph
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=agentdb
 
-# Qdrant
+# =============================================================================
+# Qdrant Configuration
+# =============================================================================
 QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION=agentic_rag_survey
 
-# Tavily Search
-TAVILY_API_KEY=tvly-...
+# =============================================================================
+# Tavily Search API
+# =============================================================================
+TAVILY_API_KEY=tvly-dev-xxx...
+
+# =============================================================================
+# Amap (高德地图) Configuration
+# =============================================================================
+# Get your API key from: https://lbs.amap.com/api/webservice/guide/create-project/get-key
+AMAP_KEY=your_amap_api_key_here
 ```
 
 ### Frontend (frontend/.env)
@@ -229,17 +275,151 @@ VITE_API_URL=http://localhost:8080
 - **Agent Registration**: Agents are registered in `backend/app/agents/__init__.py` and controlled via PostgreSQL
 - **Streaming**: Uses Server-Sent Events (SSE) for real-time agent responses
 
+**Before development, start PostgreSQL and Qdrant using Docker:**
+
+```bash
+# Start PostgreSQL
+docker run -d --name agenthub-postgres \
+  -e POSTGRES_USER=langchain \
+  -e POSTGRES_PASSWORD=langgraph \
+  -e POSTGRES_DB=agentdb \
+  -p 5432:5432 \
+  postgres:latest
+
+# Start Qdrant
+docker run -d --name agenthub-qdrant \
+  -p 6333:6333 \
+  -p 6334:6334 \
+  qdrant/qdrant:latest
+
+# Initialize database (first time only)
+cd backend
+python scripts/init_database.py
+```
+
+## 🐳 Docker Deployment
+
+AgentHub provides separate Docker deployment for backend and frontend.
+
+### Deploy Backend
+
+Only starts the backend service. You provide your own PostgreSQL and Qdrant instances.
+
+> **⚠️ Important: Network Configuration**
+>
+> When running backend in Docker but connecting to PostgreSQL/Qdrant on the host machine, you **must** use `host.docker.internal` instead of `localhost`:
+> - `POSTGRES_HOST=host.docker.internal` (not `localhost`)
+> - `QDRANT_HOST=host.docker.internal` (not `localhost`)
+>
+> This is because `localhost` inside a Docker container refers to the container itself, not the host machine. `host.docker.internal` is a special DNS name that resolves to the host machine's IP address.
+
+```bash
+# 1. Copy environment file
+cp backend/.env.example backend/.env
+
+# 2. Edit backend/.env with your configuration
+# Required:
+#   - LLM_MODELS (your LLM API keys)
+#   - POSTGRES_HOST=host.docker.internal (for local PostgreSQL)
+#   - POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+#   - QDRANT_HOST=host.docker.internal (for local Qdrant)
+#   - QDRANT_PORT
+# Optional: TAVILY_API_KEY, AMAP_KEY, LANGCHAIN_API_KEY
+
+# 3. Start backend service
+docker-compose -f docker-compose.backend.yml up -d
+
+# 4. View logs
+docker-compose -f docker-compose.backend.yml logs -f
+
+# 5. Stop service
+docker-compose -f docker-compose.backend.yml down
+```
+
+Access the application:
+- Backend API: `http://localhost:8080/docs`
+
+### Deploy Frontend
+
+Only starts the frontend service. Requires a running backend.
+
+> **How it works:**
+> - Browser accesses frontend at `http://localhost:5173`
+> - Browser makes API requests to `/api/v1` (relative path, same origin)
+> - Nginx proxies `/api/` requests to the backend
+> - This avoids CORS issues since browser sees same-origin requests
+
+```bash
+# 1. Start frontend service (with default settings)
+docker-compose -f docker-compose.frontend.yml up -d
+
+# Or with custom backend:
+# NGINX_BACKEND_HOST=your-backend \
+# NGINX_BACKEND_PORT=8080 \
+# docker-compose -f docker-compose.frontend.yml up -d
+
+# 2. View logs
+docker-compose -f docker-compose.frontend.yml logs -f
+
+# 3. Stop service
+docker-compose -f docker-compose.frontend.yml down
+```
+
+**Environment Variables:**
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `NGINX_BACKEND_HOST` | Hostname for nginx to proxy to | `host.docker.internal` |
+| `NGINX_BACKEND_PORT` | Backend port | `8080` |
+| `FRONTEND_PORT` | Frontend exposed port | `5173` |
+
+Access the application:
+- Frontend: `http://localhost:5173`
+
+### Docker Files Structure
+
+```
+AgentHub/
+├── docker-compose.backend.yml   # Backend deployment (external databases required)
+├── docker-compose.frontend.yml  # Frontend deployment (external backend required)
+├── backend/
+│   ├── Dockerfile               # Backend container
+│   └── .env.example             # Environment template
+└── frontend/
+    ├── Dockerfile               # Frontend container (multi-stage build)
+    ├── nginx.conf               # Nginx configuration with API proxy
+    └── .env.example             # Environment template
+```
+
+### Docker Commands Reference
+
+```bash
+# Build images
+docker-compose -f docker-compose.backend.yml build
+docker-compose -f docker-compose.frontend.yml build
+
+# Start services in background
+docker-compose -f docker-compose.backend.yml up -d
+docker-compose -f docker-compose.frontend.yml up -d
+
+# View service logs
+docker-compose -f docker-compose.backend.yml logs -f
+docker-compose -f docker-compose.frontend.yml logs -f
+
+# Stop and remove containers
+docker-compose -f docker-compose.backend.yml down
+docker-compose -f docker-compose.frontend.yml down
+```
+
 ## 🚧 Known Limitations
 
 1. **RAG Collection**: The `rag-agent` requires pre-populated Qdrant collections; no built-in document upload UI yet
 2. **Testing**: No unit/integration tests currently implemented
-3. **Deployment**: No Docker Compose configuration for easy local deployment
 
 ## 🚀 Future Enhancements
 
 - Additional agent types (SQL agent, code agent, multi-agent workflows)
 - Comprehensive test suite for backend and frontend
-- Docker Compose for simplified local development
 - Agent graph visualization in React UI
 - Conversation search and filtering
 - Document upload UI for Qdrant population

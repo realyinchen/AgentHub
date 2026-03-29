@@ -66,11 +66,13 @@
 - **Shell**: PowerShell (default)
 - **IDE**: Visual Studio Code
 - **Package Manager**: pnpm (frontend), pip (backend)
+- **Containerization**: Docker + Docker Compose
 
 ### Prerequisites
 - VS Code (recommended)
 - Miniconda / Python 3.12
 - Node.js 18+ & npm/pnpm/yarn (for frontend)
+- Docker & Docker Compose (for containerized deployment)
 - PostgreSQL instance (local/remote)
 - Qdrant instance (local/remote)
 - LLM API keys (DashScope, OpenAI, or other LiteLLM-supported providers)
@@ -79,7 +81,9 @@
 
 ### Setup Steps
 
-#### Backend
+#### Local Development
+
+**Backend:**
 ```bash
 # 1. Create & activate conda env
 conda create -n agenthub python=3.12
@@ -99,7 +103,7 @@ python scripts/init_database.py
 python run_backend.py
 ```
 
-#### Frontend
+**Frontend:**
 ```bash
 # Navigate to frontend directory
 cd frontend
@@ -109,6 +113,51 @@ npm install
 
 # Start dev server
 npm run dev
+```
+
+#### Docker Deployment
+
+**Prerequisites: Start PostgreSQL and Qdrant**
+```bash
+# Start PostgreSQL
+docker run -d --name agenthub-postgres \
+  -e POSTGRES_USER=langchain \
+  -e POSTGRES_PASSWORD=langgraph \
+  -e POSTGRES_DB=agentdb \
+  -p 5432:5432 \
+  postgres:latest
+
+# Start Qdrant
+docker run -d --name agenthub-qdrant \
+  -p 6333:6333 \
+  -p 6334:6334 \
+  qdrant/qdrant:latest
+```
+
+**Deploy Backend:**
+```bash
+# 1. Copy environment file
+cp backend/.env.example backend/.env
+
+# 2. Edit backend/.env with your configuration
+# IMPORTANT: Use host.docker.internal for local databases
+#   POSTGRES_HOST=host.docker.internal
+#   QDRANT_HOST=host.docker.internal
+
+# 3. Start backend service
+docker-compose -f docker-compose.backend.yml up -d
+
+# 4. View logs
+docker-compose -f docker-compose.backend.yml logs -f
+```
+
+**Deploy Frontend:**
+```bash
+# 1. Start frontend service
+docker-compose -f docker-compose.frontend.yml up -d
+
+# 2. View logs
+docker-compose -f docker-compose.frontend.yml logs -f
 ```
 
 ### Access Points

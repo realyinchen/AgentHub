@@ -22,6 +22,7 @@ import type {
 } from "@/types"
 import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import { useTheme } from "@/hooks/use-theme"
+import { useModels } from "@/hooks/use-models"
 import {
   ChatMainPanel,
   ChatMinimap,
@@ -73,6 +74,27 @@ function App() {
     isAvailable: isThinkingModeAvailable,
     isLoading: isThinkingModeLoading,
   } = useThinkingMode(threadId)
+
+  // Model selection state - persisted per conversation in localStorage
+  const {
+    thinkingModels,
+    nonThinkingModels,
+    setSelectedModel,
+    setSelectedThinkingModel,
+    getEffectiveModel,
+  } = useModels(threadId)
+  
+  // Get the effective model based on current thinking mode
+  const effectiveSelectedModel = getEffectiveModel(thinkingMode)
+  
+  // Handle model selection based on current thinking mode
+  const handleSelectModel = useCallback((name: string | null) => {
+    if (thinkingMode) {
+      setSelectedThinkingModel(name)
+    } else {
+      setSelectedModel(name)
+    }
+  }, [thinkingMode, setSelectedModel, setSelectedThinkingModel])
   const [conversationTitle, setConversationTitleState] = useState(
     defaultConversationTitle,
   )
@@ -100,12 +122,18 @@ function App() {
   const streamingPlaceholderIdRef = useRef<string | null>(null)
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
+  const effectiveModelRef = useRef<string | null>(null)
   const chatScrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   // Keep thinkingModeRef in sync with thinkingMode state
   useEffect(() => {
     thinkingModeRef.current = thinkingMode
   }, [thinkingMode])
+  
+  // Keep effectiveModelRef in sync with effectiveSelectedModel state
+  useEffect(() => {
+    effectiveModelRef.current = effectiveSelectedModel
+  }, [effectiveSelectedModel])
 
   const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
     const url = new URL(window.location.href)
@@ -539,14 +567,16 @@ function App() {
         setCalledTools([])
         setThinkingContent("")
 
-        // Use ref to get the latest thinkingMode value to avoid stale closure
+        // Use ref to get the latest thinkingMode and model value to avoid stale closure
         const currentThinkingMode = thinkingModeRef.current
+        const currentModel = effectiveModelRef.current
 
         await streamChat(
           {
             content: trimmed,
             agent_id: selectedAgentId,
             thread_id: targetThreadId,
+            model_name: currentModel,
             thinking_mode: currentThinkingMode,
             custom_data: quotedMessageId ? {
               quoted_message_id: quotedMessageId,
@@ -757,6 +787,7 @@ function App() {
       setThinkingContent("")
 
       const currentThinkingMode = thinkingModeRef.current
+      const currentModel = effectiveModelRef.current
 
       try {
         // Stream with the new content
@@ -765,6 +796,7 @@ function App() {
             content: newContent,
             agent_id: selectedAgentId,
             thread_id: threadId,
+            model_name: currentModel,
             thinking_mode: currentThinkingMode,
           },
           (event: StreamEvent) => {
@@ -1184,6 +1216,9 @@ function App() {
             onToggleThinkingMode={toggleThinkingMode}
             isThinkingModeAvailable={isThinkingModeAvailable}
             isThinkingModeLoading={isThinkingModeLoading}
+            models={thinkingMode ? thinkingModels : nonThinkingModels}
+            selectedModel={effectiveSelectedModel}
+            onSelectModel={handleSelectModel}
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             scrollContainerRef={chatScrollContainerRef}

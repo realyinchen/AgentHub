@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
+import type { AgentInDB, LocalChatMessage, ModelInfo, ToolCallEvent, ToolCallInfo } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
+import { ModelSelector } from "@/features/chat/components/model-selector"
 import {
   Alert,
   AlertDescription,
@@ -43,6 +44,10 @@ type ChatMainPanelProps = {
   onToggleThinkingMode: () => void
   isThinkingModeAvailable: boolean
   isThinkingModeLoading: boolean
+  // Model selection props
+  models: ModelInfo[]
+  selectedModel: string | null
+  onSelectModel: (name: string | null) => void
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to message callback
   scrollContainerRef?: React.RefObject<HTMLDivElement | null> // Ref for scroll container (used by minimap)
@@ -76,6 +81,9 @@ export function ChatMainPanel({
   onToggleThinkingMode,
   isThinkingModeAvailable,
   isThinkingModeLoading,
+  models,
+  selectedModel,
+  onSelectModel,
   onEditMessage,
   onJumpToMessage,
   scrollContainerRef: externalScrollContainerRef,
@@ -449,12 +457,20 @@ export function ChatMainPanel({
                 />
               </PromptInputBody>
               <PromptInputFooter className="pb-3 justify-between">
-                <ThinkingModeToggle
-                  enabled={thinkingMode}
-                  available={isThinkingModeAvailable}
-                  loading={isThinkingModeLoading}
-                  onToggle={onToggleThinkingMode}
-                />
+                <div className="flex items-center gap-2">
+                  <ThinkingModeToggle
+                    enabled={thinkingMode}
+                    available={isThinkingModeAvailable}
+                    loading={isThinkingModeLoading}
+                    onToggle={onToggleThinkingMode}
+                  />
+                  <ModelSelector
+                    models={models}
+                    selectedModel={selectedModel}
+                    onSelectModel={onSelectModel}
+                    disabled={isStreaming || isComposerDisabled}
+                  />
+                </div>
                 <PromptInputSubmit
                   disabled={submitButtonDisabled}
                   onClick={isStreaming ? onStopStreaming : undefined}

@@ -22,6 +22,11 @@ class UserInput(BaseModel):
         default=None,
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
     )
+    model_name: str | None = Field(
+        description="The model name to use for this request. If not provided, uses the default model.",
+        default=None,
+        examples=["qwen3.5-27b", "glm-4"],
+    )
     thinking_mode: bool = Field(
         description="Whether to enable thinking mode for models that support it (e.g., DeepSeek-R1, Qwen3).",
         default=False,

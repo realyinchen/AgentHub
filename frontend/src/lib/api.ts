@@ -3,6 +3,7 @@ import type {
   ChatHistory,
   ChatMessage,
   ConversationInDB,
+  ModelInfo,
   StreamEvent,
   UserInput,
 } from "@/types"
@@ -169,4 +170,8 @@ export async function streamChat(
 
 export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
   return requestJson<{ available: boolean }>("/chat/thinking-mode")
+}
+
+export async function getAvailableModels(): Promise<{ models: ModelInfo[]; default_model: string | null }> {
+  return requestJson<{ models: ModelInfo[]; default_model: string | null }>("/chat/models")
 }

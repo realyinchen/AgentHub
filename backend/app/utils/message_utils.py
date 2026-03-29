@@ -310,6 +310,9 @@ async def handle_input(
     thinking_mode is passed through config.configurable to the agent's nodes,
     where the LLM is dynamically selected based on this flag.
 
+    model_name is passed through config.configurable to allow dynamic model selection.
+    If model_name is provided, it takes precedence over thinking_mode for LLM selection.
+
     custom_data is stored in HumanMessage.additional_kwargs for persistence,
     and will be restored when loading history.
     """
@@ -318,6 +321,7 @@ async def handle_input(
     configurable = {
         "thread_id": thread_id,
         "thinking_mode": user_input.thinking_mode,  # Pass thinking_mode to agent nodes
+        "model_name": user_input.model_name,  # Pass model_name for dynamic model selection
     }
 
     config = RunnableConfig(configurable=configurable)
@@ -333,9 +337,10 @@ async def handle_input(
     }
 
     logger.info(
-        "handle_input: thread_id=%s, thinking_mode=%s, has_custom_data=%s",
+        "handle_input: thread_id=%s, thinking_mode=%s, model_name=%s, has_custom_data=%s",
         thread_id,
         user_input.thinking_mode,
+        user_input.model_name,
         bool(user_input.custom_data),
     )
 

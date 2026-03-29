@@ -2,40 +2,76 @@
 
 ## Current Work Focus
 
-**Chat Minimap Feature (3/26/2026)**
+**Docker Deployment Simplification (3/29/2026)**
 
-Successfully implemented a VSCode-style minimap for the chat interface, replacing the previous message ruler. The minimap provides a visual overview of the entire conversation with interactive navigation.
+Simplified Docker deployment by removing the one-click deployment option and keeping only separate backend and frontend deployments. Fixed nginx environment variable substitution issue that caused frontend container startup failures.
+
+### Changes Made
+
+**Files Modified:**
+- `docker-compose.yml` - **DELETED** (removed one-click deployment)
+- `frontend/nginx.conf` - Removed `upstream` block, use `proxy_pass` with env vars directly
+- `frontend/Dockerfile` - Fixed entrypoint script creation for proper envsubst execution
+- `docker-compose.frontend.yml` - Changed `VITE_API_BASE_URL` to `/api/v1` (relative path) to avoid CORS issues
+- `README.md` - Updated deployment documentation
+- `README.zh.md` - Updated deployment documentation
+
+### Key Technical Decisions
+
+1. **Nginx Variable Substitution**: Use `envsubst` in entrypoint script to replace `${NGINX_BACKEND_HOST}:${NGINX_BACKEND_PORT}` before nginx starts
+2. **CORS Avoidance**: Use relative path `/api/v1` for `VITE_API_BASE_URL` so browser sends requests to same origin (nginx), which then proxies to backend
+3. **Separate Deployments**: Backend and frontend are deployed independently, requiring external PostgreSQL and Qdrant instances
+
+### Docker Deployment Architecture
+
+```
+Browser → Frontend (nginx:5173) → /api/* → Backend (host.docker.internal:8080)
+                                    ↓
+                              Nginx proxy_pass
+```
+
+---
+
+**Multi-Model Support Feature (3/26/2026)**
+
+Successfully implemented multi-model support with dynamic model selection, enabling users to choose from multiple LLM providers (阿里云 DashScope, 智谱 GLM, local vLLM) through a model selector in the chat interface.
 
 ### Implementation Details
 
-**New Files:**
-- `frontend/src/features/chat/components/chat-minimap.tsx` - VSCode-style minimap component
+**Backend Changes:**
+- `backend/app/core/config.py` - Added `get_model_info_list()` method to return model info with `is_thinking` flag
+- `backend/app/core/models.py` - Modified `get_llm()` to accept `model_name` parameter with caching
+- `backend/app/schemas/chat.py` - Added `model_name` field to `UserInput` schema
+- `backend/app/utils/message_utils.py` - Updated `handle_input()` to pass `model_name` through config
+- `backend/app/api/v1/chat.py` - Added `/models` endpoint to list all available models
 
-**Modified Files:**
-- `frontend/src/App.tsx` - Integrated ChatMinimap, added scrollContainerRef
-- `frontend/src/features/chat/components/chat-main-panel.tsx` - Added scrollContainerRef prop
-- `frontend/src/features/chat/components/index.ts` - Export ChatMinimap
-- `frontend/src/index.css` - Added minimap-preview CSS styles
+**Frontend Changes:**
+- `frontend/src/types.ts` - Added `ModelInfo` type and `model_name` to `UserInput`
+- `frontend/src/lib/api.ts` - Added `getAvailableModels()` function
+- `frontend/src/hooks/use-models.ts` - Created hook for model selection with localStorage persistence
+- `frontend/src/features/chat/components/model-selector.tsx` - Created model selector dropdown component
+- `frontend/src/features/chat/components/chat-main-panel.tsx` - Integrated model selector into chat input footer
+- `frontend/src/App.tsx` - Added `useModels` hook and passed model props to `ChatMainPanel`
+- `frontend/src/i18n/index.tsx` - Added translations for model selector
 
-### Features
+### Model Naming Convention
 
-1. **Mini Text Display**: Shows actual conversation text in miniature (2.5px font size)
-2. **Color Coding**: User messages in cyan, AI messages in violet
-3. **Viewport Indicator**: Semi-transparent slider showing current scroll position
-4. **Hover Preview**: Mouse hover on viewport shows visible messages with Markdown rendering
-5. **Click to Jump**: Click any line to jump to that message
-6. **Drag to Scroll**: Drag the viewport indicator for fast navigation
-7. **Immediate Close**: Preview closes immediately when mouse leaves viewport or tooltip
+**Critical**: Models with `model_name` ending with "thinking" suffix are automatically classified as thinking/reasoning models:
+- Thinking models: `"qwen3.5-flash-thinking"`, `"glm5-thinking"`, `"deepseek-thinking"`
+- Regular models: `"qwen3.5-27b"`, `"glm5"`, `"gpt-4"`
 
-### Bug Fixes (3/26/2026)
+When thinking mode is enabled, only models with "thinking" suffix appear in the selector.
 
-1. **Viewport Click Navigation**: Fixed transparent viewport block not responding to clicks. Now clicking on the viewport indicator scrolls to the clicked position.
+### Configuration Format
 
-2. **Preview Tooltip Close**: Fixed preview tooltip not closing when mouse leaves. Now the preview closes immediately when mouse leaves either the viewport or the tooltip content.
+```env
+LLM_MODELS=[{"model_name":"qwen3.5-27b","litellm_params":{"model":"dashscope/qwen3.5-27b","api_key":"sk-xxx"}},{"model_name":"qwen3.5-flash-thinking","litellm_params":{"model":"dashscope/qwen3.5-flash-2026-02-23","api_key":"sk-xxx","extra_body":{"enable_thinking":true}}},{"model_name":"glm5","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx"}},{"model_name":"glm5-thinking","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"enabled"}}}}]
+```
 
-3. **Bottom Position Preview**: Fixed "暂无消息" (no messages) showing when viewport is at the bottom. The visible messages calculation now correctly uses minimap line positions instead of estimated message heights.
-
-4. **Message ID Matching**: Fixed minimap message IDs to match ChatMainPanel's `msg-${index}` format for correct jump-to-message functionality.
+### Supported Providers
+- `dashscope` - 阿里云 (Qwen models)
+- `zai` - 智谱 (GLM models)
+- Any OpenAI-compatible API (local vLLM, etc.)
 
 ---
 
@@ -44,6 +80,7 @@ Successfully implemented a VSCode-style minimap for the chat interface, replacin
 The project has a complete core implementation:
 - ✅ FastAPI backend with `/api/v1/chat` and `/api/v1/agent` endpoints
 - ✅ Modern React frontend with i18n, theme toggle, thinking mode toggle
+- ✅ **Multi-model support with model selector** (NEW)
 - ✅ 3 agents registered: `chatbot`, `rag-agent`, `navigator`
 - ✅ PostgreSQL integration (async + sync managers, LangGraph checkpointer)
 - ✅ Qdrant vector store integration
@@ -55,16 +92,21 @@ The project has a complete core implementation:
 - ✅ Image zoom & drag feature for all markdown images (universal, full-screen immersive viewer)
 - ✅ Quote message feature (Grok-style with `> quoted content` format)
 - ✅ Edit message feature (creates new branch from edited message)
-- ✅ **Chat Minimap** (VSCode-style minimap with hover preview and navigation)
+- ✅ Chat Minimap (VSCode-style minimap with hover preview and navigation)
 
 ### Core Features
+
+#### Multi-Model Support
+- Model selector dropdown next to thinking mode toggle
+- Models filtered based on thinking mode state
+- Selection persists per conversation in localStorage
+- Supports multiple providers: DashScope, 智谱, local vLLM
 
 #### Chat Minimap Feature
 - VSCode-style minimap showing miniature conversation text
 - Viewport indicator with hover preview
 - Markdown rendering in preview (images, code blocks, lists, etc.)
 - Click to jump, drag to scroll
-- Delayed close for better UX
 
 #### Quote Message Feature
 - Click quote button on any message (user or assistant)
@@ -93,6 +135,8 @@ The project has a complete core implementation:
 
 ## Active Decisions and Considerations
 
+- **Model Naming**: "thinking" suffix determines model classification for UI selector
+- **Model Caching**: LLM instances cached by model_name for performance
 - **Navigator Tool Order**: `get_current_time` first, then weather check, then other tools
 - **No web_search for Navigator**: Uses `amap_weather` for weather, no traffic news search
 - **Time Conflict Detection**: Check for conflicts before providing navigation links
@@ -100,7 +144,6 @@ The project has a complete core implementation:
 - **Image Feature**: Universal zoom & drag for all markdown images, any agent can use
 - **Message Content Filtering**: Always filter `thinking` type blocks from historical messages
 - **Pure LangGraph over create_agent**: Chose StateGraph for better control and async support
-- **LLM Provider**: Using Alibaba DashScope (Qwen models) via OpenAI-compatible API
 - **Simple State Management**: Use React useState instead of complex context providers
 - **Minimap Width**: 100px fixed width, balances visibility and space efficiency
 
@@ -113,9 +156,13 @@ The project has a complete core implementation:
 - Streaming uses Server-Sent Events (SSE) via `StreamingResponse`
 - **PowerShell Commands**: Use PowerShell-compatible syntax (`;` instead of `&&`)
 - **Lazy Initialization**: Create tools/resources at runtime, not at module import time
+- **Model Selection**: Persisted per conversation, filtered by thinking mode
 
 ## Learnings and Project Insights
 
+- **Multi-Provider Support**: LiteLLM provides unified interface for multiple LLM providers
+- **Thinking Model Detection**: Simple suffix-based naming convention is cleaner than explicit flags
+- **Model Caching**: Essential for performance when switching between models frequently
 - **Thinking Type is OUTPUT only**: `thinking` type content blocks are output formats, not input formats
 - **LangGraph StateGraph**: Provides fine-grained control for agent orchestration
 - **Navigator Agent**: Time conflict detection improves user experience significantly
