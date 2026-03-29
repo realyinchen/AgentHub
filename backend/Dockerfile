@@ -1,0 +1,29 @@
+# Backend Dockerfile for AgentHub
+FROM python:3.12-slim
+
+# Set working directory
+WORKDIR /app
+
+# Set environment variables
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
+
+# Copy requirements first for better caching
+COPY requirements.txt .
+
+# Install Python dependencies with retry and timeout settings
+# Note: asyncpg and psycopg-binary are pure Python / pre-compiled, no system deps needed
+RUN pip install --no-cache-dir --retries 5 --timeout 120 \
+    -i https://pypi.tuna.tsinghua.edu.cn/simple \
+    -r requirements.txt
+
+# Copy application code
+COPY . .
+
+# Expose port
+EXPOSE 8080
+
+# Run the application
+CMD ["python", "run_backend.py"]

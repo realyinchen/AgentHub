@@ -12,8 +12,16 @@
 - ✅ Agent selection UI
 - ✅ URL-based conversation sharing
 - ✅ **Quote message feature with persistence** (3/24/2026)
+- ✅ **Docker deployment for backend and frontend** (3/29/2026)
 
 ### Recently Completed
+
+#### Docker Deployment Simplification (2026-03-29)
+- ✅ **Removed one-click deployment** (`docker-compose.yml` deleted)
+- ✅ **Fixed nginx env var substitution** - Removed `upstream` block, use `proxy_pass` with env vars
+- ✅ **Fixed CORS issue** - Changed `VITE_API_BASE_URL` to relative path `/api/v1`
+- ✅ **Updated documentation** - README.md and README.zh.md updated for new deployment flow
+- ✅ **Deployment architecture**: Separate backend and frontend deployments with external databases
 
 #### Quote Feature Persistence Fix (2026-03-24)
 - ✅ **Problem Solved**: Quoted messages lost styling after page refresh

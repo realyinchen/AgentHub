@@ -2,6 +2,36 @@
 
 ## Current Work Focus
 
+**Docker Deployment Simplification (3/29/2026)**
+
+Simplified Docker deployment by removing the one-click deployment option and keeping only separate backend and frontend deployments. Fixed nginx environment variable substitution issue that caused frontend container startup failures.
+
+### Changes Made
+
+**Files Modified:**
+- `docker-compose.yml` - **DELETED** (removed one-click deployment)
+- `frontend/nginx.conf` - Removed `upstream` block, use `proxy_pass` with env vars directly
+- `frontend/Dockerfile` - Fixed entrypoint script creation for proper envsubst execution
+- `docker-compose.frontend.yml` - Changed `VITE_API_BASE_URL` to `/api/v1` (relative path) to avoid CORS issues
+- `README.md` - Updated deployment documentation
+- `README.zh.md` - Updated deployment documentation
+
+### Key Technical Decisions
+
+1. **Nginx Variable Substitution**: Use `envsubst` in entrypoint script to replace `${NGINX_BACKEND_HOST}:${NGINX_BACKEND_PORT}` before nginx starts
+2. **CORS Avoidance**: Use relative path `/api/v1` for `VITE_API_BASE_URL` so browser sends requests to same origin (nginx), which then proxies to backend
+3. **Separate Deployments**: Backend and frontend are deployed independently, requiring external PostgreSQL and Qdrant instances
+
+### Docker Deployment Architecture
+
+```
+Browser → Frontend (nginx:5173) → /api/* → Backend (host.docker.internal:8080)
+                                    ↓
+                              Nginx proxy_pass
+```
+
+---
+
 **Multi-Model Support Feature (3/26/2026)**
 
 Successfully implemented multi-model support with dynamic model selection, enabling users to choose from multiple LLM providers (阿里云 DashScope, 智谱 GLM, local vLLM) through a model selector in the chat interface.
