@@ -34,6 +34,10 @@ export function ChatMinimap({
   const [isHoveringMinimap, setIsHoveringMinimap] = useState(false)
   const [isHoveringTooltip, setIsHoveringTooltip] = useState(false)
   const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Use ref for real-time scroll info during drag to avoid stale state
+  const scrollInfoRef = useRef({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 })
+  // Track total lines height for drag calculations
+  const totalLinesHeightRef = useRef(0)
 
   // Show viewport when hovering minimap or tooltip
   const showViewport = isHoveringMinimap || isHoveringTooltip || isDragging
@@ -109,17 +113,23 @@ export function ChatMinimap({
 
   const miniLines = generateMiniLines()
   const totalLinesHeight = miniLines.length * LINE_HEIGHT + PADDING * 2
+  
+  // Keep refs in sync for real-time drag calculations
+  totalLinesHeightRef.current = totalLinesHeight
 
   // Update scroll info
   const updateScrollInfo = useCallback(() => {
     const container = scrollContainerRef.current
     if (!container) return
 
-    setScrollInfo({
+    const newScrollInfo = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
       clientHeight: container.clientHeight,
-    })
+    }
+    
+    setScrollInfo(newScrollInfo)
+    scrollInfoRef.current = newScrollInfo
   }, [scrollContainerRef])
 
   // Calculate minimap content offset to keep viewport visible
@@ -280,29 +290,53 @@ export function ChatMinimap({
     setDragStartY(e.clientY)
   }, [])
 
+  // Calculate content offset for drag - uses refs for real-time values
+  const getMinimapContentOffsetForDrag = useCallback((minimapHeight: number, currentScrollInfo: typeof scrollInfoRef.current, currentTotalLinesHeight: number) => {
+    if (currentScrollInfo.scrollHeight === 0 || currentTotalLinesHeight === 0) return 0
+    if (minimapHeight === 0) return 0
+    
+    const scale = currentTotalLinesHeight / currentScrollInfo.scrollHeight
+    const viewportHeightPx = Math.max(VIEWPORT_MIN_HEIGHT, currentScrollInfo.clientHeight * scale)
+    const viewportTopPx = currentScrollInfo.scrollTop * scale
+    const maxViewportTop = minimapHeight - viewportHeightPx
+    
+    if (viewportTopPx > maxViewportTop) {
+      return -(viewportTopPx - maxViewportTop)
+    }
+    
+    return 0
+  }, [])
+
   const handleDragMove = useCallback((e: MouseEvent) => {
     if (!isDragging) return
 
     const minimap = minimapRef.current
     const container = scrollContainerRef.current
-    if (!minimap || !container || scrollInfo.scrollHeight === 0) return
+    if (!minimap || !container) return
+
+    // Use refs for real-time values to avoid stale state
+    const currentScrollInfo = scrollInfoRef.current
+    const currentTotalLinesHeight = totalLinesHeightRef.current
+    
+    if (currentScrollInfo.scrollHeight === 0 || currentTotalLinesHeight === 0) return
 
     const rect = minimap.getBoundingClientRect()
     const dragY = e.clientY - rect.top - PADDING
-    const scale = scrollInfo.scrollHeight / totalLinesHeight
+    const scale = currentScrollInfo.scrollHeight / currentTotalLinesHeight
     
-    // Account for content offset
-    const contentOffset = getMinimapContentOffset()
+    // Calculate content offset using real-time values
+    const contentOffset = getMinimapContentOffsetForDrag(minimap.clientHeight, currentScrollInfo, currentTotalLinesHeight)
     const adjustedDragY = dragY - contentOffset
     
     // Center the viewport on the drag position
-    const targetScrollTop = Math.max(0, adjustedDragY * scale - scrollInfo.clientHeight / 2)
+    const targetScrollTop = Math.max(0, Math.min(
+      currentScrollInfo.scrollHeight - currentScrollInfo.clientHeight,
+      adjustedDragY * scale - currentScrollInfo.clientHeight / 2
+    ))
     
-    container.scrollTo({
-      top: targetScrollTop,
-      behavior: 'auto'
-    })
-  }, [isDragging, scrollContainerRef, scrollInfo.scrollHeight, scrollInfo.clientHeight, totalLinesHeight, getMinimapContentOffset])
+    // Direct assignment for instant scrolling - no delay
+    container.scrollTop = targetScrollTop
+  }, [isDragging, scrollContainerRef, getMinimapContentOffsetForDrag])
 
   const handleDragEnd = useCallback((e: MouseEvent) => {
     const wasClick = Math.abs(e.clientY - dragStartY) < 5
@@ -420,7 +454,9 @@ export function ChatMinimap({
               className={cn(
                 "absolute left-0 right-0 bg-primary/10 dark:bg-primary/5",
                 "border border-primary/30 rounded-sm",
-                "cursor-grab transition-all duration-200",
+                "cursor-grab",
+                // Only apply transition when not dragging for instant response
+                !isDragging && "transition-all duration-200",
                 "hover:bg-primary/15 hover:border-primary/40",
                 isDragging && "cursor-grabbing bg-primary/20",
                 // Hidden by default, shown on hover
