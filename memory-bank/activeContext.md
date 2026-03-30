@@ -2,6 +2,33 @@
 
 ## Current Work Focus
 
+**Automatic Environment Detection for Database Connections (3/30/2026)**
+
+Implemented automatic runtime environment detection for `POSTGRES_HOST` and `QDRANT_HOST`, eliminating the need to manually switch between `localhost` (local development) and `host.docker.internal` (Docker deployment).
+
+### Changes Made
+
+**Files Modified:**
+- `backend/app/core/config.py` - Added `is_running_in_docker()` and `get_default_host()` functions, plus `model_post_init()` hook for intelligent defaults
+- `backend/.env` - Removed explicit `POSTGRES_HOST` and `QDRANT_HOST` values, added explanatory comments
+
+### Key Technical Decisions
+
+1. **Docker Detection**: Check `/.dockerenv` file and `/proc/1/cgroup` content for Docker indicators
+2. **Smart Defaults**: Automatically use `host.docker.internal` in Docker, `localhost` otherwise
+3. **Override Support**: Users can still explicitly set values in `.env` if needed
+4. **Pydantic Hook**: Use `model_post_init()` to set defaults after model initialization
+
+### How It Works
+
+```python
+# Local development: POSTGRES_HOST=localhost, QDRANT_HOST=localhost
+# Docker deployment: POSTGRES_HOST=host.docker.internal, QDRANT_HOST=host.docker.internal
+# No manual configuration needed!
+```
+
+---
+
 **Parallel Tool Execution for Navigator Agent (3/30/2026)**
 
 Implemented true parallel tool execution using `asyncio.gather()` in the Navigator agent, enabling all tool calls to start simultaneously for significantly faster route planning.

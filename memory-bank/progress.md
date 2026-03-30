@@ -16,6 +16,25 @@
 
 ### Recently Completed
 
+#### Automatic Environment Detection for Database Connections (2026-03-30)
+- ✅ **Docker Environment Detection**
+  - Added `is_running_in_docker()` function to detect container runtime
+  - Checks `/.dockerenv` file and `/proc/1/cgroup` for Docker indicators
+
+- ✅ **Smart Host Defaults**
+  - Added `get_default_host()` function for intelligent defaults
+  - Local development: `localhost`
+  - Docker deployment: `host.docker.internal`
+
+- ✅ **Pydantic Model Hook**
+  - Added `model_post_init()` to `Settings` class
+  - Automatically sets `POSTGRES_HOST` and `QDRANT_HOST` if not explicitly configured
+  - Supports override via explicit `.env` values
+
+- ✅ **Configuration Cleanup**
+  - Removed explicit host values from `.env`
+  - Added explanatory comments about automatic detection
+
 #### Parallel Tool Execution for Navigator Agent (2026-03-30)
 - ✅ **True Parallel Tool Execution**
   - Refactored `tool_node` in `backend/app/agents/navigator.py` with `asyncio.gather()`

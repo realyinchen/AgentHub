@@ -240,14 +240,22 @@ LANGCHAIN_API_KEY=lsv2_pt_xxx...
 # =============================================================================
 POSTGRES_USER=langchain
 POSTGRES_PASSWORD=langgraph
-POSTGRES_HOST=localhost
+# POSTGRES_HOST 会自动检测：
+# - 本地开发：localhost
+# - Docker 容器：host.docker.internal
+# 如需覆盖，可取消注释并设置值：
+# POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=agentdb
 
 # =============================================================================
 # Qdrant 配置
 # =============================================================================
-QDRANT_HOST=localhost
+# QDRANT_HOST 会自动检测：
+# - 本地开发：localhost
+# - Docker 容器：host.docker.internal
+# 如需覆盖，可取消注释并设置值：
+# QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION=agentic_rag_survey
 
