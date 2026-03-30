@@ -24,29 +24,32 @@ const PADDING = 4
 
 export function ChatMinimap({ 
   messages, 
-  onJumpToMessage,
   scrollContainerRef 
 }: ChatMinimapProps) {
   const minimapRef = useRef<HTMLDivElement>(null)
-  const [viewportTop, setViewportTop] = useState(0)
   const [viewportHeight, setViewportHeight] = useState(VIEWPORT_MIN_HEIGHT)
   const [isDragging, setIsDragging] = useState(false)
   const [dragStartY, setDragStartY] = useState(0)
   const [scrollInfo, setScrollInfo] = useState({ scrollTop: 0, scrollHeight: 0, clientHeight: 0 })
-  const [isHoveringViewport, setIsHoveringViewport] = useState(false)
+  const [isHoveringMinimap, setIsHoveringMinimap] = useState(false)
   const [isHoveringTooltip, setIsHoveringTooltip] = useState(false)
   const hideTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // Combined hover state - show tooltip if hovering either viewport or tooltip content
-  const showTooltip = isHoveringViewport || isHoveringTooltip
+  // Show viewport when hovering minimap or tooltip
+  const showViewport = isHoveringMinimap || isHoveringTooltip || isDragging
 
-  // Handle mouse enter with clearing any pending hide timeout
-  const handleViewportMouseEnter = useCallback(() => {
+  // Handle mouse enter on minimap
+  const handleMinimapMouseEnter = useCallback(() => {
     if (hideTimeoutRef.current) {
       clearTimeout(hideTimeoutRef.current)
       hideTimeoutRef.current = null
     }
-    setIsHoveringViewport(true)
+    setIsHoveringMinimap(true)
+  }, [])
+
+  // Handle mouse leave on minimap
+  const handleMinimapMouseLeave = useCallback(() => {
+    setIsHoveringMinimap(false)
   }, [])
 
   const handleTooltipMouseEnter = useCallback(() => {
@@ -57,15 +60,7 @@ export function ChatMinimap({
     setIsHoveringTooltip(true)
   }, [])
 
-  // Handle mouse leave with delay to allow moving to tooltip
-  const handleViewportMouseLeave = useCallback(() => {
-    // Immediately set hovering to false, but delay hiding the tooltip
-    // to allow time for mouse to move to tooltip
-    setIsHoveringViewport(false)
-  }, [])
-
   const handleTooltipMouseLeave = useCallback(() => {
-    // Immediately set hovering to false
     setIsHoveringTooltip(false)
   }, [])
 
@@ -79,13 +74,13 @@ export function ChatMinimap({
   }, [])
 
   // Generate mini lines from messages directly
-  // Use index-based local_id to match ChatMainPanel's rendering
   const generateMiniLines = useCallback(() => {
     const lines: Array<{
       localId: string
       type: string
       content: string
       lineIndex: number
+      messageIndex: number
     }> = []
 
     messages.forEach((message, messageIndex) => {
@@ -100,11 +95,11 @@ export function ChatMinimap({
         if (line.trim() === '' && idx !== 0) return
         
         lines.push({
-          // Use index-based ID to match ChatMainPanel's rendering: msg-${index}
           localId: `msg-${messageIndex}`,
           type: message.type,
           content: line,
           lineIndex: idx,
+          messageIndex: messageIndex,
         })
       })
     })
@@ -114,45 +109,6 @@ export function ChatMinimap({
 
   const miniLines = generateMiniLines()
   const totalLinesHeight = miniLines.length * LINE_HEIGHT + PADDING * 2
-
-  // Get visible messages for viewport preview based on minimap viewport position
-  const getVisibleMessages = useCallback(() => {
-    if (miniLines.length === 0 || messages.length === 0) return []
-    
-    // Calculate which mini lines are visible based on viewport position in minimap
-    const viewportBottom = viewportTop + viewportHeight
-    
-    // Find the indices of mini lines that are within the viewport
-    const visibleLineIndices: number[] = []
-    miniLines.forEach((_, index) => {
-      const lineTop = PADDING + index * LINE_HEIGHT
-      const lineBottom = lineTop + LINE_HEIGHT
-      
-      // Check if line overlaps with viewport
-      if (lineBottom > viewportTop && lineTop < viewportBottom) {
-        visibleLineIndices.push(index)
-      }
-    })
-    
-    // Get unique message indices from visible lines
-    // localId format is "msg-${messageIndex}"
-    const visibleMessageIndices = new Set<number>()
-    visibleLineIndices.forEach(idx => {
-      const localId = miniLines[idx].localId
-      // Extract message index from localId (format: "msg-${index}")
-      const match = localId.match(/^msg-(\d+)$/)
-      if (match) {
-        visibleMessageIndices.add(parseInt(match[1], 10))
-      }
-    })
-    
-    // Find the corresponding messages by index
-    return messages.filter((msg, index) => 
-      visibleMessageIndices.has(index) && msg.type !== 'tool'
-    )
-  }, [miniLines, messages, viewportTop, viewportHeight])
-
-  const visibleMessages = getVisibleMessages()
 
   // Update scroll info
   const updateScrollInfo = useCallback(() => {
@@ -166,17 +122,95 @@ export function ChatMinimap({
     })
   }, [scrollContainerRef])
 
-  // Update viewport position
+  // Calculate minimap content offset to keep viewport visible
+  // This implements VSCode-style minimap scrolling
+  const getMinimapContentOffset = useCallback(() => {
+    if (scrollInfo.scrollHeight === 0 || totalLinesHeight === 0) return 0
+    
+    const minimapHeight = minimapRef.current?.clientHeight || 0
+    if (minimapHeight === 0) return 0
+    
+    // Calculate the scale between minimap and main content
+    const scale = totalLinesHeight / scrollInfo.scrollHeight
+    
+    // Viewport height in minimap space
+    const viewportHeightPx = Math.max(VIEWPORT_MIN_HEIGHT, scrollInfo.clientHeight * scale)
+    
+    // Viewport top position in minimap space (without offset)
+    const viewportTopPx = scrollInfo.scrollTop * scale
+    
+    // Calculate the offset needed to keep viewport within minimap bounds
+    // The viewport should always be visible in the minimap
+    const maxViewportTop = minimapHeight - viewportHeightPx
+    
+    // If viewport would go below the minimap, offset the content up
+    if (viewportTopPx > maxViewportTop) {
+      return -(viewportTopPx - maxViewportTop)
+    }
+    
+    return 0
+  }, [scrollInfo, totalLinesHeight])
+
+  // Update viewport height based on actual scroll position
   useEffect(() => {
     if (scrollInfo.scrollHeight === 0 || totalLinesHeight === 0) return
 
     const scale = totalLinesHeight / scrollInfo.scrollHeight
-    const viewportTopPx = scrollInfo.scrollTop * scale
     const viewportHeightPx = Math.max(VIEWPORT_MIN_HEIGHT, scrollInfo.clientHeight * scale)
-
-    setViewportTop(viewportTopPx)
     setViewportHeight(viewportHeightPx)
   }, [scrollInfo, totalLinesHeight])
+
+  // Get viewport position relative to minimap visible area
+  const getViewportPosition = useCallback(() => {
+    if (scrollInfo.scrollHeight === 0 || totalLinesHeight === 0) return { top: 0, height: VIEWPORT_MIN_HEIGHT }
+    
+    const minimapHeight = minimapRef.current?.clientHeight || 0
+    if (minimapHeight === 0) return { top: 0, height: viewportHeight }
+    
+    const scale = totalLinesHeight / scrollInfo.scrollHeight
+    const viewportTopPx = scrollInfo.scrollTop * scale
+    const contentOffset = getMinimapContentOffset()
+    
+    // Viewport position relative to minimap visible area
+    const viewportTop = viewportTopPx + contentOffset
+    
+    return { top: viewportTop, height: viewportHeight }
+  }, [scrollInfo, totalLinesHeight, viewportHeight, getMinimapContentOffset])
+
+  // Get visible messages for viewport preview based on actual scroll position
+  const visibleMessages = useCallback(() => {
+    if (miniLines.length === 0 || messages.length === 0 || scrollInfo.scrollHeight === 0) return []
+    
+    const scale = totalLinesHeight / scrollInfo.scrollHeight
+    const visibleTop = scrollInfo.scrollTop
+    const visibleBottom = scrollInfo.scrollTop + scrollInfo.clientHeight
+    
+    const visibleLineIndices: number[] = []
+    miniLines.forEach((_, index) => {
+      const lineTop = PADDING + index * LINE_HEIGHT
+      const lineBottom = lineTop + LINE_HEIGHT
+      
+      const mainContentTop = lineTop / scale
+      const mainContentBottom = lineBottom / scale
+      
+      if (mainContentBottom > visibleTop && mainContentTop < visibleBottom) {
+        visibleLineIndices.push(index)
+      }
+    })
+    
+    const visibleMessageIndices = new Set<number>()
+    visibleLineIndices.forEach(idx => {
+      const localId = miniLines[idx].localId
+      const match = localId.match(/^msg-(\d+)$/)
+      if (match) {
+        visibleMessageIndices.add(parseInt(match[1], 10))
+      }
+    })
+    
+    return messages.filter((msg, index) => 
+      visibleMessageIndices.has(index) && msg.type !== 'tool'
+    )
+  }, [miniLines, messages, scrollInfo, totalLinesHeight])()
 
   // Setup scroll listener
   useEffect(() => {
@@ -195,7 +229,7 @@ export function ChatMinimap({
     }
   }, [scrollContainerRef, updateScrollInfo])
 
-  // Handle click on minimap
+  // Handle click on minimap - scroll to the clicked position
   const handleMinimapClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     const minimap = minimapRef.current
     const container = scrollContainerRef.current
@@ -205,15 +239,40 @@ export function ChatMinimap({
     const clickY = e.clientY - rect.top - PADDING
     
     const scale = scrollInfo.scrollHeight / totalLinesHeight
-    const targetScrollTop = clickY * scale
+    
+    // Account for content offset when calculating click position
+    const contentOffset = getMinimapContentOffset()
+    const adjustedClickY = clickY - contentOffset
+    
+    // Center the clicked position in the viewport
+    const targetScrollTop = Math.max(0, adjustedClickY * scale - scrollInfo.clientHeight / 2)
     
     container.scrollTo({
       top: targetScrollTop,
       behavior: 'smooth'
     })
-  }, [scrollContainerRef, scrollInfo.scrollHeight, totalLinesHeight])
+  }, [scrollContainerRef, scrollInfo.scrollHeight, scrollInfo.clientHeight, totalLinesHeight, getMinimapContentOffset])
 
-  // Handle drag - with click detection
+  // Handle click on a specific line - scroll to that line's position
+  const handleLineClick = useCallback((e: React.MouseEvent<HTMLDivElement>, lineIndex: number) => {
+    e.stopPropagation()
+    
+    const container = scrollContainerRef.current
+    if (!container || scrollInfo.scrollHeight === 0) return
+
+    const lineTop = PADDING + lineIndex * LINE_HEIGHT
+    const scale = scrollInfo.scrollHeight / totalLinesHeight
+    
+    // Center the line in the viewport
+    const targetScrollTop = Math.max(0, lineTop * scale - scrollInfo.clientHeight / 2)
+    
+    container.scrollTo({
+      top: targetScrollTop,
+      behavior: 'smooth'
+    })
+  }, [scrollContainerRef, scrollInfo.scrollHeight, scrollInfo.clientHeight, totalLinesHeight])
+
+  // Handle drag
   const handleViewportMouseDown = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
@@ -232,23 +291,23 @@ export function ChatMinimap({
     const dragY = e.clientY - rect.top - PADDING
     const scale = scrollInfo.scrollHeight / totalLinesHeight
     
+    // Account for content offset
+    const contentOffset = getMinimapContentOffset()
+    const adjustedDragY = dragY - contentOffset
+    
+    // Center the viewport on the drag position
+    const targetScrollTop = Math.max(0, adjustedDragY * scale - scrollInfo.clientHeight / 2)
+    
     container.scrollTo({
-      top: dragY * scale,
+      top: targetScrollTop,
       behavior: 'auto'
     })
-  }, [isDragging, scrollContainerRef, scrollInfo.scrollHeight, totalLinesHeight])
+  }, [isDragging, scrollContainerRef, scrollInfo.scrollHeight, scrollInfo.clientHeight, totalLinesHeight, getMinimapContentOffset])
 
   const handleDragEnd = useCallback((e: MouseEvent) => {
-    // Check if this was a click (minimal movement)
     const wasClick = Math.abs(e.clientY - dragStartY) < 5
     
-    if (wasClick && !isDragging) {
-      // This shouldn't happen, but just in case
-      return
-    }
-    
     if (wasClick) {
-      // It was a click, scroll to the clicked position
       const minimap = minimapRef.current
       const container = scrollContainerRef.current
       if (minimap && container && scrollInfo.scrollHeight > 0) {
@@ -256,15 +315,20 @@ export function ChatMinimap({
         const clickY = e.clientY - rect.top - PADDING
         const scale = scrollInfo.scrollHeight / totalLinesHeight
         
+        const contentOffset = getMinimapContentOffset()
+        const adjustedClickY = clickY - contentOffset
+        
+        const targetScrollTop = Math.max(0, adjustedClickY * scale - scrollInfo.clientHeight / 2)
+        
         container.scrollTo({
-          top: clickY * scale,
+          top: targetScrollTop,
           behavior: 'smooth'
         })
       }
     }
     
     setIsDragging(false)
-  }, [dragStartY, isDragging, scrollContainerRef, scrollInfo.scrollHeight, totalLinesHeight])
+  }, [dragStartY, scrollContainerRef, scrollInfo.scrollHeight, scrollInfo.clientHeight, totalLinesHeight, getMinimapContentOffset])
 
   useEffect(() => {
     if (isDragging) {
@@ -288,6 +352,9 @@ export function ChatMinimap({
     return null
   }
 
+  const contentOffset = getMinimapContentOffset()
+  const viewportPosition = getViewportPosition()
+
   return (
     <TooltipProvider delayDuration={300}>
       <div 
@@ -300,63 +367,72 @@ export function ChatMinimap({
         )}
         style={{ width: `${MINIMAP_WIDTH}px`, height: '100%' }}
         onClick={handleMinimapClick}
+        onMouseEnter={handleMinimapMouseEnter}
+        onMouseLeave={handleMinimapMouseLeave}
       >
         {/* Mini content - actual text like VSCode minimap */}
+        {/* Content moves to keep viewport visible */}
         <div 
           className="absolute inset-0 overflow-hidden"
           style={{ padding: `${PADDING}px` }}
         >
-          {miniLines.map((line, index) => {
-            const top = PADDING + index * LINE_HEIGHT
-            
-            return (
-              <div
-                key={`${line.localId}-${index}`}
-                className={cn(
-                  "absolute left-1 right-1 cursor-pointer whitespace-nowrap overflow-hidden",
-                  "hover:bg-primary/10 transition-colors"
-                )}
-                style={{
-                  top: `${top}px`,
-                  height: `${LINE_HEIGHT}px`,
-                  fontSize: `${FONT_SIZE}px`,
-                  lineHeight: `${LINE_HEIGHT}px`,
-                  fontFamily: 'monospace',
-                  color: line.type === 'human' 
-                    ? 'rgba(6, 182, 212, 0.7)' // cyan for user
-                    : 'rgba(139, 92, 246, 0.7)', // violet for AI
-                }}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onJumpToMessage(line.localId)
-                }}
-                title={getPreviewText(line.content)}
-              >
-                {line.content.slice(0, 60)}
-              </div>
-            )
-          })}
+          <div 
+            className="absolute left-0 right-0"
+            style={{ 
+              top: `${PADDING + contentOffset}px`,
+              height: `${totalLinesHeight}px`
+            }}
+          >
+            {miniLines.map((line, index) => {
+              const top = index * LINE_HEIGHT
+              
+              return (
+                <div
+                  key={`${line.localId}-${index}`}
+                  className={cn(
+                    "absolute left-1 right-1 cursor-pointer whitespace-nowrap overflow-hidden",
+                    "hover:bg-primary/10 transition-colors"
+                  )}
+                  style={{
+                    top: `${top}px`,
+                    height: `${LINE_HEIGHT}px`,
+                    fontSize: `${FONT_SIZE}px`,
+                    lineHeight: `${LINE_HEIGHT}px`,
+                    fontFamily: 'monospace',
+                    color: line.type === 'human' 
+                      ? 'rgba(6, 182, 212, 0.7)' // cyan for user
+                      : 'rgba(139, 92, 246, 0.7)', // violet for AI
+                  }}
+                  onClick={(e) => handleLineClick(e, index)}
+                  title={getPreviewText(line.content)}
+                >
+                  {line.content.slice(0, 60)}
+                </div>
+              )
+            })}
+          </div>
         </div>
 
-        {/* Viewport indicator with preview */}
-        <Tooltip open={showTooltip}>
+        {/* Viewport indicator with preview - hidden by default, shown on hover */}
+        <Tooltip open={showViewport && (isHoveringMinimap || isHoveringTooltip)}>
           <TooltipTrigger asChild>
             <div
               className={cn(
                 "absolute left-0 right-0 bg-primary/10 dark:bg-primary/5",
                 "border border-primary/30 rounded-sm",
-                "cursor-grab transition-colors",
+                "cursor-grab transition-all duration-200",
                 "hover:bg-primary/15 hover:border-primary/40",
-                isDragging && "cursor-grabbing bg-primary/20"
+                isDragging && "cursor-grabbing bg-primary/20",
+                // Hidden by default, shown on hover
+                !showViewport && "opacity-0",
+                showViewport && "opacity-100"
               )}
               style={{
-                top: `${viewportTop}px`,
-                height: `${viewportHeight}px`,
+                top: `${viewportPosition.top}px`,
+                height: `${viewportPosition.height}px`,
                 minHeight: `${VIEWPORT_MIN_HEIGHT}px`,
               }}
               onMouseDown={handleViewportMouseDown}
-              onMouseEnter={handleViewportMouseEnter}
-              onMouseLeave={handleViewportMouseLeave}
             />
           </TooltipTrigger>
           <TooltipContent

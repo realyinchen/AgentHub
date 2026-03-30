@@ -184,7 +184,7 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - Tavily web search fallback
   - Reporter node for final answer formatting
 - **navigator** — Navigation agent with Amap (高德地图) integration:
-  - `get_current_time` — Get current time in any timezone (MUST call first)
+  - `get_current_time` — Get current time in any timezone
   - `amap_geocode` — Convert address to coordinates (geocoding)
   - `amap_place_search` — Search POI by keywords (restaurants, hotels, etc.)
   - `amap_place_around` — Search POI around a location
@@ -192,6 +192,7 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - `amap_route_preview` — Generate complete route preview URL with waypoints
   - `amap_weather` — Query weather information for a city
   - Features: Time conflict detection, itinerary planning, weather-aware suggestions
+  - **Parallel tool execution** — Multiple tools execute simultaneously for faster planning
   - Supports location queries, route planning, and nearby place searches
 
 ## 📋 Environment Variables

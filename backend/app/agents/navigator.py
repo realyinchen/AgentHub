@@ -2,8 +2,10 @@
 
 This module implements a ReAct agent using pure LangGraph (StateGraph).
 The agent dynamically selects LLM based on thinking_mode from config.
+Tools are executed in parallel using asyncio.gather for optimal performance.
 """
 
+import asyncio
 from typing import Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -159,12 +161,17 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
 
 
 async def tool_node(state: NavigatorState) -> dict:
-    """Execute tools requested by the LLM.
+    """Execute tools requested by the LLM in parallel.
 
     This node:
     1. Gets the last message (should be an AIMessage with tool_calls)
-    2. Executes each tool call
+    2. Executes all tool calls simultaneously using asyncio.gather
     3. Returns ToolMessages with results
+
+    Using asyncio.gather with return_exceptions=True ensures:
+    - All tools start at the same time (true parallelism)
+    - One tool failure doesn't affect others
+    - Maximum performance for multi-tool scenarios
 
     Args:
         state: Current graph state
@@ -182,33 +189,55 @@ async def tool_node(state: NavigatorState) -> dict:
     tools = _get_tools()
     tools_by_name = _get_tools_by_name(tools)
 
-    # Execute each tool call
-    tool_messages = []
-    for tool_call in tool_calls:
-        tool_name = tool_call.get("name")
+    async def execute_single_call(tool_call: dict) -> ToolMessage:
+        """Execute a single tool call and return the result as ToolMessage.
+
+        Args:
+            tool_call: Tool call dict with 'name', 'args', and 'id' keys
+
+        Returns:
+            ToolMessage with the tool result or error message
+        """
+        tool_name = tool_call.get("name", "")
         tool_args = tool_call.get("args", {})
-        tool_call_id = tool_call.get("id")
+        tool_call_id = tool_call.get("id", "unknown")
 
         # Get the tool by name
         tool = tools_by_name.get(tool_name)
 
-        if tool:
-            try:
-                # Execute the tool (async)
-                result = await tool.ainvoke(tool_args)
-                if isinstance(result, str):
-                    observation = result
-                else:
-                    observation = str(result)
-            except Exception as e:
-                observation = f"Error executing tool {tool_name}: {str(e)}"
-        else:
-            observation = f"Tool {tool_name} not found"
+        if not tool:
+            return ToolMessage(
+                content=f"Tool {tool_name} not found", tool_call_id=tool_call_id
+            )
 
-        # Create ToolMessage
-        tool_messages.append(
-            ToolMessage(content=observation, tool_call_id=tool_call_id)
-        )
+        try:
+            # Execute the tool (async)
+            result = await tool.ainvoke(tool_args)
+            observation = result if isinstance(result, str) else str(result)
+        except Exception as e:
+            observation = f"Error executing tool {tool_name}: {str(e)}"
+
+        return ToolMessage(content=observation, tool_call_id=tool_call_id)
+
+    # Execute all tool calls in parallel using asyncio.gather
+    # return_exceptions=True ensures one failure doesn't crash others
+    results = await asyncio.gather(
+        *[execute_single_call(tc) for tc in tool_calls], return_exceptions=True
+    )
+
+    # Process results and handle any unexpected exceptions
+    tool_messages = []
+    for result in results:
+        if isinstance(result, Exception):
+            # This shouldn't happen since execute_single_call catches exceptions,
+            # but handle it just in case
+            tool_messages.append(
+                ToolMessage(
+                    content=f"Unexpected error: {str(result)}", tool_call_id="unknown"
+                )
+            )
+        else:
+            tool_messages.append(result)
 
     return {"messages": tool_messages}
 
