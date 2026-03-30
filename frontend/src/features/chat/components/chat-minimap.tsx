@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
+import { ChevronUp, ChevronDown } from "lucide-react"
 import { cn } from "@/lib/utils"
 import type { LocalChatMessage } from "@/types"
 import {
@@ -382,6 +383,22 @@ export function ChatMinimap({
     return text.slice(0, maxLength) + "..."
   }, [])
 
+  // Scroll to top
+  const scrollToTop = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    const container = scrollContainerRef.current
+    if (!container) return
+    container.scrollTo({ top: 0, behavior: 'smooth' })
+  }, [scrollContainerRef])
+
+  // Scroll to bottom
+  const scrollToBottom = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    const container = scrollContainerRef.current
+    if (!container) return
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' })
+  }, [scrollContainerRef])
+
   if (messages.length === 0) {
     return null
   }
@@ -395,11 +412,13 @@ export function ChatMinimap({
         ref={minimapRef}
         className={cn(
           "relative flex-shrink-0 bg-muted/30 dark:bg-muted/20",
-          "border-l border-r border-border/50",
+          "border-l border-r border-t border-b border-border/50",
           "cursor-pointer select-none overflow-hidden",
+          "rounded-t-lg rounded-b-lg",
+          "my-3 mr-2",
           isDragging && "cursor-grabbing"
         )}
-        style={{ width: `${MINIMAP_WIDTH}px`, height: '100%' }}
+        style={{ width: `${MINIMAP_WIDTH}px`, height: 'calc(100% - 24px)', maxHeight: 'calc(100vh - 120px)' }}
         onClick={handleMinimapClick}
         onMouseEnter={handleMinimapMouseEnter}
         onMouseLeave={handleMinimapMouseLeave}
@@ -523,6 +542,48 @@ export function ChatMinimap({
             </div>
           </TooltipContent>
         </Tooltip>
+
+        {/* Top gradient fade effect */}
+        <div 
+          className="absolute top-0 left-0 right-0 h-6 pointer-events-none bg-gradient-to-b from-muted to-transparent"
+        />
+
+        {/* Scroll to top arrow - hidden when at top */}
+        {scrollInfo.scrollTop > 10 && (
+          <div
+            className={cn(
+              "absolute top-2 left-0 right-0 flex items-center justify-center",
+              "cursor-pointer z-10",
+              "transition-all duration-200"
+            )}
+            onClick={scrollToTop}
+          >
+            <div className="bg-background/95 dark:bg-background/80 border border-border rounded-md p-1 shadow-sm hover:shadow-md hover:bg-background hover:scale-110 transition-all">
+              <ChevronUp className="size-5 text-foreground font-bold" strokeWidth={2.5} />
+            </div>
+          </div>
+        )}
+
+        {/* Bottom gradient fade effect */}
+        <div 
+          className="absolute bottom-0 left-0 right-0 h-6 pointer-events-none bg-gradient-to-t from-muted to-transparent"
+        />
+
+        {/* Scroll to bottom arrow - hidden when at bottom */}
+        {scrollInfo.scrollHeight - scrollInfo.scrollTop - scrollInfo.clientHeight > 10 && (
+          <div
+            className={cn(
+              "absolute bottom-2 left-0 right-0 flex items-center justify-center",
+              "cursor-pointer z-10",
+              "transition-all duration-200"
+            )}
+            onClick={scrollToBottom}
+          >
+            <div className="bg-background/95 dark:bg-background/80 border border-border rounded-md p-1 shadow-sm hover:shadow-md hover:bg-background hover:scale-110 transition-all">
+              <ChevronDown className="size-5 text-foreground font-bold" strokeWidth={2.5} />
+            </div>
+          </div>
+        )}
       </div>
     </TooltipProvider>
   )
