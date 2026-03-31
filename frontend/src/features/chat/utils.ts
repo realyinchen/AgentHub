@@ -1,12 +1,13 @@
 import type { ChatMessage, ConversationInDB, LocalChatMessage } from "@/types"
 import type { Locale } from "@/i18n"
+import { generateUUID } from "@/lib/utils"
 
 const FALLBACK_DEFAULT_TITLES = ["New conversation", "新会话"]
 
 export function normalizeChatMessage(message: Partial<ChatMessage>): ChatMessage {
   const toolCalls = Array.isArray(message.tool_calls)
     ? message.tool_calls.map((call) => ({
-        id: String(call.id ?? crypto.randomUUID()),
+        id: String(call.id ?? generateUUID()),
         name: String(call.name ?? "tool"),
         args:
           call.args && typeof call.args === "object"
@@ -40,7 +41,7 @@ export function toLocalMessage(
   const normalized = normalizeChatMessage(message)
   return {
     ...normalized,
-    local_id: options?.localId ?? crypto.randomUUID(),
+    local_id: options?.localId ?? generateUUID(),
     is_streaming: options?.isStreaming,
     custom_data: {
       ...normalized.custom_data,

@@ -16,6 +16,16 @@
 
 ### Recently Completed
 
+#### HTTP Environment UUID Generation Fix (2026-03-31)
+- ✅ **Problem Identified**: `crypto.randomUUID()` only works in secure contexts (HTTPS/localhost)
+- ✅ **Root Cause**: Docker deployment via HTTP causes "crypto.randomUUID is not a function" error
+- ✅ **Solution Implemented**: Created `generateUUID()` function with fallback polyfill
+- ✅ **Files Modified**:
+  - `frontend/src/lib/utils.ts` - Added `generateUUID()` function
+  - `frontend/src/App.tsx` - Replaced all `crypto.randomUUID()` calls
+  - `frontend/src/features/chat/utils.ts` - Replaced all `crypto.randomUUID()` calls
+- ✅ **Build Verified**: Frontend builds successfully with changes
+
 #### Automatic Environment Detection for Database Connections (2026-03-30)
 - ✅ **Docker Environment Detection**
   - Added `is_running_in_docker()` function to detect container runtime

@@ -2,6 +2,52 @@
 
 ## Current Work Focus
 
+**HTTP Environment UUID Generation Fix (3/31/2026)**
+
+Fixed `crypto.randomUUID is not a function` error that occurred when accessing the frontend via HTTP in Docker deployments.
+
+### Problem
+
+`crypto.randomUUID()` is a Secure Context API that only works in HTTPS or localhost environments. When accessing the Docker-deployed frontend via HTTP, this API is unavailable, causing the application to fail during initialization with the error: "初始化应用失败：crypto.randomUUID is not a function".
+
+### Solution
+
+Created a compatible `generateUUID()` function that uses the native `crypto.randomUUID()` when available (secure contexts), and falls back to a polyfill implementation otherwise.
+
+### Changes Made
+
+**Files Modified:**
+- `frontend/src/lib/utils.ts` - Added `generateUUID()` function with fallback polyfill
+- `frontend/src/App.tsx` - Replaced all `crypto.randomUUID()` calls with `generateUUID()`
+- `frontend/src/features/chat/utils.ts` - Replaced all `crypto.randomUUID()` calls with `generateUUID()`
+
+### Implementation
+
+```typescript
+// frontend/src/lib/utils.ts
+export function generateUUID(): string {
+  // Try native crypto.randomUUID first (requires secure context)
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  
+  // Fallback: UUID v4 polyfill
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0
+    const v = c === "x" ? r : (r & 0x3) | 0x8
+    return v.toString(16)
+  })
+}
+```
+
+### Key Technical Decisions
+
+1. **Graceful Degradation**: Use native API when available for better uniqueness guarantees
+2. **Simple Polyfill**: UUID v4 format compatible with standard UUID strings
+3. **Centralized Function**: Single export from `@/lib/utils` for consistent usage
+
+---
+
 **Automatic Environment Detection for Database Connections (3/30/2026)**
 
 Implemented automatic runtime environment detection for `POSTGRES_HOST` and `QDRANT_HOST`, eliminating the need to manually switch between `localhost` (local development) and `host.docker.internal` (Docker deployment).

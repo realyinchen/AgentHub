@@ -1,5 +1,4 @@
 import json
-import os
 from dotenv import find_dotenv
 from pydantic import (
     BeforeValidator,
@@ -10,40 +9,6 @@ from pydantic import (
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Annotated, Any
-
-
-def is_running_in_docker() -> bool:
-    """
-    Detect if the application is running inside a Docker container.
-
-    Returns:
-        True if running in Docker, False otherwise.
-    """
-    # Check for /.dockerenv file (Docker creates this file in containers)
-    if os.path.exists("/.dockerenv"):
-        return True
-
-    # Check /proc/1/cgroup for Docker indicators
-    try:
-        with open("/proc/1/cgroup", "r") as f:
-            content = f.read()
-            # Docker containers typically have "docker" or "containerd" in cgroup
-            if "docker" in content or "containerd" in content:
-                return True
-    except (FileNotFoundError, PermissionError):
-        pass
-
-    return False
-
-
-def get_default_host() -> str:
-    """
-    Get the default host based on the runtime environment.
-
-    Returns:
-        'host.docker.internal' if running in Docker, 'localhost' otherwise.
-    """
-    return "host.docker.internal" if is_running_in_docker() else "localhost"
 
 
 def check_str_is_http(x: str) -> str:
@@ -128,23 +93,6 @@ class Settings(BaseSettings):
     QDRANT_HOST: str | None = None
     QDRANT_PORT: int | None = None
     QDRANT_COLLECTION: str = ""
-
-    def model_post_init(self, __context: Any) -> None:
-        """
-        Set intelligent defaults for host configurations after model initialization.
-
-        If POSTGRES_HOST or QDRANT_HOST are not explicitly set in environment,
-        automatically detect the runtime environment and set appropriate values:
-        - Docker container: use 'host.docker.internal' to access host services
-        - Local development: use 'localhost'
-        """
-        # Set intelligent default for POSTGRES_HOST if not explicitly configured
-        if self.POSTGRES_HOST is None:
-            object.__setattr__(self, "POSTGRES_HOST", get_default_host())
-
-        # Set intelligent default for QDRANT_HOST if not explicitly configured
-        if self.QDRANT_HOST is None:
-            object.__setattr__(self, "QDRANT_HOST", get_default_host())
 
     # Amap (高德地图) Configuration
     AMAP_KEY: SecretStr | None = None

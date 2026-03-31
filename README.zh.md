@@ -273,7 +273,9 @@ AMAP_KEY=your_amap_api_key_here
 
 ### 前端（frontend/.env）
 ```env
-VITE_API_URL=http://localhost:8080
+# 后端 API 基础 URL
+# 默认值：/api/v1（相对路径，开发时使用 vite 代理，Docker 时使用 nginx 代理）
+VITE_API_BASE_URL=/api/v1
 ```
 
 ## 🔄 开发说明
@@ -308,41 +310,30 @@ python scripts/init_database.py
 
 ## 🐳 Docker 部署
 
-AgentHub 提供独立的后端和前端 Docker 部署方式。
+AgentHub 提供独立的后端和前端 Docker 部署方式。每个模块都有自己的 `docker-compose.yml` 文件。
 
 ### 部署后端
 
 仅启动后端服务。你需要提供自己的 PostgreSQL 和 Qdrant 实例。
 
-> **⚠️ 重要：网络配置说明**
->
-> 当后端在 Docker 中运行，但连接宿主机上的 PostgreSQL/Qdrant 时，你**必须**使用 `host.docker.internal` 而不是 `localhost`：
-> - `POSTGRES_HOST=host.docker.internal`（不是 `localhost`）
-> - `QDRANT_HOST=host.docker.internal`（不是 `localhost`）
->
-> 这是因为 Docker 容器内的 `localhost` 指向容器自身，而不是宿主机。`host.docker.internal` 是一个特殊的 DNS 名称，会解析到宿主机的 IP 地址。
-
 ```bash
-# 1. 复制环境变量文件
-cp backend/.env.example backend/.env
+# 1. 进入后端目录
+cd backend
 
-# 2. 编辑 backend/.env 文件，填入你的配置
-# 必填：
-#   - LLM_MODELS（你的 LLM API 密钥）
-#   - POSTGRES_HOST=host.docker.internal（本地 PostgreSQL）
-#   - POSTGRES_USER、POSTGRES_PASSWORD、POSTGRES_DB
-#   - QDRANT_HOST=host.docker.internal（本地 Qdrant）
-#   - QDRANT_PORT
-# 可选：TAVILY_API_KEY、AMAP_KEY、LANGCHAIN_API_KEY
+# 2. 复制环境变量文件
+cp .env.example .env
 
-# 3. 启动后端服务
-docker-compose -f docker-compose.backend.yml up -d
+# 3. 编辑 .env 文件，填入你的配置
+# 配置 POSTGRES_HOST、QDRANT_HOST 等设置
 
-# 4. 查看日志
-docker-compose -f docker-compose.backend.yml logs -f
+# 4. 启动后端服务
+docker-compose up -d
 
-# 5. 停止服务
-docker-compose -f docker-compose.backend.yml down
+# 5. 查看日志
+docker-compose logs -f
+
+# 6. 停止服务
+docker-compose down
 ```
 
 访问应用：
@@ -352,26 +343,26 @@ docker-compose -f docker-compose.backend.yml down
 
 仅启动前端服务。需要后端已运行。
 
-> **工作原理：**
-> - 浏览器访问前端 `http://localhost:5173`
-> - 浏览器向 `/api/v1` 发送 API 请求（相对路径，同源）
-> - Nginx 将 `/api/` 请求代理到后端
-> - 这避免了 CORS 问题，因为浏览器看到的是同源请求
-
 ```bash
-# 1. 启动前端服务（使用默认配置）
-docker-compose -f docker-compose.frontend.yml up -d
+# 1. 进入前端目录
+cd frontend
 
-# 或使用自定义后端：
-# NGINX_BACKEND_HOST=your-backend \
-# NGINX_BACKEND_PORT=8080 \
-# docker-compose -f docker-compose.frontend.yml up -d
+# 2. 复制环境变量文件
+cp .env.example .env
 
-# 2. 查看日志
-docker-compose -f docker-compose.frontend.yml logs -f
+# 3. 编辑 .env 文件，填入你的配置
+# 必填：NGINX_BACKEND_HOST（你的后端服务器地址）
+# NGINX_BACKEND_HOST=你的后端地址
+# NGINX_BACKEND_PORT=8080
 
-# 3. 停止服务
-docker-compose -f docker-compose.frontend.yml down
+# 4. 构建并启动前端服务
+docker-compose up -d --build
+
+# 5. 查看日志
+docker-compose logs -f
+
+# 6. 停止服务
+docker-compose down
 ```
 
 **环境变量说明：**
@@ -389,35 +380,15 @@ docker-compose -f docker-compose.frontend.yml down
 
 ```
 AgentHub/
-├── docker-compose.backend.yml   # 后端部署（需外部数据库）
-├── docker-compose.frontend.yml  # 前端部署（需外部后端）
 ├── backend/
-│   ├── Dockerfile               # 后端容器
-│   └── .env.example             # 环境变量模板
+│   ├── docker-compose.yml   # 后端部署
+│   ├── Dockerfile           # 后端容器
+│   └── .env.example         # 环境变量模板
 └── frontend/
-    ├── Dockerfile               # 前端容器（多阶段构建）
-    ├── nginx.conf               # Nginx 配置，含 API 代理
-    └── .env.example             # 环境变量模板
-```
-
-### Docker 常用命令
-
-```bash
-# 构建镜像
-docker-compose -f docker-compose.backend.yml build
-docker-compose -f docker-compose.frontend.yml build
-
-# 后台启动服务
-docker-compose -f docker-compose.backend.yml up -d
-docker-compose -f docker-compose.frontend.yml up -d
-
-# 查看服务日志
-docker-compose -f docker-compose.backend.yml logs -f
-docker-compose -f docker-compose.frontend.yml logs -f
-
-# 停止并删除容器
-docker-compose -f docker-compose.backend.yml down
-docker-compose -f docker-compose.frontend.yml down
+    ├── docker-compose.yml   # 前端部署
+    ├── Dockerfile           # 前端容器（多阶段构建）
+    ├── nginx.conf           # Nginx 配置，含 API 代理
+    └── .env.example         # 环境变量模板
 ```
 
 ## 🚧 已知限制
