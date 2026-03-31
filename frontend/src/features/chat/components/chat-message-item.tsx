@@ -465,7 +465,7 @@ export function ChatMessageItem({
                 ref={textareaRef}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-h-[60px] resize-none rounded-lg bg-user-bubble-foreground/10 p-2 text-sm text-user-bubble-foreground placeholder-user-bubble-foreground/50 focus:outline-none focus:ring-2 focus:ring-user-bubble-foreground/30"
+                className="w-full min-h-[60px] resize-none rounded-lg bg-background p-2 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder={t("message.editPlaceholder")}
                 rows={3}
               />
@@ -476,7 +476,7 @@ export function ChatMessageItem({
                     setIsEditing(false)
                     setEditContent(message.content)
                   }}
-                  className="rounded-md px-2 py-1 text-xs text-user-bubble-foreground/80 hover:bg-user-bubble-foreground/10"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-background/80"
                 >
                   {t("common.cancel")}
                 </button>
@@ -501,7 +501,7 @@ export function ChatMessageItem({
                     setIsEditing(false)
                   }}
                   disabled={!editContent.trim() || editDisabled}
-                  className="rounded-md bg-user-bubble-foreground/20 px-2 py-1 text-xs text-user-bubble-foreground hover:bg-user-bubble-foreground/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-md bg-primary/20 px-2 py-1 text-xs text-primary hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t("message.sendEdit")}
                 </button>
