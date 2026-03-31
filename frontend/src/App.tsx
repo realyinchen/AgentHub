@@ -11,7 +11,6 @@ import {
   setConversationTitle,
   streamChat,
 } from "@/lib/api"
-import { generateUUID } from "@/lib/utils"
 import type {
   AgentInDB,
   ChatMessage,
@@ -258,7 +257,7 @@ function App() {
     abortControllerRef.current?.abort()
     setIsStreaming(false)
 
-    const newThreadId = generateUUID()
+    const newThreadId = crypto.randomUUID()
     setThreadId(newThreadId)
     writeThreadIdToUrl(null)
     setMessages([])
@@ -276,7 +275,7 @@ function App() {
   }, [])
 
   const createStreamingPlaceholder = useCallback(() => {
-    const placeholderId = generateUUID()
+    const placeholderId = crypto.randomUUID()
     streamingPlaceholderIdRef.current = placeholderId
 
     setMessages((previous) => [
@@ -300,7 +299,7 @@ function App() {
       let placeholderId = streamingPlaceholderIdRef.current
 
       if (!placeholderId) {
-        placeholderId = generateUUID()
+        placeholderId = crypto.randomUUID()
         streamingPlaceholderIdRef.current = placeholderId
 
         return [
@@ -755,7 +754,7 @@ function App() {
       const previousMessages = messages.slice(0, messageIndex)
 
       // Create placeholder ID before any state updates
-      const placeholderId = generateUUID()
+      const placeholderId = crypto.randomUUID()
       streamingPlaceholderIdRef.current = placeholderId
 
       // Keep messages before the edited message, then add the edited user message
@@ -1138,7 +1137,7 @@ function App() {
 
           setIsLoadingConversation(false)
         } else {
-          const newThreadId = generateUUID()
+          const newThreadId = crypto.randomUUID()
           setThreadId(newThreadId)
           setConversationTitleState(defaultConversationTitle)
           setDraftTitle(defaultConversationTitle)

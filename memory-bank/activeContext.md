@@ -2,49 +2,27 @@
 
 ## Current Work Focus
 
-**HTTP Environment UUID Generation Fix (3/31/2026)**
+**Reverted UUID Polyfill Changes (3/31/2026)**
 
-Fixed `crypto.randomUUID is not a function` error that occurred when accessing the frontend via HTTP in Docker deployments.
+Reverted the `generateUUID()` wrapper function changes from commit f71dea85701aa3414bd98f48762091d1d5acb09d and restored direct use of `crypto.randomUUID()`.
 
-### Problem
+### Reason for Revert
 
-`crypto.randomUUID()` is a Secure Context API that only works in HTTPS or localhost environments. When accessing the Docker-deployed frontend via HTTP, this API is unavailable, causing the application to fail during initialization with the error: "初始化应用失败：crypto.randomUUID is not a function".
-
-### Solution
-
-Created a compatible `generateUUID()` function that uses the native `crypto.randomUUID()` when available (secure contexts), and falls back to a polyfill implementation otherwise.
+The `generateUUID()` wrapper with polyfill fallback was deemed not production-ready. The native `crypto.randomUUID()` is the preferred approach for production use.
 
 ### Changes Made
 
 **Files Modified:**
-- `frontend/src/lib/utils.ts` - Added `generateUUID()` function with fallback polyfill
-- `frontend/src/App.tsx` - Replaced all `crypto.randomUUID()` calls with `generateUUID()`
-- `frontend/src/features/chat/utils.ts` - Replaced all `crypto.randomUUID()` calls with `generateUUID()`
+- `frontend/src/lib/utils.ts` - Removed `generateUUID()` function (file now only contains `cn()` utility)
+- `frontend/src/App.tsx` - Removed `generateUUID` import, restored all `crypto.randomUUID()` calls
+- `frontend/src/features/chat/utils.ts` - Removed `generateUUID` import, restored all `crypto.randomUUID()` calls
 
-### Implementation
+### Note
 
-```typescript
-// frontend/src/lib/utils.ts
-export function generateUUID(): string {
-  // Try native crypto.randomUUID first (requires secure context)
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID()
-  }
-  
-  // Fallback: UUID v4 polyfill
-  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0
-    const v = c === "x" ? r : (r & 0x3) | 0x8
-    return v.toString(16)
-  })
-}
-```
-
-### Key Technical Decisions
-
-1. **Graceful Degradation**: Use native API when available for better uniqueness guarantees
-2. **Simple Polyfill**: UUID v4 format compatible with standard UUID strings
-3. **Centralized Function**: Single export from `@/lib/utils` for consistent usage
+`crypto.randomUUID()` requires a secure context (HTTPS or localhost). For HTTP deployments, consider:
+1. Use HTTPS in production (recommended)
+2. Access via localhost for local development
+3. If HTTP support is needed, a proper UUID library should be used instead of a custom polyfill
 
 ---
 
