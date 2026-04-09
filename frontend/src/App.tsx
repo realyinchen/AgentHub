@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Languages, Moon, Share2, Sun } from "lucide-react"
+import { Languages, Moon, Share2, Sun, Settings2 } from "lucide-react"
 
 import {
   createConversation,
@@ -31,6 +31,8 @@ import {
   DeleteConversationDialog,
   ShareDialog,
 } from "@/features/chat/components"
+import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
+import { ModelSelector } from "@/features/chat/components/model-selector"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import {
@@ -71,30 +73,24 @@ function App() {
   const {
     thinkingMode,
     toggleThinkingMode,
-    isAvailable: isThinkingModeAvailable,
-    isLoading: isThinkingModeLoading,
   } = useThinkingMode(threadId)
 
   // Model selection state - persisted per conversation in localStorage
   const {
-    thinkingModels,
-    nonThinkingModels,
+    models,
+    selectedModel,
     setSelectedModel,
-    setSelectedThinkingModel,
+    getSelectedModelInfo,
     getEffectiveModel,
+    refreshModels,
   } = useModels(threadId)
-  
-  // Get the effective model based on current thinking mode
-  const effectiveSelectedModel = getEffectiveModel(thinkingMode)
-  
-  // Handle model selection based on current thinking mode
-  const handleSelectModel = useCallback((name: string | null) => {
-    if (thinkingMode) {
-      setSelectedThinkingModel(name)
-    } else {
-      setSelectedModel(name)
-    }
-  }, [thinkingMode, setSelectedModel, setSelectedThinkingModel])
+
+  // Get the effective model ID (selected or default)
+  const effectiveSelectedModel = getEffectiveModel()
+
+  // Get current model info to check if it supports thinking
+  const currentModelInfo = getSelectedModelInfo()
+  const modelSupportsThinking = currentModelInfo?.thinking ?? false
   const [conversationTitle, setConversationTitleState] = useState(
     defaultConversationTitle,
   )
@@ -117,6 +113,7 @@ function App() {
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
   const [showShareDialog, setShowShareDialog] = useState(false)
+  const [showProviderConfig, setShowProviderConfig] = useState(false)
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
@@ -129,7 +126,7 @@ function App() {
   useEffect(() => {
     thinkingModeRef.current = thinkingMode
   }, [thinkingMode])
-  
+
   // Keep effectiveModelRef in sync with effectiveSelectedModel state
   useEffect(() => {
     effectiveModelRef.current = effectiveSelectedModel
@@ -342,32 +339,32 @@ function App() {
             const existingItem = previous.find(item => item.local_id === placeholderId)
             const existingContent = existingItem?.content || ""
             const existingToolCalls = existingItem?.tool_calls || []
-            
+
             // Backend sends both 'token' events (streaming) and 'message' events (complete)
             // Check if content was already streamed via token events
             // If existing content matches or is a prefix of the new content, tokens were already added
-            const contentAlreadyStreamed = hasContent && 
-              existingContent.length > 0 && 
-              (normalized.content === existingContent || 
-               normalized.content.startsWith(existingContent))
-            
+            const contentAlreadyStreamed = hasContent &&
+              existingContent.length > 0 &&
+              (normalized.content === existingContent ||
+                normalized.content.startsWith(existingContent))
+
             // Determine final content:
             // - If content was already streamed via tokens, keep existing content
             // - Otherwise, use the message content (for non-streaming cases like tool calls)
-            const finalContent = contentAlreadyStreamed ? existingContent : 
+            const finalContent = contentAlreadyStreamed ? existingContent :
               (hasContent ? normalized.content : existingContent)
-            
+
             // Merge tool calls: combine existing and new (avoid duplicates by id)
             const mergedToolCalls = hasToolCalls
               ? [...existingToolCalls, ...normalized.tool_calls.filter(
-                  (newTc) => !existingToolCalls.some((existingTc) => existingTc.id === newTc.id)
-                )]
+                (newTc) => !existingToolCalls.some((existingTc) => existingTc.id === newTc.id)
+              )]
               : existingToolCalls
-            
+
             // Determine if this is the final response
             // Final response: has content AND no tool calls
             const isFinalResponse = hasContent && !hasToolCalls
-            
+
             // Update the placeholder
             // Don't clear the ref during streaming - let the streaming end handler clear it
             return previous.map((item) =>
@@ -535,11 +532,11 @@ function App() {
         ...previous,
         toLocalMessage(
           { type: "human", content: trimmed },
-          { 
-            customData: quotedMessageId ? { 
+          {
+            customData: quotedMessageId ? {
               quoted_message_id: quotedMessageId,
               user_content: userContent,
-            } : undefined 
+            } : undefined
           }
         ),
       ])
@@ -763,13 +760,13 @@ function App() {
         { type: "human", content: newContent },
         { customData: messageToEdit.custom_data }
       )
-      
+
       // Create AI placeholder in the same state update to avoid race condition
       const aiPlaceholder = toLocalMessage(
         { type: "ai", content: "" },
         { localId: placeholderId, isStreaming: true }
       )
-      
+
       // Single state update with all messages
       setMessages([...previousMessages, editedUserMessage, aiPlaceholder])
 
@@ -1214,11 +1211,7 @@ function App() {
             onSelectAgent={pickAgentForCurrentConversation}
             thinkingMode={thinkingMode}
             onToggleThinkingMode={toggleThinkingMode}
-            isThinkingModeAvailable={isThinkingModeAvailable}
-            isThinkingModeLoading={isThinkingModeLoading}
-            models={thinkingMode ? thinkingModels : nonThinkingModels}
-            selectedModel={effectiveSelectedModel}
-            onSelectModel={handleSelectModel}
+            modelSupportsThinking={modelSupportsThinking}
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             scrollContainerRef={chatScrollContainerRef}
@@ -1226,9 +1219,9 @@ function App() {
         </SidebarInset>
 
         {/* Chat Minimap */}
-        <ChatMinimap 
-          key={threadId} 
-          messages={messages} 
+        <ChatMinimap
+          key={threadId}
+          messages={messages}
           onJumpToMessage={jumpToMessage}
           scrollContainerRef={chatScrollContainerRef}
         />
@@ -1279,41 +1272,62 @@ function App() {
               <Languages className="size-4" />
             </Button>
           </div>
-          {/* Agent selector - only show when not awaiting agent selection */}
+
+          {/* Model Config Button */}
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="w-full gap-1"
+            onClick={() => setShowProviderConfig(true)}
+          >
+            <Settings2 className="size-4" />
+            {t("provider.configure") || "Model Config"}
+          </Button>
+
+          {/* Model selector - only show in conversation page (not on home/agent selection page) */}
           {!isAwaitingAgentSelection && (
-            <Select
-              value={selectedAgentId}
-              onValueChange={(value) => {
-                if (!isStreaming && !isInitializing && !isLoadingConversation) {
-                  pickAgentForCurrentConversation(value)
-                }
-              }}
+            <ModelSelector
+              models={models}
+              selectedModel={selectedModel}
+              onSelectModel={setSelectedModel}
               disabled={isStreaming || isInitializing || isLoadingConversation}
-            >
-              <SelectTrigger size="sm" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(() => {
-                  // Sort agents to always show current selected agent first
-                  const sortedAgents = [...agents].sort((a, b) => {
-                    if (a.agent_id === selectedAgentId) return -1
-                    if (b.agent_id === selectedAgentId) return 1
-                    return 0
-                  })
-                  return sortedAgents.map((agent) => (
-                    <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                      {agent.agent_id.toLowerCase().includes("rag")
-                        ? t("chat.status.rag")
-                        : agent.agent_id === "chatbot"
-                          ? t("chat.status.chatbot")
-                          : agent.agent_id}
-                    </SelectItem>
-                  ))
-                })()}
-              </SelectContent>
-            </Select>
+            />
           )}
+
+          {/* Agent selector - always show */}
+          <Select
+            value={selectedAgentId}
+            onValueChange={(value) => {
+              if (!isStreaming && !isInitializing && !isLoadingConversation) {
+                pickAgentForCurrentConversation(value)
+              }
+            }}
+            disabled={isStreaming || isInitializing || isLoadingConversation}
+          >
+            <SelectTrigger size="sm" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(() => {
+                // Sort agents to always show current selected agent first
+                const sortedAgents = [...agents].sort((a, b) => {
+                  if (a.agent_id === selectedAgentId) return -1
+                  if (b.agent_id === selectedAgentId) return 1
+                  return 0
+                })
+                return sortedAgents.map((agent) => (
+                  <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                    {agent.agent_id.toLowerCase().includes("rag")
+                      ? t("chat.status.rag")
+                      : agent.agent_id === "chatbot"
+                        ? t("chat.status.chatbot")
+                        : agent.agent_id}
+                  </SelectItem>
+                ))
+              })()}
+            </SelectContent>
+          </Select>
         </aside>
       </SidebarProvider>
 
@@ -1341,6 +1355,17 @@ function App() {
       <ShareDialog
         open={showShareDialog}
         onOpenChange={setShowShareDialog}
+      />
+
+      {/* Provider Config Dialog */}
+      <ProviderConfigDialog
+        open={showProviderConfig}
+        onOpenChange={(open) => {
+          setShowProviderConfig(open)
+          if (!open) {
+            void refreshModels()
+          }
+        }}
       />
     </>
   )

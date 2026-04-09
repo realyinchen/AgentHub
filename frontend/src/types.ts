@@ -53,11 +53,56 @@ export type UserInput = {
   custom_data?: Record<string, unknown> | null
 }
 
+// ==================== Model Types ====================
+
+export type ModelType = "llm" | "vlm" | "embedding"
+
 export type ModelInfo = {
-  name: string
-  is_thinking: boolean
+  provider: string  // e.g. "dashscope", "zai"
+  model_type: ModelType
+  model_id: string  // e.g. "dashscope/qwen3.5-27b"
+  model_name: string  // e.g. "qwen3.5-27b"
+  has_api_key: boolean
+  thinking: boolean  // whether supports thinking mode
+  is_default: boolean
+  is_active: boolean
+  created_at: string
+  updated_at: string
 }
 
+export type ModelCreate = {
+  provider: string
+  model_type: ModelType
+  model_id: string
+  model_name: string
+  api_key?: string | null
+  thinking?: boolean
+  is_default?: boolean
+  is_active?: boolean
+}
+
+export type ModelUpdate = {
+  provider?: string
+  model_type?: ModelType
+  model_name?: string
+  api_key?: string | null
+  thinking?: boolean
+  is_default?: boolean
+  is_active?: boolean
+}
+
+export type ModelsResponse = {
+  models: ModelInfo[]
+  default_llm: string | null
+  default_vlm: string | null
+  default_embedding: string | null
+}
+
+export type ProvidersResponse = {
+  providers: string[]
+}
+
+// ==================== Tool Types ====================
 
 export type ToolCallEvent = {
   name: string
@@ -93,26 +138,26 @@ export type StoredToolCallInfo = {
 
 export type StreamEvent =
   | {
-      type: "token"
-      content: string
-    }
+    type: "token"
+    content: string
+  }
   | {
-      type: "thinking"
-      content: string
-    }
+    type: "thinking"
+    content: string
+  }
   | {
-      type: "message"
-      content: ChatMessage
-    }
+    type: "message"
+    content: ChatMessage
+  }
   | {
-      type: "error"
-      content: string
-    }
+    type: "error"
+    content: string
+  }
   | {
-      type: "tool_call"
-      content: ToolCallEvent
-    }
+    type: "tool_call"
+    content: ToolCallEvent
+  }
   | {
-      type: "tool_result"
-      content: ToolResultEvent
-    }
+    type: "tool_result"
+    content: ToolResultEvent
+  }

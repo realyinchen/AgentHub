@@ -2,17 +2,28 @@ from typing import List
 from langchain_core.documents import Document
 from langchain_core.tools import tool
 from langchain_qdrant import QdrantVectorStore
+from langchain_litellm import LiteLLMEmbeddings
 
-from app.core.models import embedding_model
+from app.core.config import settings
 from app.database import qdrant_manager
 
 
 def _get_vectorstore(collection_name: str) -> QdrantVectorStore:
     client = qdrant_manager.get_client()
+    # Get embedding model configuration from environment variables
+    model_name = settings.EMBEDDING_MODEL_NAME
+    if not model_name:
+        raise ValueError("EMBEDDING_MODEL_NAME is not configured in .env")
+    api_key = (
+        settings.EMBEDDING_API_KEY.get_secret_value()
+        if settings.EMBEDDING_API_KEY
+        else None
+    )
+    embeddings = LiteLLMEmbeddings(model=model_name, api_key=api_key)
     return QdrantVectorStore(
         client=client,
         collection_name=collection_name,
-        embedding=embedding_model,
+        embedding=embeddings,
     )
 
 

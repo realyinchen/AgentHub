@@ -1,207 +1,131 @@
 # pyright: reportArgumentType=false
 
 import logging
-from langchain_litellm import ChatLiteLLMRouter
-from langchain_community.embeddings import DashScopeEmbeddings
-from litellm.router import Router
 from langchain_core.messages import AIMessage
 
-from app.core.config import settings
+from app.core.model_manager import ModelManager
 
 
 logger = logging.getLogger(__name__)
 
 
-def _get_api_key_from_model_list(model_list: list[dict]) -> str | None:
-    """Extract API key from model list configuration."""
-    for model_config in model_list:
-        litellm_params = model_config.get("litellm_params", {})
-        api_key = litellm_params.get("api_key")
-        if api_key:
-            return api_key
-    return None
-
-
-def _build_model_list_for_router(model_list: list[dict]) -> list[dict]:
+async def aembedding_model() -> str:
     """
-    Build model list for litellm Router.
-    Ensures each model has the required fields.
+    Get the embedding model ID (async).
+
+    Returns:
+        Model ID string for embedding
     """
-    result = []
-    for model_config in model_list:
-        model_name = model_config.get("model_name")
-        litellm_params = model_config.get("litellm_params", {})
-
-        if not model_name or not litellm_params:
-            continue
-
-        result.append(
-            {
-                "model_name": model_name,
-                "litellm_params": litellm_params,
-            }
-        )
-    return result
+    return await ModelManager.get_embedding_model()
 
 
-# Initialize LLM instances
-llm = None
-thinking_llm = None
-embedding_model = None
-litellm_router = None
-
-# Get model list from configuration
-model_list = settings.get_model_list()
-
-if model_list:
-    # Router mode: use ChatLiteLLMRouter for multi-model management
-    logger.info("Initializing LLMs in Router mode with %d models", len(model_list))
-
-    # Build model list for router
-    router_model_list = _build_model_list_for_router(model_list)
-
-    # Create litellm Router
-    litellm_router = Router(model_list=router_model_list)
-
-    # Get default and thinking model names
-    default_model_name = settings.LLM_DEFAULT_MODEL
-    thinking_model_name = settings.LLM_THINKING_MODEL
-
-    # Create LLM instances
-    if default_model_name:
-        llm = ChatLiteLLMRouter(
-            router=litellm_router,
-            model_name=default_model_name,
-            temperature=0,
-        )
-        logger.info("Created default LLM with model_name=%s", default_model_name)
-
-    if thinking_model_name:
-        thinking_llm = ChatLiteLLMRouter(
-            router=litellm_router,
-            model_name=thinking_model_name,
-            temperature=0,
-        )
-        logger.info("Created thinking LLM with model_name=%s", thinking_model_name)
-
-    # Initialize embedding model
-    api_key = _get_api_key_from_model_list(model_list)
-    if api_key and settings.EMBEDDING_MODEL_NAME:
-        embedding_model = DashScopeEmbeddings(
-            model=settings.EMBEDDING_MODEL_NAME,
-            dashscope_api_key=api_key,
-        )
-        logger.info("Created embedding model: %s", settings.EMBEDDING_MODEL_NAME)
-
-elif settings.LLM_API_KEY and settings.LLM_NAME:
-    # Legacy single model mode
-    logger.info("Initializing LLMs in single model mode")
-
-    api_key = settings.LLM_API_KEY.get_secret_value()
-
-    llm = ChatLiteLLMRouter(
-        router=Router(
-            model_list=[
-                {
-                    "model_name": "default",
-                    "litellm_params": {
-                        "model": settings.LLM_NAME,
-                        "api_key": api_key,
-                        "api_base": settings.LLM_BASE_URL,
-                        "extra_body": {"enable_thinking": False},
-                    },
-                }
-            ]
-        ),
-        model_name="default",
-        temperature=0,
-    )
-
-    # In single model mode, thinking mode uses the same model with enable_thinking
-    if settings.LLM_BASE_URL:
-        thinking_llm = ChatLiteLLMRouter(
-            router=Router(
-                model_list=[
-                    {
-                        "model_name": "thinking",
-                        "litellm_params": {
-                            "model": settings.LLM_NAME,
-                            "api_key": api_key,
-                            "api_base": settings.LLM_BASE_URL,
-                            "extra_body": {"enable_thinking": True},
-                        },
-                    }
-                ]
-            ),
-            model_name="thinking",
-            temperature=0,
-        )
-
-    if settings.EMBEDDING_MODEL_NAME:
-        embedding_model = DashScopeEmbeddings(
-            model=settings.EMBEDDING_MODEL_NAME,
-            dashscope_api_key=api_key,
-        )
-else:
-    logger.warning(
-        "No LLM configuration found. Please set LLM_MODELS or LLM_API_KEY/LLM_NAME."
-    )
-
-
-# Cache for dynamically created LLM instances
-_llm_cache: dict[str, ChatLiteLLMRouter] = {}
-
-
-def get_llm(
-    thinking_mode: bool = False, model_name: str | None = None
-) -> ChatLiteLLMRouter | None:
+def embedding_model() -> str:
     """
-    Get the appropriate LLM based on thinking_mode or model_name.
+    Get the embedding model ID (sync wrapper for backward compatibility).
+
+    WARNING: This function creates a new event loop if called from sync context.
+    Prefer using aembedding_model() in async code.
+
+    Returns:
+        Model ID string for embedding
+    """
+    import asyncio
+
+    try:
+        _ = asyncio.get_running_loop()
+        # We're in an async context, but this is a sync function
+        # This is a code smell - caller should use aembedding_model()
+        logger.warning(
+            "embedding_model() called from async context. "
+            "Consider using aembedding_model() for better performance."
+        )
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(asyncio.run, ModelManager.get_embedding_model())
+            return future.result()
+    except RuntimeError:
+        return asyncio.run(ModelManager.get_embedding_model())
+
+
+async def aget_llm(thinking_mode: bool = False, model_id: str | None = None):
+    """
+    Get the appropriate LLM based on thinking_mode or model_id (async).
+
+    This is the preferred method for getting LLM instances in async code.
+
+    Args:
+        thinking_mode: If True, return the thinking model; otherwise return the normal model.
+        model_id: If provided, return the LLM for this specific model ID (takes precedence).
+
+    Returns:
+        ChatLiteLLMRouter instance
+
+    Raises:
+        ValueError: If no models are configured
+    """
+    return await ModelManager.get_llm(model_id=model_id, thinking_mode=thinking_mode)
+
+
+def get_llm(thinking_mode: bool = False, model_name: str | None = None):
+    """
+    Get the appropriate LLM based on thinking_mode or model_name (sync wrapper).
+
+    WARNING: This function creates a new event loop if called from sync context.
+    Prefer using aget_llm() in async code for better performance.
 
     Args:
         thinking_mode: If True, return the thinking model; otherwise return the normal model.
         model_name: If provided, return the LLM for this specific model name (takes precedence).
 
     Returns:
-        ChatLiteLLMRouter instance or None if not configured
+        ChatLiteLLMRouter instance
+
+    Raises:
+        ValueError: If no models are configured
     """
-    # If model_name is provided, get or create LLM for that specific model
-    if model_name:
-        # Check cache first
-        if model_name in _llm_cache:
-            logger.debug("get_llm: returning cached LLM for model_name=%s", model_name)
-            return _llm_cache[model_name]
+    import asyncio
 
-        # Create new LLM instance if router is available
-        if litellm_router:
-            new_llm = ChatLiteLLMRouter(
-                router=litellm_router,
-                model_name=model_name,
-                temperature=0,
+    try:
+        _ = asyncio.get_running_loop()
+        # We're in an async context, but this is a sync function
+        # This is a code smell - caller should use aget_llm()
+        logger.warning(
+            "get_llm() called from async context. "
+            "Consider using aget_llm() for better performance."
+        )
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(
+                asyncio.run,
+                ModelManager.get_llm(model_id=model_name, thinking_mode=thinking_mode),
             )
-            _llm_cache[model_name] = new_llm
-            logger.debug("get_llm: created new LLM for model_name=%s", model_name)
-            return new_llm
-
-        logger.warning("model_name provided but router not available")
-
-    # Fall back to thinking_mode logic
-    if thinking_mode:
-        if thinking_llm:
-            logger.debug("get_llm: returning thinking_llm")
-            return thinking_llm
-        logger.warning("Thinking mode requested but thinking_llm not configured")
-    if llm:
-        logger.debug("get_llm: returning default llm")
-        return llm
-    raise ValueError(
-        "No LLM configured. Please set LLM_MODELS or LLM_API_KEY/LLM_NAME."
-    )
+            return future.result()
+    except RuntimeError:
+        # No running event loop, run directly
+        return asyncio.run(
+            ModelManager.get_llm(model_id=model_name, thinking_mode=thinking_mode)
+        )
 
 
-def is_thinking_mode_available() -> bool:
-    """Check if thinking mode is available."""
-    return thinking_llm is not None
+def is_thinking_mode_available(model_id: str | None = None) -> bool:
+    """
+    Check if thinking mode is available for a specific model.
+
+    Args:
+        model_id: Model ID to check. If None, checks the default LLM.
+
+    Returns:
+        True if the model supports thinking mode
+    """
+    if model_id is None:
+        # Check default LLM
+        default_id = ModelManager.get_default_llm_id()
+        if default_id is None:
+            return False
+        return ModelManager.is_thinking_mode_available(default_id)
+    return ModelManager.is_thinking_mode_available(model_id)
 
 
 def extract_thinking_and_answer(msg: AIMessage) -> dict:

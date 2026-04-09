@@ -1,4 +1,5 @@
-import { MessageSquarePlus, MoreHorizontal, PencilLine, Trash2 } from "lucide-react"
+import { useState } from "react"
+import { MessageSquarePlus, MoreHorizontal, PencilLine, Trash2, History, ChevronsLeft, ChevronsRight, ChevronsDown } from "lucide-react"
 
 import type { ConversationInDB } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -19,7 +20,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarSeparator,
-  SidebarTrigger,
   useSidebar,
 } from "@/components/ui/sidebar"
 import agentHubLogo from "@/assets/agenthub.png"
@@ -37,6 +37,10 @@ type ChatSidebarProps = {
   disableCreateConversation: boolean
 }
 
+// Pagination constants
+const INITIAL_DISPLAY_COUNT = 10
+const LOAD_MORE_COUNT = 10
+
 export function ChatSidebar({
   threadId,
   conversations,
@@ -47,18 +51,30 @@ export function ChatSidebar({
   disableCreateConversation,
 }: ChatSidebarProps) {
   const { locale, t } = useI18n()
-  const { state } = useSidebar()
+  const { state, toggleSidebar } = useSidebar()
   const isCollapsed = state === "collapsed"
+
+  // Pagination state
+  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT)
+
+  // Get visible conversations
+  const visibleConversations = conversations.slice(0, displayCount)
+  const hasMore = conversations.length > displayCount
+
+  // Load more conversations
+  const loadMore = () => {
+    setDisplayCount(prev => prev + LOAD_MORE_COUNT)
+  }
 
   return (
     <Sidebar collapsible="icon" variant="sidebar">
       <SidebarHeader className={isCollapsed ? "gap-2" : "gap-2 p-3"}>
         {isCollapsed ? (
-          <div className="group/logo relative mx-auto flex size-9 items-center justify-center">
+          <div className="flex items-center justify-center py-2">
             <a
               href="/"
               title={t("sidebar.logoAlt")}
-              className="size-7 flex items-center justify-center transition-all duration-150 group-hover/logo:scale-90"
+              className="size-7 flex items-center justify-center transition-all duration-150 hover:scale-90"
             >
               <img
                 src="/vite.svg"
@@ -66,7 +82,6 @@ export function ChatSidebar({
                 className="size-7"
               />
             </a>
-            <SidebarTrigger className="absolute inset-0 size-9 scale-[1.35] cursor-pointer rounded-md opacity-0 pointer-events-none transition-all duration-150 group-hover/logo:scale-150 group-hover/logo:opacity-100 group-hover/logo:pointer-events-auto" />
           </div>
         ) : (
           <div className="flex w-full items-center justify-between gap-3">
@@ -77,14 +92,23 @@ export function ChatSidebar({
             >
               <img src={agentHubLogo} alt="" className="h-9 w-auto cursor-pointer" />
             </a>
-            <SidebarTrigger className="size-8 cursor-pointer rounded-md scale-150" />
+            {/* Collapse button with << arrow */}
+            <Button
+              variant="ghost"
+              size="icon"
+              className="size-8 cursor-pointer rounded-md"
+              onClick={() => toggleSidebar()}
+              title={t("sidebar.collapse") || "Collapse sidebar"}
+            >
+              <ChevronsLeft className="size-4" />
+            </Button>
           </div>
         )}
       </SidebarHeader>
 
       <SidebarSeparator />
 
-      <SidebarContent className={isCollapsed ? " pb-3" : "px-1 pb-3"}>
+      <SidebarContent className={isCollapsed ? "pb-3" : "px-1 pb-3"}>
         <SidebarGroup className="pt-2 mt-2">
           <SidebarGroupContent>
             <SidebarMenu>
@@ -99,6 +123,19 @@ export function ChatSidebar({
                   <span>{t("conversation.new")}</span>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              {/* Recent history icon when collapsed - below new conversation */}
+              {isCollapsed && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    className="cursor-pointer"
+                    tooltip={t("conversation.recent")}
+                    onClick={() => toggleSidebar()}
+                  >
+                    <History className="size-4" />
+                    <span>{t("conversation.recent")}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -112,7 +149,7 @@ export function ChatSidebar({
               </p>
             ) : (
               <SidebarMenu>
-                {conversations.map((conversation) => {
+                {visibleConversations.map((conversation) => {
                   const isActive = conversation.thread_id === threadId
 
                   return (
@@ -169,10 +206,41 @@ export function ChatSidebar({
                     </SidebarMenuItem>
                   )
                 })}
+
+                {/* Load more button */}
+                {hasMore && (
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      className="cursor-pointer justify-center"
+                      onClick={loadMore}
+                    >
+                      <ChevronsDown className="size-5" />
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                )}
               </SidebarMenu>
             )}
           </SidebarGroupContent>
         </SidebarGroup>
+
+        {/* Expand button when collapsed - at the bottom */}
+        {isCollapsed && (
+          <SidebarGroup className="mt-auto pt-2">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    className="cursor-pointer"
+                    tooltip={t("sidebar.expand") || "Expand sidebar"}
+                    onClick={() => toggleSidebar()}
+                  >
+                    <ChevronsRight className="size-4" />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
     </Sidebar>
   )

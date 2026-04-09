@@ -12,7 +12,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
 
-from app.core.models import get_llm
+from app.core.models import aget_llm
+from app.core.model_manager import ModelManager, build_extra_body
 from app.prompt.chatbot import get_prompt
 from app.tools.time import get_current_time
 from app.tools.web import create_web_search
@@ -113,29 +114,42 @@ async def llm_call(state: ChatbotState, config: RunnableConfig) -> dict:
     """LLM decides whether to call a tool or not.
 
     This node:
-    1. Gets thinking_mode from config
-    2. Selects appropriate LLM (normal or thinking)
-    3. Binds tools to the LLM
+    1. Gets thinking_mode and model_name from config
+    2. Selects appropriate LLM based on model_name (if provided) or thinking_mode
+    3. Binds tools to the LLM with extra_body for thinking mode
     4. Invokes the LLM with messages
 
     Args:
         state: Current graph state containing messages
-        config: Runnable config with thinking_mode in configurable
+        config: Runnable config with thinking_mode and model_name in configurable
 
     Returns:
         dict: Updated state with new message from LLM
     """
-    # Get thinking_mode from config
-    thinking_mode = config.get("configurable", {}).get("thinking_mode", False)
+    # Get thinking_mode and model_name from config
+    configurable = config.get("configurable", {})
+    thinking_mode = configurable.get("thinking_mode", False)
+    model_name = configurable.get("model_name")
     
-    # Get the appropriate LLM based on thinking_mode
-    llm = get_llm(thinking_mode=thinking_mode)
+    # Get the appropriate LLM based on model_name (if provided) or thinking_mode
+    llm = await aget_llm(thinking_mode=thinking_mode, model_id=model_name)
 
     # Get tools lazily
     tools = _get_tools()
 
-    # Bind tools to the LLM
-    llm_with_tools = llm.bind_tools(tools) # type: ignore
+    # Build extra_body for thinking mode and pass it to bind_tools
+    # This ensures extra_body is preserved when tools are bound
+    extra_body = None
+    if thinking_mode and model_name:
+        model = ModelManager.get_model(model_name)
+        if model:
+            extra_body = build_extra_body(model.provider, thinking_mode)
+    
+    # Bind tools to the LLM with extra_body
+    if extra_body:
+        llm_with_tools = llm.bind_tools(tools, extra_body=extra_body)  # type: ignore
+    else:
+        llm_with_tools = llm.bind_tools(tools)  # type: ignore
 
     # Get messages from state
     messages = state.get("messages", [])

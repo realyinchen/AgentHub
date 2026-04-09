@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str | None = None
     LLM_NAME: str | None = None
     EMBEDDING_MODEL_NAME: str | None = None
+    EMBEDDING_API_KEY: SecretStr | None = None
 
     # Multi-model configuration in JSON format
     # Example:

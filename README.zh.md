@@ -45,7 +45,7 @@ AgentHub/
 ├── backend/                # FastAPI + LangGraph 后端
 │   ├── app/                # 主应用程序代码
 │   │   ├── main.py         # FastAPI 应用入口点
-│   │   ├── agents/         # 智能体实现（chatbot, rag-agent）
+│   │   ├── agents/         # 智能体实现（chatbot, navigator）
 │   │   ├── api/            # API 路由
 │   │   ├── core/           # 核心配置
 │   │   ├── database/       # 数据库管理器和检查点
@@ -136,36 +136,52 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
    cd AgentHub
    ```
 
-4. **配置环境变量**
+4. **配置 LLM 和 VLM 模型（重要！）**
+   
+   在初始化数据库之前，您需要配置 LLM 和 VLM 模型：
+   
+   ```bash
+   # 编辑 SQL 文件添加您的 API 密钥
+   # 打开 backend/scripts/sql/init_database.sql 并：
+   # - 将空的 api_key 值替换为您的实际 API 密钥
+   # - 根据需要调整 model_id、model_name
+   # - 为您偏好的默认 LLM 和 VLM 设置 is_default=true
+   ```
+
+5. **配置环境变量**
    ```bash
    cd backend
    cp .env.example .env
    ```
-   使用您的 API 密钥和配置设置编辑 `.env` 文件。
+   编辑 `.env` 文件配置以下内容：
+   - **嵌入模型**：配置 `EMBEDDING_MODEL_NAME` 和 `EMBEDDING_API_KEY`
+   - **其他 API 密钥**：Tavily、高德地图、LangSmith 等
+   
+   > **注意**：LLM 和 VLM 模型在 `init_database.sql` 中配置，不在 `.env` 中。嵌入模型在 `.env` 中配置。
 
-5. **安装后端依赖**
+6. **安装后端依赖**
    ```bash
    pip install -r requirements.txt
    ```
 
-6. **初始化数据库**
+7. **初始化数据库**
    ```bash
    python scripts/init_database.py
    ```
 
-7. **启动后端服务器**
+8. **启动后端服务器**
    ```bash
    python run_backend.py
    ```
 
-8. **在新终端中，导航到前端并启动开发服务器**
+9. **在新终端中，导航到前端并启动开发服务器**
    ```bash
    cd frontend
    npm install
    npm run dev
    ```
 
-9. **访问应用程序**
+10. **访问应用程序**
    - 前端：在浏览器中打开 `http://localhost:5173`
    - 后端 API：访问 `http://localhost:8080/docs` 查看 Swagger UI
 
@@ -175,14 +191,6 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - `get_current_time` — 获取任意时区的当前时间
   - `web_search` — 搜索网络获取实时信息（通过 Tavily）
   - 支持实时查询（天气、新闻、当前时间等）
-- **rag-agent** — 高级 RAG 智能体，包含：
-  - 问题路由（向量存储 / 网络搜索 / 直接回答）
-  - Qdrant 向量存储检索
-  - 文档相关性评分
-  - 幻觉检测评分
-  - 回答质量评分
-  - Tavily 网络搜索回退
-  - 最终答案格式化的报告节点
 - **navigator** — 导航智能体，集成高德地图 API：
   - `get_current_time` — 获取任意时区的当前时间
   - `amap_geocode` — 地址转经纬度坐标（地理编码）
@@ -285,6 +293,7 @@ VITE_API_BASE_URL=/api/v1
 - **数据库脚本**：位于 `backend/scripts/` 用于初始化和维护
 - **智能体注册**：智能体在 `backend/app/agents/__init__.py` 中注册并通过 PostgreSQL 控制
 - **流式传输**：使用服务器发送事件（SSE）实现实时智能体响应
+- **API 设计**：仅使用 GET、POST、DELETE 端点（不使用 PATCH/PUT）。模型更新/删除操作使用 POST 并在请求体中传递 model_id，以避免 model_id 中 `/` 字符的 URL 编码问题（如 `zai/glm-5`）
 
 **开发前，请先使用 Docker 启动 PostgreSQL 和 Qdrant：**
 
@@ -393,8 +402,7 @@ AgentHub/
 
 ## 🚧 已知限制
 
-1. **RAG 集合**：`rag-agent` 需要预填充的 Qdrant 集合；目前没有内置的文档上传 UI
-2. **测试**：目前未实现单元/集成测试
+1. **测试**：目前未实现单元/集成测试
 
 ## 🚀 未来增强
 

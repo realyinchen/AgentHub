@@ -45,7 +45,7 @@ AgentHub/
 ├── backend/                # FastAPI + LangGraph backend
 │   ├── app/                # Main application code
 │   │   ├── main.py         # FastAPI application entry point
-│   │   ├── agents/         # Agent implementations (chatbot, rag-agent)
+│   │   ├── agents/         # Agent implementations (chatbot, navigator)
 │   │   ├── api/            # API routes
 │   │   ├── core/           # Core configurations
 │   │   ├── database/       # Database managers and checkpointer
@@ -136,36 +136,52 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
    cd AgentHub
    ```
 
-4. **Configure environment variables**
+4. **Configure LLM and VLM models (IMPORTANT!)**
+   
+   Before initializing the database, you need to configure your LLM and VLM models:
+   
+   ```bash
+   # Edit the SQL file to add your API keys
+   # Open backend/scripts/sql/init_database.sql and:
+   # - Replace empty api_key values with your actual API keys
+   # - Adjust model_id, model_name as needed
+   # - Set is_default=true for your preferred default LLM and VLM
+   ```
+
+5. **Configure environment variables**
    ```bash
    cd backend
    cp .env.example .env
    ```
-   Edit `.env` with your API keys and configuration settings.
+   Edit `.env` with your configuration:
+   - **Embedding model**: Configure `EMBEDDING_MODEL_NAME` and `EMBEDDING_API_KEY`
+   - **Other API keys**: Tavily, Amap, LangSmith, etc.
+   
+   > **Note**: LLM and VLM models are configured in `init_database.sql`, not in `.env`. Embedding models are configured in `.env`.
 
-5. **Install backend dependencies**
+6. **Install backend dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-6. **Initialize database**
+7. **Initialize database**
    ```bash
    python scripts/init_database.py
    ```
 
-7. **Start backend server**
+8. **Start backend server**
    ```bash
    python run_backend.py
    ```
 
-8. **In a new terminal, navigate to frontend and start development server**
+9. **In a new terminal, navigate to frontend and start development server**
    ```bash
    cd frontend
    npm install
    npm run dev
    ```
 
-9. **Access the application**
+10. **Access the application**
    - Frontend: Open `http://localhost:5173` in your browser
    - Backend API: Visit `http://localhost:8080/docs` for Swagger UI
 
@@ -175,14 +191,6 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - `get_current_time` — Get current time in any timezone
   - `web_search` — Search the web for real-time information (via Tavily)
   - Supports real-time queries (weather, news, current time, etc.)
-- **rag-agent** — Advanced RAG agent with:
-  - Question routing (vector store / web search / direct answer)
-  - Qdrant vector store retrieval
-  - Document relevance grading
-  - Hallucination grading
-  - Answer quality grading
-  - Tavily web search fallback
-  - Reporter node for final answer formatting
 - **navigator** — Navigation agent with Amap (高德地图) integration:
   - `get_current_time` — Get current time in any timezone
   - `amap_geocode` — Convert address to coordinates (geocoding)
@@ -285,6 +293,7 @@ VITE_API_BASE_URL=/api/v1
 - **Database Scripts**: Located in `backend/scripts/` for initialization and maintenance
 - **Agent Registration**: Agents are registered in `backend/app/agents/__init__.py` and controlled via PostgreSQL
 - **Streaming**: Uses Server-Sent Events (SSE) for real-time agent responses
+- **API Design**: Only use GET, POST, DELETE endpoints (no PATCH/PUT). Model update/delete operations use POST with model_id in request body to avoid URL encoding issues with `/` character in model_id (e.g., `zai/glm-5`)
 
 **Before development, start PostgreSQL and Qdrant using Docker:**
 
@@ -393,8 +402,7 @@ AgentHub/
 
 ## 🚧 Known Limitations
 
-1. **RAG Collection**: The `rag-agent` requires pre-populated Qdrant collections; no built-in document upload UI yet
-2. **Testing**: No unit/integration tests currently implemented
+1. **Testing**: No unit/integration tests currently implemented
 
 ## 🚀 Future Enhancements
 
