@@ -39,6 +39,8 @@
   --user-bubble-foreground: oklch(0.99 0 0);  /* User message text (white) */
   /* Brand accent */
   --brand-accent: oklch(0.75 0.15 55);        /* #FFB800 - Golden yellow for AH logo */
+  /* Switch checked color */
+  --switch-checked: oklch(0.65 0.18 145);     /* Green for switch on state */
 }
 
 .dark {
@@ -75,6 +77,8 @@
   --user-bubble-foreground: oklch(0.10 0.01 250); /* User message text (black) */
   /* Brand accent */
   --brand-accent: oklch(0.75 0.15 55);        /* #FFB800 - Golden yellow for AH logo */
+  /* Switch checked color */
+  --switch-checked: oklch(0.55 0.16 145);     /* Green for switch on state - darker for dark mode */
 }
 
 @theme inline {

@@ -64,7 +64,7 @@ function App() {
   const defaultConversationTitle = t("conversation.defaultTitle")
 
   const [agents, setAgents] = useState<AgentInDB[]>([])
-  const [selectedAgentId, setSelectedAgentId] = useState("chatbot")
+  const [selectedAgentId, setSelectedAgentId] = useState("")
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
@@ -261,8 +261,9 @@ function App() {
     setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
     setIsAwaitingAgentSelection(true)
+    setSelectedAgentId("") // Clear selected agent, user must choose one
     setAppError(null)
-  }, [writeThreadIdToUrl])
+  }, [writeThreadIdToUrl, defaultConversationTitle])
 
   const pickAgentForCurrentConversation = useCallback((agentId: string) => {
     setSelectedAgentId(agentId)
@@ -1076,11 +1077,11 @@ function App() {
             (agent) => agent.agent_id === queryAgentId
           )
             ? queryAgentId
-            : defaultAgentId
+            : ""
           setSelectedAgentId(validAgentId)
-        } else {
-          setSelectedAgentId(defaultAgentId)
         }
+        // If no agent_id in URL, don't pre-select any agent
+        // User will need to select one from the agent grid
 
         if (queryThreadId) {
           setIsAwaitingAgentSelection(false)
@@ -1275,7 +1276,7 @@ function App() {
           </div>
 
           {/* Model selector - only show in conversation page (not on home/agent selection page) */}
-          {!isAwaitingAgentSelection && (
+          {!isInitializing && !isAwaitingAgentSelection && (
             <ModelSelector
               models={models}
               selectedModel={selectedModel}
@@ -1284,39 +1285,37 @@ function App() {
             />
           )}
 
-          {/* Agent selector - always show */}
-          <Select
-            value={selectedAgentId}
-            onValueChange={(value) => {
-              if (!isStreaming && !isInitializing && !isLoadingConversation) {
-                pickAgentForCurrentConversation(value)
-              }
-            }}
-            disabled={isStreaming || isInitializing || isLoadingConversation}
-          >
-            <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(() => {
-                // Sort agents to always show current selected agent first
-                const sortedAgents = [...agents].sort((a, b) => {
-                  if (a.agent_id === selectedAgentId) return -1
-                  if (b.agent_id === selectedAgentId) return 1
-                  return 0
-                })
-                return sortedAgents.map((agent) => (
-                  <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                    {agent.agent_id.toLowerCase().includes("rag")
-                      ? t("chat.status.rag")
-                      : agent.agent_id === "chatbot"
-                        ? t("chat.status.chatbot")
-                        : agent.agent_id}
-                  </SelectItem>
-                ))
-              })()}
-            </SelectContent>
-          </Select>
+          {/* Agent selector - only show when not in agent selection page */}
+          {!isInitializing && !isAwaitingAgentSelection && (
+            <Select
+              value={selectedAgentId}
+              onValueChange={(value) => {
+                if (!isStreaming && !isInitializing && !isLoadingConversation) {
+                  pickAgentForCurrentConversation(value)
+                }
+              }}
+              disabled={isStreaming || isInitializing || isLoadingConversation}
+            >
+              <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {(() => {
+                  // Sort agents to always show current selected agent first
+                  const sortedAgents = [...agents].sort((a, b) => {
+                    if (a.agent_id === selectedAgentId) return -1
+                    if (b.agent_id === selectedAgentId) return 1
+                    return 0
+                  })
+                  return sortedAgents.map((agent) => (
+                    <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                      {agent.agent_id}
+                    </SelectItem>
+                  ))
+                })()}
+              </SelectContent>
+            </Select>
+          )}
 
           {/* Token Stats - show when in conversation */}
           {!isAwaitingAgentSelection && threadId && (() => {

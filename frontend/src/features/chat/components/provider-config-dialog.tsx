@@ -378,7 +378,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                       <SelectContent>
                         {MODEL_TYPES.map(type => (
                           <SelectItem key={type} value={type}>
-                            {t(`model.type.${type}`)}
+                            {type.toUpperCase()}
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -502,12 +502,11 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                             padding: isDeleting ? 0 : undefined,
                           }}
                         >
-                          {/* Model Header - Provider, Model Name, and Delete Button on same line */}
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Badge variant="outline">{model.provider}</Badge>
-                              <span className="font-medium">{model.model_name}</span>
-                              <Badge variant="outline">{t(`model.type.${model.model_type}`)}</Badge>
+                          {/* Model Header - Model Name, Type, and Delete Button on same line */}
+                           <div className="flex items-center justify-between gap-2 flex-wrap">
+                             <div className="flex items-center gap-2 flex-wrap">
+                               <span className="font-medium">{model.model_name}</span>
+                               <Badge variant="outline">{model.model_type.toUpperCase()}</Badge>
                               {model.thinking && (
                                 <Badge variant="secondary">{t("model.thinking")}</Badge>
                               )}
