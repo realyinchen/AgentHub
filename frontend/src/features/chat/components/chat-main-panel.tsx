@@ -44,7 +44,6 @@ type ChatMainPanelProps = {
   modelSupportsThinking: boolean // Whether current model supports thinking mode
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to message callback
-  scrollContainerRef?: React.RefObject<HTMLDivElement | null> // Ref for scroll container (used by minimap)
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -76,7 +75,6 @@ export function ChatMainPanel({
   modelSupportsThinking,
   onEditMessage,
   onJumpToMessage,
-  scrollContainerRef: externalScrollContainerRef,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
@@ -94,13 +92,6 @@ export function ChatMainPanel({
   const lastKnownScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
-
-  // Sync conversationRef with external ref for minimap
-  useEffect(() => {
-    if (externalScrollContainerRef && 'current' in externalScrollContainerRef) {
-      (externalScrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = conversationRef.current
-    }
-  }, [externalScrollContainerRef, conversationRef.current])
 
   const suggestions = useMemo(
     () => [

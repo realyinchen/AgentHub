@@ -183,6 +183,12 @@ const en = {
   "navigation.noUrl": "No navigation URL available",
   "navigation.completeRoute": "Complete Route",
   "navigation.segmentRoute": "Segment Navigation",
+  "token.title": "Token Usage",
+  "token.input": "Input",
+  "token.output": "Output",
+  "token.reasoning": "Reasoning",
+  "token.total": "Total",
+  "token.inputHint": "Includes system prompt",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -358,6 +364,12 @@ const zh: TranslationDictionary = {
   "navigation.noUrl": "暂无导航链接",
   "navigation.completeRoute": "完整路线",
   "navigation.segmentRoute": "分段导航",
+  "token.title": "Token 用量",
+  "token.input": "输入",
+  "token.output": "输出",
+  "token.reasoning": "推理",
+  "token.total": "总计",
+  "token.inputHint": "包含系统提示词",
 }
 
 const dictionaries = {

@@ -39,6 +39,9 @@ export type ConversationInDB = {
   thread_id: string
   title: string
   agent_id?: string | null
+  user_tokens: number
+  ai_tokens: number
+  reasoning_tokens: number
   created_at: string
   updated_at: string
   is_deleted: boolean

@@ -34,13 +34,20 @@ VALUES
 ON CONFLICT (agent_id) DO NOTHING;
 
 -- 2. conversations table
+-- agent_id: 存储当前会话用户选择的agent
+-- user_tokens: 用户发送消息的总token数（累计）
+-- ai_tokens: AI回复消息的总token数（累计，不含推理）
+-- reasoning_tokens: AI推理/思考过程消耗的token数（累计）
 CREATE TABLE IF NOT EXISTS public.conversations (
-    thread_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    title        VARCHAR(64) NOT NULL,
-    agent_id     VARCHAR(64) DEFAULT 'chatbot',
-    is_deleted   BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at   TIMESTAMPTZ DEFAULT NOW(),
-    updated_at   TIMESTAMPTZ DEFAULT NOW()
+    thread_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    title            VARCHAR(64) NOT NULL,
+    agent_id         VARCHAR(64) DEFAULT 'chatbot',
+    user_tokens      INTEGER NOT NULL DEFAULT 0,
+    ai_tokens        INTEGER NOT NULL DEFAULT 0,
+    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+    is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- Index for conversations

@@ -6,7 +6,6 @@ from langgraph.graph.state import CompiledStateGraph
 from app.database import adb_manager
 from app.models.agent import Agent
 from app.agents.chatbot import chatbot
-from app.agents.agentic_rag import rag_agent
 from app.agents.navigator import navigator
 
 
@@ -59,7 +58,6 @@ async def get_agent(agent_id: str) -> CompiledStateGraph:
     # Agent ID to agent instance mapping
     agent_map = {
         "chatbot": chatbot,
-        "rag-agent": rag_agent,
         "navigator": navigator,
     }
 
@@ -81,7 +79,6 @@ async def get_available_agents() -> List[CompiledStateGraph]:
     # Agent ID to agent instance mapping
     agent_map = {
         "chatbot": chatbot,
-        "rag-agent": rag_agent,
         "navigator": navigator,
     }
 

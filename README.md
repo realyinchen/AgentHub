@@ -26,7 +26,7 @@ Follow my WeChat official account for the latest updates:
 ✅ **Multi-language Support** — Built-in internationalization with English and Chinese translations.  
 ✅ **Dark/Light Theme** — Customizable theme support for comfortable viewing.  
 ✅ **Image Zoom & Drag** — Click any image in markdown to zoom in/out and drag to pan. Universal feature for all agents.  
-✅ **Chat Minimap** — VSCode-style minimap showing miniature conversation text with hover preview, click-to-jump, and drag-to-scroll navigation. Fixed viewport click navigation, preview tooltip close behavior, and bottom position preview display.  
+✅ **Token Stats Display** — Real-time token consumption visualization with vertical bar chart showing Input/Output/Reasoning tokens. Input tokens include system prompt (explained via tooltip). Dark mode compatible with internationalization support.  
 
 ## 🧩 Perfect For:
 
@@ -294,6 +294,7 @@ VITE_API_BASE_URL=/api/v1
 - **Agent Registration**: Agents are registered in `backend/app/agents/__init__.py` and controlled via PostgreSQL
 - **Streaming**: Uses Server-Sent Events (SSE) for real-time agent responses
 - **API Design**: Only use GET, POST, DELETE endpoints (no PATCH/PUT). Model update/delete operations use POST with model_id in request body to avoid URL encoding issues with `/` character in model_id (e.g., `zai/glm-5`)
+- **Token Tracking**: Automatic token usage tracking via `streaming_completion()` in `backend/app/core/llm_streaming.py`. New agents automatically get token tracking by using this function and returning `result.raw_response`. No additional code needed. See `chatbot.py` or `navigator.py` for examples.
 
 **Before development, start PostgreSQL and Qdrant using Docker:**
 

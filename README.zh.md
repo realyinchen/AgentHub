@@ -26,7 +26,7 @@
 ✅ **多语言支持** — 内置国际化支持，提供中英文翻译。  
 ✅ **深色/浅色主题** — 可自定义的主题支持，提供舒适的阅读体验。  
 ✅ **图片缩放拖拽** — 点击 Markdown 中的任意图片可放大/缩小，支持拖拽查看。通用功能，所有智能体可用。  
-✅ **聊天缩略图** — VSCode 风格的缩略图显示迷你对话文本，支持悬浮预览、点击跳转和拖拽滚动导航。已修复透明块点击跳转、预览块关闭行为和底部位置预览显示问题。  
+✅ **Token 用量展示** — 实时 Token 消耗可视化，纵向柱状图显示输入/输出/推理 Token。输入 Token 包含系统提示词（悬浮提示说明）。支持暗色模式和国际化。  
 
 ## 🧩 适用场景：
 
@@ -294,6 +294,7 @@ VITE_API_BASE_URL=/api/v1
 - **智能体注册**：智能体在 `backend/app/agents/__init__.py` 中注册并通过 PostgreSQL 控制
 - **流式传输**：使用服务器发送事件（SSE）实现实时智能体响应
 - **API 设计**：仅使用 GET、POST、DELETE 端点（不使用 PATCH/PUT）。模型更新/删除操作使用 POST 并在请求体中传递 model_id，以避免 model_id 中 `/` 字符的 URL 编码问题（如 `zai/glm-5`）
+- **Token 追踪**：通过 `backend/app/core/llm_streaming.py` 中的 `streaming_completion()` 自动追踪 token 使用量。新增智能体只需使用此函数并返回 `result.raw_response` 即可自动获得 token 追踪功能，无需额外代码。参考 `chatbot.py` 或 `navigator.py` 示例。
 
 **开发前，请先使用 Docker 启动 PostgreSQL 和 Qdrant：**
 

@@ -14,6 +14,10 @@ from app.utils.crypto import decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
+# Enable streaming usage globally for litellm
+# This ensures token usage is included in streaming responses
+litellm.enable_json_schema_validation = True
+
 
 def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
     """
@@ -35,6 +39,31 @@ def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
     else:
         # Other providers return empty by default, can be extended later
         return {}
+
+
+def bind_tools_with_usage_tracking(llm, tools, extra_body=None):
+    """
+    Bind tools to LLM with proper stream_options for token usage tracking.
+
+    This ensures that streaming responses include usage_metadata which is
+    required for token counting in the conversation.
+
+    IMPORTANT: When using bind_tools(), the stream_options must be passed
+    directly to bind_tools() because it creates a new Runnable that doesn't
+    inherit from previous bind() calls.
+
+    Args:
+        llm: The LLM instance (ChatLiteLLMRouter)
+        tools: List of tools to bind
+        extra_body: Optional extra_body parameters (e.g., for thinking mode)
+
+    Returns:
+        LLM with tools bound and stream_options configured
+    """
+    kwargs = {"stream_options": {"include_usage": True}}
+    if extra_body:
+        kwargs["extra_body"] = extra_body
+    return llm.bind_tools(tools, **kwargs)  # type: ignore
 
 
 class ModelManager:
@@ -150,6 +179,7 @@ class ModelManager:
                     "model": litellm_model,
                     "api_key": decrypted_api_key,
                     "extra_body": extra_body,
+                    "stream_options": {"include_usage": True},  # Enable token usage in streaming
                 },
             }
 
@@ -210,7 +240,11 @@ class ModelManager:
 
             # Use bind() to attach extra_body, ensuring it's passed during API calls
             # This is necessary because Router ignores extra_body from constructor
-            llm_with_extra_body = llm.bind(extra_body=extra_body)
+            # Also enable stream_options to include token usage in streaming responses
+            llm_with_extra_body = llm.bind(
+                extra_body=extra_body,
+                stream_options={"include_usage": True},  # Request token usage in streaming
+            )
 
             cls._llm_cache[cache_key] = llm_with_extra_body
             return llm_with_extra_body

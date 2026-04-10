@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
-import { Languages, Moon, Share2, Sun, Settings2 } from "lucide-react"
+import { Languages, Moon, Share2, Sun, Settings } from "lucide-react"
 
 import {
   createConversation,
@@ -25,11 +25,11 @@ import { useTheme } from "@/hooks/use-theme"
 import { useModels } from "@/hooks/use-models"
 import {
   ChatMainPanel,
-  ChatMinimap,
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
   ShareDialog,
+  TokenStats,
 } from "@/features/chat/components"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
 import { ModelSelector } from "@/features/chat/components/model-selector"
@@ -120,7 +120,6 @@ function App() {
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
   const effectiveModelRef = useRef<string | null>(null)
-  const chatScrollContainerRef = useRef<HTMLDivElement | null>(null)
 
   // Keep thinkingModeRef in sync with thinkingMode state
   useEffect(() => {
@@ -1214,21 +1213,12 @@ function App() {
             modelSupportsThinking={modelSupportsThinking}
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
-            scrollContainerRef={chatScrollContainerRef}
           />
         </SidebarInset>
 
-        {/* Chat Minimap */}
-        <ChatMinimap
-          key={threadId}
-          messages={messages}
-          onJumpToMessage={jumpToMessage}
-          scrollContainerRef={chatScrollContainerRef}
-        />
-
-        {/* Right Panel */}
-        <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-3 w-fit">
-          {/* Three buttons horizontally */}
+        {/* Right Panel - same width as left sidebar (16rem) */}
+        <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-2 w-64 min-w-64">
+          {/* Four buttons horizontally */}
           <div className="flex gap-1 w-full">
             <Button
               type="button"
@@ -1271,19 +1261,18 @@ function App() {
             >
               <Languages className="size-4" />
             </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="cursor-pointer size-8 flex-1"
+              onClick={() => setShowProviderConfig(true)}
+              aria-label={t("provider.configure")}
+              title={t("provider.configure")}
+            >
+              <Settings className="size-4" />
+            </Button>
           </div>
-
-          {/* Model Config Button */}
-          <Button
-            type="button"
-            size="sm"
-            variant="outline"
-            className="w-full gap-1"
-            onClick={() => setShowProviderConfig(true)}
-          >
-            <Settings2 className="size-4" />
-            {t("provider.configure") || "Model Config"}
-          </Button>
 
           {/* Model selector - only show in conversation page (not on home/agent selection page) */}
           {!isAwaitingAgentSelection && (
@@ -1328,6 +1317,21 @@ function App() {
               })()}
             </SelectContent>
           </Select>
+
+          {/* Token Stats - show when in conversation */}
+          {!isAwaitingAgentSelection && threadId && (() => {
+            const currentConversation = conversations.find(c => c.thread_id === threadId)
+            const userTokens = currentConversation?.user_tokens ?? 0
+            const aiTokens = currentConversation?.ai_tokens ?? 0
+            const reasoningTokens = currentConversation?.reasoning_tokens ?? 0
+            return (userTokens > 0 || aiTokens > 0 || reasoningTokens > 0) && (
+              <TokenStats
+                userTokens={userTokens}
+                aiTokens={aiTokens}
+                reasoningTokens={reasoningTokens}
+              />
+            )
+          })()}
         </aside>
       </SidebarProvider>
 
