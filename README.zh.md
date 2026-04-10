@@ -294,7 +294,17 @@ VITE_API_BASE_URL=/api/v1
 - **智能体注册**：智能体在 `backend/app/agents/__init__.py` 中注册并通过 PostgreSQL 控制
 - **流式传输**：使用服务器发送事件（SSE）实现实时智能体响应
 - **API 设计**：仅使用 GET、POST、DELETE 端点（不使用 PATCH/PUT）。模型更新/删除操作使用 POST 并在请求体中传递 model_id，以避免 model_id 中 `/` 字符的 URL 编码问题（如 `zai/glm-5`）
-- **Token 追踪**：通过 `backend/app/core/llm_streaming.py` 中的 `streaming_completion()` 自动追踪 token 使用量。新增智能体只需使用此函数并返回 `result.raw_response` 即可自动获得 token 追踪功能，无需额外代码。参考 `chatbot.py` 或 `navigator.py` 示例。
+- **Token 追踪**：通过 `backend/app/utils/llm.py` 中的 `streaming_completion()` 自动追踪 token 使用量。新增智能体只需使用此函数并返回 `result.raw_response` 即可自动获得 token 追踪功能，无需额外代码。参考 `chatbot.py` 或 `navigator.py` 示例。
+
+### LLM API 使用指南
+
+**推荐使用（异步 API）：**
+- 在 FastAPI 异步端点中使用 `aget_llm()`、`aembedding_model()`
+- 使用 `streaming_completion()` 进行 LLM 调用，自动追踪 token
+
+**仅用于兼容（同步包装器）：**
+- `get_llm()`、`embedding_model()` - 仅用于旧代码或非异步上下文
+- 在异步上下文中调用会产生额外开销（会触发警告日志）
 
 **开发前，请先使用 Docker 启动 PostgreSQL 和 Qdrant：**
 

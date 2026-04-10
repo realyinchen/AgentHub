@@ -294,7 +294,17 @@ VITE_API_BASE_URL=/api/v1
 - **Agent Registration**: Agents are registered in `backend/app/agents/__init__.py` and controlled via PostgreSQL
 - **Streaming**: Uses Server-Sent Events (SSE) for real-time agent responses
 - **API Design**: Only use GET, POST, DELETE endpoints (no PATCH/PUT). Model update/delete operations use POST with model_id in request body to avoid URL encoding issues with `/` character in model_id (e.g., `zai/glm-5`)
-- **Token Tracking**: Automatic token usage tracking via `streaming_completion()` in `backend/app/core/llm_streaming.py`. New agents automatically get token tracking by using this function and returning `result.raw_response`. No additional code needed. See `chatbot.py` or `navigator.py` for examples.
+- **Token Tracking**: Automatic token usage tracking via `streaming_completion()` in `backend/app/utils/llm.py`. New agents automatically get token tracking by using this function and returning `result.raw_response`. No additional code needed. See `chatbot.py` or `navigator.py` for examples.
+
+### LLM API Usage Guidelines
+
+**Recommended (Async API):**
+- Use `aget_llm()`, `aembedding_model()` in FastAPI async endpoints
+- Use `streaming_completion()` for LLM calls with automatic token tracking
+
+**Compatibility Only (Sync Wrappers):**
+- `get_llm()`, `embedding_model()` - for legacy code or non-async contexts only
+- These add overhead when called from async context (triggers warning log)
 
 **Before development, start PostgreSQL and Qdrant using Docker:**
 

@@ -355,10 +355,10 @@ export function ChatMessageItem({
       >
         <MessageContent
           className={cn(
-            "max-w-full overflow-visible rounded-2xl px-4 py-3",
+            "max-w-full overflow-visible rounded-3xl px-5 py-3.5 text-[15px] leading-relaxed",
             isUser
-              ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground shadow-lg dark:shadow-cyan-500/20"
-              : "w-full bg-ai-bubble text-foreground",
+              ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground"
+              : "w-full bg-ai-bubble text-foreground border border-border/50",
           )}
         >
           {/* Sources */}

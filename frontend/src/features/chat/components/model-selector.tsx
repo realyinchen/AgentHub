@@ -63,7 +63,7 @@ export function ModelSelector({
       }}
       disabled={disabled}
     >
-      <SelectTrigger size="sm" className="h-7 px-2 text-xs w-full">
+      <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
         <SelectValue placeholder={t("model.select")} />
       </SelectTrigger>
       <SelectContent position="popper" side="top" align="start" className="max-h-[300px]">

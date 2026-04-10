@@ -71,17 +71,15 @@ export function ChatSidebar({
       <SidebarHeader className={isCollapsed ? "gap-2" : "gap-2 p-3"}>
         {isCollapsed ? (
           <div className="flex items-center justify-center py-2">
-            <a
-              href="/"
-              title={t("sidebar.logoAlt")}
-              className="size-7 flex items-center justify-center transition-all duration-150 hover:scale-90"
+            <button
+              onClick={() => toggleSidebar()}
+              title={t("sidebar.expand") || "Expand sidebar"}
+              className="size-8 flex items-center justify-center transition-all duration-150 hover:scale-90 cursor-pointer"
             >
-              <img
-                src="/vite.svg"
-                alt={t("sidebar.logoAlt")}
-                className="size-7"
-              />
-            </a>
+              <div className="size-8 rounded-lg bg-primary flex items-center justify-center text-primary-foreground font-bold text-sm">
+                <span className="text-[#FFB800]">A</span><span>H</span>
+              </div>
+            </button>
           </div>
         ) : (
           <div className="flex w-full items-center justify-between gap-3">

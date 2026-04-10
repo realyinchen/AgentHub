@@ -18,7 +18,7 @@ from app.schemas.chat import (
     ChatHistory,
 )
 from app.utils.agent_utils import get_agent
-from app.core.models import is_thinking_mode_available
+from app.utils.llm import is_thinking_mode_available
 from app.core.config import settings
 from app.utils.message_utils import (
     handle_input,

@@ -179,7 +179,9 @@ class ModelManager:
                     "model": litellm_model,
                     "api_key": decrypted_api_key,
                     "extra_body": extra_body,
-                    "stream_options": {"include_usage": True},  # Enable token usage in streaming
+                    "stream_options": {
+                        "include_usage": True
+                    },  # Enable token usage in streaming
                 },
             }
 
@@ -243,7 +245,9 @@ class ModelManager:
             # Also enable stream_options to include token usage in streaming responses
             llm_with_extra_body = llm.bind(
                 extra_body=extra_body,
-                stream_options={"include_usage": True},  # Request token usage in streaming
+                stream_options={
+                    "include_usage": True
+                },  # Request token usage in streaming
             )
 
             cls._llm_cache[cache_key] = llm_with_extra_body
@@ -338,65 +342,3 @@ class ModelManager:
     def get_default_embedding_id(cls) -> Optional[str]:
         """Get default embedding model ID (from cache, no DB query)"""
         return cls._default_embedding_id
-
-    @classmethod
-    async def test_model_connection(
-        cls, provider: str, model_id: str, api_key: str, model_type: str
-    ) -> dict:
-        """
-        Test model connection by sending a minimal request.
-
-        Args:
-            provider: Provider name (e.g. "dashscope", "zai")
-            model_id: Model identifier (e.g. "qwen3.5-27b")
-            api_key: API key for authentication (already encrypted by frontend)
-            model_type: Model type (llm, vlm, embedding)
-
-        Returns:
-            dict with 'success' and 'message' keys
-        """
-        # Build litellm model: provider/model_id
-        litellm_model = f"{provider}/{model_id}"
-
-        # Decrypt API key before testing
-        decrypted_api_key = decrypt_api_key(api_key) if api_key else ""
-
-        try:
-            if model_type == "embedding":
-                # Test embedding model
-                kwargs = {
-                    "model": litellm_model,
-                    "input": ["test"],
-                    "api_key": decrypted_api_key,
-                }
-
-                response = await litellm.aembedding(**kwargs)
-                return {
-                    "success": True,
-                    "message": f"Embedding test successful. Dimensions: {len(response.data[0]['embedding']) if response.data else 'N/A'}",
-                }
-            else:
-                # Test LLM/VLM model
-                kwargs = {
-                    "model": litellm_model,
-                    "messages": [{"role": "user", "content": "Hi"}],
-                    "max_tokens": 1,
-                    "api_key": decrypted_api_key,
-                }
-
-                response = await litellm.acompletion(**kwargs)
-                return {
-                    "success": True,
-                    "message": "Connection successful. Model responded.",
-                }
-
-        except litellm.exceptions.AuthenticationError as e:
-            return {"success": False, "message": f"Authentication failed: {str(e)}"}
-        except litellm.exceptions.NotFoundError as e:
-            return {"success": False, "message": f"Model not found: {str(e)}"}
-        except litellm.exceptions.RateLimitError as e:
-            return {"success": False, "message": f"Rate limit exceeded: {str(e)}"}
-        except litellm.exceptions.APIConnectionError as e:
-            return {"success": False, "message": f"Connection error: {str(e)}"}
-        except Exception as e:
-            return {"success": False, "message": f"Test failed: {str(e)}"}

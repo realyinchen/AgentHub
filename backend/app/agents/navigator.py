@@ -15,7 +15,7 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
 
-from app.core.llm_streaming import streaming_completion
+from app.utils.llm import streaming_completion
 from app.core.model_manager import ModelManager, build_extra_body
 from app.prompt.navigator import get_navigator_prompt
 from app.tools.amap import AMAP_TOOLS

@@ -1294,7 +1294,7 @@ function App() {
             }}
             disabled={isStreaming || isInitializing || isLoadingConversation}
           >
-            <SelectTrigger size="sm" className="w-full">
+            <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>

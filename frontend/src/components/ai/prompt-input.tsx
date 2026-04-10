@@ -972,7 +972,7 @@ export const PromptInputSubmit = ({
   return (
     <InputGroupButton
       aria-label={t("common.submit")}
-      className={cn(className)}
+      className={cn("bg-primary text-primary-foreground hover:bg-primary/90", className)}
       size={size}
       type="submit"
       variant={variant}
