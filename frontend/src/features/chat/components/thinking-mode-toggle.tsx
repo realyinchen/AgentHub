@@ -10,8 +10,7 @@ import { useI18n } from "@/i18n"
 
 interface ThinkingModeToggleProps {
   enabled: boolean
-  available: boolean
-  loading: boolean
+  modelSupportsThinking: boolean  // Whether the current model supports thinking mode
   onToggle: () => void
 }
 
@@ -19,20 +18,24 @@ interface ThinkingModeToggleProps {
  * A toggle button for enabling/disabling thinking mode.
  * 
  * Displays a brain icon that is colored when thinking mode is enabled,
- * and grayscale when disabled. Only shows when thinking mode is available.
+ * and grayscale when disabled.
+ * 
+ * When the current model doesn't support thinking mode, the button is disabled
+ * and shows a tooltip explaining why.
  */
 export function ThinkingModeToggle({
   enabled,
-  available,
-  loading,
+  modelSupportsThinking,
   onToggle,
 }: ThinkingModeToggleProps) {
   const { t } = useI18n()
-  
-  // Don't render if thinking mode is not available or still loading
-  if (loading || !available) {
-    return null
-  }
+
+  // Determine tooltip text based on model support and current state
+  const tooltipText = !modelSupportsThinking
+    ? t("thinking.notSupported")
+    : enabled
+      ? t("thinking.enabled")
+      : t("thinking.clickToEnable")
 
   return (
     <TooltipProvider>
@@ -43,25 +46,25 @@ export function ThinkingModeToggle({
             variant="ghost"
             size="icon-sm"
             className="rounded-full scale-150 origin-center"
-            onClick={onToggle}
+            onClick={modelSupportsThinking ? onToggle : undefined}
+            disabled={!modelSupportsThinking}
           >
             <Brain
-              className={`size-4 transition-colors ${
-                enabled
-                  ? "text-purple-500 dark:text-purple-400"
-                  : "text-muted-foreground"
-              }`}
+              className={`size-4 transition-colors ${!modelSupportsThinking
+                  ? "text-muted-foreground/50"
+                  : enabled
+                    ? "text-purple-500 dark:text-purple-400"
+                    : "text-muted-foreground"
+                }`}
             />
             <span className="sr-only">
-              {enabled ? t("thinking.disabled") : t("thinking.enabled")}
+              {tooltipText}
             </span>
           </InputGroupButton>
         </TooltipTrigger>
         <TooltipContent>
-          <p>
-            {enabled
-              ? t("thinking.enabled")
-              : t("thinking.disabled")}
+          <p className={!modelSupportsThinking ? "text-muted-foreground" : ""}>
+            {tooltipText}
           </p>
         </TooltipContent>
       </Tooltip>

@@ -26,7 +26,7 @@
 ✅ **多语言支持** — 内置国际化支持，提供中英文翻译。  
 ✅ **深色/浅色主题** — 可自定义的主题支持，提供舒适的阅读体验。  
 ✅ **图片缩放拖拽** — 点击 Markdown 中的任意图片可放大/缩小，支持拖拽查看。通用功能，所有智能体可用。  
-✅ **聊天缩略图** — VSCode 风格的缩略图显示迷你对话文本，支持悬浮预览、点击跳转和拖拽滚动导航。已修复透明块点击跳转、预览块关闭行为和底部位置预览显示问题。  
+✅ **Token 用量展示** — 实时 Token 消耗可视化，纵向柱状图显示输入/输出/推理 Token。输入 Token 包含系统提示词（悬浮提示说明）。支持暗色模式和国际化。  
 
 ## 🧩 适用场景：
 
@@ -45,7 +45,7 @@ AgentHub/
 ├── backend/                # FastAPI + LangGraph 后端
 │   ├── app/                # 主应用程序代码
 │   │   ├── main.py         # FastAPI 应用入口点
-│   │   ├── agents/         # 智能体实现（chatbot, rag-agent）
+│   │   ├── agents/         # 智能体实现（chatbot, navigator）
 │   │   ├── api/            # API 路由
 │   │   ├── core/           # 核心配置
 │   │   ├── database/       # 数据库管理器和检查点
@@ -136,36 +136,52 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
    cd AgentHub
    ```
 
-4. **配置环境变量**
+4. **配置 LLM 和 VLM 模型（重要！）**
+   
+   在初始化数据库之前，您需要配置 LLM 和 VLM 模型：
+   
+   ```bash
+   # 编辑 SQL 文件添加您的 API 密钥
+   # 打开 backend/scripts/sql/init_database.sql 并：
+   # - 将空的 api_key 值替换为您的实际 API 密钥
+   # - 根据需要调整 model_id、model_name
+   # - 为您偏好的默认 LLM 和 VLM 设置 is_default=true
+   ```
+
+5. **配置环境变量**
    ```bash
    cd backend
    cp .env.example .env
    ```
-   使用您的 API 密钥和配置设置编辑 `.env` 文件。
+   编辑 `.env` 文件配置以下内容：
+   - **嵌入模型**：配置 `EMBEDDING_MODEL_NAME` 和 `EMBEDDING_API_KEY`
+   - **其他 API 密钥**：Tavily、高德地图、LangSmith 等
+   
+   > **注意**：LLM 和 VLM 模型在 `init_database.sql` 中配置，不在 `.env` 中。嵌入模型在 `.env` 中配置。
 
-5. **安装后端依赖**
+6. **安装后端依赖**
    ```bash
    pip install -r requirements.txt
    ```
 
-6. **初始化数据库**
+7. **初始化数据库**
    ```bash
    python scripts/init_database.py
    ```
 
-7. **启动后端服务器**
+8. **启动后端服务器**
    ```bash
    python run_backend.py
    ```
 
-8. **在新终端中，导航到前端并启动开发服务器**
+9. **在新终端中，导航到前端并启动开发服务器**
    ```bash
    cd frontend
    npm install
    npm run dev
    ```
 
-9. **访问应用程序**
+10. **访问应用程序**
    - 前端：在浏览器中打开 `http://localhost:5173`
    - 后端 API：访问 `http://localhost:8080/docs` 查看 Swagger UI
 
@@ -175,16 +191,8 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - `get_current_time` — 获取任意时区的当前时间
   - `web_search` — 搜索网络获取实时信息（通过 Tavily）
   - 支持实时查询（天气、新闻、当前时间等）
-- **rag-agent** — 高级 RAG 智能体，包含：
-  - 问题路由（向量存储 / 网络搜索 / 直接回答）
-  - Qdrant 向量存储检索
-  - 文档相关性评分
-  - 幻觉检测评分
-  - 回答质量评分
-  - Tavily 网络搜索回退
-  - 最终答案格式化的报告节点
 - **navigator** — 导航智能体，集成高德地图 API：
-  - `get_current_time` — 获取任意时区的当前时间（必须首先调用）
+  - `get_current_time` — 获取任意时区的当前时间
   - `amap_geocode` — 地址转经纬度坐标（地理编码）
   - `amap_place_search` — 关键词搜索 POI（餐厅、酒店等）
   - `amap_place_around` — 周边搜索 POI
@@ -192,6 +200,7 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - `amap_route_preview` — 生成包含途经点的完整路线预览链接
   - `amap_weather` — 查询城市天气信息
   - 特性：时间冲突检测、行程规划、天气感知建议
+  - **并行工具执行** — 多个工具同时执行，规划速度更快
   - 支持位置查询、路线规划和周边地点搜索
 
 ## 📋 环境变量
@@ -239,14 +248,22 @@ LANGCHAIN_API_KEY=lsv2_pt_xxx...
 # =============================================================================
 POSTGRES_USER=langchain
 POSTGRES_PASSWORD=langgraph
-POSTGRES_HOST=localhost
+# POSTGRES_HOST 会自动检测：
+# - 本地开发：localhost
+# - Docker 容器：host.docker.internal
+# 如需覆盖，可取消注释并设置值：
+# POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=agentdb
 
 # =============================================================================
 # Qdrant 配置
 # =============================================================================
-QDRANT_HOST=localhost
+# QDRANT_HOST 会自动检测：
+# - 本地开发：localhost
+# - Docker 容器：host.docker.internal
+# 如需覆盖，可取消注释并设置值：
+# QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION=agentic_rag_survey
 
@@ -264,7 +281,9 @@ AMAP_KEY=your_amap_api_key_here
 
 ### 前端（frontend/.env）
 ```env
-VITE_API_URL=http://localhost:8080
+# 后端 API 基础 URL
+# 默认值：/api/v1（相对路径，开发时使用 vite 代理，Docker 时使用 nginx 代理）
+VITE_API_BASE_URL=/api/v1
 ```
 
 ## 🔄 开发说明
@@ -274,6 +293,18 @@ VITE_API_URL=http://localhost:8080
 - **数据库脚本**：位于 `backend/scripts/` 用于初始化和维护
 - **智能体注册**：智能体在 `backend/app/agents/__init__.py` 中注册并通过 PostgreSQL 控制
 - **流式传输**：使用服务器发送事件（SSE）实现实时智能体响应
+- **API 设计**：仅使用 GET、POST、DELETE 端点（不使用 PATCH/PUT）。模型更新/删除操作使用 POST 并在请求体中传递 model_id，以避免 model_id 中 `/` 字符的 URL 编码问题（如 `zai/glm-5`）
+- **Token 追踪**：通过 `backend/app/utils/llm.py` 中的 `streaming_completion()` 自动追踪 token 使用量。新增智能体只需使用此函数并返回 `result.raw_response` 即可自动获得 token 追踪功能，无需额外代码。参考 `chatbot.py` 或 `navigator.py` 示例。
+
+### LLM API 使用指南
+
+**推荐使用（异步 API）：**
+- 在 FastAPI 异步端点中使用 `aget_llm()`、`aembedding_model()`
+- 使用 `streaming_completion()` 进行 LLM 调用，自动追踪 token
+
+**仅用于兼容（同步包装器）：**
+- `get_llm()`、`embedding_model()` - 仅用于旧代码或非异步上下文
+- 在异步上下文中调用会产生额外开销（会触发警告日志）
 
 **开发前，请先使用 Docker 启动 PostgreSQL 和 Qdrant：**
 
@@ -299,41 +330,30 @@ python scripts/init_database.py
 
 ## 🐳 Docker 部署
 
-AgentHub 提供独立的后端和前端 Docker 部署方式。
+AgentHub 提供独立的后端和前端 Docker 部署方式。每个模块都有自己的 `docker-compose.yml` 文件。
 
 ### 部署后端
 
 仅启动后端服务。你需要提供自己的 PostgreSQL 和 Qdrant 实例。
 
-> **⚠️ 重要：网络配置说明**
->
-> 当后端在 Docker 中运行，但连接宿主机上的 PostgreSQL/Qdrant 时，你**必须**使用 `host.docker.internal` 而不是 `localhost`：
-> - `POSTGRES_HOST=host.docker.internal`（不是 `localhost`）
-> - `QDRANT_HOST=host.docker.internal`（不是 `localhost`）
->
-> 这是因为 Docker 容器内的 `localhost` 指向容器自身，而不是宿主机。`host.docker.internal` 是一个特殊的 DNS 名称，会解析到宿主机的 IP 地址。
-
 ```bash
-# 1. 复制环境变量文件
-cp backend/.env.example backend/.env
+# 1. 进入后端目录
+cd backend
 
-# 2. 编辑 backend/.env 文件，填入你的配置
-# 必填：
-#   - LLM_MODELS（你的 LLM API 密钥）
-#   - POSTGRES_HOST=host.docker.internal（本地 PostgreSQL）
-#   - POSTGRES_USER、POSTGRES_PASSWORD、POSTGRES_DB
-#   - QDRANT_HOST=host.docker.internal（本地 Qdrant）
-#   - QDRANT_PORT
-# 可选：TAVILY_API_KEY、AMAP_KEY、LANGCHAIN_API_KEY
+# 2. 复制环境变量文件
+cp .env.example .env
 
-# 3. 启动后端服务
-docker-compose -f docker-compose.backend.yml up -d
+# 3. 编辑 .env 文件，填入你的配置
+# 配置 POSTGRES_HOST、QDRANT_HOST 等设置
 
-# 4. 查看日志
-docker-compose -f docker-compose.backend.yml logs -f
+# 4. 启动后端服务
+docker-compose up -d
 
-# 5. 停止服务
-docker-compose -f docker-compose.backend.yml down
+# 5. 查看日志
+docker-compose logs -f
+
+# 6. 停止服务
+docker-compose down
 ```
 
 访问应用：
@@ -343,26 +363,26 @@ docker-compose -f docker-compose.backend.yml down
 
 仅启动前端服务。需要后端已运行。
 
-> **工作原理：**
-> - 浏览器访问前端 `http://localhost:5173`
-> - 浏览器向 `/api/v1` 发送 API 请求（相对路径，同源）
-> - Nginx 将 `/api/` 请求代理到后端
-> - 这避免了 CORS 问题，因为浏览器看到的是同源请求
-
 ```bash
-# 1. 启动前端服务（使用默认配置）
-docker-compose -f docker-compose.frontend.yml up -d
+# 1. 进入前端目录
+cd frontend
 
-# 或使用自定义后端：
-# NGINX_BACKEND_HOST=your-backend \
-# NGINX_BACKEND_PORT=8080 \
-# docker-compose -f docker-compose.frontend.yml up -d
+# 2. 复制环境变量文件
+cp .env.example .env
 
-# 2. 查看日志
-docker-compose -f docker-compose.frontend.yml logs -f
+# 3. 编辑 .env 文件，填入你的配置
+# 必填：NGINX_BACKEND_HOST（你的后端服务器地址）
+# NGINX_BACKEND_HOST=你的后端地址
+# NGINX_BACKEND_PORT=8080
 
-# 3. 停止服务
-docker-compose -f docker-compose.frontend.yml down
+# 4. 构建并启动前端服务
+docker-compose up -d --build
+
+# 5. 查看日志
+docker-compose logs -f
+
+# 6. 停止服务
+docker-compose down
 ```
 
 **环境变量说明：**
@@ -380,41 +400,20 @@ docker-compose -f docker-compose.frontend.yml down
 
 ```
 AgentHub/
-├── docker-compose.backend.yml   # 后端部署（需外部数据库）
-├── docker-compose.frontend.yml  # 前端部署（需外部后端）
 ├── backend/
-│   ├── Dockerfile               # 后端容器
-│   └── .env.example             # 环境变量模板
+│   ├── docker-compose.yml   # 后端部署
+│   ├── Dockerfile           # 后端容器
+│   └── .env.example         # 环境变量模板
 └── frontend/
-    ├── Dockerfile               # 前端容器（多阶段构建）
-    ├── nginx.conf               # Nginx 配置，含 API 代理
-    └── .env.example             # 环境变量模板
-```
-
-### Docker 常用命令
-
-```bash
-# 构建镜像
-docker-compose -f docker-compose.backend.yml build
-docker-compose -f docker-compose.frontend.yml build
-
-# 后台启动服务
-docker-compose -f docker-compose.backend.yml up -d
-docker-compose -f docker-compose.frontend.yml up -d
-
-# 查看服务日志
-docker-compose -f docker-compose.backend.yml logs -f
-docker-compose -f docker-compose.frontend.yml logs -f
-
-# 停止并删除容器
-docker-compose -f docker-compose.backend.yml down
-docker-compose -f docker-compose.frontend.yml down
+    ├── docker-compose.yml   # 前端部署
+    ├── Dockerfile           # 前端容器（多阶段构建）
+    ├── nginx.conf           # Nginx 配置，含 API 代理
+    └── .env.example         # 环境变量模板
 ```
 
 ## 🚧 已知限制
 
-1. **RAG 集合**：`rag-agent` 需要预填充的 Qdrant 集合；目前没有内置的文档上传 UI
-2. **测试**：目前未实现单元/集成测试
+1. **测试**：目前未实现单元/集成测试
 
 ## 🚀 未来增强
 

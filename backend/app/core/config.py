@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     LLM_BASE_URL: str | None = None
     LLM_NAME: str | None = None
     EMBEDDING_MODEL_NAME: str | None = None
+    EMBEDDING_API_KEY: SecretStr | None = None
 
     # Multi-model configuration in JSON format
     # Example:
@@ -63,7 +64,7 @@ class Settings(BaseSettings):
 
     # Default model name to use (must match a model_name in LLM_MODELS)
     LLM_DEFAULT_MODEL: str = "default"
-    
+
     # Thinking model name (must match a model_name in LLM_MODELS)
     # If not set, thinking mode feature is disabled
     LLM_THINKING_MODEL: str | None = None
@@ -133,20 +134,20 @@ class Settings(BaseSettings):
     def get_model_list(self) -> list[dict[str, Any]] | None:
         """
         Parse LLM_MODELS JSON string into a list of model configurations.
-        
+
         Returns:
             List of model configurations, or None if LLM_MODELS is not set
         """
         if not self.LLM_MODELS:
             return None
-        
+
         try:
             models = json.loads(self.LLM_MODELS)
             if isinstance(models, list):
                 return models
         except json.JSONDecodeError:
             pass
-        
+
         return None
 
     def is_router_mode(self) -> bool:

@@ -110,7 +110,22 @@ class Conversation(BaseModel):
     agent_id: str | None = Field(
         description="The agent ID used in this conversation.",
         default="chatbot",
-        examples=["chatbot", "agentic_rag"],
+        examples=["chatbot", "navigator"],
+    )
+    user_tokens: int = Field(
+        description="Total tokens sent by user in this conversation.",
+        default=0,
+        examples=[1500],
+    )
+    ai_tokens: int = Field(
+        description="Total tokens in AI responses in this conversation (excluding reasoning).",
+        default=0,
+        examples=[3000],
+    )
+    reasoning_tokens: int = Field(
+        description="Total tokens used for reasoning/thinking by AI in this conversation.",
+        default=0,
+        examples=[500],
     )
 
 

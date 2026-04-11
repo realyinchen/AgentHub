@@ -26,7 +26,7 @@ Follow my WeChat official account for the latest updates:
 ✅ **Multi-language Support** — Built-in internationalization with English and Chinese translations.  
 ✅ **Dark/Light Theme** — Customizable theme support for comfortable viewing.  
 ✅ **Image Zoom & Drag** — Click any image in markdown to zoom in/out and drag to pan. Universal feature for all agents.  
-✅ **Chat Minimap** — VSCode-style minimap showing miniature conversation text with hover preview, click-to-jump, and drag-to-scroll navigation. Fixed viewport click navigation, preview tooltip close behavior, and bottom position preview display.  
+✅ **Token Stats Display** — Real-time token consumption visualization with vertical bar chart showing Input/Output/Reasoning tokens. Input tokens include system prompt (explained via tooltip). Dark mode compatible with internationalization support.  
 
 ## 🧩 Perfect For:
 
@@ -45,7 +45,7 @@ AgentHub/
 ├── backend/                # FastAPI + LangGraph backend
 │   ├── app/                # Main application code
 │   │   ├── main.py         # FastAPI application entry point
-│   │   ├── agents/         # Agent implementations (chatbot, rag-agent)
+│   │   ├── agents/         # Agent implementations (chatbot, navigator)
 │   │   ├── api/            # API routes
 │   │   ├── core/           # Core configurations
 │   │   ├── database/       # Database managers and checkpointer
@@ -136,36 +136,52 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
    cd AgentHub
    ```
 
-4. **Configure environment variables**
+4. **Configure LLM and VLM models (IMPORTANT!)**
+   
+   Before initializing the database, you need to configure your LLM and VLM models:
+   
+   ```bash
+   # Edit the SQL file to add your API keys
+   # Open backend/scripts/sql/init_database.sql and:
+   # - Replace empty api_key values with your actual API keys
+   # - Adjust model_id, model_name as needed
+   # - Set is_default=true for your preferred default LLM and VLM
+   ```
+
+5. **Configure environment variables**
    ```bash
    cd backend
    cp .env.example .env
    ```
-   Edit `.env` with your API keys and configuration settings.
+   Edit `.env` with your configuration:
+   - **Embedding model**: Configure `EMBEDDING_MODEL_NAME` and `EMBEDDING_API_KEY`
+   - **Other API keys**: Tavily, Amap, LangSmith, etc.
+   
+   > **Note**: LLM and VLM models are configured in `init_database.sql`, not in `.env`. Embedding models are configured in `.env`.
 
-5. **Install backend dependencies**
+6. **Install backend dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-6. **Initialize database**
+7. **Initialize database**
    ```bash
    python scripts/init_database.py
    ```
 
-7. **Start backend server**
+8. **Start backend server**
    ```bash
    python run_backend.py
    ```
 
-8. **In a new terminal, navigate to frontend and start development server**
+9. **In a new terminal, navigate to frontend and start development server**
    ```bash
    cd frontend
    npm install
    npm run dev
    ```
 
-9. **Access the application**
+10. **Access the application**
    - Frontend: Open `http://localhost:5173` in your browser
    - Backend API: Visit `http://localhost:8080/docs` for Swagger UI
 
@@ -175,16 +191,8 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - `get_current_time` — Get current time in any timezone
   - `web_search` — Search the web for real-time information (via Tavily)
   - Supports real-time queries (weather, news, current time, etc.)
-- **rag-agent** — Advanced RAG agent with:
-  - Question routing (vector store / web search / direct answer)
-  - Qdrant vector store retrieval
-  - Document relevance grading
-  - Hallucination grading
-  - Answer quality grading
-  - Tavily web search fallback
-  - Reporter node for final answer formatting
 - **navigator** — Navigation agent with Amap (高德地图) integration:
-  - `get_current_time` — Get current time in any timezone (MUST call first)
+  - `get_current_time` — Get current time in any timezone
   - `amap_geocode` — Convert address to coordinates (geocoding)
   - `amap_place_search` — Search POI by keywords (restaurants, hotels, etc.)
   - `amap_place_around` — Search POI around a location
@@ -192,6 +200,7 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - `amap_route_preview` — Generate complete route preview URL with waypoints
   - `amap_weather` — Query weather information for a city
   - Features: Time conflict detection, itinerary planning, weather-aware suggestions
+  - **Parallel tool execution** — Multiple tools execute simultaneously for faster planning
   - Supports location queries, route planning, and nearby place searches
 
 ## 📋 Environment Variables
@@ -239,14 +248,22 @@ LANGCHAIN_API_KEY=lsv2_pt_xxx...
 # =============================================================================
 POSTGRES_USER=langchain
 POSTGRES_PASSWORD=langgraph
-POSTGRES_HOST=localhost
+# POSTGRES_HOST is automatically detected:
+# - Local development: localhost
+# - Docker container: host.docker.internal
+# You can override by uncommenting and setting a value below:
+# POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
 POSTGRES_DB=agentdb
 
 # =============================================================================
 # Qdrant Configuration
 # =============================================================================
-QDRANT_HOST=localhost
+# QDRANT_HOST is automatically detected:
+# - Local development: localhost
+# - Docker container: host.docker.internal
+# You can override by uncommenting and setting a value below:
+# QDRANT_HOST=localhost
 QDRANT_PORT=6333
 QDRANT_COLLECTION=agentic_rag_survey
 
@@ -264,7 +281,9 @@ AMAP_KEY=your_amap_api_key_here
 
 ### Frontend (frontend/.env)
 ```env
-VITE_API_URL=http://localhost:8080
+# Backend API Base URL
+# Default: /api/v1 (relative path, uses vite proxy in dev or nginx proxy in docker)
+VITE_API_BASE_URL=/api/v1
 ```
 
 ## 🔄 Development Notes
@@ -274,6 +293,18 @@ VITE_API_URL=http://localhost:8080
 - **Database Scripts**: Located in `backend/scripts/` for initialization and maintenance
 - **Agent Registration**: Agents are registered in `backend/app/agents/__init__.py` and controlled via PostgreSQL
 - **Streaming**: Uses Server-Sent Events (SSE) for real-time agent responses
+- **API Design**: Only use GET, POST, DELETE endpoints (no PATCH/PUT). Model update/delete operations use POST with model_id in request body to avoid URL encoding issues with `/` character in model_id (e.g., `zai/glm-5`)
+- **Token Tracking**: Automatic token usage tracking via `streaming_completion()` in `backend/app/utils/llm.py`. New agents automatically get token tracking by using this function and returning `result.raw_response`. No additional code needed. See `chatbot.py` or `navigator.py` for examples.
+
+### LLM API Usage Guidelines
+
+**Recommended (Async API):**
+- Use `aget_llm()`, `aembedding_model()` in FastAPI async endpoints
+- Use `streaming_completion()` for LLM calls with automatic token tracking
+
+**Compatibility Only (Sync Wrappers):**
+- `get_llm()`, `embedding_model()` - for legacy code or non-async contexts only
+- These add overhead when called from async context (triggers warning log)
 
 **Before development, start PostgreSQL and Qdrant using Docker:**
 
@@ -299,41 +330,30 @@ python scripts/init_database.py
 
 ## 🐳 Docker Deployment
 
-AgentHub provides separate Docker deployment for backend and frontend.
+AgentHub provides separate Docker deployment for backend and frontend. Each module has its own `docker-compose.yml` file.
 
 ### Deploy Backend
 
 Only starts the backend service. You provide your own PostgreSQL and Qdrant instances.
 
-> **⚠️ Important: Network Configuration**
->
-> When running backend in Docker but connecting to PostgreSQL/Qdrant on the host machine, you **must** use `host.docker.internal` instead of `localhost`:
-> - `POSTGRES_HOST=host.docker.internal` (not `localhost`)
-> - `QDRANT_HOST=host.docker.internal` (not `localhost`)
->
-> This is because `localhost` inside a Docker container refers to the container itself, not the host machine. `host.docker.internal` is a special DNS name that resolves to the host machine's IP address.
-
 ```bash
-# 1. Copy environment file
-cp backend/.env.example backend/.env
+# 1. Navigate to backend directory
+cd backend
 
-# 2. Edit backend/.env with your configuration
-# Required:
-#   - LLM_MODELS (your LLM API keys)
-#   - POSTGRES_HOST=host.docker.internal (for local PostgreSQL)
-#   - POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
-#   - QDRANT_HOST=host.docker.internal (for local Qdrant)
-#   - QDRANT_PORT
-# Optional: TAVILY_API_KEY, AMAP_KEY, LANGCHAIN_API_KEY
+# 2. Copy environment file
+cp .env.example .env
 
-# 3. Start backend service
-docker-compose -f docker-compose.backend.yml up -d
+# 3. Edit .env with your configuration
+# Configure POSTGRES_HOST, QDRANT_HOST and other settings
 
-# 4. View logs
-docker-compose -f docker-compose.backend.yml logs -f
+# 4. Start backend service
+docker-compose up -d
 
-# 5. Stop service
-docker-compose -f docker-compose.backend.yml down
+# 5. View logs
+docker-compose logs -f
+
+# 6. Stop service
+docker-compose down
 ```
 
 Access the application:
@@ -343,33 +363,33 @@ Access the application:
 
 Only starts the frontend service. Requires a running backend.
 
-> **How it works:**
-> - Browser accesses frontend at `http://localhost:5173`
-> - Browser makes API requests to `/api/v1` (relative path, same origin)
-> - Nginx proxies `/api/` requests to the backend
-> - This avoids CORS issues since browser sees same-origin requests
-
 ```bash
-# 1. Start frontend service (with default settings)
-docker-compose -f docker-compose.frontend.yml up -d
+# 1. Navigate to frontend directory
+cd frontend
 
-# Or with custom backend:
-# NGINX_BACKEND_HOST=your-backend \
-# NGINX_BACKEND_PORT=8080 \
-# docker-compose -f docker-compose.frontend.yml up -d
+# 2. Copy environment file
+cp .env.example .env
 
-# 2. View logs
-docker-compose -f docker-compose.frontend.yml logs -f
+# 3. Edit .env with your configuration
+# Required: NGINX_BACKEND_HOST (your backend server address)
+# NGINX_BACKEND_HOST=your-backend-host
+# NGINX_BACKEND_PORT=8080
 
-# 3. Stop service
-docker-compose -f docker-compose.frontend.yml down
+# 4. Build and start frontend service
+docker-compose up -d --build
+
+# 5. View logs
+docker-compose logs -f
+
+# 6. Stop service
+docker-compose down
 ```
 
 **Environment Variables:**
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NGINX_BACKEND_HOST` | Hostname for nginx to proxy to | `host.docker.internal` |
+| `NGINX_BACKEND_HOST` | Backend hostname for nginx to proxy to | `host.docker.internal` |
 | `NGINX_BACKEND_PORT` | Backend port | `8080` |
 | `FRONTEND_PORT` | Frontend exposed port | `5173` |
 
@@ -380,41 +400,20 @@ Access the application:
 
 ```
 AgentHub/
-├── docker-compose.backend.yml   # Backend deployment (external databases required)
-├── docker-compose.frontend.yml  # Frontend deployment (external backend required)
 ├── backend/
-│   ├── Dockerfile               # Backend container
-│   └── .env.example             # Environment template
+│   ├── docker-compose.yml   # Backend deployment
+│   ├── Dockerfile           # Backend container
+│   └── .env.example         # Environment template
 └── frontend/
-    ├── Dockerfile               # Frontend container (multi-stage build)
-    ├── nginx.conf               # Nginx configuration with API proxy
-    └── .env.example             # Environment template
-```
-
-### Docker Commands Reference
-
-```bash
-# Build images
-docker-compose -f docker-compose.backend.yml build
-docker-compose -f docker-compose.frontend.yml build
-
-# Start services in background
-docker-compose -f docker-compose.backend.yml up -d
-docker-compose -f docker-compose.frontend.yml up -d
-
-# View service logs
-docker-compose -f docker-compose.backend.yml logs -f
-docker-compose -f docker-compose.frontend.yml logs -f
-
-# Stop and remove containers
-docker-compose -f docker-compose.backend.yml down
-docker-compose -f docker-compose.frontend.yml down
+    ├── docker-compose.yml   # Frontend deployment
+    ├── Dockerfile           # Frontend container (multi-stage build)
+    ├── nginx.conf           # Nginx configuration with API proxy
+    └── .env.example         # Environment template
 ```
 
 ## 🚧 Known Limitations
 
-1. **RAG Collection**: The `rag-agent` requires pre-populated Qdrant collections; no built-in document upload UI yet
-2. **Testing**: No unit/integration tests currently implemented
+1. **Testing**: No unit/integration tests currently implemented
 
 ## 🚀 Future Enhancements
 

@@ -1,10 +1,10 @@
 # AgentHub Frontend Docker Compose Configuration
 # Standalone frontend deployment (requires running backend)
-# Usage: docker-compose -f docker-compose.frontend.yml up -d
+# Usage: cd frontend && docker-compose up -d
 #
 # Prerequisites:
 # - Running backend service accessible at the specified host:port
-# - For local backend, use host.docker.internal as NGINX_BACKEND_HOST
+# - Configure NGINX_BACKEND_HOST, NGINX_BACKEND_PORT in .env
 #
 # How it works:
 # 1. Browser accesses frontend at http://localhost:5173
@@ -14,21 +14,21 @@
 
 services:
   frontend:
+    image: agenthub-frontend
     build:
-      context: ./frontend
+      context: .
       dockerfile: Dockerfile
       args:
         # Use relative path so browser sends API requests to same origin (nginx)
         # Nginx will proxy these to the actual backend
         VITE_API_BASE_URL: /api/v1
-        # Default nginx backend address (can be overridden at runtime)
+        # Backend address for nginx proxy (read from .env in this directory)
         NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-host.docker.internal}
         NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-8080}
     container_name: agenthub-frontend
     restart: unless-stopped
     environment:
-      # Runtime environment variables (override build-time defaults)
-      # Use host.docker.internal for backend running on host machine
+      # Runtime environment variables for nginx config substitution
       NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-host.docker.internal}
       NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-8080}
     ports:

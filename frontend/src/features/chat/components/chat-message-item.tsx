@@ -48,22 +48,22 @@ function parseQuotedContent(content: string): { quotedContent: string; newConten
   if (!content.startsWith("> ")) {
     return null
   }
-  
+
   // Find the separator "\n\n" after the quoted content
   const separatorIndex = content.indexOf("\n\n")
   if (separatorIndex === -1) {
     return null
   }
-  
+
   // Extract quoted content (remove "> " prefix)
   const quotedContent = content.slice(2, separatorIndex)
   // Extract new content (after "\n\n")
   const newContent = content.slice(separatorIndex + 2)
-  
+
   if (!quotedContent.trim() || !newContent.trim()) {
     return null
   }
-  
+
   return { quotedContent, newContent }
 }
 
@@ -155,7 +155,7 @@ function parseThinkingContent(message: LocalChatMessage): string | null {
 function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
   try {
     const toolInfo = message.custom_data?.tool_info
-    
+
     if (!Array.isArray(toolInfo) || toolInfo.length === 0) {
       return []
     }
@@ -168,13 +168,13 @@ function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
         return stored && typeof stored.order === "number"
       }
     )
-    
+
     const sortedInfo = hasOrderField
       ? [...toolInfo].sort((a, b) => {
-          const orderA = (a as StoredToolCallInfo).order as number
-          const orderB = (b as StoredToolCallInfo).order as number
-          return orderA - orderB
-        })
+        const orderA = (a as StoredToolCallInfo).order as number
+        const orderB = (b as StoredToolCallInfo).order as number
+        return orderA - orderB
+      })
       : toolInfo
 
     return sortedInfo.map((info, index): ToolCallInfo => {
@@ -188,6 +188,7 @@ function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
       }
     })
   } catch {
+    // Ignore parsing errors for malformed tool info
     return []
   }
 }
@@ -237,10 +238,10 @@ function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
   return groups
 }
 
-export function ChatMessageItem({ 
-  message, 
+export function ChatMessageItem({
+  message,
   messageIndex,
-  calledTools = [], 
+  calledTools = [],
   activeToolName = null,
   thinkingContent = "",
   isProcessing = false,
@@ -267,12 +268,12 @@ export function ChatMessageItem({
   )
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const [isHovered, setIsHovered] = useState(false)
-  
+
   // Parse thinking content from message (for history) or use streaming content
   const historicalThinking = parseThinkingContent(message)
   const displayThinkingContent = thinkingContent || historicalThinking || ""
   const hasThinkingContent = Boolean(displayThinkingContent)
-  
+
   // Merge calledTools from streaming with stored tool_info from history
   // For streaming messages, use calledTools; for history messages, use stored tool_info
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
@@ -315,18 +316,18 @@ export function ChatMessageItem({
   // Determine what to show in the action bar
   const showThinkingButton = hasThinkingContent
   const showToolCallButton = hasToolCalls
-  
+
   // Get quoted message ID and user content from custom_data
   const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
   const userContent = message.custom_data?.user_content as string | undefined
-  
+
   // Check if this is a quoted message (has quoted_message_id and user_content)
   const isQuotedMessage = isUser && quotedMessageId && userContent
-  
+
   // Parse quoted content from message content for display
   // Format: "> quoted content\n\nuser message"
   const quotedParts = isQuotedMessage ? parseQuotedContent(message.content) : null
-  
+
   // Truncate quoted content to 100 chars with underscore
   const getTruncatedQuote = (content: string) => {
     if (content.length > 100) {
@@ -354,10 +355,10 @@ export function ChatMessageItem({
       >
         <MessageContent
           className={cn(
-            "max-w-full overflow-visible rounded-2xl px-4 py-3",
+            "max-w-full overflow-visible rounded-3xl px-5 py-3.5 text-[15px] leading-relaxed",
             isUser
-              ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground shadow-lg dark:shadow-cyan-500/20"
-              : "w-full bg-ai-bubble text-foreground",
+              ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground"
+              : "w-full bg-ai-bubble text-foreground border border-border/50",
           )}
         >
           {/* Sources */}
@@ -415,7 +416,7 @@ export function ChatMessageItem({
                 {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => {
                   // Check if any tool in the group is still calling
                   const hasCallingTool = group.tools.some(t => t.status === "calling")
-                  
+
                   return (
                     <div key={`group-${groupIndex}`} className="flex items-center gap-2">
                       {hasCallingTool ? (
@@ -465,7 +466,7 @@ export function ChatMessageItem({
                 ref={textareaRef}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-h-[60px] resize-none rounded-lg bg-user-bubble-foreground/10 p-2 text-sm text-user-bubble-foreground placeholder-user-bubble-foreground/50 focus:outline-none focus:ring-2 focus:ring-user-bubble-foreground/30"
+                className="w-full min-h-[60px] resize-none rounded-lg bg-background p-2 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
                 placeholder={t("message.editPlaceholder")}
                 rows={3}
               />
@@ -476,7 +477,7 @@ export function ChatMessageItem({
                     setIsEditing(false)
                     setEditContent(message.content)
                   }}
-                  className="rounded-md px-2 py-1 text-xs text-user-bubble-foreground/80 hover:bg-user-bubble-foreground/10"
+                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-background/80"
                 >
                   {t("common.cancel")}
                 </button>
@@ -501,7 +502,7 @@ export function ChatMessageItem({
                     setIsEditing(false)
                   }}
                   disabled={!editContent.trim() || editDisabled}
-                  className="rounded-md bg-user-bubble-foreground/20 px-2 py-1 text-xs text-user-bubble-foreground hover:bg-user-bubble-foreground/30 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="rounded-md bg-primary/20 px-2 py-1 text-xs text-primary hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {t("message.sendEdit")}
                 </button>
@@ -623,7 +624,7 @@ export function ChatMessageItem({
                 </Action>
               ) : null}
             </Actions>
-            
+
             {/* Thinking process detail panel */}
             {showThinkingButton && showThinkingProcess ? (
               <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
@@ -636,7 +637,7 @@ export function ChatMessageItem({
                 </div>
               </div>
             ) : null}
-            
+
             {/* Tool calls detail panel */}
             {showToolCallButton && showToolCalls ? (
               <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">

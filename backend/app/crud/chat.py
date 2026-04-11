@@ -122,3 +122,34 @@ async def list_conversations(
     total = total_result.scalar_one()
 
     return [ConversationInDB.model_validate(c) for c in convs], total
+
+
+async def update_conversation_tokens(
+    db: AsyncSession,
+    thread_id: UUID,
+    user_tokens: int,
+    ai_tokens: int,
+    reasoning_tokens: int = 0,
+) -> ConversationInDB | None:
+    """Update token counts for a conversation by adding new tokens to existing counts."""
+    stmt = (
+        update(Conversation)
+        .where(
+            Conversation.thread_id == thread_id,
+            Conversation.is_deleted.is_(False),
+        )
+        .values(
+            user_tokens=Conversation.user_tokens + user_tokens,
+            ai_tokens=Conversation.ai_tokens + ai_tokens,
+            reasoning_tokens=Conversation.reasoning_tokens + reasoning_tokens,
+        )
+        .returning(Conversation)
+    )
+
+    result = await db.execute(stmt)
+    updated = result.scalar_one_or_none()
+
+    if not updated:
+        return None
+
+    return updated

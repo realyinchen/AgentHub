@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Boolean, String, DateTime
+from sqlalchemy import Column, Boolean, String, DateTime, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from uuid import uuid4
 from datetime import datetime, timezone
@@ -16,6 +16,9 @@ class Conversation(Base):
     thread_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     title = Column(String(64), nullable=False)
     agent_id = Column(String(64), nullable=True, default="chatbot")
+    user_tokens = Column(Integer, nullable=False, default=0)
+    ai_tokens = Column(Integer, nullable=False, default=0)
+    reasoning_tokens = Column(Integer, nullable=False, default=0)
     is_deleted = Column(Boolean, nullable=False, default=False)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(

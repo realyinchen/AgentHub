@@ -1,9 +1,12 @@
 """Navigator agent with Amap (Gaode Map) capabilities.
 
 This module implements a ReAct agent using pure LangGraph (StateGraph).
-The agent dynamically selects LLM based on thinking_mode from config.
+The agent uses the reusable llm_streaming module for token tracking.
+Tools are executed in parallel using asyncio.gather for optimal performance.
 """
 
+import asyncio
+import logging
 from typing import Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -12,10 +15,13 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
 
-from app.core.models import get_llm
+from app.utils.llm import streaming_completion
+from app.core.model_manager import ModelManager, build_extra_body
 from app.prompt.navigator import get_navigator_prompt
 from app.tools.amap import AMAP_TOOLS
 from app.tools.time import get_current_time
+
+logger = logging.getLogger(__name__)
 
 
 class NavigatorState(MessagesState):
@@ -106,9 +112,8 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
 
     This node:
     1. Gets thinking_mode from config
-    2. Selects appropriate LLM (normal or thinking)
-    3. Binds tools to the LLM
-    4. Invokes the LLM with messages
+    2. Calls LLM using the reusable streaming_completion module
+    3. Returns the response with automatic token tracking
 
     Args:
         state: Current graph state containing messages
@@ -118,16 +123,26 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
         dict: Updated state with new message from LLM
     """
     # Get thinking_mode from config
-    thinking_mode = config.get("configurable", {}).get("thinking_mode", False)
+    configurable = config.get("configurable", {})
+    thinking_mode = configurable.get("thinking_mode", False)
+    model_name = configurable.get("model_name")
 
-    # Get the appropriate LLM based on thinking_mode
-    llm = get_llm(thinking_mode=thinking_mode)
+    # Get default model if not specified
+    if not model_name:
+        model_name = ModelManager.get_default_llm_id()
+
+    if not model_name:
+        raise ValueError("No model available for navigator")
 
     # Get tools
     tools = _get_tools()
 
-    # Bind tools to the LLM
-    llm_with_tools = llm.bind_tools(tools)  # type: ignore
+    # Build extra_body for thinking mode
+    extra_body = None
+    if thinking_mode and model_name:
+        model = ModelManager.get_model(model_name)
+        if model:
+            extra_body = build_extra_body(model.provider, thinking_mode)
 
     # Get messages from state
     messages = state.get("messages", [])
@@ -139,32 +154,31 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
     # Build the full message list with system prompt
     full_messages = [SystemMessage(content=system_prompt)] + filtered_messages
 
-    # Use astream for streaming support
-    # Collect and accumulate all chunks to build the final response
-    final_chunk = None
-    async for chunk in llm_with_tools.astream(full_messages):
-        if final_chunk is None:
-            final_chunk = chunk
-        else:
-            # Accumulate chunks (AIMessageChunk supports + operator)
-            final_chunk = final_chunk + chunk
+    # Use the reusable streaming_completion module
+    # This automatically handles token usage tracking
+    result = await streaming_completion(
+        model=model_name,
+        messages=full_messages,
+        tools=tools,
+        extra_body=extra_body,
+    )
 
-    # If we got a response, return it
-    if final_chunk:
-        return {"messages": [final_chunk]}
-
-    # Fallback to ainvoke if streaming produced no output
-    response = await llm_with_tools.ainvoke(full_messages)
-    return {"messages": [response]}
+    # Return the AIMessage for LangGraph compatibility
+    return {"messages": [result.raw_response]}
 
 
 async def tool_node(state: NavigatorState) -> dict:
-    """Execute tools requested by the LLM.
+    """Execute tools requested by the LLM in parallel.
 
     This node:
     1. Gets the last message (should be an AIMessage with tool_calls)
-    2. Executes each tool call
+    2. Executes all tool calls simultaneously using asyncio.gather
     3. Returns ToolMessages with results
+
+    Using asyncio.gather with return_exceptions=True ensures:
+    - All tools start at the same time (true parallelism)
+    - One tool failure doesn't affect others
+    - Maximum performance for multi-tool scenarios
 
     Args:
         state: Current graph state
@@ -182,33 +196,55 @@ async def tool_node(state: NavigatorState) -> dict:
     tools = _get_tools()
     tools_by_name = _get_tools_by_name(tools)
 
-    # Execute each tool call
-    tool_messages = []
-    for tool_call in tool_calls:
-        tool_name = tool_call.get("name")
+    async def execute_single_call(tool_call: dict) -> ToolMessage:
+        """Execute a single tool call and return the result as ToolMessage.
+
+        Args:
+            tool_call: Tool call dict with 'name', 'args', and 'id' keys
+
+        Returns:
+            ToolMessage with the tool result or error message
+        """
+        tool_name = tool_call.get("name", "")
         tool_args = tool_call.get("args", {})
-        tool_call_id = tool_call.get("id")
+        tool_call_id = tool_call.get("id", "unknown")
 
         # Get the tool by name
         tool = tools_by_name.get(tool_name)
 
-        if tool:
-            try:
-                # Execute the tool (async)
-                result = await tool.ainvoke(tool_args)
-                if isinstance(result, str):
-                    observation = result
-                else:
-                    observation = str(result)
-            except Exception as e:
-                observation = f"Error executing tool {tool_name}: {str(e)}"
-        else:
-            observation = f"Tool {tool_name} not found"
+        if not tool:
+            return ToolMessage(
+                content=f"Tool {tool_name} not found", tool_call_id=tool_call_id
+            )
 
-        # Create ToolMessage
-        tool_messages.append(
-            ToolMessage(content=observation, tool_call_id=tool_call_id)
-        )
+        try:
+            # Execute the tool (async)
+            result = await tool.ainvoke(tool_args)
+            observation = result if isinstance(result, str) else str(result)
+        except Exception as e:
+            observation = f"Error executing tool {tool_name}: {str(e)}"
+
+        return ToolMessage(content=observation, tool_call_id=tool_call_id)
+
+    # Execute all tool calls in parallel using asyncio.gather
+    # return_exceptions=True ensures one failure doesn't crash others
+    results = await asyncio.gather(
+        *[execute_single_call(tc) for tc in tool_calls], return_exceptions=True
+    )
+
+    # Process results and handle any unexpected exceptions
+    tool_messages = []
+    for result in results:
+        if isinstance(result, Exception):
+            # This shouldn't happen since execute_single_call catches exceptions,
+            # but handle it just in case
+            tool_messages.append(
+                ToolMessage(
+                    content=f"Unexpected error: {str(result)}", tool_call_id="unknown"
+                )
+            )
+        else:
+            tool_messages.append(result)
 
     return {"messages": tool_messages}
 

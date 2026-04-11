@@ -25,7 +25,7 @@ RUN npm run build
 FROM nginx:stable-alpine3.23-perl
 
 # Build arguments for backend configuration (used as defaults)
-ARG NGINX_BACKEND_HOST=backend
+ARG NGINX_BACKEND_HOST=host.docker.internal
 ARG NGINX_BACKEND_PORT=8080
 
 # Set environment variables with defaults (can be overridden at runtime via -e)

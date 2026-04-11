@@ -5,72 +5,80 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.625rem;
-  /* Light Mode - Balanced Elegant Theme */
-  --background: oklch(0.98 0.005 250);        /* #F8FAFC - Soft warm gray-white */
-  --foreground: oklch(0.20 0.02 250);         /* #0F172A - Primary text */
+  --radius: 0.75rem;
+  /* Light Mode - Grok-inspired Clean Theme */
+  --background: oklch(0.99 0 0);              /* #FAFAFA - Near white */
+  --foreground: oklch(0.14 0.01 250);         /* #18181B - Zinc 900 */
   --card: oklch(1 0 0);                       /* #FFFFFF */
-  --card-foreground: oklch(0.20 0.02 250);
+  --card-foreground: oklch(0.14 0.01 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.20 0.02 250);
-  --primary: oklch(0.55 0.20 250);            /* #3B82F6 - Soft blue */
-  --primary-foreground: oklch(0.98 0 0);
-  --secondary: oklch(0.96 0.01 250);          /* #F1F5F9 */
-  --secondary-foreground: oklch(0.20 0.02 250);
-  --muted: oklch(0.96 0.01 250);              /* #F1F5F9 - AI bubble background */
-  --muted-foreground: oklch(0.45 0.03 250);   /* #475569 - Secondary text */
-  --accent: oklch(0.96 0.01 250);
-  --accent-foreground: oklch(0.20 0.02 250);
+  --popover-foreground: oklch(0.14 0.01 250);
+  --primary: oklch(0.14 0.01 250);            /* #18181B - Black */
+  --primary-foreground: oklch(0.99 0 0);
+  --secondary: oklch(0.96 0.005 250);         /* #F4F4F5 - Zinc 100 */
+  --secondary-foreground: oklch(0.14 0.01 250);
+  --muted: oklch(0.96 0.005 250);             /* #F4F4F5 - AI bubble background */
+  --muted-foreground: oklch(0.45 0.01 250);   /* #71717A - Zinc 500 */
+  --accent: oklch(0.96 0.005 250);
+  --accent-foreground: oklch(0.14 0.01 250);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.90 0.01 250);
-  --input: oklch(0.90 0.01 250);
-  --ring: oklch(0.55 0.20 250);               /* #3B82F6 */
-  --sidebar: oklch(0.98 0.005 250);           /* Light sidebar */
-  --sidebar-foreground: oklch(0.20 0.02 250);
-  --sidebar-primary: oklch(0.55 0.20 250);
-  --sidebar-primary-foreground: oklch(0.98 0 0);
-  --sidebar-accent: oklch(0.96 0.01 250);
-  --sidebar-accent-foreground: oklch(0.20 0.02 250);
-  --sidebar-border: oklch(0.90 0.01 250);
-  --sidebar-ring: oklch(0.55 0.20 250);
+  --border: oklch(0.92 0.005 250);            /* #E4E4E7 - Zinc 200 */
+  --input: oklch(0.92 0.005 250);
+  --ring: oklch(0.14 0.01 250);
+  --sidebar: oklch(0.99 0 0);                 /* Light sidebar */
+  --sidebar-foreground: oklch(0.14 0.01 250);
+  --sidebar-primary: oklch(0.14 0.01 250);
+  --sidebar-primary-foreground: oklch(0.99 0 0);
+  --sidebar-accent: oklch(0.96 0.005 250);
+  --sidebar-accent-foreground: oklch(0.14 0.01 250);
+  --sidebar-border: oklch(0.92 0.005 250);
+  --sidebar-ring: oklch(0.14 0.01 250);
   /* Chat bubble colors */
-  --ai-bubble: oklch(0.96 0.01 250);          /* #F1F5F9 - AI message bubble */
-  --user-bubble: oklch(0.55 0.20 250);        /* #3B82F6 - User message bubble */
-  --user-bubble-foreground: oklch(0.98 0 0);  /* User message text */
+  --ai-bubble: oklch(0.96 0.005 250);         /* #F4F4F5 - AI message bubble */
+  --user-bubble: oklch(0.14 0.01 250);        /* #18181B - User message bubble (black) */
+  --user-bubble-foreground: oklch(0.99 0 0);  /* User message text (white) */
+  /* Brand accent */
+  --brand-accent: oklch(0.75 0.15 55);        /* #FFB800 - Golden yellow for AH logo */
+  /* Switch checked color */
+  --switch-checked: oklch(0.65 0.18 145);     /* Green for switch on state */
 }
 
 .dark {
-  /* Dark Mode - Balanced Elegant Theme */
-  --background: oklch(0.20 0.02 250);         /* #0F172A - Deep navy gray */
-  --foreground: oklch(0.90 0.02 250);         /* #E2E8F0 - Primary text */
-  --card: oklch(0.27 0.02 250);               /* #1E2937 - Medium dark gray */
-  --card-foreground: oklch(0.90 0.02 250);
-  --popover: oklch(0.27 0.02 250);
-  --popover-foreground: oklch(0.90 0.02 250);
-  --primary: oklch(0.70 0.15 195);            /* #22D3EE - Electric cyan */
-  --primary-foreground: oklch(0.15 0.02 250);
-  --secondary: oklch(0.35 0.03 250);          /* #334155 - AI bubble background */
-  --secondary-foreground: oklch(0.90 0.02 250);
-  --muted: oklch(0.35 0.03 250);              /* #334155 - AI message bubble */
-  --muted-foreground: oklch(0.65 0.03 250);   /* #94A3B8 - Secondary text */
-  --accent: oklch(0.35 0.03 250);
-  --accent-foreground: oklch(0.90 0.02 250);
+  /* Dark Mode - Grok-inspired Deep Dark Theme */
+  --background: oklch(0.10 0.01 250);         /* #0A0A0A - Near black */
+  --foreground: oklch(0.95 0.005 250);        /* #FAFAFA - Near white text */
+  --card: oklch(0.15 0.01 250);               /* #18181B - Zinc 900 */
+  --card-foreground: oklch(0.95 0.005 250);
+  --popover: oklch(0.15 0.01 250);
+  --popover-foreground: oklch(0.95 0.005 250);
+  --primary: oklch(0.99 0 0);                 /* #FFFFFF - White */
+  --primary-foreground: oklch(0.10 0.01 250);
+  --secondary: oklch(0.20 0.01 250);          /* #27272A - Zinc 800 */
+  --secondary-foreground: oklch(0.95 0.005 250);
+  --muted: oklch(0.20 0.01 250);              /* #27272A - AI message bubble */
+  --muted-foreground: oklch(0.60 0.01 250);   /* #A1A1AA - Zinc 400 */
+  --accent: oklch(0.20 0.01 250);
+  --accent-foreground: oklch(0.95 0.005 250);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.35 0.03 250);
-  --input: oklch(0.35 0.03 250);
-  --ring: oklch(0.70 0.15 195);               /* #22D3EE */
-  --sidebar: oklch(0.27 0.02 250);            /* #1E2937 - Dark sidebar */
-  --sidebar-foreground: oklch(0.90 0.02 250);
-  --sidebar-primary: oklch(0.70 0.15 195);
-  --sidebar-primary-foreground: oklch(0.15 0.02 250);
-  --sidebar-accent: oklch(0.35 0.03 250);
-  --sidebar-accent-foreground: oklch(0.90 0.02 250);
-  --sidebar-border: oklch(0.35 0.03 250);
-  --sidebar-ring: oklch(0.70 0.15 195);
+  --border: oklch(0.25 0.01 250);             /* #3F3F46 - Zinc 700 */
+  --input: oklch(0.25 0.01 250);
+  --ring: oklch(0.99 0 0);
+  --sidebar: oklch(0.08 0.01 250);            /* #09090B - Zinc 950 */
+  --sidebar-foreground: oklch(0.95 0.005 250);
+  --sidebar-primary: oklch(0.99 0 0);
+  --sidebar-primary-foreground: oklch(0.10 0.01 250);
+  --sidebar-accent: oklch(0.20 0.01 250);
+  --sidebar-accent-foreground: oklch(0.95 0.005 250);
+  --sidebar-border: oklch(0.25 0.01 250);
+  --sidebar-ring: oklch(0.99 0 0);
   /* Chat bubble colors */
-  --ai-bubble: oklch(0.35 0.03 250);          /* #334155 - AI message bubble */
-  --user-bubble: oklch(0.75 0.15 195);        /* #22D3EE - User message bubble */
-  --user-bubble-foreground: oklch(0.15 0.02 250); /* User message text */
+  --ai-bubble: oklch(0.20 0.01 250);          /* #27272A - AI message bubble */
+  --user-bubble: oklch(0.99 0 0);             /* #FFFFFF - User message bubble (white) */
+  --user-bubble-foreground: oklch(0.10 0.01 250); /* User message text (black) */
+  /* Brand accent */
+  --brand-accent: oklch(0.75 0.15 55);        /* #FFB800 - Golden yellow for AH logo */
+  /* Switch checked color */
+  --switch-checked: oklch(0.55 0.16 145);     /* Green for switch on state - darker for dark mode */
 }
 
 @theme inline {
@@ -131,16 +139,6 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
-    background-image:
-      radial-gradient(circle at top left, rgb(59 130 246 / 0.06), transparent 45%),
-      radial-gradient(circle at bottom right, rgb(34 211 238 / 0.06), transparent 45%);
-  }
-
-  /* Dark mode background with subtle glow */
-  .dark body {
-    background-image:
-      radial-gradient(circle at top left, rgb(59 130 246 / 0.08), transparent 45%),
-      radial-gradient(circle at bottom right, rgb(34 211 238 / 0.08), transparent 45%);
   }
 }
 
@@ -221,56 +219,28 @@
     scrollbar-color: var(--sidebar-scrollbar-thumb) transparent;
   }
 
-  /* Minimap preview styles */
-  .minimap-preview {
-    font-size: 0.75rem;
-    line-height: 1.4;
+  /* Dialog scroll area */
+  .dialog-scroll-area {
+    --dialog-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 40%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: var(--dialog-scrollbar-thumb) transparent;
   }
 
-  .minimap-preview pre {
-    font-size: 0.65rem !important;
-    padding: 0.5rem !important;
-    margin: 0.25rem 0 !important;
+  .dialog-scroll-area::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: transparent;
   }
 
-  .minimap-preview code {
-    font-size: 0.65rem !important;
+  .dialog-scroll-area::-webkit-scrollbar-track,
+  .dialog-scroll-area::-webkit-scrollbar-corner {
+    background: transparent;
+    border: 0;
   }
 
-  .minimap-preview p {
-    margin: 0.25rem 0;
-  }
-
-  .minimap-preview ul,
-  .minimap-preview ol {
-    margin: 0.25rem 0;
-    padding-left: 1rem;
-  }
-
-  .minimap-preview li {
-    margin: 0.125rem 0;
-  }
-
-  .minimap-preview h1,
-  .minimap-preview h2,
-  .minimap-preview h3,
-  .minimap-preview h4 {
-    margin: 0.375rem 0;
-    font-size: 0.8rem !important;
-  }
-
-  .minimap-preview a {
-    font-size: 0.7rem !important;
-    padding: 0.125rem 0.375rem !important;
-  }
-
-  .minimap-preview table {
-    font-size: 0.65rem !important;
-  }
-
-  .minimap-preview blockquote {
-    font-size: 0.7rem;
-    margin: 0.25rem 0;
-    padding-left: 0.5rem;
+  .dialog-scroll-area::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--dialog-scrollbar-thumb);
   }
 }

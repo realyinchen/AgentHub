@@ -1,9 +1,10 @@
 """Chatbot agent with time and web search capabilities.
 
 This module implements a ReAct agent using pure LangGraph (StateGraph).
-The agent dynamically selects LLM based on thinking_mode from config.
+The agent uses the reusable llm_streaming module for token tracking.
 """
 
+import logging
 from typing import Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -12,10 +13,13 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
 
-from app.core.models import get_llm
+from app.utils.llm import streaming_completion
+from app.core.model_manager import ModelManager, build_extra_body
 from app.prompt.chatbot import get_prompt
 from app.tools.time import get_current_time
 from app.tools.web import create_web_search
+
+logger = logging.getLogger(__name__)
 
 
 class ChatbotState(MessagesState):
@@ -24,36 +28,37 @@ class ChatbotState(MessagesState):
     Inherits from MessagesState which provides:
         messages: list[BaseMessage] - conversation history
     """
+
     pass
 
 
 def _filter_message_content_for_model(message: BaseMessage) -> BaseMessage:
     """Filter message content to only include types supported for LLM input.
-    
+
     When a thinking model outputs 'thinking' type content blocks, these are
     OUTPUT formats, not INPUT formats. Even thinking models cannot accept
     'thinking' type blocks as INPUT in subsequent messages.
-    
+
     This function removes 'thinking' type blocks from all messages before
     sending them to any LLM, regardless of thinking_mode.
-    
+
     Args:
         message: The message to filter
-        
+
     Returns:
         The filtered message (modified in place for efficiency)
     """
     # Only filter AIMessage with structured content (list of blocks)
     if not isinstance(message, AIMessage):
         return message
-    
+
     if not isinstance(message.content, list):
         return message
-    
+
     # Supported content types for LLM INPUT (not output)
     # Note: 'thinking' is an OUTPUT type, not an INPUT type
-    supported_input_types = {'text', 'image_url', 'video_url', 'video'}
-    
+    supported_input_types = {"text", "image_url", "video_url", "video"}
+
     # Filter out unsupported types (like 'thinking')
     filtered_content = []
     for block in message.content:
@@ -61,18 +66,18 @@ def _filter_message_content_for_model(message: BaseMessage) -> BaseMessage:
             # Plain string is always supported
             filtered_content.append(block)
         elif isinstance(block, dict):
-            block_type = block.get('type', 'text')
+            block_type = block.get("type", "text")
             if block_type in supported_input_types:
                 # For 'text' type, extract just the text string
                 # DashScope expects plain string content, not {"type": "text", "text": "..."}
-                if block_type == 'text':
-                    text_content = block.get('text', '')
+                if block_type == "text":
+                    text_content = block.get("text", "")
                     if text_content:
                         filtered_content.append(text_content)
                 else:
                     # Keep other supported types as-is (image_url, video_url, video)
                     filtered_content.append(block)
-    
+
     # Update the message content
     # IMPORTANT: Convert to plain string if all content is text
     # DashScope doesn't accept list of strings for message content
@@ -86,7 +91,7 @@ def _filter_message_content_for_model(message: BaseMessage) -> BaseMessage:
     else:
         # If all content was filtered, set to empty string
         message.content = ""
-    
+
     return message
 
 
@@ -113,60 +118,60 @@ async def llm_call(state: ChatbotState, config: RunnableConfig) -> dict:
     """LLM decides whether to call a tool or not.
 
     This node:
-    1. Gets thinking_mode from config
-    2. Selects appropriate LLM (normal or thinking)
-    3. Binds tools to the LLM
-    4. Invokes the LLM with messages
+    1. Gets thinking_mode and model_name from config
+    2. Calls LLM using the reusable streaming_completion module
+    3. Returns the response with automatic token tracking
 
     Args:
         state: Current graph state containing messages
-        config: Runnable config with thinking_mode in configurable
+        config: Runnable config with thinking_mode and model_name in configurable
 
     Returns:
         dict: Updated state with new message from LLM
     """
-    # Get thinking_mode from config
-    thinking_mode = config.get("configurable", {}).get("thinking_mode", False)
-    
-    # Get the appropriate LLM based on thinking_mode
-    llm = get_llm(thinking_mode=thinking_mode)
+    # Get thinking_mode and model_name from config
+    configurable = config.get("configurable", {})
+    thinking_mode = configurable.get("thinking_mode", False)
+    model_name = configurable.get("model_name")
+
+    # Get default model if not specified
+    if not model_name:
+        model_name = ModelManager.get_default_llm_id()
+
+    if not model_name:
+        raise ValueError("No model available for chatbot")
 
     # Get tools lazily
     tools = _get_tools()
 
-    # Bind tools to the LLM
-    llm_with_tools = llm.bind_tools(tools) # type: ignore
+    # Build extra_body for thinking mode
+    extra_body = None
+    if thinking_mode and model_name:
+        model = ModelManager.get_model(model_name)
+        if model:
+            extra_body = build_extra_body(model.provider, thinking_mode)
 
     # Get messages from state
     messages = state.get("messages", [])
 
     # Filter messages to remove 'thinking' type content blocks
     # 'thinking' is an OUTPUT format, not an INPUT format for any LLM
-    filtered_messages = [
-        _filter_message_content_for_model(msg)
-        for msg in messages
-    ]
+    filtered_messages = [_filter_message_content_for_model(msg) for msg in messages]
 
     # Build the full message list with system prompt
     full_messages = [SystemMessage(content=system_prompt)] + filtered_messages
 
-    # Use astream for streaming support
-    # Collect and accumulate all chunks to build the final response
-    final_chunk = None
-    async for chunk in llm_with_tools.astream(full_messages):
-        if final_chunk is None:
-            final_chunk = chunk
-        else:
-            # Accumulate chunks (AIMessageChunk supports + operator)
-            final_chunk = final_chunk + chunk
-    
-    # If we got a response, return it
-    if final_chunk:
-        return {"messages": [final_chunk]}
-    
-    # Fallback to ainvoke if streaming produced no output
-    response = await llm_with_tools.ainvoke(full_messages)
-    return {"messages": [response]}
+    # Use the reusable streaming_completion module
+    # This automatically handles token usage tracking
+    result = await streaming_completion(
+        model=model_name,
+        messages=full_messages,
+        tools=tools,
+        extra_body=extra_body,
+    )
+
+    # Return the AIMessage for LangGraph compatibility
+    return {"messages": [result.raw_response]}
 
 
 async def tool_node(state: ChatbotState) -> dict:

@@ -6,6 +6,7 @@ from fastapi.routing import APIRoute
 
 from app.utils.agent_utils import get_available_agents
 from app.core.config import settings
+from app.core.model_manager import ModelManager
 from app.database import (
     adb_manager,
     db_manager,
@@ -32,6 +33,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await adb_manager.initialize()
         db_manager.initialize()
         qdrant_manager.initialize()
+        
+        # Initialize model manager (preload model configurations)
+        await ModelManager.refresh()
+        
         # Initialize checkpointer (for short-term memory)
         async with get_checkpointer() as checkpointer:
             if hasattr(checkpointer, "setup"):

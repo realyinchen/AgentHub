@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage, ModelInfo, ToolCallEvent, ToolCallInfo } from "@/types"
+import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
-import { ModelSelector } from "@/features/chat/components/model-selector"
 import {
   Alert,
   AlertDescription,
@@ -42,15 +41,9 @@ type ChatMainPanelProps = {
   onSelectAgent: (agentId: string) => void
   thinkingMode: boolean
   onToggleThinkingMode: () => void
-  isThinkingModeAvailable: boolean
-  isThinkingModeLoading: boolean
-  // Model selection props
-  models: ModelInfo[]
-  selectedModel: string | null
-  onSelectModel: (name: string | null) => void
+  modelSupportsThinking: boolean // Whether current model supports thinking mode
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to message callback
-  scrollContainerRef?: React.RefObject<HTMLDivElement | null> // Ref for scroll container (used by minimap)
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -79,18 +72,13 @@ export function ChatMainPanel({
   onSelectAgent,
   thinkingMode,
   onToggleThinkingMode,
-  isThinkingModeAvailable,
-  isThinkingModeLoading,
-  models,
-  selectedModel,
-  onSelectModel,
+  modelSupportsThinking,
   onEditMessage,
   onJumpToMessage,
-  scrollContainerRef: externalScrollContainerRef,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
-  
+
   // Quote state - show quoted content above input
   const [quotedContent, setQuotedContent] = useState<string | null>(null)
   const [quotedMessageId, setQuotedMessageId] = useState<string | null>(null)
@@ -104,13 +92,6 @@ export function ChatMainPanel({
   const lastKnownScrollTopRef = useRef(0)
   const [showScrollButton, setShowScrollButton] = useState(false)
   const [isMessagesScrolling, setIsMessagesScrolling] = useState(false)
-
-  // Sync conversationRef with external ref for minimap
-  useEffect(() => {
-    if (externalScrollContainerRef && 'current' in externalScrollContainerRef) {
-      (externalScrollContainerRef as React.MutableRefObject<HTMLDivElement | null>).current = conversationRef.current
-    }
-  }, [externalScrollContainerRef, conversationRef.current])
 
   const suggestions = useMemo(
     () => [
@@ -253,7 +234,7 @@ export function ChatMainPanel({
     }
 
     // If there's quoted content, format the message and pass quotedMessageId
-    const finalContent = quotedContent 
+    const finalContent = quotedContent
       ? `> ${quotedContent}\n\n${trimmed}`
       : trimmed
 
@@ -261,7 +242,7 @@ export function ChatMainPanel({
     const currentQuotedMessageId = quotedMessageId
     setQuotedContent(null)
     setQuotedMessageId(null)
-    
+
     // Pass quotedMessageId and userContent for display purposes
     void onSendMessage(finalContent, currentQuotedMessageId || undefined, trimmed)
   }, [isComposerDisabled, isStreaming, onSendMessage, quotedContent, quotedMessageId])
@@ -343,7 +324,7 @@ export function ChatMainPanel({
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const isLastAIMessage = index === messages.length - 1 && message.type === "ai"
-                    
+
                     return (
                       <ChatMessageItem
                         key={`msg-${index}`}
@@ -446,7 +427,7 @@ export function ChatMainPanel({
                   <Separator className="mt-3" />
                 </div>
               ) : null}
-              
+
               <PromptInputBody  >
                 <PromptInputTextarea
                   className="max-h-26 min-h-8"
@@ -460,15 +441,8 @@ export function ChatMainPanel({
                 <div className="flex items-center gap-2">
                   <ThinkingModeToggle
                     enabled={thinkingMode}
-                    available={isThinkingModeAvailable}
-                    loading={isThinkingModeLoading}
+                    modelSupportsThinking={modelSupportsThinking}
                     onToggle={onToggleThinkingMode}
-                  />
-                  <ModelSelector
-                    models={models}
-                    selectedModel={selectedModel}
-                    onSelectModel={onSelectModel}
-                    disabled={isStreaming || isComposerDisabled}
                   />
                 </div>
                 <PromptInputSubmit
