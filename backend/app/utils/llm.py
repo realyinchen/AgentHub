@@ -87,21 +87,12 @@ class StreamingResult:
     Attributes:
         content: The text content of the response
         tool_calls: List of tool calls (if any)
-        usage: Token usage dict with prompt_tokens, completion_tokens, total_tokens, reasoning_tokens
         reasoning: Thinking/reasoning content (if any, for thinking models)
         raw_response: The final AIMessage object for LangGraph compatibility
     """
 
     content: str = ""
     tool_calls: list = field(default_factory=list)
-    usage: dict = field(
-        default_factory=lambda: {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "reasoning_tokens": 0,
-        }
-    )
     reasoning: str = ""
     raw_response: Optional[AIMessage] = None
 
@@ -340,7 +331,7 @@ async def streaming_completion(
     **kwargs,
 ) -> StreamingResult:
     """
-    Perform a streaming LLM completion with automatic token usage tracking.
+    Perform a streaming LLM completion.
 
     This is the recommended way to call LLMs in the application.
     It uses native litellm for maximum compatibility and features.
@@ -354,7 +345,7 @@ async def streaming_completion(
         **kwargs: Additional arguments passed to litellm.acompletion
 
     Returns:
-        StreamingResult with content, tool_calls, usage, and raw_response
+        StreamingResult with content, tool_calls, and raw_response
     """
     # Get model config from ModelManager
     model_config = ModelManager.get_model(model)
@@ -374,9 +365,6 @@ async def streaming_completion(
         "model": model,
         "messages": litellm_messages,
         "stream": True,
-        "stream_options": {
-            "include_usage": True
-        },  # Key: enable token usage in streaming
         "temperature": temperature,
     }
 
@@ -406,29 +394,6 @@ async def streaming_completion(
         response = await acompletion(**completion_kwargs)
 
         async for chunk in response:  # type: ignore
-            # Check for usage in this chunk (typically in the last chunk)
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                usage = chunk.usage
-
-                # Extract reasoning_tokens from completion_tokens_details
-                reasoning_tokens = 0
-                if (
-                    hasattr(usage, "completion_tokens_details")
-                    and usage.completion_tokens_details
-                ):
-                    reasoning_tokens = (
-                        getattr(usage.completion_tokens_details, "reasoning_tokens", 0)
-                        or 0
-                    )
-
-                result.usage = {
-                    "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(usage, "total_tokens", 0) or 0,
-                    "reasoning_tokens": reasoning_tokens,
-                }
-                logger.info(f"Captured token usage: {result.usage}")
-
             # Process choices
             if not chunk.choices:
                 continue
@@ -498,24 +463,12 @@ async def streaming_completion(
         result.raw_response = AIMessage(
             content=result.content,
             tool_calls=result.tool_calls,
-            response_metadata={
-                "token_usage": result.usage,
-                "usage": result.usage,
-            },
-            usage_metadata={
-                "input_tokens": result.usage["prompt_tokens"],
-                "output_tokens": result.usage["completion_tokens"],
-                "total_tokens": result.usage["total_tokens"],
-                "reasoning_tokens": result.usage["reasoning_tokens"],
-            }
-            if result.usage["total_tokens"] > 0
-            else None,
             additional_kwargs=additional_kwargs if additional_kwargs else None,
         )
 
         logger.info(
             f"Streaming completion done: content_len={len(result.content)}, "
-            f"tool_calls={len(result.tool_calls)}, usage={result.usage}"
+            f"tool_calls={len(result.tool_calls)}"
         )
 
     except Exception as e:
@@ -569,7 +522,6 @@ async def streaming_completion_with_yield(
         "model": model,
         "messages": litellm_messages,
         "stream": True,
-        "stream_options": {"include_usage": True},
         "temperature": temperature,
     }
 
@@ -594,28 +546,6 @@ async def streaming_completion_with_yield(
         response = await acompletion(**completion_kwargs)
 
         async for chunk in response:  # type: ignore
-            # Check for usage
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                usage = chunk.usage
-
-                # Extract reasoning_tokens from completion_tokens_details
-                reasoning_tokens = 0
-                if (
-                    hasattr(usage, "completion_tokens_details")
-                    and usage.completion_tokens_details
-                ):
-                    reasoning_tokens = (
-                        getattr(usage.completion_tokens_details, "reasoning_tokens", 0)
-                        or 0
-                    )
-
-                result.usage = {
-                    "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(usage, "total_tokens", 0) or 0,
-                    "reasoning_tokens": reasoning_tokens,
-                }
-
             if not chunk.choices:
                 continue
 
@@ -685,18 +615,6 @@ async def streaming_completion_with_yield(
         result.raw_response = AIMessage(
             content=result.content,
             tool_calls=result.tool_calls,
-            response_metadata={
-                "token_usage": result.usage,
-                "usage": result.usage,
-            },
-            usage_metadata={
-                "input_tokens": result.usage["prompt_tokens"],
-                "output_tokens": result.usage["completion_tokens"],
-                "total_tokens": result.usage["total_tokens"],
-                "reasoning_tokens": result.usage["reasoning_tokens"],
-            }
-            if result.usage["total_tokens"] > 0
-            else None,
             additional_kwargs=additional_kwargs if additional_kwargs else None,
         )
 
@@ -727,7 +645,6 @@ def get_chat_litellm(
 
     Key features:
     - Native LangChain integration for LangGraph streaming
-    - Automatic token usage tracking via stream_usage=True
     - Thinking mode support via extra_body (explicitly controlled)
     - drop_params=True to avoid errors with unsupported parameters
     - Auto-adds provider prefix if not present
@@ -752,13 +669,11 @@ def get_chat_litellm(
         litellm_model = f"{model_config.provider.lower()}/{model}"
 
     # Build base kwargs for ChatLiteLLM
-    # Key: stream_usage=True enables token usage in streaming responses
     # Key: drop_params=True drops unsupported params to avoid errors
     llm_kwargs: dict[str, Any] = {
         "model": litellm_model,
         "temperature": temperature,
         "streaming": True,
-        "stream_usage": True,
         "drop_params": True,
     }
 
@@ -788,7 +703,7 @@ def get_chat_litellm(
     logger.info(
         f"Created ChatLiteLLM: model={litellm_model}, thinking_mode={thinking_mode}, "
         f"extra_body={extra_body}, tools={len(tools) if tools else 0}, "
-        f"stream_usage=True, drop_params=True"
+        f"drop_params=True"
     )
 
     return llm

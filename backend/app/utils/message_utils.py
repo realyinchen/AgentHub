@@ -18,60 +18,6 @@ from typing import Any
 from app.schemas.chat import ChatMessage, UserInput
 
 
-def extract_token_counts(message: AIMessage) -> dict[str, int]:
-    """
-    Extract token counts from an AIMessage's response_metadata or usage_metadata.
-
-    Returns:
-        dict with 'input_tokens', 'output_tokens', and 'reasoning_tokens' keys (0 if not found)
-    """
-    input_tokens = 0
-    output_tokens = 0
-    reasoning_tokens = 0
-
-    # Try usage_metadata first (LangChain standard)
-    if hasattr(message, "usage_metadata") and message.usage_metadata:
-        usage = message.usage_metadata
-        input_tokens = usage.get("input_tokens", 0) or usage.get("prompt_tokens", 0)
-        output_tokens = usage.get("output_tokens", 0) or usage.get(
-            "completion_tokens", 0
-        )
-        # Extract reasoning_tokens from usage_metadata
-        reasoning_tokens = usage.get("reasoning_tokens", 0)
-
-    # Fallback to response_metadata (provider-specific)
-    if input_tokens == 0 and output_tokens == 0 and message.response_metadata:
-        meta = message.response_metadata
-
-        # OpenAI format
-        if "token_usage" in meta:
-            usage = meta["token_usage"]
-            input_tokens = usage.get("prompt_tokens", 0)
-            output_tokens = usage.get("completion_tokens", 0)
-            # OpenAI o1/R1 models may include reasoning_tokens
-            reasoning_tokens = usage.get("reasoning_tokens", 0)
-
-        # Anthropic format
-        elif "usage" in meta:
-            usage = meta["usage"]
-            input_tokens = usage.get("input_tokens", 0)
-            output_tokens = usage.get("output_tokens", 0)
-
-        # DashScope/Qwen format
-        elif "total_tokens" in meta:
-            # DashScope sometimes only provides total, estimate based on typical ratio
-            input_tokens = meta.get("input_tokens", 0)
-            output_tokens = meta.get("output_tokens", 0)
-            # DashScope thinking models may include reasoning_tokens
-            reasoning_tokens = meta.get("reasoning_tokens", 0)
-
-    return {
-        "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "reasoning_tokens": reasoning_tokens,
-    }
-
-
 logger = logging.getLogger(__name__)
 
 
@@ -182,7 +128,7 @@ async def streaming_message_generator(
     - on_chat_model_stream: token-by-token streaming
     - on_tool_start: tool call initiation
     - on_tool_end: tool execution result
-    - on_chain_end: final message and token usage
+    - on_chain_end: final message
 
     Args:
         user_input: User input containing content, agent_id, thread_id, and thinking_mode
@@ -191,11 +137,6 @@ async def streaming_message_generator(
     kwargs = await handle_input(user_input, agent)
     started_at = time.perf_counter()
     first_chunk_sent = False
-
-    # Track token usage for this conversation
-    total_user_tokens = 0
-    total_ai_tokens = 0
-    total_reasoning_tokens = 0
 
     # Track tool calls for mapping tool_call_id to name
     pending_tool_calls: dict[str, str] = {}
@@ -258,20 +199,6 @@ async def streaming_message_generator(
                     elif isinstance(reasoning, list):
                         yield f"data: {json.dumps({'type': 'thinking', 'content': convert_message_content_to_string(reasoning)})}\n\n"
 
-                # Key fix: Capture usage chunk (may have no content, only usage_metadata)
-                # This is critical for streaming mode where usage comes in a separate chunk
-                if chunk and hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
-                    usage = extract_token_counts(chunk)
-                    total_user_tokens += usage["input_tokens"]
-                    total_ai_tokens += usage["output_tokens"]
-                    total_reasoning_tokens += usage["reasoning_tokens"]
-                    logger.info(
-                        "Stream usage chunk: input=%d, output=%d, reasoning=%d",
-                        usage["input_tokens"],
-                        usage["output_tokens"],
-                        usage["reasoning_tokens"],
-                    )
-
             # === Tool Call Start (on_tool_start) ===
             elif kind == "on_tool_start":
                 tool_name = name
@@ -304,22 +231,6 @@ async def streaming_message_generator(
 
                 yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': name, 'output': output_str}})}\n\n"
 
-            # === Token Usage (on_chat_model_end) ===
-            elif kind == "on_chat_model_end":
-                output = data.get("output")
-                if output and hasattr(output, "usage_metadata") and output.usage_metadata:
-                    usage = extract_token_counts(output)
-                    total_user_tokens += usage["input_tokens"]
-                    total_ai_tokens += usage["output_tokens"]
-                    total_reasoning_tokens += usage["reasoning_tokens"]
-
-                    logger.info(
-                        "Token usage: input=%d, output=%d, reasoning=%d",
-                        usage["input_tokens"],
-                        usage["output_tokens"],
-                        usage["reasoning_tokens"],
-                    )
-
             # === Chain End (Final Message) ===
             elif kind == "on_chain_end" and node == "":
                 output = data.get("output", {})
@@ -339,62 +250,6 @@ async def streaming_message_generator(
         yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     finally:
-        # Update token counts in database if we tracked any tokens
-        if total_user_tokens > 0 or total_ai_tokens > 0 or total_reasoning_tokens > 0:
-            try:
-                from app.database import adb_manager
-                from app.crud.chat import update_conversation_tokens
-                from uuid import UUID
-
-                thread_id = (
-                    kwargs.get("config", {}).get("configurable", {}).get("thread_id")
-                )
-                if thread_id:
-                    # Convert thread_id to UUID if it's a string
-                    if isinstance(thread_id, str):
-                        thread_id = UUID(thread_id)
-                    elif not isinstance(thread_id, UUID):
-                        thread_id = UUID(str(thread_id))
-                    async with adb_manager.session() as session:
-                        await update_conversation_tokens(
-                            db=session,
-                            thread_id=thread_id,
-                            user_tokens=total_user_tokens,
-                            ai_tokens=total_ai_tokens,
-                            reasoning_tokens=total_reasoning_tokens,
-                        )
-                    logger.info(
-                        "Updated token counts: thread_id=%s, user_tokens=%d, ai_tokens=%d, reasoning_tokens=%d",
-                        thread_id,
-                        total_user_tokens,
-                        total_ai_tokens,
-                        total_reasoning_tokens,
-                    )
-            except Exception as e:
-                logger.error(f"Failed to update token counts: {e}")
-        else:
-            # Fallback: Use litellm token_counter to estimate tokens if provider didn't return usage
-            try:
-                import litellm
-
-                # Count tokens from the conversation messages
-                # This is an estimate, not exact provider usage
-                user_content = user_input.content
-                estimated_input_tokens = litellm.token_counter(
-                    text=user_content,
-                    model=user_input.model_name or "gpt-3.5-turbo"
-                )
-
-                # We don't have the full AI response here, so we can't count output tokens
-                # Log a warning that we're using estimated tokens
-                logger.warning(
-                    "Provider did not return token usage. Estimated input tokens: %d (model=%s)",
-                    estimated_input_tokens,
-                    user_input.model_name,
-                )
-            except Exception as e:
-                logger.warning("Failed to estimate tokens: %s", e)
-
         yield "data: [DONE]\n\n"
 
 

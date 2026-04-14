@@ -29,7 +29,6 @@ import {
   ConversationRenameDialog,
   DeleteConversationDialog,
   ShareDialog,
-  TokenStats,
 } from "@/features/chat/components"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
 import { ModelSelector } from "@/features/chat/components/model-selector"
@@ -1318,20 +1317,6 @@ function App() {
             </Select>
           )}
 
-          {/* Token Stats - show when in conversation */}
-          {!isAwaitingAgentSelection && threadId && (() => {
-            const currentConversation = conversations.find(c => c.thread_id === threadId)
-            const userTokens = currentConversation?.user_tokens ?? 0
-            const aiTokens = currentConversation?.ai_tokens ?? 0
-            const reasoningTokens = currentConversation?.reasoning_tokens ?? 0
-            return (userTokens > 0 || aiTokens > 0 || reasoningTokens > 0) && (
-              <TokenStats
-                userTokens={userTokens}
-                aiTokens={aiTokens}
-                reasoningTokens={reasoningTokens}
-              />
-            )
-          })()}
         </aside>
       </SidebarProvider>
 

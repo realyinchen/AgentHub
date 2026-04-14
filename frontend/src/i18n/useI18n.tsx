@@ -134,12 +134,6 @@ const en = {
   "actions.demo.regeneratingLog": "Regenerating...",
   "actions.demo.thumbsUpLog": "Thumbs up!",
   "actions.demo.thumbsDownLog": "Thumbs down!",
-  "token.title": "Token Usage",
-  "token.input": "Input",
-  "token.output": "Output",
-  "token.reasoning": "Reasoning",
-  "token.total": "Total",
-  "token.inputHint": "Includes system prompt",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -274,12 +268,6 @@ const zh: TranslationDictionary = {
   "actions.demo.regeneratingLog": "重新生成中...",
   "actions.demo.thumbsUpLog": "点赞！",
   "actions.demo.thumbsDownLog": "点踩！",
-  "token.title": "Token 用量",
-  "token.input": "输入",
-  "token.output": "输出",
-  "token.reasoning": "推理",
-  "token.total": "总计",
-  "token.inputHint": "包含系统提示词",
 }
 
 const dictionaries = {
