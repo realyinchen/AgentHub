@@ -15,6 +15,7 @@ from app.schemas.model import (
     RefreshResponse,
     ProvidersResponse,
 )
+from app.utils.crypto import encrypt_api_key
 
 api_router = APIRouter(prefix="/models", tags=["Models"])
 
@@ -139,20 +140,33 @@ async def create_model(
     model_data: ModelCreate, db: AsyncSession = Depends(get_db)
 ) -> ModelInfo:
     """Create a new model"""
-    # Check if model already exists
+    # Check if model_id already exists
     existing = await crud.get_model(db, model_data.model_id)
     if existing:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Model '{model_data.model_id}' already exists",
+            detail="model_id_exists",
+        )
+
+    # Check if model_name already exists
+    existing_name = await crud.get_model_by_name(db, model_data.model_name)
+    if existing_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="model_name_exists",
         )
 
     # If setting as default, clear other models' default flag of same type first
     if model_data.is_default:
         await crud.clear_default_models(db, model_data.model_type)
 
+    # Encrypt API key before storing
+    model_dict = model_data.model_dump()
+    if model_dict.get("api_key"):
+        model_dict["api_key"] = encrypt_api_key(model_dict["api_key"])
+
     # Create model
-    new_model = await crud.create_model(db, model_data.model_dump())
+    new_model = await crud.create_model(db, model_dict)
 
     # Refresh model manager cache
     from app.core.model_manager import ModelManager
@@ -177,11 +191,24 @@ async def update_model(
             detail=f"Model '{model_id}' not found",
         )
 
+    # Check if model_name is being updated and already exists
+    if request.model_name and request.model_name != existing.model_name:
+        existing_name = await crud.get_model_by_name(db, request.model_name)
+        if existing_name:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="model_name_exists",
+            )
+
     # If setting as default, clear other models' default flag of same type first
     update_dict = request.model_dump(exclude_unset=True, exclude={"model_id"})
     if update_dict.get("is_default"):
         model_type = str(update_dict.get("model_type") or existing.model_type)
         await crud.clear_default_models(db, model_type)
+
+    # Encrypt API key before storing
+    if update_dict.get("api_key"):
+        update_dict["api_key"] = encrypt_api_key(update_dict["api_key"])
 
     # Update model
     updated_model = await crud.update_model(db, model_id, update_dict)

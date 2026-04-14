@@ -57,6 +57,7 @@ function readAgentIdFromUrl(): string | null {
   return params.get("agent_id")
 }
 import { useI18n } from "@/i18n"
+import { Toaster } from "@/components/ui/toaster"
 
 function App() {
   const { t, toggleLocale } = useI18n()
@@ -1370,6 +1371,9 @@ function App() {
           }
         }}
       />
+
+      {/* Toast notifications */}
+      <Toaster />
     </>
   )
 }

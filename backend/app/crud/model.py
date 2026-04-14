@@ -14,6 +14,12 @@ async def get_model(db: AsyncSession, model_id: str) -> Optional[Model]:
     return result.scalar_one_or_none()
 
 
+async def get_model_by_name(db: AsyncSession, model_name: str) -> Optional[Model]:
+    """Get a single model by name"""
+    result = await db.execute(select(Model).where(Model.model_name == model_name))
+    return result.scalar_one_or_none()
+
+
 async def get_all_models(db: AsyncSession, active_only: bool = True) -> list[Model]:
     """Get all models"""
     stmt = select(Model)

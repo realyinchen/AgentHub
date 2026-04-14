@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
+import { ErrorAlertDialog, useErrorAlert } from "@/components/ui/error-alert-dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
@@ -69,11 +70,17 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   // API Key visibility state (model_id -> visible)
   const [apiKeyVisibility, setApiKeyVisibility] = useState<Record<string, boolean>>({})
 
+  // New model API Key visibility state
+  const [newModelApiKeyVisible, setNewModelApiKeyVisible] = useState(false)
+
   // API Key editing state (model_id -> raw value)
   const [apiKeyEdits, setApiKeyEdits] = useState<Record<string, string>>({})
 
   // Pending changes state (model_id -> changes)
   const [pendingChanges, setPendingChanges] = useState<Record<string, ModelChanges>>({})
+
+  // Error alert hook
+  const errorAlert = useErrorAlert()
 
 
   // Load models and providers on dialog open
@@ -197,6 +204,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
       await loadData()
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      // Check for specific error types
+      if (errorMessage.includes("model_name_exists")) {
+        errorAlert.showError("Model Name 已存在，请使用其他名称")
+      } else {
+        errorAlert.showError(errorMessage)
+      }
       console.error("Failed to save changes:", error)
     }
   }
@@ -221,6 +235,15 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       setShowNewModelForm(false)
       await loadData()
     } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      // Check for specific error types
+      if (errorMessage.includes("model_id_exists")) {
+        errorAlert.showError("Model ID 已存在，请使用其他 ID")
+      } else if (errorMessage.includes("model_name_exists")) {
+        errorAlert.showError("Model Name 已存在，请使用其他名称")
+      } else {
+        errorAlert.showError(errorMessage)
+      }
       console.error("Failed to create model:", error)
     }
   }
@@ -289,8 +312,12 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="dialog-scroll-area max-w-5xl max-h-[80vh] overflow-y-auto">
+    <>
+      {/* Error Alert Dialog - Centered on screen */}
+      <ErrorAlertDialog state={errorAlert.state} onOpenChange={errorAlert.setOpen} />
+
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="dialog-scroll-area max-w-5xl max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Settings2 className="size-5" />
@@ -389,12 +416,26 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                 {/* Row 2: API Key */}
                 <div className="space-y-2">
                   <label className="text-sm font-medium">API Key</label>
-                  <Input
-                    type="password"
-                    placeholder={t("provider.apiKeyPlaceholder")}
-                    value={newModel.api_key || ""}
-                    onChange={(e) => setNewModel(prev => ({ ...prev, api_key: e.target.value }))}
-                  />
+                  <div className="relative">
+                    <Input
+                      type={newModelApiKeyVisible ? "text" : "password"}
+                      placeholder={t("provider.apiKeyPlaceholder")}
+                      value={newModel.api_key || ""}
+                      onChange={(e) => setNewModel(prev => ({ ...prev, api_key: e.target.value }))}
+                      className="pr-10"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setNewModelApiKeyVisible(!newModelApiKeyVisible)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    >
+                      {newModelApiKeyVisible ? (
+                        <EyeOff className="size-4" />
+                      ) : (
+                        <Eye className="size-4" />
+                      )}
+                    </button>
+                  </div>
                 </div>
 
                 {/* Row 3: Model ID and Model Name */}
@@ -407,7 +448,6 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                       value={newModel.model_id}
                       onChange={(e) => handleModelIdChange(e.target.value)}
                     />
-                    <p className="text-xs text-muted-foreground">模型名称，如: qwen3.5-27b</p>
                   </div>
 
                   {/* Model Name */}
@@ -461,7 +501,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                   <Button variant="outline" onClick={() => setShowNewModelForm(false)}>
                     {t("common.cancel")}
                   </Button>
-                  <Button onClick={handleCreateModel} disabled={!newModel.model_id || !newModel.provider || !newModel.model_name}>
+                  <Button onClick={handleCreateModel} disabled={!newModel.model_id?.trim() || !newModel.provider?.trim() || !newModel.model_name?.trim() || !newModel.api_key?.trim()}>
                     {t("common.save")}
                   </Button>
                 </div>
@@ -529,26 +569,12 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                           {/* API Key */}
                           <div className="space-y-1">
                             <label className="text-xs text-muted-foreground">API Key</label>
-                            <div className="flex gap-1">
-                              <Input
-                                type={apiKeyVisibility[model.model_id] ? "text" : "password"}
-                                placeholder={model.has_api_key ? "••••••••••••" : t("provider.apiKeyPlaceholder")}
-                                value={apiKeyEdits[model.model_id] ?? ""}
-                                onChange={(e) => handleApiKeyChange(model.model_id, e.target.value)}
-                              />
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="size-9"
-                                onClick={() => toggleApiKeyVisibility(model.model_id)}
-                              >
-                                {apiKeyVisibility[model.model_id] ? (
-                                  <EyeOff className="size-4" />
-                                ) : (
-                                  <Eye className="size-4" />
-                                )}
-                              </Button>
-                            </div>
+                            <Input
+                              type="password"
+                              placeholder={model.has_api_key ? "••••••••••••" : t("provider.apiKeyPlaceholder")}
+                              value={apiKeyEdits[model.model_id] ?? ""}
+                              onChange={(e) => handleApiKeyChange(model.model_id, e.target.value)}
+                            />
                           </div>
 
                           {/* Switches */}
@@ -630,5 +656,6 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
         )}
       </DialogContent>
     </Dialog>
+    </>
   )
 }

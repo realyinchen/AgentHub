@@ -165,18 +165,37 @@ class ModelManager:
             extra_body = build_extra_body(m.provider, False)
 
             # Build litellm model name for Router
-            # model_id already contains provider prefix (e.g., "zai/glm-5")
-            # So we use model_id directly as litellm_model
-            litellm_model = m.model_id
+            # LiteLLM expects format: provider/model_name (e.g., "dashscope/qwen3.5-flash")
+            # If model_id doesn't have provider prefix, add it
+            if "/" in m.model_id:
+                litellm_model = m.model_id
+            else:
+                # Add provider prefix based on provider field
+                provider_prefix = m.provider.lower()
+                # Map common provider names to litellm provider prefixes
+                provider_mapping = {
+                    "dashscope": "dashscope",
+                    "alibaba": "dashscope",
+                    "zhipu": "zhipu",
+                    "zai": "zhipu",
+                    "openai": "openai",
+                    "deepseek": "deepseek",
+                    "anthropic": "anthropic",
+                    "google": "gemini",
+                    "gemini": "gemini",
+                }
+                litellm_provider = provider_mapping.get(provider_prefix, provider_prefix)
+                litellm_model = f"{litellm_provider}/{m.model_id}"
 
             # Decrypt API key before passing to litellm
             decrypted_api_key = decrypt_api_key(m.api_key) if m.api_key else ""
 
             # Use litellm_model as model_name for Router
+            # model_name is the internal identifier, model is the litellm format
             model_config = {
-                "model_name": litellm_model,
+                "model_name": m.model_id,  # Keep original model_id as identifier
                 "litellm_params": {
-                    "model": litellm_model,
+                    "model": litellm_model,  # Use provider-prefixed format for litellm
                     "api_key": decrypted_api_key,
                     "extra_body": extra_body,
                     "stream_options": {
@@ -229,14 +248,31 @@ class ModelManager:
             # Build extra_body based on provider and thinking_mode
             extra_body = build_extra_body(model.provider, thinking_mode)
 
-            # Build litellm model name: provider/model_id
-            # Note: model_id already contains provider prefix (e.g., "zai/glm-5")
-            # So we use model_id directly as litellm_model
-            litellm_model = model_id
+            # Build litellm model name for Router
+            # The model_name in Router is the original model_id (without provider prefix)
+            # But we need to use the provider-prefixed format for litellm
+            if "/" in model_id:
+                litellm_model = model_id
+            else:
+                # Add provider prefix based on provider field
+                provider_prefix = model.provider.lower()
+                provider_mapping = {
+                    "dashscope": "dashscope",
+                    "alibaba": "dashscope",
+                    "zhipu": "zhipu",
+                    "zai": "zhipu",
+                    "openai": "openai",
+                    "deepseek": "deepseek",
+                    "anthropic": "anthropic",
+                    "google": "gemini",
+                    "gemini": "gemini",
+                }
+                litellm_provider = provider_mapping.get(provider_prefix, provider_prefix)
+                litellm_model = f"{litellm_provider}/{model_id}"
 
             llm = ChatLiteLLMRouter(
                 router=router,
-                model_name=litellm_model,
+                model_name=model_id,  # Use original model_id as model_name (Router identifier)
                 temperature=0,
             )
 
