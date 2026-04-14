@@ -176,9 +176,13 @@ async def streaming_message_generator(
     user_input: UserInput, agent: CompiledStateGraph
 ) -> AsyncGenerator[str, None]:
     """
-    Generate a stream of messages from the agent.
+    Generate a stream of messages from the agent using astream_events.
 
-    This is the workhorse method for the /stream endpoint.
+    Uses LangGraph's astream_events (v2) for fine-grained event streaming:
+    - on_chat_model_stream: token-by-token streaming
+    - on_tool_start: tool call initiation
+    - on_tool_end: tool execution result
+    - on_chain_end: final message and token usage
 
     Args:
         user_input: User input containing content, agent_id, thread_id, and thinking_mode
@@ -187,191 +191,153 @@ async def streaming_message_generator(
     kwargs = await handle_input(user_input, agent)
     started_at = time.perf_counter()
     first_chunk_sent = False
-    sent_tool_calls: set[str] = set()  # Track sent tool call IDs to avoid duplicates
-    # Map tool_call_id to tool name for tool_result events
-    tool_call_id_to_name: dict[str, str] = {}
+
     # Track token usage for this conversation
     total_user_tokens = 0
     total_ai_tokens = 0
     total_reasoning_tokens = 0
 
+    # Track tool calls for mapping tool_call_id to name
+    pending_tool_calls: dict[str, str] = {}
+
     # Send an SSE comment prelude immediately to encourage early flush in proxies.
     yield f": {' ' * 2048}\n\n"
+
     try:
-        # Process streamed events from the graph and yield messages over the SSE stream.
-        async for stream_event in agent.astream(
-            **kwargs,  # type: ignore
-            stream_mode=["updates", "messages"],
+        # Use astream_events for fine-grained streaming
+        async for event in agent.astream_events(
+            kwargs["input"],
+            config=kwargs["config"],
+            version="v2",
         ):
-            if not isinstance(stream_event, tuple):
-                continue
-            stream_mode, event = stream_event
-            new_messages = []
-            if stream_mode == "updates":
-                for node, updates in event.items():
-                    # A simple approach to handle agent interrupts.
-                    # In a more sophisticated implementation, we could add
-                    # some structured ChatMessage type to return the interrupt value.
-                    if node == "__interrupt__":
-                        continue
-                    updates = updates or {}
-                    update_messages = updates.get("messages", [])
-                    new_messages.extend(update_messages)
+            kind = event["event"]
+            name = event.get("name", "")
+            data = event.get("data", {})
+            metadata = event.get("metadata", {})
+            node = metadata.get("langgraph_node", "")
 
-            for message in new_messages:
-                logger.debug(
-                    "Processing message: type=%s, content_preview=%s",
-                    type(message).__name__,
-                    str(message.content)[:100] if message.content else "",
-                )
+            logger.debug(f"Event: kind={kind}, name={name}, node={node}")
 
-                # Extract token counts from AI messages
-                if isinstance(message, AIMessage):
-                    token_counts = extract_token_counts(message)
+            # === Token Streaming (on_chat_model_stream) ===
+            if kind == "on_chat_model_stream":
+                chunk = data.get("chunk")
+
+                # Handle content chunks
+                if chunk and hasattr(chunk, "content") and chunk.content:
+                    if not first_chunk_sent:
+                        first_chunk_sent = True
+                        logger.info(
+                            "stream first chunk (token) in %.1f ms (agent_id=%s, thread_id=%s)",
+                            (time.perf_counter() - started_at) * 1000,
+                            user_input.agent_id,
+                            user_input.thread_id,
+                        )
+
+                    # Handle structured content (DashScope thinking models)
+                    if isinstance(chunk.content, list):
+                        for block in chunk.content:
+                            if isinstance(block, dict):
+                                block_type = block.get("type")
+                                if block_type == "thinking":
+                                    thinking_content = block.get("thinking", "")
+                                    if thinking_content:
+                                        yield f"data: {json.dumps({'type': 'thinking', 'content': thinking_content})}\n\n"
+                                elif block_type == "text":
+                                    text_content = block.get("text", "")
+                                    if text_content:
+                                        yield f"data: {json.dumps({'type': 'token', 'content': text_content})}\n\n"
+                    # Handle string content (normal streaming)
+                    elif isinstance(chunk.content, str):
+                        yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
+
+                # Handle reasoning_content attribute (DeepSeek-R1 style)
+                if chunk and hasattr(chunk, "reasoning_content") and chunk.reasoning_content:
+                    reasoning = chunk.reasoning_content
+                    if isinstance(reasoning, str):
+                        yield f"data: {json.dumps({'type': 'thinking', 'content': reasoning})}\n\n"
+                    elif isinstance(reasoning, list):
+                        yield f"data: {json.dumps({'type': 'thinking', 'content': convert_message_content_to_string(reasoning)})}\n\n"
+
+                # Key fix: Capture usage chunk (may have no content, only usage_metadata)
+                # This is critical for streaming mode where usage comes in a separate chunk
+                if chunk and hasattr(chunk, "usage_metadata") and chunk.usage_metadata:
+                    usage = extract_token_counts(chunk)
+                    total_user_tokens += usage["input_tokens"]
+                    total_ai_tokens += usage["output_tokens"]
+                    total_reasoning_tokens += usage["reasoning_tokens"]
                     logger.info(
-                        "AIMessage token info: input=%d, output=%d, reasoning=%d, has_usage_metadata=%s, has_response_metadata=%s, usage_metadata=%s, response_metadata=%s",
-                        token_counts["input_tokens"],
-                        token_counts["output_tokens"],
-                        token_counts["reasoning_tokens"],
-                        hasattr(message, "usage_metadata") and message.usage_metadata is not None,
-                        hasattr(message, "response_metadata") and bool(message.response_metadata),
-                        message.usage_metadata if hasattr(message, "usage_metadata") else None,
-                        message.response_metadata if hasattr(message, "response_metadata") else None,
+                        "Stream usage chunk: input=%d, output=%d, reasoning=%d",
+                        usage["input_tokens"],
+                        usage["output_tokens"],
+                        usage["reasoning_tokens"],
                     )
-                    total_user_tokens += token_counts["input_tokens"]
-                    total_ai_tokens += token_counts["output_tokens"]
-                    total_reasoning_tokens += token_counts["reasoning_tokens"]
 
-                # Send tool_call event when AI message has tool_calls
-                if isinstance(message, AIMessage) and message.tool_calls:
-                    logger.info(
-                        "AIMessage with tool_calls: %s",
-                        [tc.get("name") for tc in message.tool_calls],
-                    )
-                    for tool_call in message.tool_calls:
-                        tool_call_id = tool_call.get("id", "")
-                        tool_name = tool_call.get("name", "unknown")
-                        tool_args = tool_call.get("args", {})
-                        # Store mapping for tool_result
-                        if tool_call_id:
-                            tool_call_id_to_name[tool_call_id] = tool_name
-                        # Avoid sending duplicate tool calls
-                        if tool_call_id and tool_call_id not in sent_tool_calls:
-                            sent_tool_calls.add(tool_call_id)
-                            if not first_chunk_sent:
-                                first_chunk_sent = True
-                                logger.info(
-                                    "stream first chunk (tool_call) in %.1f ms (agent_id=%s, thread_id=%s)",
-                                    (time.perf_counter() - started_at) * 1000,
-                                    user_input.agent_id,
-                                    user_input.thread_id,
-                                )
-                            yield f"data: {json.dumps({'type': 'tool_call', 'content': {'name': tool_name, 'id': tool_call_id, 'args': tool_args}})}\n\n"
+            # === Tool Call Start (on_tool_start) ===
+            elif kind == "on_tool_start":
+                tool_name = name
+                tool_args = data.get("args", {})
+                tool_call_id = data.get("run_id", "")
 
-                # Send tool_result event when ToolMessage is received
-                if isinstance(message, ToolMessage):
-                    tool_call_id = message.tool_call_id
-                    tool_name = tool_call_id_to_name.get(tool_call_id, "unknown")
-                    tool_output = convert_message_content_to_string(message.content)
-                    # Truncate very long outputs for SSE
-                    if len(tool_output) > 2000:
-                        tool_output = tool_output[:2000] + "..."
-                    yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': tool_call_id, 'output': tool_output}})}\n\n"
+                # Store mapping for tool_result
+                pending_tool_calls[tool_call_id] = tool_name
 
-                try:
-                    chat_message = langchain_to_chat_message(message)
-                except Exception as e:
-                    logger.error(f"Error parsing message: {e}")
-                    yield f"data: {json.dumps({'type': 'error', 'content': 'Unexpected error'})}\n\n"
-                    continue
-                # LangGraph re-sends the input message, which feels weird, so drop it
-                if (
-                    chat_message.type == "human"
-                    and chat_message.content == user_input.content
-                ):
-                    continue
-                # Skip tool messages in the main message stream (we already sent tool_result)
-                if chat_message.type == "tool":
-                    continue
                 if not first_chunk_sent:
                     first_chunk_sent = True
                     logger.info(
-                        "stream first chunk in %.1f ms (agent_id=%s, thread_id=%s)",
+                        "stream first chunk (tool_call) in %.1f ms (agent_id=%s, thread_id=%s)",
                         (time.perf_counter() - started_at) * 1000,
                         user_input.agent_id,
                         user_input.thread_id,
                     )
-                yield f"data: {json.dumps({'type': 'message', 'content': chat_message.model_dump()})}\n\n"
 
-            if stream_mode == "messages":
-                msg, _ = event
-                # non-LLM nodes will send extra messages, like ToolMessage, we need to drop them.
-                if not isinstance(msg, AIMessageChunk):
-                    continue
+                yield f"data: {json.dumps({'type': 'tool_call', 'content': {'name': tool_name, 'id': tool_call_id, 'args': tool_args}})}\n\n"
 
-                # Handle thinking content from DashScope thinking models
-                # The content can be structured as list[dict] with 'type' field
-                # e.g., [{'type': 'thinking', 'thinking': '...'}, {'type': 'text', 'text': '...'}]
-                if isinstance(msg.content, list):
-                    for block in msg.content:
-                        if isinstance(block, dict):
-                            block_type = block.get("type")
+            # === Tool Call End (on_tool_end) ===
+            elif kind == "on_tool_end":
+                tool_output = data.get("output", "")
+                tool_name = pending_tool_calls.get(name, name)
 
-                            # Handle thinking block
-                            if block_type == "thinking":
-                                thinking_content = block.get("thinking", "")
-                                if thinking_content:
-                                    if not first_chunk_sent:
-                                        first_chunk_sent = True
-                                        logger.info(
-                                            "stream first chunk (thinking) in %.1f ms",
-                                            (time.perf_counter() - started_at) * 1000,
-                                        )
-                                    yield f"data: {json.dumps({'type': 'thinking', 'content': thinking_content})}\n\n"
+                # Truncate very long outputs for SSE
+                output_str = str(tool_output)
+                if len(output_str) > 2000:
+                    output_str = output_str[:2000] + "..."
 
-                            # Handle text block (final answer)
-                            elif block_type == "text":
-                                text_content = block.get("text", "")
-                                if text_content:
-                                    if not first_chunk_sent:
-                                        first_chunk_sent = True
-                                        logger.info(
-                                            "stream first chunk in %.1f ms",
-                                            (time.perf_counter() - started_at) * 1000,
-                                        )
-                                    yield f"data: {json.dumps({'type': 'token', 'content': text_content})}\n\n"
+                yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': name, 'output': output_str}})}\n\n"
 
-                # Handle reasoning_content attribute (DeepSeek-R1 style)
-                reasoning_content = getattr(msg, "reasoning_content", None)
-                if reasoning_content:
-                    if not first_chunk_sent:
-                        first_chunk_sent = True
-                        logger.info(
-                            "stream first chunk (thinking) in %.1f ms (agent_id=%s, thread_id=%s)",
-                            (time.perf_counter() - started_at) * 1000,
-                            user_input.agent_id,
-                            user_input.thread_id,
-                        )
-                    yield f"data: {json.dumps({'type': 'thinking', 'content': convert_message_content_to_string(reasoning_content)})}\n\n"
+            # === Token Usage (on_chat_model_end) ===
+            elif kind == "on_chat_model_end":
+                output = data.get("output")
+                if output and hasattr(output, "usage_metadata") and output.usage_metadata:
+                    usage = extract_token_counts(output)
+                    total_user_tokens += usage["input_tokens"]
+                    total_ai_tokens += usage["output_tokens"]
+                    total_reasoning_tokens += usage["reasoning_tokens"]
 
-                # Handle string content (normal streaming)
-                content = msg.content
-                if content and isinstance(content, str):
-                    # Empty content in the context of OpenAI usually means
-                    # that the model is asking for a tool to be invoked.
-                    # So we only print non-empty content.
-                    if not first_chunk_sent:
-                        first_chunk_sent = True
-                        logger.info(
-                            "stream first chunk in %.1f ms (agent_id=%s, thread_id=%s)",
-                            (time.perf_counter() - started_at) * 1000,
-                            user_input.agent_id,
-                            user_input.thread_id,
-                        )
-                    yield f"data: {json.dumps({'type': 'token', 'content': content})}\n\n"
+                    logger.info(
+                        "Token usage: input=%d, output=%d, reasoning=%d",
+                        usage["input_tokens"],
+                        usage["output_tokens"],
+                        usage["reasoning_tokens"],
+                    )
+
+            # === Chain End (Final Message) ===
+            elif kind == "on_chain_end" and node == "":
+                output = data.get("output", {})
+                messages = output.get("messages", [])
+
+                if messages:
+                    last_message = messages[-1]
+                    if hasattr(last_message, "content") and last_message.content:
+                        try:
+                            chat_message = langchain_to_chat_message(last_message)
+                            yield f"data: {json.dumps({'type': 'message', 'content': chat_message.model_dump()})}\n\n"
+                        except Exception as e:
+                            logger.error(f"Error parsing final message: {e}")
+
     except Exception as e:
-        logger.error(f"Error in message generator: {e}")
-        yield f"data: {json.dumps({'type': 'error', 'content': 'Internal server error'})}\n\n"
+        logger.error(f"Error in message generator: {e}", exc_info=True)
+        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+
     finally:
         # Update token counts in database if we tracked any tokens
         if total_user_tokens > 0 or total_ai_tokens > 0 or total_reasoning_tokens > 0:
@@ -410,7 +376,7 @@ async def streaming_message_generator(
             # Fallback: Use litellm token_counter to estimate tokens if provider didn't return usage
             try:
                 import litellm
-                
+
                 # Count tokens from the conversation messages
                 # This is an estimate, not exact provider usage
                 user_content = user_input.content
@@ -418,7 +384,7 @@ async def streaming_message_generator(
                     text=user_content,
                     model=user_input.model_name or "gpt-3.5-turbo"
                 )
-                
+
                 # We don't have the full AI response here, so we can't count output tokens
                 # Log a warning that we're using estimated tokens
                 logger.warning(
@@ -428,7 +394,7 @@ async def streaming_message_generator(
                 )
             except Exception as e:
                 logger.warning("Failed to estimate tokens: %s", e)
-        
+
         yield "data: [DONE]\n\n"
 
 

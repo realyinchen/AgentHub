@@ -15,8 +15,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
 
-from app.utils.llm import streaming_completion
-from app.core.model_manager import ModelManager, build_extra_body
+from app.utils.llm import get_chat_litellm
+from app.core.model_manager import ModelManager
 from app.prompt.navigator import get_navigator_prompt
 from app.tools.amap import AMAP_TOOLS
 from app.tools.time import get_current_time
@@ -112,8 +112,8 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
 
     This node:
     1. Gets thinking_mode from config
-    2. Calls LLM using the reusable streaming_completion module
-    3. Returns the response with automatic token tracking
+    2. Calls LLM using ChatLiteLLM for native LangGraph streaming
+    3. Returns the response (LangGraph captures streaming via astream_events)
 
     Args:
         state: Current graph state containing messages
@@ -137,13 +137,6 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
     # Get tools
     tools = _get_tools()
 
-    # Build extra_body for thinking mode
-    extra_body = None
-    if thinking_mode and model_name:
-        model = ModelManager.get_model(model_name)
-        if model:
-            extra_body = build_extra_body(model.provider, thinking_mode)
-
     # Get messages from state
     messages = state.get("messages", [])
 
@@ -154,17 +147,18 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
     # Build the full message list with system prompt
     full_messages = [SystemMessage(content=system_prompt)] + filtered_messages
 
-    # Use the reusable streaming_completion module
-    # This automatically handles token usage tracking
-    result = await streaming_completion(
+    # Get ChatLiteLLM instance (supports streaming via astream_events)
+    llm = get_chat_litellm(
         model=model_name,
-        messages=full_messages,
+        thinking_mode=thinking_mode,
         tools=tools,
-        extra_body=extra_body,
     )
 
+    # Invoke LLM - LangGraph will capture streaming chunks via astream_events
+    response = await llm.ainvoke(full_messages)
+
     # Return the AIMessage for LangGraph compatibility
-    return {"messages": [result.raw_response]}
+    return {"messages": [response]}
 
 
 async def tool_node(state: NavigatorState) -> dict:

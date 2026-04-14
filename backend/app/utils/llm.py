@@ -25,9 +25,10 @@ from typing import (
 )
 
 from langchain_core.messages import AIMessage
+from langchain_litellm import ChatLiteLLM
 from litellm import acompletion
 
-from app.core.model_manager import ModelManager
+from app.core.model_manager import ModelManager, build_extra_body
 from app.utils.crypto import decrypt_api_key
 
 logger = logging.getLogger(__name__)
@@ -705,3 +706,89 @@ async def streaming_completion_with_yield(
     except Exception as e:
         logger.error(f"Error in streaming completion with yield: {e}")
         raise
+
+
+# ==============================================================================
+# ChatLiteLLM Factory (for LangGraph astream_events)
+# ==============================================================================
+
+
+def get_chat_litellm(
+    model: str,
+    temperature: float = 0,
+    thinking_mode: bool = False,
+    tools: list | None = None,
+) -> ChatLiteLLM | Any:
+    """
+    Get a ChatLiteLLM instance configured for streaming with LangGraph.
+
+    This is the recommended way to get an LLM for use with LangGraph's
+    astream_events(), which properly captures streaming chunks.
+
+    Key features:
+    - Native LangChain integration for LangGraph streaming
+    - Automatic token usage tracking via stream_usage=True
+    - Thinking mode support via extra_body (explicitly controlled)
+    - drop_params=True to avoid errors with unsupported parameters
+    - Auto-adds provider prefix if not present
+
+    Args:
+        model: Model ID (e.g., "qwen-plus", "glm-4", or "dashscope/qwen-plus")
+        temperature: Temperature for sampling
+        thinking_mode: Whether to enable thinking mode
+        tools: Optional list of LangChain tools to bind
+
+    Returns:
+        ChatLiteLLM instance configured for streaming
+    """
+    # Get model config from ModelManager
+    model_config = ModelManager.get_model(model)
+
+    # Build litellm model name with provider prefix
+    # LiteLLM expects format: provider/model_name (e.g., "dashscope/qwen-plus")
+    litellm_model = model
+    if "/" not in model and model_config:
+        # Model ID doesn't have provider prefix, add it from database provider field
+        litellm_model = f"{model_config.provider.lower()}/{model}"
+
+    # Build base kwargs for ChatLiteLLM
+    # Key: stream_usage=True enables token usage in streaming responses
+    # Key: drop_params=True drops unsupported params to avoid errors
+    llm_kwargs: dict[str, Any] = {
+        "model": litellm_model,
+        "temperature": temperature,
+        "streaming": True,
+        "stream_usage": True,
+        "drop_params": True,
+    }
+
+    # Get API key
+    if model_config and model_config.api_key:
+        api_key = decrypt_api_key(model_config.api_key)
+        llm_kwargs["api_key"] = api_key
+
+    # Key fix: Always build extra_body to explicitly control thinking_mode
+    # When thinking_mode=False, we MUST explicitly disable it to prevent
+    # LiteLLM from auto-enabling reasoning based on model name
+    extra_body = {}
+    if model_config:
+        extra_body = build_extra_body(model_config.provider, thinking_mode)
+        if extra_body:
+            llm_kwargs["extra_body"] = extra_body
+
+    # Create LLM instance
+    llm = ChatLiteLLM(**llm_kwargs)
+
+    # Bind tools if provided
+    # CRITICAL: bind_tools() creates a new Runnable that does NOT inherit
+    # extra_body from the constructor. We must pass extra_body again!
+    if tools:
+        llm = llm.bind_tools(tools, extra_body=extra_body)
+
+    logger.info(
+        f"Created ChatLiteLLM: model={litellm_model}, thinking_mode={thinking_mode}, "
+        f"extra_body={extra_body}, tools={len(tools) if tools else 0}, "
+        f"stream_usage=True, drop_params=True"
+    )
+
+    return llm

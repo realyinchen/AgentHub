@@ -23,6 +23,9 @@ def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
     """
     Build extra_body parameters based on provider and thinking mode flag.
 
+    IMPORTANT: When thinking_enabled=False, we MUST explicitly disable it
+    to prevent LiteLLM from auto-enabling reasoning based on model name.
+
     DashScope (Alibaba Cloud):
       - enabled: {"enable_thinking": true}
       - disabled: {"enable_thinking": false}
@@ -30,14 +33,42 @@ def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
     ZhipuAI (zai):
       - enabled: {"thinking": {"type": "enabled"}}
       - disabled: {"thinking": {"type": "disabled"}}
+
+    DeepSeek:
+      - For R1/reasoning models, reasoning is always on
+      - For regular models, no special params needed
+      - Note: DeepSeek doesn't support disabling reasoning on R1 models
+
+    OpenAI:
+      - o1/o3 models: reasoning_effort parameter (low/medium/high)
+      - regular models: no special params needed
     """
     provider_lower = provider.lower()
+
     if provider_lower == "dashscope" or "dashscope" in provider_lower:
+        # DashScope/Qwen thinking models
         return {"enable_thinking": thinking_enabled}
+
     elif provider_lower == "zai" or "zhipu" in provider_lower:
+        # ZhipuAI GLM-4 thinking models
         return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
+
+    elif provider_lower == "deepseek":
+        # DeepSeek R1 models have built-in reasoning
+        # No extra_body needed - reasoning is determined by model type
+        # R1 models always reason, regular models don't
+        return {}
+
+    elif provider_lower == "openai":
+        # OpenAI o1/o3 models support reasoning_effort
+        # Only set if thinking_enabled, otherwise let defaults apply
+        if thinking_enabled:
+            return {"reasoning_effort": "medium"}
+        return {}
+
     else:
-        # Other providers return empty by default, can be extended later
+        # Other providers: return empty by default
+        # Can be extended for additional providers
         return {}
 
 
