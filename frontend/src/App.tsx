@@ -794,15 +794,29 @@ function App() {
               return
             }
 
-            // error event
-            setAppError(event.content)
-            setMessages((previous) => [
-              ...previous,
-              toLocalMessage({
-                type: "ai",
-                content: t("error.streamPrefix", { details: event.content }),
-              }),
-            ])
+            if (event.type === "usage") {
+              // Token usage event from backend - log for debugging
+              // Can be used to display token count in UI if needed
+              console.log(
+                `[${event.content.node}] Token usage:`,
+                `input=${event.content.usage.input_tokens ?? 'N/A'},`,
+                `output=${event.content.usage.output_tokens ?? 'N/A'},`,
+                `total=${event.content.usage.total_tokens ?? 'N/A'}`
+              )
+              return
+            }
+
+            // error event - TypeScript knows this must be { type: "error"; content: string }
+            if (event.type === "error") {
+              setAppError(event.content)
+              setMessages((previous) => [
+                ...previous,
+                toLocalMessage({
+                  type: "ai",
+                  content: t("error.streamPrefix", { details: event.content }),
+                }),
+              ])
+            }
           },
           controller.signal,
         )
@@ -1085,7 +1099,21 @@ function App() {
               return
             }
 
-            setAppError(event.content)
+            if (event.type === "usage") {
+              // Token usage event - log for debugging
+              console.log(
+                `[${event.content.node}] Token usage:`,
+                `input=${event.content.usage.input_tokens ?? 'N/A'},`,
+                `output=${event.content.usage.output_tokens ?? 'N/A'},`,
+                `total=${event.content.usage.total_tokens ?? 'N/A'}`
+              )
+              return
+            }
+
+            // error event
+            if (event.type === "error") {
+              setAppError(event.content)
+            }
           },
           controller.signal,
         )

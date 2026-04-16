@@ -648,6 +648,7 @@ def get_chat_litellm(
     - Thinking mode support via extra_body (explicitly controlled)
     - drop_params=True to avoid errors with unsupported parameters
     - Auto-adds provider prefix if not present
+    - stream_options with include_usage=True for stable token usage tracking
 
     Args:
         model: Model ID (e.g., "qwen-plus", "glm-4", or "dashscope/qwen-plus")
@@ -670,17 +671,24 @@ def get_chat_litellm(
 
     # Build base kwargs for ChatLiteLLM
     # Key: drop_params=True drops unsupported params to avoid errors
+    # Key: model_kwargs with stream_options for stable usage tracking
     llm_kwargs: dict[str, Any] = {
         "model": litellm_model,
         "temperature": temperature,
         "streaming": True,
         "drop_params": True,
+        # Critical: Enable usage tracking in streaming mode
+        "model_kwargs": {
+            "stream_options": {"include_usage": True}
+        },
     }
 
     # Get API key
+    has_api_key = False
     if model_config and model_config.api_key:
         api_key = decrypt_api_key(model_config.api_key)
         llm_kwargs["api_key"] = api_key
+        has_api_key = True
 
     # Key fix: Always build extra_body to explicitly control thinking_mode
     # When thinking_mode=False, we MUST explicitly disable it to prevent
@@ -696,14 +704,21 @@ def get_chat_litellm(
 
     # Bind tools if provided
     # CRITICAL: bind_tools() creates a new Runnable that does NOT inherit
-    # extra_body from the constructor. We must pass extra_body again!
+    # extra_body and model_kwargs from the constructor. We must pass them again!
     if tools:
-        llm = llm.bind_tools(tools, extra_body=extra_body)
+        llm = llm.bind_tools(
+            tools,
+            extra_body=extra_body,
+            # Re-pass model_kwargs to ensure stream_options is preserved
+            **{"model_kwargs": {"stream_options": {"include_usage": True}}}
+        )
 
+    # Detailed logging for debugging
     logger.info(
-        f"Created ChatLiteLLM: model={litellm_model}, thinking_mode={thinking_mode}, "
-        f"extra_body={extra_body}, tools={len(tools) if tools else 0}, "
-        f"drop_params=True"
+        f"Created ChatLiteLLM: model={litellm_model}, temperature={temperature}, "
+        f"streaming=True, include_usage=True, thinking_mode={thinking_mode}, "
+        f"extra_body={extra_body}, tools_count={len(tools) if tools else 0}, "
+        f"has_api_key={has_api_key}, drop_params=True"
     )
 
     return llm

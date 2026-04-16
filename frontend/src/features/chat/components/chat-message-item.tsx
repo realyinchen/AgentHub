@@ -17,6 +17,7 @@ import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo, AgentProcessSe
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
+import { SciFiLoader } from "@/components/ai/scifi-loader"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
@@ -593,8 +594,14 @@ export function ChatMessageItem({
 
   // For AI messages, don't render if there's no content, thinking content, or tool calls
   // This avoids empty bubbles
-  // But during streaming, show processing state even without content
+  // But during streaming with processing state, show the loader even without content
   if (isAI && !isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
+    return null
+  }
+  
+  // During streaming, if we're still processing (no content received yet), don't return null
+  // The SciFiLoader will be shown instead
+  if (isAI && isStreaming && !isProcessing && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
     return null
   }
 
@@ -700,16 +707,10 @@ export function ChatMessageItem({
             />
           )}
 
-          {/* Processing state - show loading animation before any content arrives */}
-          {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 && !processSession?.isActive ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="inline-flex gap-1">
-                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-current" />
-              </span>
-              <span>{t("message.processing")}</span>
-            </div>
+          {/* Processing state - show sci-fi loading animation before any content arrives */}
+          {/* Show when: AI message, streaming, processing state, no content yet */}
+          {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
+            <SciFiLoader size="md" showText={false} />
           ) : null}
 
           {/* Thinking process - only show when there is actual thinking content and no process session */}

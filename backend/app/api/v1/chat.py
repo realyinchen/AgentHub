@@ -14,7 +14,6 @@ from app.schemas.chat import (
     ConversationInDB,
     ConversationUpdate,
     ChatMessage,
-    MessageStep,
     UserInput,
     ChatHistory,
 )
@@ -240,7 +239,7 @@ def _collect_tool_calls_for_final_response(
 def _extract_thinking_from_ai_message(msg: AIMessage) -> str | None:
     """Extract thinking content from an AI message."""
     thinking = ""
-    
+
     # 1. Check structured content (DashScope thinking models)
     if isinstance(msg.content, list):
         thinking_blocks = []
@@ -250,7 +249,7 @@ def _extract_thinking_from_ai_message(msg: AIMessage) -> str | None:
                 if content:
                     thinking_blocks.append(content)
         thinking = "".join(thinking_blocks)
-    
+
     # 2. Check reasoning_content attribute (DeepSeek-R1 style)
     if not thinking:
         reasoning_attr = getattr(msg, "reasoning_content", None)
@@ -262,13 +261,13 @@ def _extract_thinking_from_ai_message(msg: AIMessage) -> str | None:
                     item.get("text", str(item)) if isinstance(item, dict) else str(item)
                     for item in reasoning_attr
                 )
-    
+
     # 3. Check additional_kwargs for reasoning_content
     if not thinking:
         reasoning_from_kwargs = msg.additional_kwargs.get("reasoning_content", "")
         if reasoning_from_kwargs:
             thinking = reasoning_from_kwargs
-    
+
     return thinking.strip() if thinking.strip() else None
 
 
@@ -299,11 +298,11 @@ async def history(
 ) -> ChatHistory:
     """
     Get chat history with message sequence for sidebar.
-    
+
     Reads from both:
     - message_steps table: Complete message sequence for sidebar display
     - checkpointer: Main chat messages (human and final AI)
-    
+
     Returns:
         - messages: Human and final AI messages for main chat UI
         - message_sequence: All messages as steps for sidebar display
@@ -320,40 +319,40 @@ async def history(
             message_sequence = await message_step_crud.get_message_steps_by_thread(
                 db=session, thread_id=thread_id
             )
-        
+
         # Get messages from checkpointer for main chat UI
         agent: CompiledStateGraph = await get_agent(agent_id)
         config = RunnableConfig({"configurable": {"thread_id": thread_id}})
         state_snapshot = await agent.aget_state(config=config)
         messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
-        
+
         # Build messages for main chat UI: only human and final AI messages
         chat_messages: list[ChatMessage] = []
-        
+
         for i, msg in enumerate(messages):
             # Skip ToolMessage - not shown in main chat
             if isinstance(msg, ToolMessage):
                 continue
-            
+
             # For AIMessage: only include if it has content and no tool_calls
             if isinstance(msg, AIMessage):
                 if msg.tool_calls:
                     continue
                 if not msg.content or not str(msg.content).strip():
                     continue
-            
+
             chat_message = langchain_to_chat_message(msg)
-            
+
             # For final AI messages, collect tool info from preceding messages
             if isinstance(msg, AIMessage) and msg.content and str(msg.content).strip():
                 tool_info = _collect_tool_calls_for_final_response(messages, i)
                 if tool_info:
                     chat_message.custom_data["tool_info"] = tool_info
-            
+
             chat_messages.append(chat_message)
-        
+
         return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
-    
+
     except Exception as e:
         logger.error(f"An exception occurred: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error")

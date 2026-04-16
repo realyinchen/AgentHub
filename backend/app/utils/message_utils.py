@@ -418,6 +418,38 @@ async def streaming_message_generator(
                 # Emit tool_result event
                 yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': run_id, 'output': output_str}})}\n\n"
 
+            # === LLM Call End (on_chat_model_end) ===
+            # This is the most reliable place to capture usage_metadata
+            elif kind == "on_chat_model_end":
+                output = data.get("output")
+                node_name = metadata.get("langgraph_node", "unknown")
+
+                if output and hasattr(output, "usage_metadata"):
+                    usage = output.usage_metadata
+                    if usage:
+                        logger.info(
+                            f"[{node_name}] Token usage: "
+                            f"input={usage.get('input_tokens', 'N/A')}, "
+                            f"output={usage.get('output_tokens', 'N/A')}, "
+                            f"total={usage.get('total_tokens', 'N/A')}"
+                        )
+                        # Emit usage event to frontend
+                        yield f"data: {json.dumps({'type': 'usage', 'content': {'node': node_name, 'usage': usage}})}\n\n"
+                elif output and hasattr(output, "response_metadata"):
+                    # Fallback: try response_metadata for token usage
+                    resp_meta = output.response_metadata
+                    if "token_usage" in resp_meta:
+                        token_usage = resp_meta["token_usage"]
+                        usage = {
+                            "input_tokens": token_usage.get("prompt_tokens", 0),
+                            "output_tokens": token_usage.get("completion_tokens", 0),
+                            "total_tokens": token_usage.get("total_tokens", 0),
+                        }
+                        logger.info(
+                            f"[{node_name}] Token usage (from response_metadata): {usage}"
+                        )
+                        yield f"data: {json.dumps({'type': 'usage', 'content': {'node': node_name, 'usage': usage}})}\n\n"
+
             # === Chain End (Final Message) ===
             elif kind == "on_chain_end" and node == "":
                 output = data.get("output", {})

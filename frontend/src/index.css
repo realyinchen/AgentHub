@@ -258,3 +258,17 @@
 .animate-gradient-flow {
   animation: gradient-flow 3s linear infinite;
 }
+
+/* Sci-fi loader scan animation */
+@keyframes scan {
+  0% {
+    transform: translateY(-100%);
+  }
+  100% {
+    transform: translateY(200%);
+  }
+}
+
+.animate-scan {
+  animation: scan 2s ease-in-out infinite;
+}

@@ -188,6 +188,18 @@ export type StreamEvent =
     content: ChatMessage
   }
   | {
+    type: "usage"
+    content: {
+      node: string
+      usage: {
+        input_tokens?: number
+        output_tokens?: number
+        total_tokens?: number
+        [key: string]: unknown
+      }
+    }
+  }
+  | {
     type: "error"
     content: string
   }
