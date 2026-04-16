@@ -17,7 +17,7 @@ import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo, AgentProcessSe
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
-import { SciFiLoader } from "@/components/ai/scifi-loader"
+import { NeuralNetworkLoader } from "@/components/ai/neural-network-loader"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
@@ -596,6 +596,8 @@ export function ChatMessageItem({
             isUser
               ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground"
               : "w-full bg-ai-bubble text-foreground border border-border/50",
+            // Add relative positioning when showing neural network loader
+            isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 && "relative",
           )}
         >
           {/* Sources */}
@@ -622,10 +624,12 @@ export function ChatMessageItem({
           ) : null}
 
 
-          {/* Processing state - show sci-fi loading animation before any content arrives */}
+          {/* Processing state - show neural network loading animation before any content arrives */}
           {/* Show when: AI message, streaming, processing state, no content yet */}
           {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
-            <SciFiLoader size="md" showText={false} />
+            <div className="absolute inset-0 -mx-5 -my-3.5">
+              <NeuralNetworkLoader className="h-full" showText={false} />
+            </div>
           ) : null}
 
           {/* Inline Process Steps - show during streaming before final content arrives */}
