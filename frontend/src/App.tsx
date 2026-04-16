@@ -1431,6 +1431,8 @@ function App() {
             messages={messages}
             agents={agents}
             selectedAgentId={selectedAgentId}
+            processSession={processSession}
+            messageSequence={messageSequence}
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
             onSelectAgent={pickAgentForCurrentConversation}
@@ -1543,14 +1545,14 @@ function App() {
             </Select>
           )}
 
-          {/* Agent Process Panel - show real-time process or historical data */}
-          {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && (
-            <AgentProcessPanel
-              session={processSession}
-              messageSequence={messageSequence}
-              isStreaming={isStreaming}
-            />
-          )}
+           {/* Agent Process Panel - show in sidebar only after streaming ends */}
+           {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && !isStreaming && (
+             <AgentProcessPanel
+               session={processSession}
+               messageSequence={messageSequence}
+               isStreaming={isStreaming}
+             />
+           )}
 
         </aside>
       </SidebarProvider>

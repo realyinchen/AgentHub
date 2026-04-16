@@ -43,7 +43,7 @@ type TimelineStep = {
 const STEP_ICONS: Record<TimelineStepType, string> = {
   ai_thinking: "🧠",
   tool: "🔧",
-  ai_final: "✨",
+  ai_final: "🧠", // Changed from ✨ to 🧠 for AI Thinking
 }
 
 // ==================== Sub-components ====================
@@ -125,15 +125,39 @@ function TimelineStepItem({
           {/* Expandable content */}
           {isExpanded && (
             <div className="mt-1.5 ml-5 space-y-2">
-              {/* Thinking content (for AI messages with thinking) */}
-              {step.thinking && (
-                <div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
-                    {t("process.thinking") || "Thinking"}
-                  </div>
-                  <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
-                    {step.thinking}
-                  </div>
+              {/* AI Thinking step - show reasoning and content in separate blocks */}
+              {step.type === "ai_final" && (step.thinking || step.content) && (
+                <>
+                  {/* Reasoning block */}
+                  {step.thinking && (
+                    <div>
+                      <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                        {t("process.reasoning") || "Reasoning"}
+                      </div>
+                      <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                        {step.thinking}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Content block */}
+                  {step.content && (
+                    <div>
+                      <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                        {t("process.content") || "Content"}
+                      </div>
+                      <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                        {step.content}
+                      </div>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {/* AI Thinking step during streaming */}
+              {step.type === "ai_thinking" && step.thinking && (
+                <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                  {step.thinking}
                 </div>
               )}
 
@@ -170,22 +194,10 @@ function TimelineStepItem({
                 </div>
               )}
 
-              {/* Result (for tool result steps) */}
+              {/* Result (for tool result steps) - show directly without "Result" label */}
               {step.result && (
-                <div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
-                    {t("process.result") || "Result"}
-                  </div>
-                  <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
-                    {step.result}
-                  </div>
-                </div>
-              )}
-
-              {/* Main content (for human messages or AI final response) */}
-              {step.content && !step.toolCalls?.length && !step.thinking && (
                 <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
-                  {step.content || <span className="text-gray-400 italic">{t("process.noContent")}</span>}
+                  {step.result}
                 </div>
               )}
             </div>
@@ -252,7 +264,7 @@ export function AgentTimelineSidebar({
           id: `step-${msg.step_number}-ai-final`,
           stepNumber: msg.step_number,
           type: "ai_final",
-          title: t("process.llmResponse"),
+          title: t("process.modelResponse"),
           content: hasContent ? contentStr : "",
           thinking: hasThinking ? thinkingContent : undefined,
           status: "done",

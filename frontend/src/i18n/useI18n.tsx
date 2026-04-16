@@ -152,6 +152,10 @@ const en = {
   "process.llmThinking": "LLM Thinking",
   "process.toolCall": "Tool Call",
   "process.llmResponse": "LLM Response",
+  "process.aiThinking": "AI Thinking",
+  "process.modelResponse": "Model Response",
+  "process.reasoning": "Reasoning",
+  "process.content": "Content",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -304,6 +308,10 @@ const zh: TranslationDictionary = {
   "process.llmThinking": "LLM 思考",
   "process.toolCall": "工具调用",
   "process.llmResponse": "LLM 响应",
+  "process.aiThinking": "AI 思考",
+  "process.modelResponse": "模型回复",
+  "process.reasoning": "推理",
+  "process.content": "内容",
 }
 
 const dictionaries = {

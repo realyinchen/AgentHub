@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage, ToolCallInfo } from "@/types"
+import type { AgentInDB, LocalChatMessage, ToolCallInfo, AgentProcessSession, MessageStep } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
 import {
   Alert,
@@ -35,6 +35,8 @@ type ChatMainPanelProps = {
   messages: LocalChatMessage[]
   agents: AgentInDB[]
   selectedAgentId: string
+  processSession?: AgentProcessSession | null // Process session for inline display during streaming
+  messageSequence?: MessageStep[] // Message sequence for historical display
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
@@ -66,6 +68,8 @@ export function ChatMainPanel({
   messages,
   agents,
   selectedAgentId,
+  processSession,
+  messageSequence,
   onSendMessage,
   onStopStreaming,
   onSelectAgent,
@@ -335,6 +339,8 @@ export function ChatMainPanel({
                         thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
+                        processSession={isLastAIMessage ? processSession : null}
+                        messageSequence={isLastAIMessage ? messageSequence : undefined}
                         onEditMessage={onEditMessage}
                         editDisabled={isStreaming || isComposerDisabled}
                         onQuote={() => handleQuote(message, index)}

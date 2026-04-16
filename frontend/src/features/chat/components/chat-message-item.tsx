@@ -2,6 +2,8 @@ import {
   BrainIcon,
   CheckIcon,
   ChevronDown,
+  ChevronDownIcon,
+  ChevronRightIcon,
   CopyIcon,
   PencilIcon,
   QuoteIcon,
@@ -11,7 +13,7 @@ import { useEffect, useRef, useState } from "react"
 import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
-import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo } from "@/types"
+import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo, AgentProcessSession, MessageStep, ToolCallEvent } from "@/types"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
@@ -24,6 +26,8 @@ type ChatMessageItemProps = {
   thinkingContent?: string // Accumulated thinking content (streaming)
   isProcessing?: boolean // Processing, no content received yet
   isStreaming?: boolean // Whether the current message is streaming
+  processSession?: AgentProcessSession | null // Process session for inline display during streaming
+  messageSequence?: MessageStep[] // Message sequence for historical display
   onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
   editDisabled?: boolean // Whether edit is disabled
   onQuote?: () => void // Callback when user wants to quote this message
@@ -237,6 +241,310 @@ function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
   return groups
 }
 
+// ==================== Inline Process Steps Types ====================
+
+type InlineTimelineStepType = "ai_thinking" | "tool" | "ai_final"
+
+type InlineTimelineStep = {
+  id: string
+  stepNumber: number
+  type: InlineTimelineStepType
+  title: string
+  content: string
+  args?: string
+  result?: string
+  thinking?: string
+  status: "running" | "done"
+  timestamp: number
+}
+
+// ==================== Inline Process Steps Component ====================
+
+function InlineProcessSteps({
+  session,
+  messageSequence,
+  isStreaming,
+}: {
+  session?: AgentProcessSession | null
+  messageSequence?: MessageStep[]
+  isStreaming: boolean
+}) {
+  const { t } = useI18n()
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
+
+  // Convert streaming session to timeline steps
+  const getTimelineStepsFromSession = (): InlineTimelineStep[] => {
+    if (!session || !session.steps || session.steps.length === 0) {
+      return []
+    }
+
+    const steps: InlineTimelineStep[] = []
+
+    session.steps.forEach((step) => {
+      // Skip human messages
+      if (step.type === "human") {
+        return
+      }
+      
+      if (step.type === "thinking") {
+        steps.push({
+          id: step.id,
+          stepNumber: steps.length,
+          type: "ai_thinking",
+          title: t("process.thinking"),
+          content: "",
+          thinking: step.content as string,
+          status: step.status === "done" ? "done" : "running",
+          timestamp: step.timestamp,
+        })
+      } else if (step.type === "tool_call") {
+        const toolCall = step.content as ToolCallEvent
+        steps.push({
+          id: step.id,
+          stepNumber: steps.length,
+          type: "tool",
+          title: toolCall.name,
+          content: "",
+          result: step.result || "",
+          status: step.status === "done" ? "done" : "running",
+          timestamp: step.timestamp,
+        })
+      } else if (step.type === "ai_response") {
+        const thinkingContent = step.thinking || ""
+        const hasThinking = thinkingContent.trim().length > 0
+        const contentStr = (step.content as string) || ""
+        const hasContent = contentStr.trim().length > 0
+        
+        steps.push({
+          id: step.id,
+          stepNumber: steps.length,
+          type: "ai_final",
+          title: t("process.modelResponse"),
+          content: hasContent ? contentStr : "",
+          thinking: hasThinking ? thinkingContent : undefined,
+          status: "done",
+          timestamp: step.timestamp,
+        })
+      }
+    })
+
+    return steps
+  }
+
+  // Convert message sequence to timeline steps
+  const getTimelineStepsFromSequence = (): InlineTimelineStep[] => {
+    if (!messageSequence || messageSequence.length === 0) {
+      return []
+    }
+
+    const steps: InlineTimelineStep[] = []
+
+    messageSequence.forEach((msg) => {
+      if (msg.message_type === "tool") {
+        const argsStr = msg.tool_args && Object.keys(msg.tool_args).length > 0
+          ? JSON.stringify(msg.tool_args, null, 2)
+          : undefined
+        
+        steps.push({
+          id: `step-${msg.step_number}-tool`,
+          stepNumber: msg.step_number,
+          type: "tool",
+          title: msg.tool_name || t("process.toolCall"),
+          content: "",
+          args: argsStr,
+          result: msg.tool_output || "",
+          status: "done",
+          timestamp: Date.now(),
+        })
+      } else if (msg.message_type === "ai") {
+        const thinkingContent = msg.thinking || ""
+        const hasThinking = thinkingContent.trim().length > 0
+        const contentStr = msg.content || ""
+        const hasContent = contentStr.trim().length > 0
+        
+        steps.push({
+          id: `step-${msg.step_number}-ai-final`,
+          stepNumber: msg.step_number,
+          type: "ai_final",
+          title: t("process.modelResponse"),
+          content: hasContent ? contentStr : "",
+          thinking: hasThinking ? thinkingContent : undefined,
+          status: "done",
+          timestamp: Date.now(),
+        })
+      }
+    })
+
+    return steps
+  }
+
+  // Determine which steps to show
+  const timelineSteps = isStreaming && session?.isActive
+    ? getTimelineStepsFromSession()
+    : getTimelineStepsFromSequence()
+
+  // Auto-expand last step when new steps arrive
+  useEffect(() => {
+    if (timelineSteps.length > 0) {
+      const lastStepId = timelineSteps[timelineSteps.length - 1].id
+      setExpandedSteps(prev => {
+        const next = new Set(prev)
+        next.add(lastStepId)
+        return next
+      })
+    }
+  }, [timelineSteps.length])
+
+  const toggleStep = (stepId: string) => {
+    setExpandedSteps(prev => {
+      const next = new Set(prev)
+      if (next.has(stepId)) {
+        next.delete(stepId)
+      } else {
+        next.add(stepId)
+      }
+      return next
+    })
+  }
+
+  if (timelineSteps.length === 0) {
+    return null
+  }
+
+  // Icon mapping
+  const getIcon = (type: InlineTimelineStepType) => {
+    if (type === "ai_thinking" || type === "ai_final") {
+      return "🧠"
+    }
+    return "🔧"
+  }
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
+      <div className="space-y-0">
+        {timelineSteps.map((step, index) => {
+          const isExpanded = expandedSteps.has(step.id)
+          const isLast = index === timelineSteps.length - 1
+          const isRunning = step.status === "running"
+
+          return (
+            <div key={step.id} className="relative">
+              {/* Timeline vertical line */}
+              {!isLast && (
+                <div className="absolute left-[11px] top-5 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
+              )}
+
+              {/* Step row */}
+              <div className="flex items-start gap-2">
+                {/* Dot/Circle */}
+                <div
+                  className={cn(
+                    "flex-shrink-0 size-5 rounded-full flex items-center justify-center text-[10px] z-10",
+                    isRunning
+                      ? "bg-blue-100 dark:bg-blue-900/30 animate-pulse"
+                      : "bg-green-100 dark:bg-green-900/30"
+                  )}
+                >
+                  {isRunning ? (
+                    <span className="size-1.5 rounded-full bg-blue-500 animate-pulse" />
+                  ) : (
+                    <span className="text-green-600 dark:text-green-400 text-[8px]">✔</span>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0 pb-2">
+                  {/* Header - clickable */}
+                  <button
+                    type="button"
+                    onClick={() => toggleStep(step.id)}
+                    className="w-full text-left flex items-center gap-1.5 group"
+                  >
+                    {/* Expand/Collapse icon */}
+                    {isExpanded ? (
+                      <ChevronDownIcon className="size-3 text-gray-400 flex-shrink-0" />
+                    ) : (
+                      <ChevronRightIcon className="size-3 text-gray-400 flex-shrink-0" />
+                    )}
+
+                    {/* Icon */}
+                    <span className="text-xs">{getIcon(step.type)}</span>
+
+                    {/* Title */}
+                    <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
+                      {step.title}
+                    </span>
+                  </button>
+
+                  {/* Expandable content */}
+                  {isExpanded && (
+                    <div className="mt-1.5 ml-5 space-y-2">
+                      {/* AI Thinking step - show reasoning and content in separate blocks */}
+                      {step.type === "ai_final" && (step.thinking || step.content) && (
+                        <>
+                          {/* Reasoning block */}
+                          {step.thinking && (
+                            <div>
+                              <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                                {t("process.reasoning") || "Reasoning"}
+                              </div>
+                              <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                                {step.thinking}
+                              </div>
+                            </div>
+                          )}
+                          
+                          {/* Content block */}
+                          {step.content && (
+                            <div>
+                              <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                                {t("process.content") || "Content"}
+                              </div>
+                              <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                                {step.content}
+                              </div>
+                            </div>
+                          )}
+                        </>
+                      )}
+
+                      {/* AI Thinking step during streaming */}
+                      {step.type === "ai_thinking" && step.thinking && (
+                        <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                          {step.thinking}
+                        </div>
+                      )}
+
+                      {/* Args (for tool result steps) */}
+                      {step.args && (
+                        <div>
+                          <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5">
+                            {t("process.arguments")}
+                          </div>
+                          <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono">
+                            {step.args}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Result (for tool result steps) - show directly without "Result" label */}
+                      {step.result && (
+                        <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                          {step.result}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function ChatMessageItem({
   message,
   messageIndex,
@@ -244,6 +552,8 @@ export function ChatMessageItem({
   thinkingContent = "",
   isProcessing = false,
   isStreaming = false,
+  processSession,
+  messageSequence,
   onEditMessage,
   editDisabled = false,
   onQuote,
@@ -381,8 +691,17 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
+          {/* Inline Process Steps - show during streaming when there's process session data */}
+          {isAI && isStreaming && processSession?.isActive && (
+            <InlineProcessSteps
+              session={processSession}
+              messageSequence={messageSequence}
+              isStreaming={isStreaming}
+            />
+          )}
+
           {/* Processing state - show loading animation before any content arrives */}
-          {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
+          {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 && !processSession?.isActive ? (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <span className="inline-flex gap-1">
                 <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
@@ -393,8 +712,8 @@ export function ChatMessageItem({
             </div>
           ) : null}
 
-          {/* Thinking process - only show when there is actual thinking content */}
-          {isAI && hasThinkingContent && isStreaming && !message.content.trim() ? (
+          {/* Thinking process - only show when there is actual thinking content and no process session */}
+          {isAI && hasThinkingContent && isStreaming && !message.content.trim() && !processSession?.isActive ? (
             <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2" open>
               <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
                 <BrainIcon className="size-3" />
@@ -406,8 +725,8 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Tool calls during streaming - only show completed tools (with output) */}
-          {isAI && allTools.some(t => t.status === "completed") && isStreaming && !message.content.trim() ? (
+          {/* Tool calls during streaming - only show completed tools (with output) and no process session */}
+          {isAI && allTools.some(t => t.status === "completed") && isStreaming && !message.content.trim() && !processSession?.isActive ? (
             <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
               <div className="space-y-1.5">
                 {groupConsecutiveToolCalls(allTools.filter(t => t.status === "completed")).map((group, groupIndex) => {
