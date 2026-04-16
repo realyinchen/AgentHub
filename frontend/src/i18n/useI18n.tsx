@@ -156,6 +156,14 @@ const en = {
   "process.modelResponse": "Model Response",
   "process.reasoning": "Reasoning",
   "process.content": "Content",
+  // Token stats
+  "token.title": "Token Usage",
+  "token.input": "Input",
+  "token.inputTooltip": "Includes system prompts and conversation history",
+  "token.cacheRead": "Cache Read",
+  "token.output": "Output",
+  "token.reasoning": "Reasoning",
+  "token.total": "Total",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -312,6 +320,14 @@ const zh: TranslationDictionary = {
   "process.modelResponse": "模型回复",
   "process.reasoning": "推理",
   "process.content": "内容",
+  // Token stats
+  "token.title": "Token 使用",
+  "token.input": "输入",
+  "token.inputTooltip": "包含系统提示词以及历史消息",
+  "token.cacheRead": "缓存读取",
+  "token.output": "输出",
+  "token.reasoning": "推理",
+  "token.total": "总计",
 }
 
 const dictionaries = {

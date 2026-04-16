@@ -1,4 +1,4 @@
-from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, ForeignKey
+from sqlalchemy import Column, BigInteger, Integer, String, Text, DateTime, ForeignKey, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from datetime import datetime, timezone
 
@@ -19,6 +19,7 @@ class MessageStepRecord(Base):
         ForeignKey("conversations.thread_id", ondelete="CASCADE"),
         nullable=False,
     )
+    session_id = Column(UUID(as_uuid=True), nullable=False)  # Groups steps by conversation turn
     step_number = Column(Integer, nullable=False)
     message_type = Column(String(16), nullable=False)  # 'human', 'ai', 'tool'
 
@@ -34,3 +35,7 @@ class MessageStepRecord(Base):
     tool_calls = Column(JSONB, nullable=True)  # Tool calls from AI message
 
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
+
+    __table_args__ = (
+        UniqueConstraint('thread_id', 'session_id', 'step_number', name='unique_thread_session_step'),
+    )

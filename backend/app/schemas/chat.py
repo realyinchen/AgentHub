@@ -22,6 +22,10 @@ class MessageStep(BaseModel):
     - ai: AI message with thinking, content, and optional tool_calls
     - tool: Tool execution with name, args, and output
     """
+    session_id: UUID = Field(
+        description="Session ID that groups steps from the same conversation turn",
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
     step_number: int = Field(
         description="Step number (1-indexed)",
         examples=[1, 2, 3],
@@ -226,6 +230,27 @@ class ConversationInDB(Conversation):
         description="Whether the conversation is been deleted.",
         default=False,
         examples=[True],
+    )
+    # Token usage fields (cumulative for the conversation)
+    input_tokens: int = Field(
+        description="Cumulative input tokens used in this conversation",
+        default=0,
+    )
+    cache_read: int = Field(
+        description="Cumulative cache read tokens used in this conversation",
+        default=0,
+    )
+    output_tokens: int = Field(
+        description="Cumulative output tokens used in this conversation",
+        default=0,
+    )
+    reasoning: int = Field(
+        description="Cumulative reasoning tokens used in this conversation",
+        default=0,
+    )
+    total_tokens: int = Field(
+        description="Cumulative total tokens used in this conversation",
+        default=0,
     )
 
     class Config:

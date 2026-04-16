@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Boolean, String, DateTime
+from sqlalchemy import Column, Boolean, String, DateTime, BigInteger
 from sqlalchemy.dialects.postgresql import UUID
 from uuid import uuid4
 from datetime import datetime, timezone
@@ -24,3 +24,10 @@ class Conversation(Base):
         default=utc_now,
         onupdate=utc_now,
     )
+    
+    # Token usage fields (cumulative for the conversation)
+    input_tokens = Column(BigInteger, nullable=False, default=0)
+    cache_read = Column(BigInteger, nullable=False, default=0)
+    output_tokens = Column(BigInteger, nullable=False, default=0)
+    reasoning = Column(BigInteger, nullable=False, default=0)
+    total_tokens = Column(BigInteger, nullable=False, default=0)

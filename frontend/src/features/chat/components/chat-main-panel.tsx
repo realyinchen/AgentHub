@@ -37,6 +37,8 @@ type ChatMainPanelProps = {
   selectedAgentId: string
   processSession?: AgentProcessSession | null // Process session for inline display during streaming
   messageSequence?: MessageStep[] // Message sequence for historical display
+  aiMessageSessionIds?: (string | null)[] // session_id for each AI message (parallel to messages array)
+  aiMessageHasSteps?: boolean[] // Whether each AI message has steps (parallel to messages array)
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
@@ -46,6 +48,7 @@ type ChatMainPanelProps = {
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
+  onSelectSession?: (sessionId: string) => void // Select a specific session to view
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -70,6 +73,8 @@ export function ChatMainPanel({
   selectedAgentId,
   processSession,
   messageSequence,
+  aiMessageSessionIds,
+  aiMessageHasSteps,
   onSendMessage,
   onStopStreaming,
   onSelectAgent,
@@ -79,6 +84,7 @@ export function ChatMainPanel({
   onEditMessage,
   onJumpToMessage,
   onToggleSidebarProcess,
+  onSelectSession,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
@@ -328,6 +334,7 @@ export function ChatMainPanel({
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const isLastAIMessage = index === messages.length - 1 && message.type === "ai"
+                    const sessionId = aiMessageSessionIds?.[index]
 
                     return (
                       <ChatMessageItem
@@ -341,12 +348,15 @@ export function ChatMainPanel({
                         isStreaming={message.is_streaming}
                         processSession={isLastAIMessage ? processSession : null}
                         messageSequence={isLastAIMessage ? messageSequence : undefined}
+                        sessionId={sessionId}
+                        hasSteps={aiMessageHasSteps?.[index]}
                         onEditMessage={onEditMessage}
                         editDisabled={isStreaming || isComposerDisabled}
                         onQuote={() => handleQuote(message, index)}
                         quoteDisabled={isStreaming || isComposerDisabled}
                         onJumpToMessage={onJumpToMessage}
                         onToggleSidebarProcess={onToggleSidebarProcess}
+                        onSelectSession={onSelectSession}
                       />
                     )
                   })

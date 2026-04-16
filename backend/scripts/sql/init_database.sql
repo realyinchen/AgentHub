@@ -40,7 +40,14 @@ CREATE TABLE IF NOT EXISTS public.conversations (
     agent_id         VARCHAR(64) DEFAULT 'chatbot',
     is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
     created_at       TIMESTAMPTZ DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ DEFAULT NOW()
+    updated_at       TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Token usage fields (cumulative for the conversation)
+    input_tokens     BIGINT NOT NULL DEFAULT 0,
+    cache_read       BIGINT NOT NULL DEFAULT 0,
+    output_tokens    BIGINT NOT NULL DEFAULT 0,
+    reasoning        BIGINT NOT NULL DEFAULT 0,
+    total_tokens     BIGINT NOT NULL DEFAULT 0
 );
 
 -- Index for conversations
@@ -94,11 +101,13 @@ ON CONFLICT (model_id) DO NOTHING;
 
 -- 4. message_steps table (agent execution sequence for sidebar)
 -- Stores each step of agent execution: human messages, tool calls, tool results, and AI responses
+-- Each session (conversation turn) has a unique session_id to group steps together
 CREATE TABLE IF NOT EXISTS public.message_steps (
     id              BIGSERIAL PRIMARY KEY,
     thread_id       UUID NOT NULL REFERENCES public.conversations(thread_id) ON DELETE CASCADE,
+    session_id      UUID NOT NULL,         -- Groups steps by conversation turn
     step_number     INTEGER NOT NULL,
-    message_type    VARCHAR(16) NOT NULL,  -- 'human', 'tool_call', 'tool_result', 'ai_response'
+    message_type    VARCHAR(16) NOT NULL,  -- 'human', 'ai', 'tool'
     
     -- Tool call/result fields
     tool_name       VARCHAR(128),          -- Tool name (e.g., "get_weather")
@@ -113,9 +122,11 @@ CREATE TABLE IF NOT EXISTS public.message_steps (
     
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     
-    CONSTRAINT unique_thread_step UNIQUE (thread_id, step_number)
+    CONSTRAINT unique_thread_session_step UNIQUE (thread_id, session_id, step_number)
 );
 
 -- Indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_message_steps_thread ON public.message_steps(thread_id);
+CREATE INDEX IF NOT EXISTS idx_message_steps_session ON public.message_steps(session_id);
 CREATE INDEX IF NOT EXISTS idx_message_steps_type ON public.message_steps(message_type);
+

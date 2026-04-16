@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 async def save_tool_step(
     db: AsyncSession,
     thread_id: UUID,
+    session_id: UUID,
     step_number: int,
     tool_name: str,
     tool_args: dict | None = None,
@@ -25,6 +26,7 @@ async def save_tool_step(
     """
     record = MessageStepRecord(
         thread_id=thread_id,
+        session_id=session_id,
         step_number=step_number,
         message_type="tool",
         tool_name=tool_name,
@@ -34,13 +36,14 @@ async def save_tool_step(
     db.add(record)
     await db.flush()
     await db.refresh(record)
-    logger.debug(f"Saved tool step {step_number}: {tool_name} for thread {thread_id}")
+    logger.debug(f"Saved tool step {step_number}: {tool_name} for thread {thread_id}, session {session_id}")
     return record
 
 
 async def save_ai_step(
     db: AsyncSession,
     thread_id: UUID,
+    session_id: UUID,
     step_number: int,
     content: str | None = None,
     thinking: str | None = None,
@@ -51,6 +54,7 @@ async def save_ai_step(
     """
     record = MessageStepRecord(
         thread_id=thread_id,
+        session_id=session_id,
         step_number=step_number,
         message_type="ai",
         content=content,
@@ -59,7 +63,7 @@ async def save_ai_step(
     db.add(record)
     await db.flush()
     await db.refresh(record)
-    logger.debug(f"Saved ai step {step_number} for thread {thread_id}")
+    logger.debug(f"Saved ai step {step_number} for thread {thread_id}, session {session_id}")
     return record
 
 
@@ -81,6 +85,7 @@ async def get_message_steps_by_thread(
     steps = []
     for record in records:
         step = MessageStep(
+            session_id=record.session_id,  # type: ignore[arg-type]
             step_number=record.step_number,  # type: ignore[arg-type]
             message_type=record.message_type,  # type: ignore[arg-type]
             content=record.content,  # type: ignore[arg-type]
@@ -121,6 +126,27 @@ async def get_max_step_number(
     """
     stmt = select(MessageStepRecord.step_number).where(
         MessageStepRecord.thread_id == thread_id,
+    ).order_by(MessageStepRecord.step_number.desc()).limit(1)
+    
+    result = await db.execute(stmt)
+    max_step = result.scalar_one_or_none()
+    
+    return max_step or 0
+
+
+async def get_max_step_number_for_session(
+    db: AsyncSession,
+    thread_id: UUID,
+    session_id: UUID,
+) -> int:
+    """Get the maximum step number for a specific session within a thread.
+    
+    This allows each session to have its own step numbering starting from 1.
+    Returns 0 if no steps exist for this session.
+    """
+    stmt = select(MessageStepRecord.step_number).where(
+        MessageStepRecord.thread_id == thread_id,
+        MessageStepRecord.session_id == session_id,
     ).order_by(MessageStepRecord.step_number.desc()).limit(1)
     
     result = await db.execute(stmt)

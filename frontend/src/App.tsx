@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Languages, Moon, Share2, Sun, Settings } from "lucide-react"
 
 import {
@@ -33,6 +33,7 @@ import {
   ConversationRenameDialog,
   DeleteConversationDialog,
   ShareDialog,
+  TokenStatsPanel,
 } from "@/features/chat/components"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
 import { ModelSelector } from "@/features/chat/components/model-selector"
@@ -120,6 +121,7 @@ function App() {
   const [messageSequence, setMessageSequence] = useState<MessageStep[]>([])
   // Toggle for showing/hiding the sidebar process panel
   const [showSidebarProcess, setShowSidebarProcess] = useState(true)
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
 
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
@@ -241,10 +243,44 @@ function App() {
             historyResult.value.messages.map((message) => toLocalMessage(message)),
           )
           // Set message sequence for sidebar
-          setMessageSequence(historyResult.value.message_sequence || [])
+          const sequence = historyResult.value.message_sequence || []
+          setMessageSequence(sequence)
+          
+          // Auto-select the latest session that has steps
+          if (sequence && sequence.length > 0) {
+            // Group steps by session_id
+            const stepsBySession = new Map<string, MessageStep[]>()
+            sequence.forEach((step) => {
+              const sid = step.session_id
+              if (!stepsBySession.has(sid)) {
+                stepsBySession.set(sid, [])
+              }
+              stepsBySession.get(sid)!.push(step)
+            })
+            
+            // Find sessions that have steps (tool calls or thinking)
+            const sessionsWithSteps: string[] = []
+            stepsBySession.forEach((steps, sid) => {
+              const hasToolSteps = steps.some(s => s.message_type === "tool")
+              const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
+              if (hasToolSteps || hasThinking) {
+                sessionsWithSteps.push(sid)
+              }
+            })
+            
+            // Select the latest session with steps
+            if (sessionsWithSteps.length > 0) {
+              setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
+            } else {
+              setSelectedSessionId(null)
+            }
+          } else {
+            setSelectedSessionId(null)
+          }
         } else {
           setMessages([])
           setMessageSequence([])
+          setSelectedSessionId(null)
         }
 
         if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -796,12 +832,11 @@ function App() {
 
             if (event.type === "usage") {
               // Token usage event from backend - log for debugging
-              // Can be used to display token count in UI if needed
+              const usage = event.content.usage
               console.log(
                 `[${event.content.node}] Token usage:`,
-                `input=${event.content.usage.input_tokens ?? 'N/A'},`,
-                `output=${event.content.usage.output_tokens ?? 'N/A'},`,
-                `total=${event.content.usage.total_tokens ?? 'N/A'}`
+                `input=${usage.input_tokens ?? 'N/A'}, output=${usage.output_tokens ?? 'N/A'},`,
+                `total=${usage.total_tokens ?? 'N/A'}`
               )
               return
             }
@@ -939,6 +974,35 @@ function App() {
           const historyResult = await getHistory(selectedAgentId, targetThreadId)
           if (historyResult.message_sequence) {
             setMessageSequence(historyResult.message_sequence)
+            
+            // Auto-select the latest session that has steps
+            const sequence = historyResult.message_sequence
+            if (sequence && sequence.length > 0) {
+              // Group steps by session_id
+              const stepsBySession = new Map<string, MessageStep[]>()
+              sequence.forEach((step) => {
+                const sid = step.session_id
+                if (!stepsBySession.has(sid)) {
+                  stepsBySession.set(sid, [])
+                }
+                stepsBySession.get(sid)!.push(step)
+              })
+              
+              // Find sessions that have steps (tool calls or thinking)
+              const sessionsWithSteps: string[] = []
+              stepsBySession.forEach((steps, sid) => {
+                const hasToolSteps = steps.some(s => s.message_type === "tool")
+                const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
+                if (hasToolSteps || hasThinking) {
+                  sessionsWithSteps.push(sid)
+                }
+              })
+              
+              // Select the latest session with steps
+              if (sessionsWithSteps.length > 0) {
+                setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
+              }
+            }
           }
         } catch {
           // Ignore errors when fetching message sequence
@@ -1470,118 +1534,206 @@ function App() {
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
+            aiMessageSessionIds={useMemo(() => {
+              // Build a map of message index to session_id
+              // Each AI message should have a corresponding session_id from messageSequence
+              if (!messageSequence || messageSequence.length === 0) {
+                return []
+              }
+              
+              // Get all AI steps from messageSequence, grouped by session_id
+              const sessionIds: (string | null)[] = []
+              
+              // For each message in messages array, determine its session_id
+              // AI messages have session_id from messageSequence
+              // User messages have null
+              messages.forEach((msg, index) => {
+                if (msg.type === "ai") {
+                  // Find the corresponding session_id from messageSequence
+                  // The AI steps in messageSequence are in order
+                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
+                  const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
+                  sessionIds.push(aiSteps[aiIndex]?.session_id || null)
+                } else {
+                  sessionIds.push(null)
+                }
+              })
+              
+              return sessionIds
+            }, [messageSequence, messages])}
+            aiMessageHasSteps={useMemo(() => {
+              // For each AI message, determine if it has steps (more than just the AI step itself)
+              if (!messageSequence || messageSequence.length === 0) {
+                return []
+              }
+              
+              // Group steps by session_id
+              const stepsBySession = new Map<string, MessageStep[]>()
+              messageSequence.forEach((step) => {
+                const sessionId = step.session_id
+                if (!stepsBySession.has(sessionId)) {
+                  stepsBySession.set(sessionId, [])
+                }
+                stepsBySession.get(sessionId)!.push(step)
+              })
+              
+              // For each message, determine if it has steps
+              const hasSteps: boolean[] = []
+              messages.forEach((msg, index) => {
+                if (msg.type === "ai") {
+                  // Find the corresponding session_id
+                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
+                  const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
+                  const sessionId = aiSteps[aiIndex]?.session_id
+                  
+                  if (sessionId) {
+                    // Check if this session has more than just the AI step
+                    // A session has "steps" if it has tool calls or thinking content
+                    const sessionSteps = stepsBySession.get(sessionId) || []
+                    const hasToolSteps = sessionSteps.some(s => s.message_type === "tool")
+                    const hasThinking = sessionSteps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
+                    hasSteps.push(hasToolSteps || hasThinking)
+                  } else {
+                    hasSteps.push(false)
+                  }
+                } else {
+                  hasSteps.push(false)
+                }
+              })
+              
+              return hasSteps
+            }, [messageSequence, messages])}
+            onSelectSession={(sessionId: string) => {
+              setSelectedSessionId(sessionId)
+              // Ensure sidebar is visible when selecting a session
+              if (!showSidebarProcess) {
+                setShowSidebarProcess(true)
+              }
+            }}
           />
         </SidebarInset>
 
         {/* Right Panel - same width as left sidebar (16rem) */}
         <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-2 w-64 min-w-64">
-          {/* Four buttons horizontally */}
-          <div className="flex gap-1 w-full">
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="size-8 flex-1"
-              disabled={isAwaitingAgentSelection || messages.length === 0}
-              onClick={() => {
-                navigator.clipboard.writeText(window.location.href)
-                setShowShareDialog(true)
-              }}
-              aria-label={t("share.button")}
-              title={t("share.button")}
-            >
-              <Share2 className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="cursor-pointer size-8 flex-1"
-              onClick={toggleTheme}
-              aria-label={t("theme.switch")}
-              title={t("theme.switch")}
-            >
-              {theme === "light" ? (
-                <Sun className="size-4" />
-              ) : (
-                <Moon className="size-4" />
-              )}
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="cursor-pointer size-8 flex-1"
-              onClick={toggleLocale}
-              aria-label={t("language.switch")}
-              title={t("language.switch")}
-            >
-              <Languages className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="cursor-pointer size-8 flex-1"
-              onClick={() => setShowProviderConfig(true)}
-              aria-label={t("provider.configure")}
-              title={t("provider.configure")}
-            >
-              <Settings className="size-4" />
-            </Button>
+          {/* Top Section: Configuration */}
+          <div className="space-y-2">
+            {/* Four buttons horizontally */}
+            <div className="flex gap-1 w-full">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-8 flex-1"
+                disabled={isAwaitingAgentSelection || messages.length === 0}
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href)
+                  setShowShareDialog(true)
+                }}
+                aria-label={t("share.button")}
+                title={t("share.button")}
+              >
+                <Share2 className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="cursor-pointer size-8 flex-1"
+                onClick={toggleTheme}
+                aria-label={t("theme.switch")}
+                title={t("theme.switch")}
+              >
+                {theme === "light" ? (
+                  <Sun className="size-4" />
+                ) : (
+                  <Moon className="size-4" />
+                )}
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="cursor-pointer size-8 flex-1"
+                onClick={toggleLocale}
+                aria-label={t("language.switch")}
+                title={t("language.switch")}
+              >
+                <Languages className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="cursor-pointer size-8 flex-1"
+                onClick={() => setShowProviderConfig(true)}
+                aria-label={t("provider.configure")}
+                title={t("provider.configure")}
+              >
+                <Settings className="size-4" />
+              </Button>
+            </div>
+
+            {/* Model selector - only show in conversation page (not on home/agent selection page) */}
+            {!isInitializing && !isAwaitingAgentSelection && (
+              <ModelSelector
+                models={models}
+                selectedModel={selectedModel}
+                onSelectModel={setSelectedModel}
+                disabled={isStreaming || isInitializing || isLoadingConversation}
+              />
+            )}
+
+            {/* Agent selector - only show when not in agent selection page */}
+            {!isInitializing && !isAwaitingAgentSelection && (
+              <Select
+                value={selectedAgentId}
+                onValueChange={(value) => {
+                  if (!isStreaming || !isInitializing || !isLoadingConversation) {
+                    pickAgentForCurrentConversation(value)
+                  }
+                }}
+                disabled={isStreaming || isInitializing || isLoadingConversation}
+              >
+                <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(() => {
+                    // Sort agents to always show current selected agent first
+                    const sortedAgents = [...agents].sort((a, b) => {
+                      if (a.agent_id === selectedAgentId) return -1
+                      if (b.agent_id === selectedAgentId) return 1
+                      return 0
+                    })
+                    return sortedAgents.map((agent) => (
+                      <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                        {agent.agent_id}
+                      </SelectItem>
+                    ))
+                  })()}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
-          {/* Model selector - only show in conversation page (not on home/agent selection page) */}
+          {/* Middle Section: Agent Process Panel */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && (
+              <AgentProcessPanel
+                session={processSession}
+                messageSequence={messageSequence}
+                isStreaming={isStreaming}
+                selectedSessionId={selectedSessionId}
+              />
+            )}
+          </div>
+
+          {/* Bottom Section: Token Stats */}
           {!isInitializing && !isAwaitingAgentSelection && (
-            <ModelSelector
-              models={models}
-              selectedModel={selectedModel}
-              onSelectModel={setSelectedModel}
-              disabled={isStreaming || isInitializing || isLoadingConversation}
+            <TokenStatsPanel
+              currentConversation={conversations.find(c => c.thread_id === threadId) ?? null}
             />
           )}
-
-          {/* Agent selector - only show when not in agent selection page */}
-          {!isInitializing && !isAwaitingAgentSelection && (
-            <Select
-              value={selectedAgentId}
-              onValueChange={(value) => {
-                if (!isStreaming || !isInitializing || !isLoadingConversation) {
-                  pickAgentForCurrentConversation(value)
-                }
-              }}
-              disabled={isStreaming || isInitializing || isLoadingConversation}
-            >
-              <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(() => {
-                  // Sort agents to always show current selected agent first
-                  const sortedAgents = [...agents].sort((a, b) => {
-                    if (a.agent_id === selectedAgentId) return -1
-                    if (b.agent_id === selectedAgentId) return 1
-                    return 0
-                  })
-                  return sortedAgents.map((agent) => (
-                    <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                      {agent.agent_id}
-                    </SelectItem>
-                  ))
-                })()}
-              </SelectContent>
-            </Select>
-          )}
-
-           {/* Agent Process Panel - show in sidebar only after streaming ends */}
-           {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && !isStreaming && (
-             <AgentProcessPanel
-               session={processSession}
-               messageSequence={messageSequence}
-               isStreaming={isStreaming}
-             />
-           )}
-
         </aside>
       </SidebarProvider>
 

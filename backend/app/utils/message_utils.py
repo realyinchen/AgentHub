@@ -17,6 +17,7 @@ from typing import Any
 from app.database import adb_manager
 from app.schemas.chat import ChatMessage, ToolCall, UserInput
 from app.crud import message_step as message_step_crud
+from app.crud import chat as chat_crud
 
 
 logger = logging.getLogger(__name__)
@@ -223,11 +224,23 @@ async def streaming_message_generator(
     step_counter = 0
     current_llm_step_id: str | None = None
 
+    # Generate session_id for this conversation turn
+    session_id = uuid.uuid4()
+
     # Track accumulated thinking content
     accumulated_thinking = ""
 
     # Track accumulated content
     accumulated_content = ""
+
+    # Track accumulated token usage for this conversation turn
+    accumulated_tokens = {
+        "input_tokens": 0,
+        "cache_read": 0,
+        "output_tokens": 0,
+        "reasoning": 0,
+        "total_tokens": 0,
+    }
 
     # Send an SSE comment prelude immediately to encourage early flush in proxies.
     yield f": {' ' * 2048}\n\n"
@@ -332,20 +345,21 @@ async def streaming_message_generator(
                 if accumulated_thinking.strip():
                     try:
                         async with adb_manager.session() as session:
-                            max_step = await message_step_crud.get_max_step_number(
-                                session, thread_id
+                            max_step = await message_step_crud.get_max_step_number_for_session(
+                                session, thread_id, session_id
                             )
                             thinking_step_number = max_step + 1
                             await message_step_crud.save_ai_step(
                                 db=session,
                                 thread_id=thread_id,
+                                session_id=session_id,
                                 step_number=thinking_step_number,
                                 content="",  # No content yet, only thinking
                                 thinking=accumulated_thinking,
                             )
                             await session.commit()
                             logger.debug(
-                                f"Saved AI thinking step {thinking_step_number} for thread {thread_id}"
+                                f"Saved AI thinking step {thinking_step_number} for thread {thread_id}, session {session_id}"
                             )
                     except Exception as e:
                         logger.error(
@@ -391,16 +405,17 @@ async def streaming_message_generator(
                 if len(output_str) > 2000:
                     output_str = output_str[:2000] + "..."
 
-                # Get current step number from database (for consistent ordering)
+                # Get current step number from database (for consistent ordering within session)
                 try:
                     async with adb_manager.session() as session:
-                        max_step = await message_step_crud.get_max_step_number(
-                            session, thread_id
+                        max_step = await message_step_crud.get_max_step_number_for_session(
+                            session, thread_id, session_id
                         )
                         tool_step_number = max_step + 1
                         await message_step_crud.save_tool_step(
                             db=session,
                             thread_id=thread_id,
+                            session_id=session_id,
                             step_number=tool_step_number,
                             tool_name=tool_name,
                             tool_args=tool_args,
@@ -408,7 +423,7 @@ async def streaming_message_generator(
                         )
                         await session.commit()
                         logger.debug(
-                            f"Saved tool step {tool_step_number}: {tool_name} for thread {thread_id}"
+                            f"Saved tool step {tool_step_number}: {tool_name} for thread {thread_id}, session {session_id}"
                         )
                 except Exception as e:
                     logger.error(
@@ -427,11 +442,30 @@ async def streaming_message_generator(
                 if output and hasattr(output, "usage_metadata"):
                     usage = output.usage_metadata
                     if usage:
+                        # Extract token details
+                        input_tokens = usage.get("input_tokens", 0)
+                        output_tokens = usage.get("output_tokens", 0)
+                        total_tokens = usage.get("total_tokens", 0)
+                        
+                        # Extract cache_read from input_token_details
+                        input_token_details = usage.get("input_token_details", {})
+                        cache_read = input_token_details.get("cache_read", 0) if isinstance(input_token_details, dict) else 0
+                        
+                        # Extract reasoning from output_token_details
+                        output_token_details = usage.get("output_token_details", {})
+                        reasoning = output_token_details.get("reasoning", 0) if isinstance(output_token_details, dict) else 0
+                        
+                        # Accumulate tokens
+                        accumulated_tokens["input_tokens"] += input_tokens
+                        accumulated_tokens["cache_read"] += cache_read
+                        accumulated_tokens["output_tokens"] += output_tokens
+                        accumulated_tokens["reasoning"] += reasoning
+                        accumulated_tokens["total_tokens"] += total_tokens
+                        
                         logger.info(
                             f"[{node_name}] Token usage: "
-                            f"input={usage.get('input_tokens', 'N/A')}, "
-                            f"output={usage.get('output_tokens', 'N/A')}, "
-                            f"total={usage.get('total_tokens', 'N/A')}"
+                            f"input={input_tokens}, output={output_tokens}, "
+                            f"total={total_tokens}, cache_read={cache_read}, reasoning={reasoning}"
                         )
                         # Emit usage event to frontend
                         yield f"data: {json.dumps({'type': 'usage', 'content': {'node': node_name, 'usage': usage}})}\n\n"
@@ -440,10 +474,19 @@ async def streaming_message_generator(
                     resp_meta = output.response_metadata
                     if "token_usage" in resp_meta:
                         token_usage = resp_meta["token_usage"]
+                        input_tokens = token_usage.get("prompt_tokens", 0)
+                        output_tokens = token_usage.get("completion_tokens", 0)
+                        total_tokens = token_usage.get("total_tokens", 0)
+                        
+                        # Accumulate tokens (no cache_read or reasoning in fallback)
+                        accumulated_tokens["input_tokens"] += input_tokens
+                        accumulated_tokens["output_tokens"] += output_tokens
+                        accumulated_tokens["total_tokens"] += total_tokens
+                        
                         usage = {
-                            "input_tokens": token_usage.get("prompt_tokens", 0),
-                            "output_tokens": token_usage.get("completion_tokens", 0),
-                            "total_tokens": token_usage.get("total_tokens", 0),
+                            "input_tokens": input_tokens,
+                            "output_tokens": output_tokens,
+                            "total_tokens": total_tokens,
                         }
                         logger.info(
                             f"[{node_name}] Token usage (from response_metadata): {usage}"
@@ -466,14 +509,15 @@ async def streaming_message_generator(
                             try:
                                 async with adb_manager.session() as session:
                                     max_step = (
-                                        await message_step_crud.get_max_step_number(
-                                            session, thread_id
+                                        await message_step_crud.get_max_step_number_for_session(
+                                            session, thread_id, session_id
                                         )
                                     )
                                     ai_step_number = max_step + 1
                                     await message_step_crud.save_ai_step(
                                         db=session,
                                         thread_id=thread_id,
+                                        session_id=session_id,
                                         step_number=ai_step_number,
                                         content=accumulated_content,
                                         thinking=accumulated_thinking
@@ -482,7 +526,7 @@ async def streaming_message_generator(
                                     )
                                     await session.commit()
                                     logger.debug(
-                                        f"Saved AI step {ai_step_number} for thread {thread_id}"
+                                        f"Saved AI step {ai_step_number} for thread {thread_id}, session {session_id}"
                                     )
                             except Exception as e:
                                 logger.error(
@@ -497,7 +541,35 @@ async def streaming_message_generator(
         yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
 
     finally:
-        # No need to save steps here - they are saved immediately when each step completes
+        # Update conversation token usage in database
+        if accumulated_tokens["total_tokens"] > 0:
+            try:
+                async with adb_manager.session() as session:
+                    updated_conv = await chat_crud.update_conversation_tokens(
+                        db=session,
+                        thread_id=thread_id,
+                        input_tokens=accumulated_tokens["input_tokens"],
+                        cache_read=accumulated_tokens["cache_read"],
+                        output_tokens=accumulated_tokens["output_tokens"],
+                        reasoning=accumulated_tokens["reasoning"],
+                        total_tokens=accumulated_tokens["total_tokens"],
+                    )
+                    await session.commit()
+                    if updated_conv:
+                        logger.info(
+                            f"Updated conversation tokens for thread {thread_id}: "
+                            f"input={updated_conv.input_tokens}, "
+                            f"cache_read={updated_conv.cache_read}, "
+                            f"output={updated_conv.output_tokens}, "
+                            f"reasoning={updated_conv.reasoning}, "
+                            f"total={updated_conv.total_tokens}"
+                        )
+            except Exception as e:
+                logger.error(
+                    f"Error updating conversation tokens: {e}",
+                    exc_info=True,
+                )
+        
         yield "data: [DONE]\n\n"
 
 

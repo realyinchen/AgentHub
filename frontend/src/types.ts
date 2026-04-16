@@ -39,6 +39,7 @@ export type ChatHistory = {
  * - tool: Tool execution with name, args, and output (merged call + result)
  */
 export type MessageStep = {
+  session_id: string  // UUID that groups steps from the same conversation turn
   step_number: number
   message_type: "ai" | "tool"
   content: string | null
@@ -63,6 +64,12 @@ export type ConversationInDB = {
   created_at: string
   updated_at: string
   is_deleted: boolean
+  // Token usage statistics (cumulative for all messages in conversation)
+  input_tokens: number
+  cache_read: number
+  output_tokens: number
+  reasoning: number
+  total_tokens: number
 }
 
 export type UserInput = {

@@ -29,12 +29,15 @@ type ChatMessageItemProps = {
   isStreaming?: boolean // Whether the current message is streaming
   processSession?: AgentProcessSession | null // Process session for inline display during streaming
   messageSequence?: MessageStep[] // Message sequence for historical display
+  sessionId?: string | null // session_id for this AI message
+  hasSteps?: boolean // Whether this AI message has steps (tool calls or thinking)
   onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
   editDisabled?: boolean // Whether edit is disabled
   onQuote?: () => void // Callback when user wants to quote this message
   quoteDisabled?: boolean // Whether quote is disabled
   onJumpToMessage?: (localId: string) => void // Jump to quoted message
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
+  onSelectSession?: (sessionId: string) => void // Select a specific session to view
 }
 
 type SourceLink = {
@@ -555,12 +558,15 @@ export function ChatMessageItem({
   isStreaming = false,
   processSession,
   messageSequence,
+  sessionId,
+  hasSteps = false,
   onEditMessage,
   editDisabled = false,
   onQuote,
   quoteDisabled = false,
   onJumpToMessage,
   onToggleSidebarProcess,
+  onSelectSession,
 }: ChatMessageItemProps) {
   const messageRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
@@ -628,8 +634,8 @@ export function ChatMessageItem({
   }
 
   // Determine what to show in the action bar
-  // Show a single "agent process" button if there's thinking content or tool calls
-  const showAgentProcessButton = hasThinkingContent || hasToolCalls
+  // Show brain icon only if this AI message has steps (tool calls or thinking)
+  const showBrainIcon = hasSteps
 
   // Get quoted message ID and user content from custom_data
   const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
@@ -698,14 +704,6 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Inline Process Steps - show during streaming when there's process session data */}
-          {isAI && isStreaming && processSession?.isActive && (
-            <InlineProcessSteps
-              session={processSession}
-              messageSequence={messageSequence}
-              isStreaming={isStreaming}
-            />
-          )}
 
           {/* Processing state - show sci-fi loading animation before any content arrives */}
           {/* Show when: AI message, streaming, processing state, no content yet */}
@@ -895,13 +893,13 @@ export function ChatMessageItem({
                   <QuoteIcon className="size-4" />
                 </Action>
               ) : null}
-              {/* Single "Agent Process" button - toggles sidebar visibility */}
-              {showAgentProcessButton ? (
+              {/* Brain icon - click to show this session's steps in sidebar */}
+              {showBrainIcon ? (
                 <Action
                   onClick={() => {
-                    // Toggle sidebar process panel visibility
-                    if (onToggleSidebarProcess) {
-                      onToggleSidebarProcess()
+                    // Select this session to show its steps
+                    if (sessionId && onSelectSession) {
+                      onSelectSession(sessionId)
                     }
                   }}
                   tooltip={t("process.showProcess")}

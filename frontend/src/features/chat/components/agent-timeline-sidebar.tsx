@@ -14,6 +14,7 @@ type AgentTimelineSidebarProps = {
   session: AgentProcessSession | null
   messageSequence: MessageStep[]
   isStreaming: boolean
+  selectedSessionId?: string | null  // Filter steps by session
   onClose?: () => void
 }
 
@@ -43,7 +44,7 @@ type TimelineStep = {
 const STEP_ICONS: Record<TimelineStepType, string> = {
   ai_thinking: "🧠",
   tool: "🔧",
-  ai_final: "🧠", // Changed from ✨ to 🧠 for AI Thinking
+  ai_final: "🧠",
 }
 
 // ==================== Sub-components ====================
@@ -77,7 +78,7 @@ function TimelineStepItem({
     <div className="relative">
       {/* Timeline vertical line */}
       {!isLast && (
-        <div className="absolute left-[11px] top-6 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
+        <div className="absolute left-[11px] top-5 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
       )}
 
       {/* Step row */}
@@ -85,7 +86,7 @@ function TimelineStepItem({
         {/* Dot/Circle */}
         <div
           className={cn(
-            "flex-shrink-0 size-6 rounded-full flex items-center justify-center text-xs z-10",
+            "flex-shrink-0 size-5 rounded-full flex items-center justify-center text-[10px] z-10",
             isRunning
               ? "bg-blue-100 dark:bg-blue-900/30 animate-pulse"
               : "bg-green-100 dark:bg-green-900/30"
@@ -94,12 +95,12 @@ function TimelineStepItem({
           {isRunning ? (
             <LoadingDots />
           ) : (
-            <span className="text-green-600 dark:text-green-400">✔</span>
+            <span className="text-green-600 dark:text-green-400 text-[8px]">✔</span>
           )}
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-w-0 pb-3">
+        <div className="flex-1 min-w-0 pb-2">
           {/* Header - clickable */}
           <button
             type="button"
@@ -114,10 +115,10 @@ function TimelineStepItem({
             )}
 
             {/* Icon */}
-            <span className="text-sm">{icon}</span>
+            <span className="text-xs">{icon}</span>
 
             {/* Title */}
-            <span className="text-xs font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
+            <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
               {step.title}
             </span>
           </button>
@@ -131,10 +132,10 @@ function TimelineStepItem({
                   {/* Reasoning block */}
                   {step.thinking && (
                     <div>
-                      <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                      <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
                         {t("process.reasoning") || "Reasoning"}
                       </div>
-                      <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                      <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                         {step.thinking}
                       </div>
                     </div>
@@ -143,10 +144,10 @@ function TimelineStepItem({
                   {/* Content block */}
                   {step.content && (
                     <div>
-                      <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                      <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
                         {t("process.content") || "Content"}
                       </div>
-                      <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                      <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                         {step.content}
                       </div>
                     </div>
@@ -156,7 +157,7 @@ function TimelineStepItem({
 
               {/* AI Thinking step during streaming */}
               {step.type === "ai_thinking" && step.thinking && (
-                <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                   {step.thinking}
                 </div>
               )}
@@ -164,12 +165,12 @@ function TimelineStepItem({
               {/* Tool calls (for AI messages with tool calls) */}
               {step.toolCalls && step.toolCalls.length > 0 && (
                 <div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                  <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5">
                     {t("process.toolCalls") || "Tool Calls"}
                   </div>
                   <div className="space-y-1">
                     {step.toolCalls.map((tc, idx) => (
-                      <div key={idx} className="rounded-md bg-blue-50 dark:bg-blue-900/20 p-2 text-xs">
+                      <div key={idx} className="rounded-md bg-blue-50 dark:bg-blue-900/20 p-2 text-[11px]">
                         <div className="font-medium text-blue-700 dark:text-blue-300">{tc.name}</div>
                         {Object.keys(tc.args).length > 0 && (
                           <pre className="mt-1 text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words">
@@ -185,10 +186,10 @@ function TimelineStepItem({
               {/* Args (for tool result steps) */}
               {step.args && (
                 <div>
-                  <div className="text-[10px] text-gray-500 dark:text-gray-400 mb-0.5">
+                  <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5">
                     {t("process.arguments") || "Arguments"}
                   </div>
-                  <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto font-mono">
+                  <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono">
                     {step.args}
                   </div>
                 </div>
@@ -196,7 +197,7 @@ function TimelineStepItem({
 
               {/* Result (for tool result steps) - show directly without "Result" label */}
               {step.result && (
-                <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-xs text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-60 overflow-y-auto">
+                <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                   {step.result}
                 </div>
               )}
@@ -214,12 +215,13 @@ export function AgentTimelineSidebar({
   session,
   messageSequence,
   isStreaming,
+  selectedSessionId,
   onClose,
 }: AgentTimelineSidebarProps) {
   const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Track expanded state for each step
+  // Track expanded state for each step - default to all collapsed
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
 
   // Reset expanded state when message sequence changes (thread switch)
@@ -233,9 +235,25 @@ export function AgentTimelineSidebar({
       return []
     }
 
+    // Get all unique session_ids, sorted by first occurrence (which represents chronological order)
+    const sessionIds = [...new Set(messageSequence.map(m => m.session_id))]
+    
+    // If no sessions, return empty
+    if (sessionIds.length === 0) {
+      return []
+    }
+    
+    // Determine which session to show:
+    // 1. If selectedSessionId is provided, use that
+    // 2. Otherwise, use the latest session (last in the array)
+    const targetSessionId = selectedSessionId || sessionIds[sessionIds.length - 1]
+    
+    // Filter steps by target session
+    const filteredSequence = messageSequence.filter(m => m.session_id === targetSessionId)
+
     const steps: TimelineStep[] = []
 
-    messageSequence.forEach((msg) => {
+    filteredSequence.forEach((msg) => {
       if (msg.message_type === "tool") {
         // Tool step - show tool name, args, and output
         const argsStr = msg.tool_args && Object.keys(msg.tool_args).length > 0
@@ -274,7 +292,7 @@ export function AgentTimelineSidebar({
     })
 
     return steps
-  }, [messageSequence, t])
+  }, [messageSequence, selectedSessionId, t])
 
   // Convert streaming session to timeline steps
   const getTimelineStepsFromSession = useCallback((): TimelineStep[] => {
@@ -341,18 +359,6 @@ export function AgentTimelineSidebar({
     ? getTimelineStepsFromSession()
     : getTimelineStepsFromSequence()
 
-  // Auto-expand last step when new steps arrive
-  useEffect(() => {
-    if (timelineSteps.length > 0) {
-      const lastStepId = timelineSteps[timelineSteps.length - 1].id
-      setExpandedSteps(prev => {
-        const next = new Set(prev)
-        next.add(lastStepId)
-        return next
-      })
-    }
-  }, [timelineSteps.length])
-
   // Auto-scroll to bottom when new steps arrive
   useEffect(() => {
     if (scrollRef.current && session?.isActive) {
@@ -372,14 +378,19 @@ export function AgentTimelineSidebar({
     })
   }, [])
 
-  // Streaming mode - show real-time process
+  // Empty state - no steps to show
+  if (timelineSteps.length === 0) {
+    return null
+  }
+
+  // Streaming mode - show real-time process in a card
   if (isStreaming && session?.isActive) {
     return (
-      <div className="flex flex-col h-full">
+      <div className="space-y-2 p-2 rounded-lg bg-muted/50 border">
         {/* Header */}
-        <div className="flex items-center gap-2 px-1 py-2 border-b border-gray-200 dark:border-gray-700 mb-2">
-          <div className="size-4 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+        <div className="flex items-center gap-2">
+          <div className="size-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
+          <span className="text-xs font-medium text-muted-foreground">
             {t("process.agentWorking")}
           </span>
         </div>
@@ -387,55 +398,7 @@ export function AgentTimelineSidebar({
         {/* Timeline content */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto px-1"
-        >
-          {timelineSteps.length === 0 ? (
-            <div className="flex items-center gap-2 text-xs text-gray-500 py-4">
-              <LoadingDots />
-              <span>{t("process.starting")}</span>
-            </div>
-          ) : (
-            <div className="space-y-0">
-              {timelineSteps.map((step, index) => (
-                <TimelineStepItem
-                  key={step.id}
-                  step={step}
-                  isLast={index === timelineSteps.length - 1}
-                  isExpanded={expandedSteps.has(step.id)}
-                  onToggle={() => toggleStep(step.id)}
-                />
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  // History mode - show message sequence from backend
-  if (timelineSteps.length > 0) {
-    return (
-      <div className="flex flex-col h-full">
-        {/* Header with close button */}
-        <div className="flex items-center justify-between px-1 py-2 border-b border-gray-200 dark:border-gray-700 mb-2">
-          <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
-            {t("process.processDetails")}
-          </span>
-          {onClose && (
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"
-            >
-              {t("common.close")}
-            </button>
-          )}
-        </div>
-
-        {/* Timeline content */}
-        <div
-          ref={scrollRef}
-          className="flex-1 overflow-y-auto px-1"
+          className="max-h-80 overflow-y-auto"
         >
           <div className="space-y-0">
             {timelineSteps.map((step, index) => (
@@ -453,8 +416,38 @@ export function AgentTimelineSidebar({
     )
   }
 
-  // Empty state - no active session or historical data
-  return null
+  // History mode - show all steps in a card (like TokenStatsPanel style)
+  return (
+    <div className="space-y-2 p-2 rounded-lg bg-muted/50 border">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-medium text-muted-foreground">
+          {t("process.processSteps") || "Process Steps"}
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {timelineSteps.length} {t("process.steps") || "steps"}
+        </span>
+      </div>
+
+      {/* Timeline content */}
+      <div
+        ref={scrollRef}
+        className="max-h-80 overflow-y-auto"
+      >
+        <div className="space-y-0">
+          {timelineSteps.map((step, index) => (
+            <TimelineStepItem
+              key={step.id}
+              step={step}
+              isLast={index === timelineSteps.length - 1}
+              isExpanded={expandedSteps.has(step.id)}
+              onToggle={() => toggleStep(step.id)}
+            />
+          ))}
+        </div>
+      </div>
+    </div>
+  )
 }
 
 // ==================== Hook: useAgentEvents ====================
