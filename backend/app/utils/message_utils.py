@@ -4,7 +4,6 @@ import time
 import uuid
 from collections.abc import AsyncGenerator
 from langchain_core.messages import (
-    AIMessageChunk,
     AIMessage,
     BaseMessage,
     HumanMessage,
@@ -16,7 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 from typing import Any
 
 from app.database import adb_manager
-from app.schemas.chat import ChatMessage, UserInput
+from app.schemas.chat import ChatMessage, ToolCall, UserInput
 from app.crud import message_step as message_step_crud
 
 
@@ -98,7 +97,15 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
                 content=convert_message_content_to_string(message.content),
             )
             if message.tool_calls:
-                ai_message.tool_calls = message.tool_calls
+                # Convert LangChain tool_calls to our ToolCall schema
+                ai_message.tool_calls = [
+                    ToolCall(
+                        name=tc.get("name", ""),
+                        args=tc.get("args", {}),
+                        id=tc.get("id"),
+                    )
+                    for tc in message.tool_calls
+                ]
             if message.response_metadata:
                 ai_message.response_metadata = message.response_metadata
 
@@ -123,22 +130,24 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
 def messages_to_tool_info(messages: list[BaseMessage]) -> list[dict]:
     """
     Extract tool call information from a list of messages.
-    
+
     This function processes AI messages with tool calls and their corresponding Tool messages,
     returning a list of tool info with name, args, output, and order.
-    
+
     Returns:
         list[dict]: List of tool info dicts with keys: name, id, args, output, order
     """
     tool_info_list = []
     tool_call_order = 0
-    
+
     # Build a map of tool_call_id -> ToolMessage content
     tool_results: dict[str, str] = {}
     for msg in messages:
         if isinstance(msg, ToolMessage):
-            tool_results[msg.tool_call_id] = convert_message_content_to_string(msg.content)
-    
+            tool_results[msg.tool_call_id] = convert_message_content_to_string(
+                msg.content
+            )
+
     # Process AI messages to extract tool calls with their results
     for msg in messages:
         if isinstance(msg, AIMessage) and msg.tool_calls:
@@ -153,25 +162,25 @@ def messages_to_tool_info(messages: list[BaseMessage]) -> list[dict]:
                 }
                 tool_info_list.append(tool_info)
                 tool_call_order += 1
-    
+
     return tool_info_list
 
 
 def augment_ai_message_with_tool_info(messages: list[BaseMessage]) -> list[BaseMessage]:
     """
     Augment AI messages with tool info in custom_data.
-    
+
     This function adds tool_info to the last AI message's custom_data,
     containing all tool calls from the conversation with their results.
-    
+
     Returns:
         list[BaseMessage]: The messages list with augmented AI messages
     """
     tool_info = messages_to_tool_info(messages)
-    
+
     if not tool_info:
         return messages
-    
+
     # Find the last AI message and add tool_info to its additional_kwargs
     for i in range(len(messages) - 1, -1, -1):
         msg = messages[i]
@@ -181,7 +190,7 @@ def augment_ai_message_with_tool_info(messages: list[BaseMessage]) -> list[BaseM
                 msg.additional_kwargs = {}
             msg.additional_kwargs["tool_info"] = tool_info
             break
-    
+
     return messages
 
 
@@ -213,10 +222,10 @@ async def streaming_message_generator(
     # Track step counter for unique step IDs
     step_counter = 0
     current_llm_step_id: str | None = None
-    
+
     # Track accumulated thinking content
     accumulated_thinking = ""
-    
+
     # Track accumulated content
     accumulated_content = ""
 
@@ -289,7 +298,11 @@ async def streaming_message_generator(
                         yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
 
                 # Handle reasoning_content attribute (DeepSeek-R1 style)
-                if chunk and hasattr(chunk, "reasoning_content") and chunk.reasoning_content:
+                if (
+                    chunk
+                    and hasattr(chunk, "reasoning_content")
+                    and chunk.reasoning_content
+                ):
                     reasoning = chunk.reasoning_content
                     # Create new LLM step if not exists
                     if current_llm_step_id is None:
@@ -307,7 +320,9 @@ async def streaming_message_generator(
             elif kind == "on_tool_start":
                 tool_name = name  # The tool name (e.g., "get_current_time")
                 tool_args = data.get("args", {})
-                run_id = event.get("run_id", "")  # LangGraph run_id for this tool invocation
+                run_id = event.get(
+                    "run_id", ""
+                )  # LangGraph run_id for this tool invocation
 
                 # Store mapping: run_id -> {name, args} for matching with tool_result
                 pending_tool_calls[run_id] = {"name": tool_name, "args": tool_args}
@@ -317,7 +332,9 @@ async def streaming_message_generator(
                 if accumulated_thinking.strip():
                     try:
                         async with adb_manager.session() as session:
-                            max_step = await message_step_crud.get_max_step_number(session, thread_id)
+                            max_step = await message_step_crud.get_max_step_number(
+                                session, thread_id
+                            )
                             thinking_step_number = max_step + 1
                             await message_step_crud.save_ai_step(
                                 db=session,
@@ -327,13 +344,18 @@ async def streaming_message_generator(
                                 thinking=accumulated_thinking,
                             )
                             await session.commit()
-                            logger.debug(f"Saved AI thinking step {thinking_step_number} for thread {thread_id}")
+                            logger.debug(
+                                f"Saved AI thinking step {thinking_step_number} for thread {thread_id}"
+                            )
                     except Exception as e:
-                        logger.error(f"Error saving AI thinking step to database: {e}", exc_info=True)
-                    
+                        logger.error(
+                            f"Error saving AI thinking step to database: {e}",
+                            exc_info=True,
+                        )
+
                     # Clear accumulated thinking for next LLM call
                     accumulated_thinking = ""
-                
+
                 # Also clear accumulated content for next LLM call
                 accumulated_content = ""
 
@@ -372,7 +394,9 @@ async def streaming_message_generator(
                 # Get current step number from database (for consistent ordering)
                 try:
                     async with adb_manager.session() as session:
-                        max_step = await message_step_crud.get_max_step_number(session, thread_id)
+                        max_step = await message_step_crud.get_max_step_number(
+                            session, thread_id
+                        )
                         tool_step_number = max_step + 1
                         await message_step_crud.save_tool_step(
                             db=session,
@@ -383,9 +407,13 @@ async def streaming_message_generator(
                             tool_output=output_str,
                         )
                         await session.commit()
-                        logger.debug(f"Saved tool step {tool_step_number}: {tool_name} for thread {thread_id}")
+                        logger.debug(
+                            f"Saved tool step {tool_step_number}: {tool_name} for thread {thread_id}"
+                        )
                 except Exception as e:
-                    logger.error(f"Error saving tool step to database: {e}", exc_info=True)
+                    logger.error(
+                        f"Error saving tool step to database: {e}", exc_info=True
+                    )
 
                 # Emit tool_result event
                 yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': run_id, 'output': output_str}})}\n\n"
@@ -401,23 +429,34 @@ async def streaming_message_generator(
                         try:
                             chat_message = langchain_to_chat_message(last_message)
                             yield f"data: {json.dumps({'type': 'message', 'content': chat_message.model_dump()})}\n\n"
-                            
+
                             # Save AI response step to database immediately
                             try:
                                 async with adb_manager.session() as session:
-                                    max_step = await message_step_crud.get_max_step_number(session, thread_id)
+                                    max_step = (
+                                        await message_step_crud.get_max_step_number(
+                                            session, thread_id
+                                        )
+                                    )
                                     ai_step_number = max_step + 1
                                     await message_step_crud.save_ai_step(
                                         db=session,
                                         thread_id=thread_id,
                                         step_number=ai_step_number,
                                         content=accumulated_content,
-                                        thinking=accumulated_thinking if accumulated_thinking else None,
+                                        thinking=accumulated_thinking
+                                        if accumulated_thinking
+                                        else None,
                                     )
                                     await session.commit()
-                                    logger.debug(f"Saved AI step {ai_step_number} for thread {thread_id}")
+                                    logger.debug(
+                                        f"Saved AI step {ai_step_number} for thread {thread_id}"
+                                    )
                             except Exception as e:
-                                logger.error(f"Error saving AI step to database: {e}", exc_info=True)
+                                logger.error(
+                                    f"Error saving AI step to database: {e}",
+                                    exc_info=True,
+                                )
                         except Exception as e:
                             logger.error(f"Error parsing final message: {e}")
 

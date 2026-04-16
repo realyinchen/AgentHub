@@ -6,7 +6,7 @@ from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.message_step import MessageStepRecord
-from app.schemas.chat import MessageStep, ToolCall
+from app.schemas.chat import MessageStep
 
 logger = logging.getLogger(__name__)
 
@@ -81,13 +81,13 @@ async def get_message_steps_by_thread(
     steps = []
     for record in records:
         step = MessageStep(
-            step_number=record.step_number,
-            message_type=record.message_type,  # type: ignore
-            content=record.content,
-            thinking=record.thinking,
-            tool_name=record.tool_name,
-            tool_args=record.tool_args,
-            tool_output=record.tool_output,
+            step_number=record.step_number,  # type: ignore[arg-type]
+            message_type=record.message_type,  # type: ignore[arg-type]
+            content=record.content,  # type: ignore[arg-type]
+            thinking=record.thinking,  # type: ignore[arg-type]
+            tool_name=record.tool_name,  # type: ignore[arg-type]
+            tool_args=record.tool_args,  # type: ignore[arg-type]
+            tool_output=record.tool_output,  # type: ignore[arg-type]
         )
         steps.append(step)
     
@@ -108,7 +108,7 @@ async def delete_message_steps_by_thread(
     )
     result = await db.execute(stmt)
     await db.flush()
-    return result.rowcount or 0
+    return result.rowcount or 0  # type: ignore[attr-defined]
 
 
 async def get_max_step_number(
