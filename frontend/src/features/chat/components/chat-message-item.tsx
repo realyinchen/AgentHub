@@ -245,7 +245,8 @@ function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
   return groups
 }
 
-// ==================== Inline Process Steps Types ====================
+// ==================== Inline Process Steps Component ====================
+// Shows steps in main chat UI during agent execution (before final content streams)
 
 type InlineTimelineStepType = "ai_thinking" | "tool" | "ai_final"
 
@@ -262,16 +263,10 @@ type InlineTimelineStep = {
   timestamp: number
 }
 
-// ==================== Inline Process Steps Component ====================
-
 function InlineProcessSteps({
   session,
-  messageSequence,
-  isStreaming,
 }: {
-  session?: AgentProcessSession | null
-  messageSequence?: MessageStep[]
-  isStreaming: boolean
+  session: AgentProcessSession | null
 }) {
   const { t } = useI18n()
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
@@ -319,73 +314,26 @@ function InlineProcessSteps({
         const contentStr = (step.content as string) || ""
         const hasContent = contentStr.trim().length > 0
         
-        steps.push({
-          id: step.id,
-          stepNumber: steps.length,
-          type: "ai_final",
-          title: t("process.modelResponse"),
-          content: hasContent ? contentStr : "",
-          thinking: hasThinking ? thinkingContent : undefined,
-          status: "done",
-          timestamp: step.timestamp,
-        })
+        // Only add ai_response step if it has thinking or content
+        if (hasThinking || hasContent) {
+          steps.push({
+            id: step.id,
+            stepNumber: steps.length,
+            type: "ai_final",
+            title: t("process.modelResponse"),
+            content: hasContent ? contentStr : "",
+            thinking: hasThinking ? thinkingContent : undefined,
+            status: "done",
+            timestamp: step.timestamp,
+          })
+        }
       }
     })
 
     return steps
   }
 
-  // Convert message sequence to timeline steps
-  const getTimelineStepsFromSequence = (): InlineTimelineStep[] => {
-    if (!messageSequence || messageSequence.length === 0) {
-      return []
-    }
-
-    const steps: InlineTimelineStep[] = []
-
-    messageSequence.forEach((msg) => {
-      if (msg.message_type === "tool") {
-        const argsStr = msg.tool_args && Object.keys(msg.tool_args).length > 0
-          ? JSON.stringify(msg.tool_args, null, 2)
-          : undefined
-        
-        steps.push({
-          id: `step-${msg.step_number}-tool`,
-          stepNumber: msg.step_number,
-          type: "tool",
-          title: msg.tool_name || t("process.toolCall"),
-          content: "",
-          args: argsStr,
-          result: msg.tool_output || "",
-          status: "done",
-          timestamp: Date.now(),
-        })
-      } else if (msg.message_type === "ai") {
-        const thinkingContent = msg.thinking || ""
-        const hasThinking = thinkingContent.trim().length > 0
-        const contentStr = msg.content || ""
-        const hasContent = contentStr.trim().length > 0
-        
-        steps.push({
-          id: `step-${msg.step_number}-ai-final`,
-          stepNumber: msg.step_number,
-          type: "ai_final",
-          title: t("process.modelResponse"),
-          content: hasContent ? contentStr : "",
-          thinking: hasThinking ? thinkingContent : undefined,
-          status: "done",
-          timestamp: Date.now(),
-        })
-      }
-    })
-
-    return steps
-  }
-
-  // Determine which steps to show
-  const timelineSteps = isStreaming && session?.isActive
-    ? getTimelineStepsFromSession()
-    : getTimelineStepsFromSequence()
+  const timelineSteps = getTimelineStepsFromSession()
 
   // Auto-expand last step when new steps arrive
   useEffect(() => {
@@ -425,6 +373,16 @@ function InlineProcessSteps({
 
   return (
     <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-[11px] font-medium text-muted-foreground">
+          {t("process.executionSteps")}
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {timelineSteps.length}
+        </span>
+      </div>
+
       <div className="space-y-0">
         {timelineSteps.map((step, index) => {
           const isExpanded = expandedSteps.has(step.id)
@@ -483,35 +441,6 @@ function InlineProcessSteps({
                   {/* Expandable content */}
                   {isExpanded && (
                     <div className="mt-1.5 ml-5 space-y-2">
-                      {/* AI Thinking step - show reasoning and content in separate blocks */}
-                      {step.type === "ai_final" && (step.thinking || step.content) && (
-                        <>
-                          {/* Reasoning block */}
-                          {step.thinking && (
-                            <div>
-                              <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
-                                {t("process.reasoning") || "Reasoning"}
-                              </div>
-                              <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                                {step.thinking}
-                              </div>
-                            </div>
-                          )}
-                          
-                          {/* Content block */}
-                          {step.content && (
-                            <div>
-                              <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
-                                {t("process.content") || "Content"}
-                              </div>
-                              <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                                {step.content}
-                              </div>
-                            </div>
-                          )}
-                        </>
-                      )}
-
                       {/* AI Thinking step during streaming */}
                       {step.type === "ai_thinking" && step.thinking && (
                         <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
@@ -519,19 +448,7 @@ function InlineProcessSteps({
                         </div>
                       )}
 
-                      {/* Args (for tool result steps) */}
-                      {step.args && (
-                        <div>
-                          <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5">
-                            {t("process.arguments")}
-                          </div>
-                          <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono">
-                            {step.args}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Result (for tool result steps) - show directly without "Result" label */}
+                      {/* Result (for tool result steps) */}
                       {step.result && (
                         <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
                           {step.result}
@@ -557,7 +474,7 @@ export function ChatMessageItem({
   isProcessing = false,
   isStreaming = false,
   processSession,
-  messageSequence,
+  messageSequence: _messageSequence,  // eslint-disable-line @typescript-eslint/no-unused-vars
   sessionId,
   hasSteps = false,
   onEditMessage,
@@ -565,7 +482,7 @@ export function ChatMessageItem({
   onQuote,
   quoteDisabled = false,
   onJumpToMessage,
-  onToggleSidebarProcess,
+  onToggleSidebarProcess: _onToggleSidebarProcess,  // eslint-disable-line @typescript-eslint/no-unused-vars
   onSelectSession,
 }: ChatMessageItemProps) {
   const messageRef = useRef<HTMLDivElement>(null)
@@ -709,6 +626,12 @@ export function ChatMessageItem({
           {/* Show when: AI message, streaming, processing state, no content yet */}
           {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
             <SciFiLoader size="md" showText={false} />
+          ) : null}
+
+          {/* Inline Process Steps - show during streaming before final content arrives */}
+          {/* Show when: AI message, streaming, has active processSession, no final content yet */}
+          {isAI && isStreaming && processSession?.isActive && !message.content.trim() ? (
+            <InlineProcessSteps session={processSession} />
           ) : null}
 
           {/* Thinking process - only show when there is actual thinking content and no process session */}

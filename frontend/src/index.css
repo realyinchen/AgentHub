@@ -243,6 +243,36 @@
     border-radius: 999px;
     background-color: var(--dialog-scrollbar-thumb);
   }
+
+  /* Process steps scroll area - refined and dark mode compatible */
+  .process-steps-scroll {
+    --process-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 35%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: var(--process-scrollbar-thumb) transparent;
+  }
+
+  .process-steps-scroll::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+    background: transparent;
+  }
+
+  .process-steps-scroll::-webkit-scrollbar-track,
+  .process-steps-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+    border: 0;
+  }
+
+  .process-steps-scroll::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--process-scrollbar-thumb);
+  }
+
+  .process-steps-scroll:hover {
+    --process-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 50%, transparent);
+    scrollbar-color: var(--process-scrollbar-thumb) transparent;
+  }
 }
 
 /* Agent process panel animations */

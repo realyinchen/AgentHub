@@ -216,7 +216,7 @@ export function AgentTimelineSidebar({
   messageSequence,
   isStreaming,
   selectedSessionId,
-  onClose,
+  onClose: _onClose,  // eslint-disable-line @typescript-eslint/no-unused-vars
 }: AgentTimelineSidebarProps) {
   const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -416,23 +416,23 @@ export function AgentTimelineSidebar({
     )
   }
 
-  // History mode - show all steps in a card (like TokenStatsPanel style)
+  // History mode - simple card with title, steps always visible
   return (
-    <div className="space-y-2 p-2 rounded-lg bg-muted/50 border">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+    <div className="rounded-lg bg-muted/50 border">
+      {/* Header - static title */}
+      <div className="p-2 flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">
-          {t("process.processSteps") || "Process Steps"}
+          {t("process.executionSteps")}
         </span>
         <span className="text-[10px] text-muted-foreground">
-          {timelineSteps.length} {t("process.steps") || "steps"}
+          {timelineSteps.length}
         </span>
       </div>
 
       {/* Timeline content */}
       <div
         ref={scrollRef}
-        className="max-h-80 overflow-y-auto"
+        className="px-2 pb-2 max-h-80 overflow-y-auto process-steps-scroll"
       >
         <div className="space-y-0">
           {timelineSteps.map((step, index) => (
