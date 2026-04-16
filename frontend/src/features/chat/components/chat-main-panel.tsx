@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage, ToolCallEvent, ToolCallInfo } from "@/types"
+import type { AgentInDB, LocalChatMessage, ToolCallInfo } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
 import {
   Alert,
@@ -30,7 +30,6 @@ type ChatMainPanelProps = {
   isAwaitingAgentSelection: boolean
   isProcessing: boolean // Processing, no content received yet
   isAgentThinking: boolean
-  activeToolCall: ToolCallEvent | null
   calledTools: ToolCallInfo[]
   thinkingContent: string // Accumulated thinking content
   messages: LocalChatMessage[]
@@ -44,6 +43,7 @@ type ChatMainPanelProps = {
   modelSupportsThinking: boolean // Whether current model supports thinking mode
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to message callback
+  onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -61,7 +61,6 @@ export function ChatMainPanel({
   isAwaitingAgentSelection,
   isProcessing,
   isAgentThinking,
-  activeToolCall,
   calledTools,
   thinkingContent,
   messages,
@@ -75,6 +74,7 @@ export function ChatMainPanel({
   modelSupportsThinking,
   onEditMessage,
   onJumpToMessage,
+  onToggleSidebarProcess,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
@@ -332,7 +332,6 @@ export function ChatMainPanel({
                         messageIndex={index}
                         calledTools={isLastAIMessage ? calledTools : []}
                         isAgentThinking={isLastAIMessage ? isAgentThinking : false}
-                        activeToolName={isLastAIMessage ? activeToolCall?.name : null}
                         thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
@@ -341,6 +340,7 @@ export function ChatMainPanel({
                         onQuote={() => handleQuote(message, index)}
                         quoteDisabled={isStreaming || isComposerDisabled}
                         onJumpToMessage={onJumpToMessage}
+                        onToggleSidebarProcess={onToggleSidebarProcess}
                       />
                     )
                   })

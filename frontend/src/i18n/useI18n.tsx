@@ -134,6 +134,24 @@ const en = {
   "actions.demo.regeneratingLog": "Regenerating...",
   "actions.demo.thumbsUpLog": "Thumbs up!",
   "actions.demo.thumbsDownLog": "Thumbs down!",
+  // Agent process panel
+  "process.thinking": "Thinking",
+  "process.toolResult": "Tool result",
+  "process.agentWorking": "Agent is working...",
+  "process.starting": "Starting...",
+  "process.processDetails": "Process details",
+  "process.thinkingProcess": "Thinking process",
+  "process.arguments": "Arguments",
+  "process.result": "Result",
+  "process.noContent": "No content",
+  "process.showProcess": "Show agent process",
+  "process.agentProcess": "Agent process",
+  "process.toolCalls": "Tool Calls",
+  "process.step": "Step {{number}}",
+  "process.userMessage": "User Message",
+  "process.llmThinking": "LLM Thinking",
+  "process.toolCall": "Tool Call",
+  "process.llmResponse": "LLM Response",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -268,6 +286,24 @@ const zh: TranslationDictionary = {
   "actions.demo.regeneratingLog": "重新生成中...",
   "actions.demo.thumbsUpLog": "点赞！",
   "actions.demo.thumbsDownLog": "点踩！",
+  // Agent process panel
+  "process.thinking": "思考",
+  "process.toolResult": "工具结果",
+  "process.agentWorking": "智能体正在工作...",
+  "process.starting": "正在启动...",
+  "process.processDetails": "过程详情",
+  "process.thinkingProcess": "思考过程",
+  "process.arguments": "参数",
+  "process.result": "结果",
+  "process.noContent": "无内容",
+  "process.showProcess": "展示智能体处理过程",
+  "process.agentProcess": "智能体处理过程",
+  "process.toolCalls": "工具调用",
+  "process.step": "步骤 {{number}}",
+  "process.userMessage": "用户消息",
+  "process.llmThinking": "LLM 思考",
+  "process.toolCall": "工具调用",
+  "process.llmResponse": "LLM 响应",
 }
 
 const dictionaries = {

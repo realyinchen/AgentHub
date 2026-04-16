@@ -67,9 +67,6 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     is_active: true,
   })
 
-  // API Key visibility state (model_id -> visible)
-  const [apiKeyVisibility, setApiKeyVisibility] = useState<Record<string, boolean>>({})
-
   // New model API Key visibility state
   const [newModelApiKeyVisible, setNewModelApiKeyVisible] = useState(false)
 
@@ -106,19 +103,10 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     if (open) {
       void loadData()
       // Reset states when dialog opens
-      setApiKeyVisibility({})
       setApiKeyEdits({})
       setPendingChanges({})
     }
   }, [open, loadData])
-
-  // Toggle API key visibility
-  const toggleApiKeyVisibility = (modelId: string) => {
-    setApiKeyVisibility(prev => ({
-      ...prev,
-      [modelId]: !prev[modelId],
-    }))
-  }
 
   // Handle API key edit
   const handleApiKeyChange = (modelId: string, value: string) => {

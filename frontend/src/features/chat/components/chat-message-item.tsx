@@ -5,7 +5,6 @@ import {
   CopyIcon,
   PencilIcon,
   QuoteIcon,
-  WrenchIcon,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
@@ -22,7 +21,6 @@ type ChatMessageItemProps = {
   messageIndex: number // Index in messages array for edit functionality
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
-  activeToolName?: string | null
   thinkingContent?: string // Accumulated thinking content (streaming)
   isProcessing?: boolean // Processing, no content received yet
   isStreaming?: boolean // Whether the current message is streaming
@@ -31,6 +29,7 @@ type ChatMessageItemProps = {
   onQuote?: () => void // Callback when user wants to quote this message
   quoteDisabled?: boolean // Whether quote is disabled
   onJumpToMessage?: (localId: string) => void // Jump to quoted message
+  onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
 }
 
 type SourceLink = {
@@ -242,7 +241,6 @@ export function ChatMessageItem({
   message,
   messageIndex,
   calledTools = [],
-  activeToolName = null,
   thinkingContent = "",
   isProcessing = false,
   isStreaming = false,
@@ -251,6 +249,7 @@ export function ChatMessageItem({
   onQuote,
   quoteDisabled = false,
   onJumpToMessage,
+  onToggleSidebarProcess,
 }: ChatMessageItemProps) {
   const messageRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
@@ -259,8 +258,6 @@ export function ChatMessageItem({
   const isTool = message.type === "tool"
   const sources = parseSources(message)
   const [copied, setCopied] = useState(false)
-  const [showThinkingProcess, setShowThinkingProcess] = useState(false)
-  const [showToolCalls, setShowToolCalls] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   // For quoted messages, edit only the user_content; otherwise edit the full content
   const [editContent, setEditContent] = useState(
@@ -314,8 +311,8 @@ export function ChatMessageItem({
   }
 
   // Determine what to show in the action bar
-  const showThinkingButton = hasThinkingContent
-  const showToolCallButton = hasToolCalls
+  // Show a single "agent process" button if there's thinking content or tool calls
+  const showAgentProcessButton = hasThinkingContent || hasToolCalls
 
   // Get quoted message ID and user content from custom_data
   const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
@@ -409,48 +406,23 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Tool calls during streaming - show grouped consecutive calls */}
-          {isAI && allTools.length > 0 && isStreaming && !message.content.trim() ? (
+          {/* Tool calls during streaming - only show completed tools (with output) */}
+          {isAI && allTools.some(t => t.status === "completed") && isStreaming && !message.content.trim() ? (
             <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
               <div className="space-y-1.5">
-                {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => {
-                  // Check if any tool in the group is still calling
-                  const hasCallingTool = group.tools.some(t => t.status === "calling")
-
+                {groupConsecutiveToolCalls(allTools.filter(t => t.status === "completed")).map((group, groupIndex) => {
                   return (
                     <div key={`group-${groupIndex}`} className="flex items-center gap-2">
-                      {hasCallingTool ? (
-                        <span className="inline-flex gap-1">
-                          <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                          <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                          <span className="size-1 animate-bounce rounded-full bg-current" />
-                        </span>
-                      ) : (
-                        <CheckIcon className="size-3 text-green-500" />
-                      )}
-                      <span className={hasCallingTool ? "text-muted-foreground" : "text-foreground"}>
+                      <CheckIcon className="size-3 text-green-500" />
+                      <span className="text-foreground">
                         {group.name}
                         {group.count > 1 ? (
                           <span className="ml-1 text-muted-foreground">×{group.count}</span>
                         ) : null}
                       </span>
-                      {hasCallingTool ? (
-                        <span className="text-muted-foreground">...</span>
-                      ) : null}
                     </div>
                   )
                 })}
-              </div>
-            </div>
-          ) : activeToolName && isStreaming && !message.content.trim() ? (
-            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex gap-1">
-                  <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                  <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                  <span className="size-1 animate-bounce rounded-full bg-current" />
-                </span>
-                <span className="text-muted-foreground">{activeToolName}...</span>
               </div>
             </div>
           ) : null}
@@ -603,92 +575,23 @@ export function ChatMessageItem({
                   <QuoteIcon className="size-4" />
                 </Action>
               ) : null}
-              {showThinkingButton ? (
+              {/* Single "Agent Process" button - toggles sidebar visibility */}
+              {showAgentProcessButton ? (
                 <Action
-                  onClick={() => setShowThinkingProcess(!showThinkingProcess)}
-                  tooltip={showThinkingProcess ? t("message.hideThinkingProcess") : t("message.showThinkingProcess")}
-                  label={t("message.thinkingProcess")}
+                  onClick={() => {
+                    // Toggle sidebar process panel visibility
+                    if (onToggleSidebarProcess) {
+                      onToggleSidebarProcess()
+                    }
+                  }}
+                  tooltip={t("process.showProcess")}
+                  label={t("process.agentProcess")}
                   className="cursor-pointer"
                 >
                   <BrainIcon className="size-4" />
                 </Action>
               ) : null}
-              {showToolCallButton ? (
-                <Action
-                  onClick={() => setShowToolCalls(!showToolCalls)}
-                  tooltip={showToolCalls ? t("message.hideToolCalls") : t("message.showToolCalls")}
-                  label={t("message.toolCalls")}
-                  className="cursor-pointer"
-                >
-                  <WrenchIcon className="size-4" />
-                </Action>
-              ) : null}
             </Actions>
-
-            {/* Thinking process detail panel */}
-            {showThinkingButton && showThinkingProcess ? (
-              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
-                <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
-                  <BrainIcon className="size-3" />
-                  {t("message.thinkingProcess")}
-                </div>
-                <div className="whitespace-pre-wrap text-muted-foreground max-h-60 overflow-y-auto">
-                  {displayThinkingContent}
-                </div>
-              </div>
-            ) : null}
-
-            {/* Tool calls detail panel */}
-            {showToolCallButton && showToolCalls ? (
-              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
-                <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
-                  <WrenchIcon className="size-3" />
-                  {t("message.toolCallsCount", { count: allTools.length })}
-                </div>
-                <div className="space-y-2">
-                  {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => (
-                    <details key={`group-${groupIndex}`} className="rounded border border-border/40 bg-background/30">
-                      <summary className="flex cursor-pointer list-none items-center gap-2 p-2">
-                        <CheckIcon className="size-3 text-green-500" />
-                        <div className="font-medium text-foreground">
-                          {group.name}
-                          {group.count > 1 ? (
-                            <span className="ml-1 text-muted-foreground">×{group.count}</span>
-                          ) : null}
-                        </div>
-                      </summary>
-                      <div className="border-t border-border/30 p-2 space-y-2">
-                        {group.tools.map((tool, toolIndex) => (
-                          <div key={`${tool.id}-${toolIndex}`} className="text-muted-foreground">
-                            {group.count > 1 ? (
-                              <div className="font-medium text-foreground mb-1 text-[11px]">
-                                #{toolIndex + 1}
-                              </div>
-                            ) : null}
-                            {Object.keys(tool.args).length > 0 ? (
-                              <div className="mb-1">
-                                <span className="font-medium">{t("message.toolInput")}:</span>
-                                <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px]">
-                                  {JSON.stringify(tool.args, null, 2)}
-                                </pre>
-                              </div>
-                            ) : null}
-                            {tool.output ? (
-                              <div>
-                                <span className="font-medium">{t("message.toolOutput")}:</span>
-                                <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px] max-h-32 overflow-y-auto">
-                                  {tool.output}
-                                </pre>
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </Message>

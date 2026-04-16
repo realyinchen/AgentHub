@@ -25,6 +25,27 @@ export type LocalChatMessage = ChatMessage & {
 
 export type ChatHistory = {
   messages: ChatMessage[]
+  message_sequence: MessageStep[]
+}
+
+// ==================== Message Step Types ====================
+
+/**
+ * Single step in the agent execution sequence.
+ * Each message from the conversation is represented as a step.
+ * 
+ * Types:
+ * - ai: AI response with content and optional thinking
+ * - tool: Tool execution with name, args, and output (merged call + result)
+ */
+export type MessageStep = {
+  step_number: number
+  message_type: "ai" | "tool"
+  content: string | null
+  tool_name: string | null
+  tool_args: Record<string, unknown> | null
+  tool_output: string | null
+  thinking: string | null
 }
 
 export type AgentInDB = {
@@ -142,8 +163,25 @@ export type StreamEvent =
     content: string
   }
   | {
-    type: "thinking"
+    type: "llm"
+    id: string
+    step: number
     content: string
+  }
+  | {
+    type: "tool"
+    id: string
+    step: number
+    content: {
+      name: string
+      tool_id: string
+      args?: Record<string, unknown>
+      status: "calling"
+    }
+  }
+  | {
+    type: "tool_result"
+    content: ToolResultEvent
   }
   | {
     type: "message"
@@ -153,11 +191,70 @@ export type StreamEvent =
     type: "error"
     content: string
   }
-  | {
-    type: "tool_call"
-    content: ToolCallEvent
-  }
-  | {
-    type: "tool_result"
-    content: ToolResultEvent
-  }
+
+// ==================== Agent Process Types ====================
+
+/**
+ * Single step in agent execution process.
+ * Used to track thinking and tool calls during streaming.
+ * 
+ * Types:
+ * - human: User message
+ * - thinking: LLM reasoning/thinking content
+ * - tool_call: Tool invocation with args and result
+ * - ai_response: Final AI response with content and optional thinking
+ */
+export type AgentProcessStep = {
+  id: string
+  type: "human" | "thinking" | "tool_call" | "ai_response"
+  content: string | ToolCallEvent
+  timestamp: number
+  status?: "running" | "done"
+  // For tool_call steps, store the result when completed
+  result?: string
+  // For ai_response steps, store thinking content if available
+  thinking?: string
+}
+
+/**
+ * Agent execution session for real-time process display.
+ * Active during streaming, cleared after streaming ends.
+ */
+export type AgentProcessSession = {
+  threadId: string
+  agentId: string
+  steps: AgentProcessStep[]
+  isActive: boolean
+  startTime: number
+  endTime?: number
+}
+
+/**
+ * View mode for sidebar process panel.
+ */
+export type ProcessViewMode = "streaming" | "history"
+
+/**
+ * Single step in historical process data.
+ * Used to preserve the order and type of each step.
+ */
+export type HistoricalProcessStep = {
+  id: string
+  type: "human" | "thinking" | "tool_call" | "ai_response"
+  content: string  // Thinking content or tool name
+  args?: Record<string, unknown>  // Tool arguments (for tool_call type)
+  result?: string  // Tool result (for tool_call type)
+  thinking?: string  // For ai_response steps
+  order: number  // Step order index
+}
+
+/**
+ * Data to display in sidebar when viewing historical process.
+ * Supports both legacy format (single thinking + tool calls) and new format (ordered steps).
+ */
+export type HistoricalProcessData = {
+  thinkingContent: string  // Legacy: combined thinking content
+  toolCalls: ToolCallInfo[]  // Legacy: tool calls
+  messageId: string
+  steps?: HistoricalProcessStep[]  // New: ordered steps with type info
+}

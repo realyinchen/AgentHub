@@ -1,3 +1,4 @@
+export { AgentProcessPanel, AgentTimelineSidebar, useAgentEvents } from "./agent-timeline-sidebar"
 export { ChatMainPanel } from "./chat-main-panel"
 export { ChatSidebar } from "./chat-sidebar"
 export { ConversationRenameDialog } from "./conversation-rename-dialog"

@@ -244,3 +244,17 @@
     background-color: var(--dialog-scrollbar-thumb);
   }
 }
+
+/* Agent process panel animations */
+@keyframes gradient-flow {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+.animate-gradient-flow {
+  animation: gradient-flow 3s linear infinite;
+}

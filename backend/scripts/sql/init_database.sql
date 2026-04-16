@@ -91,3 +91,31 @@ INSERT INTO public.models (provider, api_key, model_type, model_id, model_name, 
 VALUES 
     ('zai', '', 'llm', 'zai/glm-5', 'glm-5', true, false, true)
 ON CONFLICT (model_id) DO NOTHING;
+
+-- 4. message_steps table (agent execution sequence for sidebar)
+-- Stores each step of agent execution: human messages, tool calls, tool results, and AI responses
+CREATE TABLE IF NOT EXISTS public.message_steps (
+    id              BIGSERIAL PRIMARY KEY,
+    thread_id       UUID NOT NULL REFERENCES public.conversations(thread_id) ON DELETE CASCADE,
+    step_number     INTEGER NOT NULL,
+    message_type    VARCHAR(16) NOT NULL,  -- 'human', 'tool_call', 'tool_result', 'ai_response'
+    
+    -- Tool call/result fields
+    tool_name       VARCHAR(128),          -- Tool name (e.g., "get_weather")
+    tool_args       JSONB,                 -- Tool call arguments
+    tool_output     TEXT,                  -- Tool execution result
+    tool_call_id    VARCHAR(128),          -- Tool call ID for matching call with result
+    
+    -- AI response fields
+    content         TEXT,                  -- Message content (human or AI)
+    thinking        TEXT,                  -- Thinking/reasoning content (for AI messages)
+    tool_calls      JSONB,                 -- Tool calls from AI (for AI messages with tool calls)
+    
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT unique_thread_step UNIQUE (thread_id, step_number)
+);
+
+-- Indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_message_steps_thread ON public.message_steps(thread_id);
+CREATE INDEX IF NOT EXISTS idx_message_steps_type ON public.message_steps(message_type);
