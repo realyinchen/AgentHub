@@ -135,7 +135,7 @@ function TimelineStepItem({
                       <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
                         {t("process.reasoning") || "Reasoning"}
                       </div>
-                      <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                      <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
                         {step.thinking}
                       </div>
                     </div>
@@ -147,7 +147,7 @@ function TimelineStepItem({
                       <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
                         {t("process.content") || "Content"}
                       </div>
-                      <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                      <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
                         {step.content}
                       </div>
                     </div>
@@ -157,7 +157,7 @@ function TimelineStepItem({
 
               {/* AI Thinking step during streaming */}
               {step.type === "ai_thinking" && step.thinking && (
-                <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
                   {step.thinking}
                 </div>
               )}
@@ -189,7 +189,7 @@ function TimelineStepItem({
                   <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5">
                     {t("process.arguments") || "Arguments"}
                   </div>
-                  <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono">
+                  <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono step-detail-scroll">
                     {step.args}
                   </div>
                 </div>
@@ -197,7 +197,7 @@ function TimelineStepItem({
 
               {/* Result (for tool result steps) - show directly without "Result" label */}
               {step.result && (
-                <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
                   {step.result}
                 </div>
               )}
@@ -398,7 +398,7 @@ export function AgentTimelineSidebar({
         {/* Timeline content */}
         <div
           ref={scrollRef}
-          className="max-h-80 overflow-y-auto"
+          className="max-h-80 overflow-y-auto process-steps-scroll"
         >
           <div className="space-y-0">
             {timelineSteps.map((step, index) => (

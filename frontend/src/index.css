@@ -299,6 +299,36 @@
     --process-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 50%, transparent);
     scrollbar-color: var(--process-scrollbar-thumb) transparent;
   }
+
+  /* Step detail content scroll area - for nested scrollable areas in step details */
+  .step-detail-scroll {
+    --step-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 35%, transparent);
+    scrollbar-width: thin;
+    scrollbar-color: var(--step-scrollbar-thumb) transparent;
+  }
+
+  .step-detail-scroll::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+    background: transparent;
+  }
+
+  .step-detail-scroll::-webkit-scrollbar-track,
+  .step-detail-scroll::-webkit-scrollbar-corner {
+    background: transparent;
+    border: 0;
+  }
+
+  .step-detail-scroll::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--step-scrollbar-thumb);
+  }
+
+  .step-detail-scroll:hover {
+    --step-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 50%, transparent);
+    scrollbar-color: var(--step-scrollbar-thumb) transparent;
+  }
 }
 
 /* Agent process panel animations */
