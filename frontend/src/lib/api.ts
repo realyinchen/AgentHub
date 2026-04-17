@@ -76,6 +76,20 @@ export async function setConversationTitle(input: {
   })
 }
 
+/**
+ * Generate a conversation title using the default LLM.
+ * This is a lightweight endpoint that doesn't go through the agent flow.
+ */
+export async function generateTitle(input: {
+  user_message: string
+  ai_response?: string
+}): Promise<{ title: string }> {
+  return requestJson<{ title: string }>("/chat/title/generate", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
 export async function getHistory(
   agentId: string,
   threadId: string,

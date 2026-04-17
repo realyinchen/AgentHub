@@ -510,24 +510,6 @@ export function ChatMessageItem({
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
   const hasToolCalls = allTools.length > 0
 
-  // Don't render tool type messages (tool call results)
-  if (isTool) {
-    return null
-  }
-
-  // For AI messages, don't render if there's no content, thinking content, or tool calls
-  // This avoids empty bubbles
-  // But during streaming with processing state, show the loader even without content
-  if (isAI && !isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
-    return null
-  }
-  
-  // During streaming, if we're still processing (no content received yet), don't return null
-  // The SciFiLoader will be shown instead
-  if (isAI && isStreaming && !isProcessing && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
-    return null
-  }
-
   useEffect(() => {
     if (!copied) {
       return
@@ -571,6 +553,24 @@ export function ChatMessageItem({
       return `${content.slice(0, 100)}_`
     }
     return content
+  }
+
+  // Don't render tool type messages (tool call results)
+  if (isTool) {
+    return null
+  }
+
+  // For AI messages, don't render if there's no content, thinking content, or tool calls
+  // This avoids empty bubbles
+  // But during streaming with processing state, show the loader even without content
+  if (isAI && !isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
+    return null
+  }
+  
+  // During streaming, if we're still processing (no content received yet), don't return null
+  // The SciFiLoader will be shown instead
+  if (isAI && isStreaming && !isProcessing && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
+    return null
   }
 
   return (
@@ -627,8 +627,8 @@ export function ChatMessageItem({
           {/* Processing state - show neural network loading animation before any content arrives */}
           {/* Show when: AI message, streaming, processing state, no content yet */}
           {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
-            <div className="absolute inset-0 -mx-5 -my-3.5">
-              <NeuralNetworkLoader className="h-full" showText={false} />
+            <div className="w-full h-24 min-h-24 rounded-xl overflow-hidden">
+              <NeuralNetworkLoader className="h-full w-full" showText={false} particleCount={40} maxDistance={70} />
             </div>
           ) : null}
 

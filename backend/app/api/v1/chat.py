@@ -17,9 +17,11 @@ from app.schemas.chat import (
     UserInput,
     ChatHistory,
 )
+from app.schemas.title import TitleGenerateRequest, TitleGenerateResponse
 from app.utils.agent_utils import get_agent
 from app.utils.llm import is_thinking_mode_available
 from app.core.config import settings
+from app.core.model_manager import ModelManager
 from app.utils.message_utils import (
     handle_input,
     langchain_to_chat_message,
@@ -457,6 +459,67 @@ async def save_conversation(
         raise HTTPException(
             status_code=500, detail=f"Error creating conversation: {str(e)}"
         )
+
+
+@api_router.post("/title/generate", response_model=TitleGenerateResponse)
+async def generate_title(request: TitleGenerateRequest) -> TitleGenerateResponse:
+    """
+    Generate a conversation title using the default LLM.
+
+    This is a lightweight endpoint that directly uses the default LLM
+    without going through the agent flow. It's designed for background
+    title generation that doesn't block user interaction.
+
+    Args:
+        request: Contains user_message and optional ai_response
+
+    Returns:
+        TitleGenerateResponse with the generated title
+    """
+    try:
+        # Get the default LLM (not thinking mode, just regular LLM)
+        llm = await ModelManager.get_llm(model_type="llm")
+
+        # Build the prompt for title generation
+        # Use a simple, concise prompt to minimize token usage
+        if request.ai_response:
+            prompt = f"""Based on the following conversation, generate a concise title (max 20 characters, in the same language as the conversation):
+
+User: {request.user_message[:200]}
+AI: {request.ai_response[:200]}
+
+Title:"""
+        else:
+            prompt = f"""Generate a concise title (max 20 characters, in the same language) for this message:
+
+{request.user_message[:200]}
+
+Title:"""
+
+        # Call the LLM
+        response = await llm.ainvoke([HumanMessage(content=prompt)])
+
+        # Extract and clean the title
+        title = response.content.strip()
+        # Remove quotes if present (both single and double quotes)
+        if title.startswith('"') and title.endswith('"'):
+            title = title[1:-1]
+        elif title.startswith("'") and title.endswith("'"):
+            title = title[1:-1]
+        # Limit length
+        if len(title) > 50:
+            title = title[:47] + "..."
+
+        return TitleGenerateResponse(title=title)
+
+    except Exception as e:
+        logger.error(f"Error generating title: {e}")
+        # Return a fallback title instead of raising an error
+        # This ensures the frontend can continue without issues
+        fallback = request.user_message[:30]
+        if len(request.user_message) > 30:
+            fallback += "..."
+        return TitleGenerateResponse(title=fallback)
 
 
 @api_router.get("/thinking-mode")

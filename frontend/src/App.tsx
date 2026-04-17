@@ -3,9 +3,9 @@ import { Languages, Moon, Share2, Sun, Settings } from "lucide-react"
 
 import {
   createConversation,
+  generateTitle,
   getConversationTitle,
   getHistory,
-  invoke,
   listAgents,
   listConversations,
   setConversationTitle,
@@ -526,57 +526,57 @@ function App() {
   }, [])
 
   const maybeGenerateTitle = useCallback(
-    async (
+    (
       userInput: string,
       aiResponse: string,
       targetThreadId: string,
       currentTitle: string,
     ) => {
+      // Non-blocking title generation - fire and forget
+      // This runs in the background without blocking user interaction
       if (!isDefaultConversationTitle(currentTitle) || !targetThreadId) {
         return
       }
 
-      const titlePrompt = t("app.titlePrompt", {
-        input: userInput,
-        response: aiResponse,
-      })
-
-      try {
-        const titleResponse = await invoke({
-          content: titlePrompt,
-          agent_id: "chatbot",
-        })
-
-        const generatedTitle = sanitizeTitle(
-          titleResponse.content.replace(/(^['"]|['"]$)/g, ""),
-        )
-
-        if (!generatedTitle) {
-          return
-        }
-
-        const updated = await setConversationTitle({
-          thread_id: targetThreadId,
-          title: generatedTitle,
-          is_deleted: false,
-        })
-
-        setConversationTitleState(generatedTitle)
-        setDraftTitle(generatedTitle)
-
-        if (updated) {
-          setConversations((previous) => {
-            const next = previous.filter(
-              (conversation) => conversation.thread_id !== updated.thread_id,
-            )
-            return sortConversationsByUpdatedAt([updated, ...next])
+      // Use void to explicitly mark as fire-and-forget
+      void (async () => {
+        try {
+          // Use the lightweight title generation endpoint
+          const result = await generateTitle({
+            user_message: userInput,
+            ai_response: aiResponse,
           })
+
+          const generatedTitle = sanitizeTitle(result.title)
+
+          if (!generatedTitle) {
+            return
+          }
+
+          const updated = await setConversationTitle({
+            thread_id: targetThreadId,
+            title: generatedTitle,
+            is_deleted: false,
+          })
+
+          setConversationTitleState(generatedTitle)
+          setDraftTitle(generatedTitle)
+
+          if (updated) {
+            setConversations((previous) => {
+              const next = previous.filter(
+                (conversation) => conversation.thread_id !== updated.thread_id,
+              )
+              return sortConversationsByUpdatedAt([updated, ...next])
+            })
+          }
+        } catch {
+          // Title generation should never block the main chat flow.
+          // Silently fail - user won't notice
         }
-      } catch {
-        // Title generation should never block the main chat flow.
-      }
+      })()
     },
-    [t],
+    [],
   )
 
   const handleSendMessage = useCallback(
@@ -941,7 +941,9 @@ function App() {
           return previous
         })
 
-        await maybeGenerateTitle(trimmed, lastAiContent, targetThreadId, currentTitle)
+        // Non-blocking title generation - fire and forget
+        // User can continue chatting while title is being generated
+        maybeGenerateTitle(trimmed, lastAiContent, targetThreadId, currentTitle)
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           const details = getErrorMessage(error, t("error.unexpected"))

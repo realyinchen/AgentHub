@@ -302,3 +302,180 @@
 .animate-scan {
   animation: scan 2s ease-in-out infinite;
 }
+
+/* ==================== Sci-Fi Loader Animation ==================== */
+
+/* Container */
+.sci-loader {
+  position: relative;
+}
+
+/* 🌟 Energy Core */
+.sci-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 14px;
+  height: 14px;
+  transform: translate(-50%, -50%);
+  background: #00f7ff;
+  border-radius: 50%;
+  box-shadow:
+    0 0 10px #00f7ff,
+    0 0 30px #00f7ff,
+    0 0 60px #00f7ff;
+  animation: sci-pulse 2s infinite ease-in-out;
+}
+
+/* 🔵 Rings */
+.sci-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 247, 255, 0.2);
+}
+
+/* First ring - outer */
+.sci-ring1 {
+  animation: sci-rotate 6s linear infinite;
+  box-shadow: 0 0 10px rgba(0, 247, 255, 0.3);
+}
+
+/* Second ring - inner, reverse */
+.sci-ring2 {
+  inset: 15px;
+  animation: sci-rotate-reverse 8s linear infinite;
+  border-color: rgba(255, 0, 200, 0.3);
+  box-shadow: 0 0 15px rgba(255, 0, 200, 0.3);
+}
+
+/* Third ring - scan effect */
+.sci-ring3 {
+  inset: 30px;
+  border: none;
+}
+
+.sci-ring3::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(
+    transparent,
+    rgba(0, 247, 255, 0.8),
+    transparent
+  );
+  animation: sci-rotate 2s linear infinite;
+  filter: blur(1px);
+}
+
+/* ✨ Keyframes */
+@keyframes sci-rotate {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sci-rotate-reverse {
+  to {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes sci-pulse {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.5);
+    opacity: 1;
+  }
+}
+
+/* ==================== AI Loader Animation ==================== */
+
+.ai-loader {
+  position: relative;
+  width: 220px;
+  height: 220px;
+}
+
+/* Core */
+.ai-loader-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  transform: translate(-50%, -50%);
+  background: #00f7ff;
+  border-radius: 50%;
+  box-shadow: 
+    0 0 10px #00f7ff,
+    0 0 30px #00f7ff,
+    0 0 60px #00f7ff;
+  animation: ai-loader-pulse-core 2s infinite ease-in-out;
+}
+
+/* Outer ring */
+.ai-loader-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(0, 247, 255, 0.2);
+  box-shadow: 0 0 20px rgba(0, 247, 255, 0.2);
+  animation: ai-loader-rotate-ring 10s linear infinite;
+}
+
+/* Connections container */
+.ai-loader-connections span {
+  position: absolute;
+  width: 2px;
+  height: 90px;
+  top: 50%;
+  left: 50%;
+  transform-origin: top center;
+  background: linear-gradient(to bottom, rgba(0, 247, 255, 0.8), transparent);
+  overflow: hidden;
+}
+
+/* Different angles */
+.ai-loader-connections span:nth-child(1) { transform: rotate(0deg) translate(-50%, -100%); }
+.ai-loader-connections span:nth-child(2) { transform: rotate(60deg) translate(-50%, -100%); }
+.ai-loader-connections span:nth-child(3) { transform: rotate(120deg) translate(-50%, -100%); }
+.ai-loader-connections span:nth-child(4) { transform: rotate(180deg) translate(-50%, -100%); }
+.ai-loader-connections span:nth-child(5) { transform: rotate(240deg) translate(-50%, -100%); }
+.ai-loader-connections span:nth-child(6) { transform: rotate(300deg) translate(-50%, -100%); }
+
+/* Data flow */
+.ai-loader-connections span::after {
+  content: "";
+  position: absolute;
+  width: 100%;
+  height: 30%;
+  background: linear-gradient(to bottom, transparent, #00f7ff, transparent);
+  animation: ai-loader-flow 1.5s linear infinite;
+}
+
+/* Keyframes */
+@keyframes ai-loader-flow {
+  0% { top: -30%; opacity: 0; }
+  50% { opacity: 1; }
+  100% { top: 100%; opacity: 0; }
+}
+
+@keyframes ai-loader-pulse-core {
+  0%, 100% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.8;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.4);
+    opacity: 1;
+  }
+}
+
+@keyframes ai-loader-rotate-ring {
+  to { transform: rotate(360deg); }
+}
