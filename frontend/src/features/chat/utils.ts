@@ -6,14 +6,14 @@ const FALLBACK_DEFAULT_TITLES = ["New conversation", "新会话"]
 export function normalizeChatMessage(message: Partial<ChatMessage>): ChatMessage {
   const toolCalls = Array.isArray(message.tool_calls)
     ? message.tool_calls.map((call) => ({
-        id: String(call.id ?? crypto.randomUUID()),
-        name: String(call.name ?? "tool"),
-        args:
-          call.args && typeof call.args === "object"
-            ? (call.args as Record<string, unknown>)
-            : {},
-        type: call.type,
-      }))
+      id: String(call.id ?? crypto.randomUUID()),
+      name: String(call.name ?? "tool"),
+      args:
+        call.args && typeof call.args === "object"
+          ? (call.args as Record<string, unknown>)
+          : {},
+      type: call.type,
+    }))
     : []
 
   return {

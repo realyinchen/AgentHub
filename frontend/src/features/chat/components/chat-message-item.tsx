@@ -2,35 +2,42 @@ import {
   BrainIcon,
   CheckIcon,
   ChevronDown,
+  ChevronDownIcon,
+  ChevronRightIcon,
   CopyIcon,
   PencilIcon,
   QuoteIcon,
-  WrenchIcon,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
 import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
-import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo } from "@/types"
+import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo, AgentProcessSession, MessageStep, ToolCallEvent } from "@/types"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
+import { NeuralNetworkLoader } from "@/components/ai/neural-network-loader"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
   messageIndex: number // Index in messages array for edit functionality
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
-  activeToolName?: string | null
   thinkingContent?: string // Accumulated thinking content (streaming)
   isProcessing?: boolean // Processing, no content received yet
   isStreaming?: boolean // Whether the current message is streaming
+  processSession?: AgentProcessSession | null // Process session for inline display during streaming
+  messageSequence?: MessageStep[] // Message sequence for historical display
+  sessionId?: string | null // session_id for this AI message
+  hasSteps?: boolean // Whether this AI message has steps (tool calls or thinking)
   onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
   editDisabled?: boolean // Whether edit is disabled
   onQuote?: () => void // Callback when user wants to quote this message
   quoteDisabled?: boolean // Whether quote is disabled
   onJumpToMessage?: (localId: string) => void // Jump to quoted message
+  onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
+  onSelectSession?: (sessionId: string) => void // Select a specific session to view
 }
 
 type SourceLink = {
@@ -238,19 +245,245 @@ function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
   return groups
 }
 
+// ==================== Inline Process Steps Component ====================
+// Shows steps in main chat UI during agent execution (before final content streams)
+
+type InlineTimelineStepType = "ai_thinking" | "tool" | "ai_final"
+
+type InlineTimelineStep = {
+  id: string
+  stepNumber: number
+  type: InlineTimelineStepType
+  title: string
+  content: string
+  args?: string
+  result?: string
+  thinking?: string
+  status: "running" | "done"
+  timestamp: number
+}
+
+function InlineProcessSteps({
+  session,
+}: {
+  session: AgentProcessSession | null
+}) {
+  const { t } = useI18n()
+  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
+
+  // Convert streaming session to timeline steps
+  const getTimelineStepsFromSession = (): InlineTimelineStep[] => {
+    if (!session || !session.steps || session.steps.length === 0) {
+      return []
+    }
+
+    const steps: InlineTimelineStep[] = []
+
+    session.steps.forEach((step) => {
+      // Skip human messages
+      if (step.type === "human") {
+        return
+      }
+
+      if (step.type === "thinking") {
+        steps.push({
+          id: step.id,
+          stepNumber: steps.length,
+          type: "ai_thinking",
+          title: t("process.thinking"),
+          content: "",
+          thinking: step.content as string,
+          status: step.status === "done" ? "done" : "running",
+          timestamp: step.timestamp,
+        })
+      } else if (step.type === "tool_call") {
+        const toolCall = step.content as ToolCallEvent
+        steps.push({
+          id: step.id,
+          stepNumber: steps.length,
+          type: "tool",
+          title: toolCall.name,
+          content: "",
+          result: step.result || "",
+          status: step.status === "done" ? "done" : "running",
+          timestamp: step.timestamp,
+        })
+      } else if (step.type === "ai_response") {
+        const thinkingContent = step.thinking || ""
+        const hasThinking = thinkingContent.trim().length > 0
+        const contentStr = (step.content as string) || ""
+        const hasContent = contentStr.trim().length > 0
+
+        // Only add ai_response step if it has thinking or content
+        if (hasThinking || hasContent) {
+          steps.push({
+            id: step.id,
+            stepNumber: steps.length,
+            type: "ai_final",
+            title: t("process.modelResponse"),
+            content: hasContent ? contentStr : "",
+            thinking: hasThinking ? thinkingContent : undefined,
+            status: "done",
+            timestamp: step.timestamp,
+          })
+        }
+      }
+    })
+
+    return steps
+  }
+
+  const timelineSteps = getTimelineStepsFromSession()
+
+  // Auto-expand last step when new steps arrive
+  useEffect(() => {
+    if (timelineSteps.length > 0) {
+      const lastStepId = timelineSteps[timelineSteps.length - 1].id
+      setExpandedSteps(prev => {
+        const next = new Set(prev)
+        next.add(lastStepId)
+        return next
+      })
+    }
+  }, [timelineSteps.length])
+
+  const toggleStep = (stepId: string) => {
+    setExpandedSteps(prev => {
+      const next = new Set(prev)
+      if (next.has(stepId)) {
+        next.delete(stepId)
+      } else {
+        next.add(stepId)
+      }
+      return next
+    })
+  }
+
+  if (timelineSteps.length === 0) {
+    return null
+  }
+
+  // Icon mapping
+  const getIcon = (type: InlineTimelineStepType) => {
+    if (type === "ai_thinking" || type === "ai_final") {
+      return "🧠"
+    }
+    return "🔧"
+  }
+
+  return (
+    <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2 px-1">
+        <span className="text-[11px] font-medium text-muted-foreground">
+          {t("process.executionSteps")}
+        </span>
+        <span className="text-[10px] text-muted-foreground">
+          {timelineSteps.length}
+        </span>
+      </div>
+
+      <div className="space-y-0">
+        {timelineSteps.map((step, index) => {
+          const isExpanded = expandedSteps.has(step.id)
+          const isLast = index === timelineSteps.length - 1
+          const isRunning = step.status === "running"
+
+          return (
+            <div key={step.id} className="relative">
+              {/* Timeline vertical line */}
+              {!isLast && (
+                <div className="absolute left-[11px] top-5 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
+              )}
+
+              {/* Step row */}
+              <div className="flex items-start gap-2">
+                {/* Dot/Circle */}
+                <div
+                  className={cn(
+                    "flex-shrink-0 size-5 rounded-full flex items-center justify-center text-[10px] z-10",
+                    isRunning
+                      ? "bg-blue-100 dark:bg-blue-900/30 animate-pulse"
+                      : "bg-green-100 dark:bg-green-900/30"
+                  )}
+                >
+                  {isRunning ? (
+                    <span className="size-1.5 rounded-full bg-blue-500 animate-pulse" />
+                  ) : (
+                    <span className="text-green-600 dark:text-green-400 text-[8px]">✔</span>
+                  )}
+                </div>
+
+                {/* Content */}
+                <div className="flex-1 min-w-0 pb-2">
+                  {/* Header - clickable */}
+                  <button
+                    type="button"
+                    onClick={() => toggleStep(step.id)}
+                    className="w-full text-left flex items-center gap-1.5 group"
+                  >
+                    {/* Expand/Collapse icon */}
+                    {isExpanded ? (
+                      <ChevronDownIcon className="size-3 text-gray-400 flex-shrink-0" />
+                    ) : (
+                      <ChevronRightIcon className="size-3 text-gray-400 flex-shrink-0" />
+                    )}
+
+                    {/* Icon */}
+                    <span className="text-xs">{getIcon(step.type)}</span>
+
+                    {/* Title */}
+                    <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
+                      {step.title}
+                    </span>
+                  </button>
+
+                  {/* Expandable content */}
+                  {isExpanded && (
+                    <div className="mt-1.5 ml-5 space-y-2">
+                      {/* AI Thinking step during streaming */}
+                      {step.type === "ai_thinking" && step.thinking && (
+                        <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                          {step.thinking}
+                        </div>
+                      )}
+
+                      {/* Result (for tool result steps) */}
+                      {step.result && (
+                        <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
+                          {step.result}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function ChatMessageItem({
   message,
   messageIndex,
   calledTools = [],
-  activeToolName = null,
   thinkingContent = "",
   isProcessing = false,
   isStreaming = false,
+  processSession,
+  messageSequence: _messageSequence,  // eslint-disable-line @typescript-eslint/no-unused-vars
+  sessionId,
+  hasSteps = false,
   onEditMessage,
   editDisabled = false,
   onQuote,
   quoteDisabled = false,
   onJumpToMessage,
+  onToggleSidebarProcess: _onToggleSidebarProcess,  // eslint-disable-line @typescript-eslint/no-unused-vars
+  onSelectSession,
 }: ChatMessageItemProps) {
   const messageRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
@@ -259,8 +492,6 @@ export function ChatMessageItem({
   const isTool = message.type === "tool"
   const sources = parseSources(message)
   const [copied, setCopied] = useState(false)
-  const [showThinkingProcess, setShowThinkingProcess] = useState(false)
-  const [showToolCalls, setShowToolCalls] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   // For quoted messages, edit only the user_content; otherwise edit the full content
   const [editContent, setEditContent] = useState(
@@ -278,18 +509,6 @@ export function ChatMessageItem({
   // For streaming messages, use calledTools; for history messages, use stored tool_info
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
   const hasToolCalls = allTools.length > 0
-
-  // Don't render tool type messages (tool call results)
-  if (isTool) {
-    return null
-  }
-
-  // For AI messages, don't render if there's no content, thinking content, or tool calls
-  // This avoids empty bubbles
-  // But during streaming, show processing state even without content
-  if (isAI && !isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
-    return null
-  }
 
   useEffect(() => {
     if (!copied) {
@@ -314,8 +533,8 @@ export function ChatMessageItem({
   }
 
   // Determine what to show in the action bar
-  const showThinkingButton = hasThinkingContent
-  const showToolCallButton = hasToolCalls
+  // Show brain icon only if this AI message has steps (tool calls or thinking)
+  const showBrainIcon = hasSteps
 
   // Get quoted message ID and user content from custom_data
   const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
@@ -334,6 +553,24 @@ export function ChatMessageItem({
       return `${content.slice(0, 100)}_`
     }
     return content
+  }
+
+  // Don't render tool type messages (tool call results)
+  if (isTool) {
+    return null
+  }
+
+  // For AI messages, don't render if there's no content, thinking content, or tool calls
+  // This avoids empty bubbles
+  // But during streaming with processing state, show the loader even without content
+  if (isAI && !isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
+    return null
+  }
+
+  // During streaming, if we're still processing (no content received yet), don't return null
+  // The SciFiLoader will be shown instead
+  if (isAI && isStreaming && !isProcessing && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
+    return null
   }
 
   return (
@@ -359,6 +596,8 @@ export function ChatMessageItem({
             isUser
               ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground"
               : "w-full bg-ai-bubble text-foreground border border-border/50",
+            // Add relative positioning when showing neural network loader
+            isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 && "relative",
           )}
         >
           {/* Sources */}
@@ -384,20 +623,23 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Processing state - show loading animation before any content arrives */}
+
+          {/* Processing state - show neural network loading animation before any content arrives */}
+          {/* Show when: AI message, streaming, processing state, no content yet */}
           {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <span className="inline-flex gap-1">
-                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                <span className="size-1.5 animate-bounce rounded-full bg-current" />
-              </span>
-              <span>{t("message.processing")}</span>
+            <div className="w-full h-24 min-h-24 rounded-xl overflow-hidden">
+              <NeuralNetworkLoader className="h-full w-full" showText={false} particleCount={40} maxDistance={70} />
             </div>
           ) : null}
 
-          {/* Thinking process - only show when there is actual thinking content */}
-          {isAI && hasThinkingContent && isStreaming && !message.content.trim() ? (
+          {/* Inline Process Steps - show during streaming before final content arrives */}
+          {/* Show when: AI message, streaming, has active processSession, no final content yet */}
+          {isAI && isStreaming && processSession?.isActive && !message.content.trim() ? (
+            <InlineProcessSteps session={processSession} />
+          ) : null}
+
+          {/* Thinking process - only show when there is actual thinking content and no process session */}
+          {isAI && hasThinkingContent && isStreaming && !message.content.trim() && !processSession?.isActive ? (
             <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2" open>
               <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
                 <BrainIcon className="size-3" />
@@ -409,48 +651,23 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Tool calls during streaming - show grouped consecutive calls */}
-          {isAI && allTools.length > 0 && isStreaming && !message.content.trim() ? (
+          {/* Tool calls during streaming - only show completed tools (with output) and no process session */}
+          {isAI && allTools.some(t => t.status === "completed") && isStreaming && !message.content.trim() && !processSession?.isActive ? (
             <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
               <div className="space-y-1.5">
-                {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => {
-                  // Check if any tool in the group is still calling
-                  const hasCallingTool = group.tools.some(t => t.status === "calling")
-
+                {groupConsecutiveToolCalls(allTools.filter(t => t.status === "completed")).map((group, groupIndex) => {
                   return (
                     <div key={`group-${groupIndex}`} className="flex items-center gap-2">
-                      {hasCallingTool ? (
-                        <span className="inline-flex gap-1">
-                          <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                          <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                          <span className="size-1 animate-bounce rounded-full bg-current" />
-                        </span>
-                      ) : (
-                        <CheckIcon className="size-3 text-green-500" />
-                      )}
-                      <span className={hasCallingTool ? "text-muted-foreground" : "text-foreground"}>
+                      <CheckIcon className="size-3 text-green-500" />
+                      <span className="text-foreground">
                         {group.name}
                         {group.count > 1 ? (
                           <span className="ml-1 text-muted-foreground">×{group.count}</span>
                         ) : null}
                       </span>
-                      {hasCallingTool ? (
-                        <span className="text-muted-foreground">...</span>
-                      ) : null}
                     </div>
                   )
                 })}
-              </div>
-            </div>
-          ) : activeToolName && isStreaming && !message.content.trim() ? (
-            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
-              <div className="flex items-center gap-2">
-                <span className="inline-flex gap-1">
-                  <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
-                  <span className="size-1 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
-                  <span className="size-1 animate-bounce rounded-full bg-current" />
-                </span>
-                <span className="text-muted-foreground">{activeToolName}...</span>
               </div>
             </div>
           ) : null}
@@ -603,92 +820,23 @@ export function ChatMessageItem({
                   <QuoteIcon className="size-4" />
                 </Action>
               ) : null}
-              {showThinkingButton ? (
+              {/* Brain icon - click to show this session's steps in sidebar */}
+              {showBrainIcon ? (
                 <Action
-                  onClick={() => setShowThinkingProcess(!showThinkingProcess)}
-                  tooltip={showThinkingProcess ? t("message.hideThinkingProcess") : t("message.showThinkingProcess")}
-                  label={t("message.thinkingProcess")}
+                  onClick={() => {
+                    // Select this session to show its steps
+                    if (sessionId && onSelectSession) {
+                      onSelectSession(sessionId)
+                    }
+                  }}
+                  tooltip={t("process.showProcess")}
+                  label={t("process.agentProcess")}
                   className="cursor-pointer"
                 >
                   <BrainIcon className="size-4" />
                 </Action>
               ) : null}
-              {showToolCallButton ? (
-                <Action
-                  onClick={() => setShowToolCalls(!showToolCalls)}
-                  tooltip={showToolCalls ? t("message.hideToolCalls") : t("message.showToolCalls")}
-                  label={t("message.toolCalls")}
-                  className="cursor-pointer"
-                >
-                  <WrenchIcon className="size-4" />
-                </Action>
-              ) : null}
             </Actions>
-
-            {/* Thinking process detail panel */}
-            {showThinkingButton && showThinkingProcess ? (
-              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
-                <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
-                  <BrainIcon className="size-3" />
-                  {t("message.thinkingProcess")}
-                </div>
-                <div className="whitespace-pre-wrap text-muted-foreground max-h-60 overflow-y-auto">
-                  {displayThinkingContent}
-                </div>
-              </div>
-            ) : null}
-
-            {/* Tool calls detail panel */}
-            {showToolCallButton && showToolCalls ? (
-              <div className="mt-2 w-full rounded-lg border border-border/60 bg-background/50 p-3 text-xs">
-                <div className="mb-2 font-medium text-muted-foreground flex items-center gap-2">
-                  <WrenchIcon className="size-3" />
-                  {t("message.toolCallsCount", { count: allTools.length })}
-                </div>
-                <div className="space-y-2">
-                  {groupConsecutiveToolCalls(allTools).map((group, groupIndex) => (
-                    <details key={`group-${groupIndex}`} className="rounded border border-border/40 bg-background/30">
-                      <summary className="flex cursor-pointer list-none items-center gap-2 p-2">
-                        <CheckIcon className="size-3 text-green-500" />
-                        <div className="font-medium text-foreground">
-                          {group.name}
-                          {group.count > 1 ? (
-                            <span className="ml-1 text-muted-foreground">×{group.count}</span>
-                          ) : null}
-                        </div>
-                      </summary>
-                      <div className="border-t border-border/30 p-2 space-y-2">
-                        {group.tools.map((tool, toolIndex) => (
-                          <div key={`${tool.id}-${toolIndex}`} className="text-muted-foreground">
-                            {group.count > 1 ? (
-                              <div className="font-medium text-foreground mb-1 text-[11px]">
-                                #{toolIndex + 1}
-                              </div>
-                            ) : null}
-                            {Object.keys(tool.args).length > 0 ? (
-                              <div className="mb-1">
-                                <span className="font-medium">{t("message.toolInput")}:</span>
-                                <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px]">
-                                  {JSON.stringify(tool.args, null, 2)}
-                                </pre>
-                              </div>
-                            ) : null}
-                            {tool.output ? (
-                              <div>
-                                <span className="font-medium">{t("message.toolOutput")}:</span>
-                                <pre className="mt-0.5 whitespace-pre-wrap break-all text-[11px] max-h-32 overflow-y-auto">
-                                  {tool.output}
-                                </pre>
-                              </div>
-                            ) : null}
-                          </div>
-                        ))}
-                      </div>
-                    </details>
-                  ))}
-                </div>
-              </div>
-            ) : null}
           </div>
         ) : null}
       </Message>

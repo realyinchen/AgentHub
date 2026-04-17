@@ -17,9 +17,11 @@ from app.schemas.chat import (
     UserInput,
     ChatHistory,
 )
+from app.schemas.title import TitleGenerateRequest, TitleGenerateResponse
 from app.utils.agent_utils import get_agent
 from app.utils.llm import is_thinking_mode_available
 from app.core.config import settings
+from app.core.model_manager import ModelManager
 from app.utils.message_utils import (
     handle_input,
     langchain_to_chat_message,
@@ -31,6 +33,7 @@ from app.crud.chat import (
     list_conversations,
     create_conversation,
 )
+from app.crud import message_step as message_step_crud
 
 
 logger = logging.getLogger(__name__)
@@ -235,53 +238,123 @@ def _collect_tool_calls_for_final_response(
     return tool_info_list
 
 
+def _extract_thinking_from_ai_message(msg: AIMessage) -> str | None:
+    """Extract thinking content from an AI message."""
+    thinking = ""
+
+    # 1. Check structured content (DashScope thinking models)
+    if isinstance(msg.content, list):
+        thinking_blocks = []
+        for block in msg.content:
+            if isinstance(block, dict) and block.get("type") == "thinking":
+                content = block.get("thinking", "")
+                if content:
+                    thinking_blocks.append(content)
+        thinking = "".join(thinking_blocks)
+
+    # 2. Check reasoning_content attribute (DeepSeek-R1 style)
+    if not thinking:
+        reasoning_attr = getattr(msg, "reasoning_content", None)
+        if reasoning_attr:
+            if isinstance(reasoning_attr, str):
+                thinking = reasoning_attr
+            elif isinstance(reasoning_attr, list):
+                thinking = "".join(
+                    item.get("text", str(item)) if isinstance(item, dict) else str(item)
+                    for item in reasoning_attr
+                )
+
+    # 3. Check additional_kwargs for reasoning_content
+    if not thinking:
+        reasoning_from_kwargs = msg.additional_kwargs.get("reasoning_content", "")
+        if reasoning_from_kwargs:
+            thinking = reasoning_from_kwargs
+
+    return thinking.strip() if thinking.strip() else None
+
+
+def _convert_message_content_to_string(content: str | list | dict) -> str:
+    """Convert message content to string."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        text_parts = []
+        for item in content:
+            if isinstance(item, str):
+                text_parts.append(item)
+            elif isinstance(item, dict) and item.get("type") == "text":
+                text_parts.append(item.get("text", ""))
+            elif isinstance(item, dict) and item.get("type") == "thinking":
+                # Skip thinking blocks in content conversion
+                pass
+            else:
+                text_parts.append(str(item))
+        return "".join(text_parts)
+    return str(content)
+
+
 @api_router.get("/history/{agent_id}/{thread_id}")
 async def history(
     agent_id: str | None = None,
     thread_id: UUID | None = None,
 ) -> ChatHistory:
     """
-    Get chat history with tool call information.
+    Get chat history with message sequence for sidebar.
+
+    Reads from both:
+    - message_steps table: Complete message sequence for sidebar display
+    - checkpointer: Main chat messages (human and final AI)
+
+    Returns:
+        - messages: Human and final AI messages for main chat UI
+        - message_sequence: All messages as steps for sidebar display
     """
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is not provided")
 
     if not thread_id:
-        return ChatHistory(messages=[])
-    agent: CompiledStateGraph = await get_agent(agent_id)
+        return ChatHistory(messages=[], message_sequence=[])
 
-    config = RunnableConfig({"configurable": {"thread_id": thread_id}})
     try:
+        # Get message steps from database for sidebar
+        async with adb_manager.session() as session:
+            message_sequence = await message_step_crud.get_message_steps_by_thread(
+                db=session, thread_id=thread_id
+            )
+
+        # Get messages from checkpointer for main chat UI
+        agent: CompiledStateGraph = await get_agent(agent_id)
+        config = RunnableConfig({"configurable": {"thread_id": thread_id}})
         state_snapshot = await agent.aget_state(config=config)
         messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
 
-        # Convert messages and add tool call info
-        # Skip intermediate messages (ToolMessage and AIMessage with only tool_calls but no content)
+        # Build messages for main chat UI: only human and final AI messages
         chat_messages: list[ChatMessage] = []
+
         for i, msg in enumerate(messages):
-            # Skip ToolMessage - tool results are embedded in the final AI message's tool_info
+            # Skip ToolMessage - not shown in main chat
             if isinstance(msg, ToolMessage):
                 continue
 
-            # Skip intermediate AIMessage that has tool_calls
-            # These are tool call requests, not final AI responses
-            # The tool calls will be collected and attached to the final response
+            # For AIMessage: only include if it has content and no tool_calls
             if isinstance(msg, AIMessage):
                 if msg.tool_calls:
-                    # This is an intermediate AI message with tool calls, skip it
-                    # (whether it has content or not - content like "Let me check..." is just transitional)
+                    continue
+                if not msg.content or not str(msg.content).strip():
                     continue
 
             chat_message = langchain_to_chat_message(msg)
 
-            # For AI messages with content (final response), collect tool calls from preceding messages
+            # For final AI messages, collect tool info from preceding messages
             if isinstance(msg, AIMessage) and msg.content and str(msg.content).strip():
                 tool_info = _collect_tool_calls_for_final_response(messages, i)
                 if tool_info:
                     chat_message.custom_data["tool_info"] = tool_info
 
             chat_messages.append(chat_message)
-        return ChatHistory(messages=chat_messages)
+
+        return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
+
     except Exception as e:
         logger.error(f"An exception occurred: {e}")
         raise HTTPException(status_code=500, detail="Unexpected error")
@@ -386,6 +459,76 @@ async def save_conversation(
         raise HTTPException(
             status_code=500, detail=f"Error creating conversation: {str(e)}"
         )
+
+
+@api_router.post("/title/generate", response_model=TitleGenerateResponse)
+async def generate_title(request: TitleGenerateRequest) -> TitleGenerateResponse:
+    """
+    Generate a conversation title using the default LLM.
+
+    This is a lightweight endpoint that directly uses LiteLLM
+    without going through LangChain to avoid pydantic compatibility warnings.
+
+    Args:
+        request: Contains user_message and optional ai_response
+
+    Returns:
+        TitleGenerateResponse with the generated title
+    """
+    try:
+        # Get the default LLM model ID
+        model_id = ModelManager.get_default_llm_id()
+        if not model_id:
+            raise ValueError("No default LLM configured")
+
+        # Get Router (direct LiteLLM, bypassing LangChain)
+        router = await ModelManager.get_router()
+        if not router:
+            raise ValueError("Model router not initialized")
+
+        # Build the prompt for title generation
+        if request.ai_response:
+            prompt = f"""Based on the following conversation, generate a concise title (max 20 characters, in the same language as the conversation):
+
+User: {request.user_message[:200]}
+AI: {request.ai_response[:200]}
+
+Title:"""
+        else:
+            prompt = f"""Generate a concise title (max 20 characters, in the same language) for this message:
+
+{request.user_message[:200]}
+
+Title:"""
+
+        # Direct LiteLLM call (bypassing LangChain to avoid pydantic warnings)
+        resp = await router.acompletion(
+            model=model_id,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        # Extract and clean the title
+        content = resp.choices[0].message.content
+        title = content.strip() if content else ""
+        # Remove quotes if present (both single and double quotes)
+        if title.startswith('"') and title.endswith('"'):
+            title = title[1:-1]
+        elif title.startswith("'") and title.endswith("'"):
+            title = title[1:-1]
+        # Limit length
+        if len(title) > 50:
+            title = title[:47] + "..."
+
+        return TitleGenerateResponse(title=title)
+
+    except Exception as e:
+        logger.error(f"Error generating title: {e}")
+        # Return a fallback title instead of raising an error
+        # This ensures the frontend can continue without issues
+        fallback = request.user_message[:30]
+        if len(request.user_message) > 30:
+            fallback += "..."
+        return TitleGenerateResponse(title=fallback)
 
 
 @api_router.get("/thinking-mode")

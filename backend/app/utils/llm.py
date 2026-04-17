@@ -25,9 +25,10 @@ from typing import (
 )
 
 from langchain_core.messages import AIMessage
+from langchain_litellm import ChatLiteLLM
 from litellm import acompletion
 
-from app.core.model_manager import ModelManager
+from app.core.model_manager import ModelManager, build_extra_body
 from app.utils.crypto import decrypt_api_key
 
 logger = logging.getLogger(__name__)
@@ -86,21 +87,12 @@ class StreamingResult:
     Attributes:
         content: The text content of the response
         tool_calls: List of tool calls (if any)
-        usage: Token usage dict with prompt_tokens, completion_tokens, total_tokens, reasoning_tokens
         reasoning: Thinking/reasoning content (if any, for thinking models)
         raw_response: The final AIMessage object for LangGraph compatibility
     """
 
     content: str = ""
     tool_calls: list = field(default_factory=list)
-    usage: dict = field(
-        default_factory=lambda: {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-            "reasoning_tokens": 0,
-        }
-    )
     reasoning: str = ""
     raw_response: Optional[AIMessage] = None
 
@@ -339,7 +331,7 @@ async def streaming_completion(
     **kwargs,
 ) -> StreamingResult:
     """
-    Perform a streaming LLM completion with automatic token usage tracking.
+    Perform a streaming LLM completion.
 
     This is the recommended way to call LLMs in the application.
     It uses native litellm for maximum compatibility and features.
@@ -353,7 +345,7 @@ async def streaming_completion(
         **kwargs: Additional arguments passed to litellm.acompletion
 
     Returns:
-        StreamingResult with content, tool_calls, usage, and raw_response
+        StreamingResult with content, tool_calls, and raw_response
     """
     # Get model config from ModelManager
     model_config = ModelManager.get_model(model)
@@ -373,9 +365,6 @@ async def streaming_completion(
         "model": model,
         "messages": litellm_messages,
         "stream": True,
-        "stream_options": {
-            "include_usage": True
-        },  # Key: enable token usage in streaming
         "temperature": temperature,
     }
 
@@ -405,29 +394,6 @@ async def streaming_completion(
         response = await acompletion(**completion_kwargs)
 
         async for chunk in response:  # type: ignore
-            # Check for usage in this chunk (typically in the last chunk)
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                usage = chunk.usage
-
-                # Extract reasoning_tokens from completion_tokens_details
-                reasoning_tokens = 0
-                if (
-                    hasattr(usage, "completion_tokens_details")
-                    and usage.completion_tokens_details
-                ):
-                    reasoning_tokens = (
-                        getattr(usage.completion_tokens_details, "reasoning_tokens", 0)
-                        or 0
-                    )
-
-                result.usage = {
-                    "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(usage, "total_tokens", 0) or 0,
-                    "reasoning_tokens": reasoning_tokens,
-                }
-                logger.info(f"Captured token usage: {result.usage}")
-
             # Process choices
             if not chunk.choices:
                 continue
@@ -497,24 +463,12 @@ async def streaming_completion(
         result.raw_response = AIMessage(
             content=result.content,
             tool_calls=result.tool_calls,
-            response_metadata={
-                "token_usage": result.usage,
-                "usage": result.usage,
-            },
-            usage_metadata={
-                "input_tokens": result.usage["prompt_tokens"],
-                "output_tokens": result.usage["completion_tokens"],
-                "total_tokens": result.usage["total_tokens"],
-                "reasoning_tokens": result.usage["reasoning_tokens"],
-            }
-            if result.usage["total_tokens"] > 0
-            else None,
             additional_kwargs=additional_kwargs if additional_kwargs else None,
         )
 
         logger.info(
             f"Streaming completion done: content_len={len(result.content)}, "
-            f"tool_calls={len(result.tool_calls)}, usage={result.usage}"
+            f"tool_calls={len(result.tool_calls)}"
         )
 
     except Exception as e:
@@ -568,7 +522,6 @@ async def streaming_completion_with_yield(
         "model": model,
         "messages": litellm_messages,
         "stream": True,
-        "stream_options": {"include_usage": True},
         "temperature": temperature,
     }
 
@@ -593,28 +546,6 @@ async def streaming_completion_with_yield(
         response = await acompletion(**completion_kwargs)
 
         async for chunk in response:  # type: ignore
-            # Check for usage
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                usage = chunk.usage
-
-                # Extract reasoning_tokens from completion_tokens_details
-                reasoning_tokens = 0
-                if (
-                    hasattr(usage, "completion_tokens_details")
-                    and usage.completion_tokens_details
-                ):
-                    reasoning_tokens = (
-                        getattr(usage.completion_tokens_details, "reasoning_tokens", 0)
-                        or 0
-                    )
-
-                result.usage = {
-                    "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
-                    "completion_tokens": getattr(usage, "completion_tokens", 0) or 0,
-                    "total_tokens": getattr(usage, "total_tokens", 0) or 0,
-                    "reasoning_tokens": reasoning_tokens,
-                }
-
             if not chunk.choices:
                 continue
 
@@ -684,18 +615,6 @@ async def streaming_completion_with_yield(
         result.raw_response = AIMessage(
             content=result.content,
             tool_calls=result.tool_calls,
-            response_metadata={
-                "token_usage": result.usage,
-                "usage": result.usage,
-            },
-            usage_metadata={
-                "input_tokens": result.usage["prompt_tokens"],
-                "output_tokens": result.usage["completion_tokens"],
-                "total_tokens": result.usage["total_tokens"],
-                "reasoning_tokens": result.usage["reasoning_tokens"],
-            }
-            if result.usage["total_tokens"] > 0
-            else None,
             additional_kwargs=additional_kwargs if additional_kwargs else None,
         )
 
@@ -705,3 +624,99 @@ async def streaming_completion_with_yield(
     except Exception as e:
         logger.error(f"Error in streaming completion with yield: {e}")
         raise
+
+
+# ==============================================================================
+# ChatLiteLLM Factory (for LangGraph astream_events)
+# ==============================================================================
+
+
+def get_chat_litellm(
+    model: str,
+    temperature: float = 0,
+    thinking_mode: bool = False,
+    tools: list | None = None,
+) -> ChatLiteLLM | Any:
+    """
+    Get a ChatLiteLLM instance configured for streaming with LangGraph.
+
+    This is the recommended way to get an LLM for use with LangGraph's
+    astream_events(), which properly captures streaming chunks.
+
+    Key features:
+    - Native LangChain integration for LangGraph streaming
+    - Thinking mode support via extra_body (explicitly controlled)
+    - drop_params=True to avoid errors with unsupported parameters
+    - Auto-adds provider prefix if not present
+    - stream_options with include_usage=True for stable token usage tracking
+
+    Args:
+        model: Model ID (e.g., "qwen-plus", "glm-4", or "dashscope/qwen-plus")
+        temperature: Temperature for sampling
+        thinking_mode: Whether to enable thinking mode
+        tools: Optional list of LangChain tools to bind
+
+    Returns:
+        ChatLiteLLM instance configured for streaming
+    """
+    # Get model config from ModelManager
+    model_config = ModelManager.get_model(model)
+
+    # Build litellm model name with provider prefix
+    # LiteLLM expects format: provider/model_name (e.g., "dashscope/qwen-plus")
+    litellm_model = model
+    if "/" not in model and model_config:
+        # Model ID doesn't have provider prefix, add it from database provider field
+        litellm_model = f"{model_config.provider.lower()}/{model}"
+
+    # Build base kwargs for ChatLiteLLM
+    # Key: drop_params=True drops unsupported params to avoid errors
+    # Key: model_kwargs with stream_options for stable usage tracking
+    llm_kwargs: dict[str, Any] = {
+        "model": litellm_model,
+        "temperature": temperature,
+        "streaming": True,
+        "drop_params": True,
+        # Critical: Enable usage tracking in streaming mode
+        "model_kwargs": {"stream_options": {"include_usage": True}},
+    }
+
+    # Get API key
+    has_api_key = False
+    if model_config and model_config.api_key:
+        api_key = decrypt_api_key(model_config.api_key)
+        llm_kwargs["api_key"] = api_key
+        has_api_key = True
+
+    # Key fix: Always build extra_body to explicitly control thinking_mode
+    # When thinking_mode=False, we MUST explicitly disable it to prevent
+    # LiteLLM from auto-enabling reasoning based on model name
+    extra_body = {}
+    if model_config:
+        extra_body = build_extra_body(model_config.provider, thinking_mode)
+        if extra_body:
+            llm_kwargs["extra_body"] = extra_body
+
+    # Create LLM instance
+    llm = ChatLiteLLM(**llm_kwargs)
+
+    # Bind tools if provided
+    # CRITICAL: bind_tools() creates a new Runnable that does NOT inherit
+    # extra_body and model_kwargs from the constructor. We must pass them again!
+    if tools:
+        llm = llm.bind_tools(
+            tools,
+            extra_body=extra_body,
+            # Re-pass model_kwargs to ensure stream_options is preserved
+            **{"model_kwargs": {"stream_options": {"include_usage": True}}},
+        )
+
+    # Detailed logging for debugging
+    logger.info(
+        f"Created ChatLiteLLM: model={litellm_model}, temperature={temperature}, "
+        f"streaming=True, include_usage=True, thinking_mode={thinking_mode}, "
+        f"extra_body={extra_body}, tools_count={len(tools) if tools else 0}, "
+        f"has_api_key={has_api_key}, drop_params=True"
+    )
+
+    return llm

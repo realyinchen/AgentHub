@@ -1,8 +1,77 @@
-from langchain.messages import ToolCall
 from pydantic import BaseModel, Field
 from typing import Any, Literal
 from uuid import UUID
 from datetime import datetime, timezone
+
+
+class ToolCall(BaseModel):
+    """Tool call information."""
+
+    name: str = Field(description="Tool name")
+    args: dict[str, Any] = Field(default={}, description="Tool arguments")
+    id: str | None = Field(default=None, description="Tool call ID")
+
+
+class MessageStep(BaseModel):
+    """Single step in the agent execution sequence for sidebar display.
+
+    Each step represents a message in the conversation flow.
+    Steps are numbered sequentially (Step 1, Step 2, etc.)
+
+    Types:
+    - human: User message with content
+    - ai: AI message with thinking, content, and optional tool_calls
+    - tool: Tool execution with name, args, and output
+    """
+
+    session_id: UUID = Field(
+        description="Session ID that groups steps from the same conversation turn",
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
+    step_number: int = Field(
+        description="Step number (1-indexed)",
+        examples=[1, 2, 3],
+    )
+    message_type: Literal["human", "ai", "tool"] = Field(
+        description="Type of the step: human, ai, or tool",
+        examples=["human", "ai", "tool"],
+    )
+    # Content field (for human and ai types)
+    content: str | None = Field(
+        description="Message content (for human and ai types)",
+        default=None,
+        examples=["What's the weather in Beijing?"],
+    )
+    # AI message fields
+    thinking: str | None = Field(
+        description="Thinking/reasoning content (for ai type)",
+        default=None,
+        examples=["用户想了解北京天气..."],
+    )
+    tool_calls: list[ToolCall] | None = Field(
+        description="Tool calls from AI message (for ai type with tool calls)",
+        default=None,
+    )
+    # Tool fields (for tool type)
+    tool_name: str | None = Field(
+        description="Tool name (for tool type)",
+        default=None,
+        examples=["get_weather", "search_web"],
+    )
+    tool_args: dict[str, Any] | None = Field(
+        description="Tool call arguments (for tool type)",
+        default=None,
+        examples=[{"city": "Beijing"}],
+    )
+    tool_output: str | None = Field(
+        description="Tool execution result (for tool type)",
+        default=None,
+        examples=["晴天, 25°C"],
+    )
+    tool_call_id: str | None = Field(
+        description="Tool call ID for matching (for tool type)",
+        default=None,
+    )
 
 
 class UserInput(BaseModel):
@@ -93,7 +162,15 @@ class ChatMessage(BaseModel):
 
 
 class ChatHistory(BaseModel):
-    messages: list[ChatMessage]
+    """Chat history with messages and execution sequence."""
+
+    messages: list[ChatMessage] = Field(
+        description="Messages for main chat UI (human and final AI messages)",
+    )
+    message_sequence: list[MessageStep] = Field(
+        description="Complete message sequence for sidebar (tool calls and AI response)",
+        default=[],
+    )
 
 
 class Conversation(BaseModel):
@@ -111,21 +188,6 @@ class Conversation(BaseModel):
         description="The agent ID used in this conversation.",
         default="chatbot",
         examples=["chatbot", "navigator"],
-    )
-    user_tokens: int = Field(
-        description="Total tokens sent by user in this conversation.",
-        default=0,
-        examples=[1500],
-    )
-    ai_tokens: int = Field(
-        description="Total tokens in AI responses in this conversation (excluding reasoning).",
-        default=0,
-        examples=[3000],
-    )
-    reasoning_tokens: int = Field(
-        description="Total tokens used for reasoning/thinking by AI in this conversation.",
-        default=0,
-        examples=[500],
     )
 
 
@@ -170,6 +232,27 @@ class ConversationInDB(Conversation):
         description="Whether the conversation is been deleted.",
         default=False,
         examples=[True],
+    )
+    # Token usage fields (cumulative for the conversation)
+    input_tokens: int = Field(
+        description="Cumulative input tokens used in this conversation",
+        default=0,
+    )
+    cache_read: int = Field(
+        description="Cumulative cache read tokens used in this conversation",
+        default=0,
+    )
+    output_tokens: int = Field(
+        description="Cumulative output tokens used in this conversation",
+        default=0,
+    )
+    reasoning: int = Field(
+        description="Cumulative reasoning tokens used in this conversation",
+        default=0,
+    )
+    total_tokens: int = Field(
+        description="Cumulative total tokens used in this conversation",
+        default=0,
     )
 
     class Config:

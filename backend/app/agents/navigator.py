@@ -6,7 +6,6 @@ Tools are executed in parallel using asyncio.gather for optimal performance.
 """
 
 import asyncio
-import logging
 from typing import Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -15,13 +14,11 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
 
-from app.utils.llm import streaming_completion
-from app.core.model_manager import ModelManager, build_extra_body
+from app.utils.llm import get_chat_litellm
+from app.core.model_manager import ModelManager
 from app.prompt.navigator import get_navigator_prompt
 from app.tools.amap import AMAP_TOOLS
 from app.tools.time import get_current_time
-
-logger = logging.getLogger(__name__)
 
 
 class NavigatorState(MessagesState):
@@ -111,18 +108,19 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
     """LLM decides whether to call a tool or not.
 
     This node:
-    1. Gets thinking_mode from config
-    2. Calls LLM using the reusable streaming_completion module
-    3. Returns the response with automatic token tracking
+    1. Gets thinking_mode and model_name from config
+    2. Calls LLM using ChatLiteLLM with TRUE streaming (astream)
+    3. Collects content, tool_calls, and usage_metadata from stream
+    4. Returns the response as AIMessage
 
     Args:
         state: Current graph state containing messages
-        config: Runnable config with thinking_mode in configurable
+        config: Runnable config with thinking_mode and model_name in configurable
 
     Returns:
         dict: Updated state with new message from LLM
     """
-    # Get thinking_mode from config
+    # Get thinking_mode and model_name from config
     configurable = config.get("configurable", {})
     thinking_mode = configurable.get("thinking_mode", False)
     model_name = configurable.get("model_name")
@@ -137,13 +135,6 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
     # Get tools
     tools = _get_tools()
 
-    # Build extra_body for thinking mode
-    extra_body = None
-    if thinking_mode and model_name:
-        model = ModelManager.get_model(model_name)
-        if model:
-            extra_body = build_extra_body(model.provider, thinking_mode)
-
     # Get messages from state
     messages = state.get("messages", [])
 
@@ -154,17 +145,86 @@ async def llm_call(state: NavigatorState, config: RunnableConfig) -> dict:
     # Build the full message list with system prompt
     full_messages = [SystemMessage(content=system_prompt)] + filtered_messages
 
-    # Use the reusable streaming_completion module
-    # This automatically handles token usage tracking
-    result = await streaming_completion(
+    # Get ChatLiteLLM instance (configured for true streaming)
+    llm = get_chat_litellm(
         model=model_name,
-        messages=full_messages,
+        thinking_mode=thinking_mode,
         tools=tools,
-        extra_body=extra_body,
     )
 
+    # ============== TRUE STREAMING with astream ==============
+    # Unlike ainvoke (one-shot), astream yields chunks as they arrive
+    # This enables real token-by-token streaming and stable usage_metadata
+    full_content = ""
+    usage_metadata = None  # Can be dict or UsageMetadata object
+    tool_calls_list: list[dict] = []
+    reasoning_content = ""
+
+    async for chunk in llm.astream(full_messages, config=config):
+        # 1. Collect content (string or structured)
+        if chunk.content:
+            if isinstance(chunk.content, str):
+                full_content += chunk.content
+            elif isinstance(chunk.content, list):
+                # Handle structured content (DashScope thinking models)
+                for block in chunk.content:
+                    if isinstance(block, dict):
+                        block_type = block.get("type")
+                        if block_type == "text":
+                            text = block.get("text", "")
+                            if text:
+                                full_content += text
+                        elif block_type == "thinking":
+                            thinking = block.get("thinking", "")
+                            if thinking:
+                                reasoning_content += thinking
+
+        # 2. Collect tool_calls (Agent functionality)
+        # Convert ToolCall objects to dict format for AIMessage
+        if hasattr(chunk, "tool_calls") and chunk.tool_calls:
+            for tc in chunk.tool_calls:
+                tool_calls_list.append(
+                    {
+                        "id": tc.get("id", "")
+                        if isinstance(tc, dict)
+                        else getattr(tc, "id", ""),
+                        "name": tc.get("name", "")
+                        if isinstance(tc, dict)
+                        else getattr(tc, "name", ""),
+                        "args": tc.get("args", {})
+                        if isinstance(tc, dict)
+                        else getattr(tc, "args", {}),
+                        "type": "tool_call",
+                    }
+                )
+
+        # 3. Capture usage_metadata (usually in the last chunk)
+        if hasattr(chunk, "usage_metadata") and chunk.usage_metadata is not None:
+            usage_metadata = chunk.usage_metadata
+        # Fallback: try response_metadata for token usage
+        elif hasattr(chunk, "response_metadata") and chunk.response_metadata:
+            resp_meta = chunk.response_metadata
+            if "token_usage" in resp_meta:
+                token_usage = resp_meta["token_usage"]
+                usage_metadata = {
+                    "input_tokens": token_usage.get("prompt_tokens", 0),
+                    "output_tokens": token_usage.get("completion_tokens", 0),
+                    "total_tokens": token_usage.get("total_tokens", 0),
+                }
+
+    # Build the final AIMessage
+    ai_message = AIMessage(
+        content=full_content,
+        tool_calls=tool_calls_list,
+        usage_metadata=usage_metadata,
+    )
+
+    # Add reasoning_content to additional_kwargs if present
+    if reasoning_content:
+        ai_message.additional_kwargs["reasoning_content"] = reasoning_content
+
     # Return the AIMessage for LangGraph compatibility
-    return {"messages": [result.raw_response]}
+    return {"messages": [ai_message]}
 
 
 async def tool_node(state: NavigatorState) -> dict:

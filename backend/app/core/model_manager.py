@@ -14,14 +14,16 @@ from app.utils.crypto import decrypt_api_key
 
 logger = logging.getLogger(__name__)
 
-# Enable streaming usage globally for litellm
-# This ensures token usage is included in streaming responses
+# Enable JSON schema validation for litellm
 litellm.enable_json_schema_validation = True
 
 
 def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
     """
     Build extra_body parameters based on provider and thinking mode flag.
+
+    IMPORTANT: When thinking_enabled=False, we MUST explicitly disable it
+    to prevent LiteLLM from auto-enabling reasoning based on model name.
 
     DashScope (Alibaba Cloud):
       - enabled: {"enable_thinking": true}
@@ -30,27 +32,48 @@ def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
     ZhipuAI (zai):
       - enabled: {"thinking": {"type": "enabled"}}
       - disabled: {"thinking": {"type": "disabled"}}
+
+    DeepSeek:
+      - For R1/reasoning models, reasoning is always on
+      - For regular models, no special params needed
+      - Note: DeepSeek doesn't support disabling reasoning on R1 models
+
+    OpenAI:
+      - o1/o3 models: reasoning_effort parameter (low/medium/high)
+      - regular models: no special params needed
     """
     provider_lower = provider.lower()
+
     if provider_lower == "dashscope" or "dashscope" in provider_lower:
+        # DashScope/Qwen thinking models
         return {"enable_thinking": thinking_enabled}
+
     elif provider_lower == "zai" or "zhipu" in provider_lower:
+        # ZhipuAI GLM-4 thinking models
         return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
+
+    elif provider_lower == "deepseek":
+        # DeepSeek R1 models have built-in reasoning
+        # No extra_body needed - reasoning is determined by model type
+        # R1 models always reason, regular models don't
+        return {}
+
+    elif provider_lower == "openai":
+        # OpenAI o1/o3 models support reasoning_effort
+        # Only set if thinking_enabled, otherwise let defaults apply
+        if thinking_enabled:
+            return {"reasoning_effort": "medium"}
+        return {}
+
     else:
-        # Other providers return empty by default, can be extended later
+        # Other providers: return empty by default
+        # Can be extended for additional providers
         return {}
 
 
-def bind_tools_with_usage_tracking(llm, tools, extra_body=None):
+def bind_tools_with_extra_body(llm, tools, extra_body=None):
     """
-    Bind tools to LLM with proper stream_options for token usage tracking.
-
-    This ensures that streaming responses include usage_metadata which is
-    required for token counting in the conversation.
-
-    IMPORTANT: When using bind_tools(), the stream_options must be passed
-    directly to bind_tools() because it creates a new Runnable that doesn't
-    inherit from previous bind() calls.
+    Bind tools to LLM with extra_body parameters.
 
     Args:
         llm: The LLM instance (ChatLiteLLMRouter)
@@ -58,9 +81,9 @@ def bind_tools_with_usage_tracking(llm, tools, extra_body=None):
         extra_body: Optional extra_body parameters (e.g., for thinking mode)
 
     Returns:
-        LLM with tools bound and stream_options configured
+        LLM with tools bound
     """
-    kwargs = {"stream_options": {"include_usage": True}}
+    kwargs = {}
     if extra_body:
         kwargs["extra_body"] = extra_body
     return llm.bind_tools(tools, **kwargs)  # type: ignore
@@ -165,23 +188,41 @@ class ModelManager:
             extra_body = build_extra_body(m.provider, False)
 
             # Build litellm model name for Router
-            # model_id already contains provider prefix (e.g., "zai/glm-5")
-            # So we use model_id directly as litellm_model
-            litellm_model = m.model_id
+            # LiteLLM expects format: provider/model_name (e.g., "dashscope/qwen3.5-flash")
+            # If model_id doesn't have provider prefix, add it
+            if "/" in m.model_id:
+                litellm_model = m.model_id
+            else:
+                # Add provider prefix based on provider field
+                provider_prefix = m.provider.lower()
+                # Map common provider names to litellm provider prefixes
+                provider_mapping = {
+                    "dashscope": "dashscope",
+                    "alibaba": "dashscope",
+                    "zhipu": "zhipu",
+                    "zai": "zhipu",
+                    "openai": "openai",
+                    "deepseek": "deepseek",
+                    "anthropic": "anthropic",
+                    "google": "gemini",
+                    "gemini": "gemini",
+                }
+                litellm_provider = provider_mapping.get(
+                    provider_prefix, provider_prefix
+                )
+                litellm_model = f"{litellm_provider}/{m.model_id}"
 
             # Decrypt API key before passing to litellm
             decrypted_api_key = decrypt_api_key(m.api_key) if m.api_key else ""
 
             # Use litellm_model as model_name for Router
+            # model_name is the internal identifier, model is the litellm format
             model_config = {
-                "model_name": litellm_model,
+                "model_name": m.model_id,  # Keep original model_id as identifier
                 "litellm_params": {
-                    "model": litellm_model,
+                    "model": litellm_model,  # Use provider-prefixed format for litellm
                     "api_key": decrypted_api_key,
                     "extra_body": extra_body,
-                    "stream_options": {
-                        "include_usage": True
-                    },  # Enable token usage in streaming
                 },
             }
 
@@ -229,26 +270,17 @@ class ModelManager:
             # Build extra_body based on provider and thinking_mode
             extra_body = build_extra_body(model.provider, thinking_mode)
 
-            # Build litellm model name: provider/model_id
-            # Note: model_id already contains provider prefix (e.g., "zai/glm-5")
-            # So we use model_id directly as litellm_model
-            litellm_model = model_id
-
+            # Router uses model_name (original model_id) to lookup model config
+            # The provider prefix is already handled in _build_litellm_model_list
             llm = ChatLiteLLMRouter(
                 router=router,
-                model_name=litellm_model,
+                model_name=model_id,  # Use original model_id as model_name (Router identifier)
                 temperature=0,
             )
 
             # Use bind() to attach extra_body, ensuring it's passed during API calls
             # This is necessary because Router ignores extra_body from constructor
-            # Also enable stream_options to include token usage in streaming responses
-            llm_with_extra_body = llm.bind(
-                extra_body=extra_body,
-                stream_options={
-                    "include_usage": True
-                },  # Request token usage in streaming
-            )
+            llm_with_extra_body = llm.bind(extra_body=extra_body)
 
             cls._llm_cache[cache_key] = llm_with_extra_body
             return llm_with_extra_body

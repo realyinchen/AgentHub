@@ -34,20 +34,20 @@ VALUES
 ON CONFLICT (agent_id) DO NOTHING;
 
 -- 2. conversations table
--- agent_id: 存储当前会话用户选择的agent
--- user_tokens: 用户发送消息的总token数（累计）
--- ai_tokens: AI回复消息的总token数（累计，不含推理）
--- reasoning_tokens: AI推理/思考过程消耗的token数（累计）
 CREATE TABLE IF NOT EXISTS public.conversations (
     thread_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title            VARCHAR(64) NOT NULL,
     agent_id         VARCHAR(64) DEFAULT 'chatbot',
-    user_tokens      INTEGER NOT NULL DEFAULT 0,
-    ai_tokens        INTEGER NOT NULL DEFAULT 0,
-    reasoning_tokens INTEGER NOT NULL DEFAULT 0,
     is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
     created_at       TIMESTAMPTZ DEFAULT NOW(),
-    updated_at       TIMESTAMPTZ DEFAULT NOW()
+    updated_at       TIMESTAMPTZ DEFAULT NOW(),
+    
+    -- Token usage fields (cumulative for the conversation)
+    input_tokens     BIGINT NOT NULL DEFAULT 0,
+    cache_read       BIGINT NOT NULL DEFAULT 0,
+    output_tokens    BIGINT NOT NULL DEFAULT 0,
+    reasoning        BIGINT NOT NULL DEFAULT 0,
+    total_tokens     BIGINT NOT NULL DEFAULT 0
 );
 
 -- Index for conversations
@@ -98,3 +98,35 @@ INSERT INTO public.models (provider, api_key, model_type, model_id, model_name, 
 VALUES 
     ('zai', '', 'llm', 'zai/glm-5', 'glm-5', true, false, true)
 ON CONFLICT (model_id) DO NOTHING;
+
+-- 4. message_steps table (agent execution sequence for sidebar)
+-- Stores each step of agent execution: human messages, tool calls, tool results, and AI responses
+-- Each session (conversation turn) has a unique session_id to group steps together
+CREATE TABLE IF NOT EXISTS public.message_steps (
+    id              BIGSERIAL PRIMARY KEY,
+    thread_id       UUID NOT NULL REFERENCES public.conversations(thread_id) ON DELETE CASCADE,
+    session_id      UUID NOT NULL,         -- Groups steps by conversation turn
+    step_number     INTEGER NOT NULL,
+    message_type    VARCHAR(16) NOT NULL,  -- 'human', 'ai', 'tool'
+    
+    -- Tool call/result fields
+    tool_name       VARCHAR(128),          -- Tool name (e.g., "get_weather")
+    tool_args       JSONB,                 -- Tool call arguments
+    tool_output     TEXT,                  -- Tool execution result
+    tool_call_id    VARCHAR(128),          -- Tool call ID for matching call with result
+    
+    -- AI response fields
+    content         TEXT,                  -- Message content (human or AI)
+    thinking        TEXT,                  -- Thinking/reasoning content (for AI messages)
+    tool_calls      JSONB,                 -- Tool calls from AI (for AI messages with tool calls)
+    
+    created_at      TIMESTAMPTZ DEFAULT NOW(),
+    
+    CONSTRAINT unique_thread_session_step UNIQUE (thread_id, session_id, step_number)
+);
+
+-- Indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_message_steps_thread ON public.message_steps(thread_id);
+CREATE INDEX IF NOT EXISTS idx_message_steps_session ON public.message_steps(session_id);
+CREATE INDEX IF NOT EXISTS idx_message_steps_type ON public.message_steps(message_type);
+

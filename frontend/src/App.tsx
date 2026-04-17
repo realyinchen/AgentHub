@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Languages, Moon, Share2, Sun, Settings } from "lucide-react"
 
 import {
   createConversation,
+  generateTitle,
   getConversationTitle,
   getHistory,
-  invoke,
   listAgents,
   listConversations,
   setConversationTitle,
@@ -13,9 +13,12 @@ import {
 } from "@/lib/api"
 import type {
   AgentInDB,
+  AgentProcessSession,
+  AgentProcessStep,
   ChatMessage,
   ConversationInDB,
   LocalChatMessage,
+  MessageStep,
   StreamEvent,
   ToolCallEvent,
   ToolCallInfo,
@@ -24,12 +27,13 @@ import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import { useTheme } from "@/hooks/use-theme"
 import { useModels } from "@/hooks/use-models"
 import {
+  AgentProcessPanel,
   ChatMainPanel,
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
   ShareDialog,
-  TokenStats,
+  TokenStatsPanel,
 } from "@/features/chat/components"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
 import { ModelSelector } from "@/features/chat/components/model-selector"
@@ -57,6 +61,7 @@ function readAgentIdFromUrl(): string | null {
   return params.get("agent_id")
 }
 import { useI18n } from "@/i18n"
+import { Toaster } from "@/components/ui/toaster"
 
 function App() {
   const { t, toggleLocale } = useI18n()
@@ -106,9 +111,17 @@ function App() {
   const [isAwaitingAgentSelection, setIsAwaitingAgentSelection] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false) // Processing, no content received yet
   const [isAgentThinking, setIsAgentThinking] = useState(false)
-  const [activeToolCall, setActiveToolCall] = useState<ToolCallEvent | null>(null)
+  const [, setActiveToolCall] = useState<ToolCallEvent | null>(null)
   const [calledTools, setCalledTools] = useState<ToolCallInfo[]>([])
   const [thinkingContent, setThinkingContent] = useState("") // Accumulated thinking content
+
+  // Agent process session for real-time sidebar display
+  const [processSession, setProcessSession] = useState<AgentProcessSession | null>(null)
+  // Message sequence from backend - all messages as steps for sidebar
+  const [messageSequence, setMessageSequence] = useState<MessageStep[]>([])
+  // Toggle for showing/hiding the sidebar process panel
+  const [showSidebarProcess, setShowSidebarProcess] = useState(true)
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
 
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
@@ -120,6 +133,11 @@ function App() {
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
   const effectiveModelRef = useRef<string | null>(null)
+  const processSessionRef = useRef<AgentProcessSession | null>(null)
+  // Store pending tool calls (id -> ToolCallEvent) for creating steps when tool_result arrives
+  const pendingToolCallsRef = useRef<Map<string, ToolCallEvent>>(new Map())
+  // Direct ref for process steps to avoid race condition with React state sync
+  const processStepsRef = useRef<AgentProcessStep[]>([])
 
   // Keep thinkingModeRef in sync with thinkingMode state
   useEffect(() => {
@@ -130,6 +148,11 @@ function App() {
   useEffect(() => {
     effectiveModelRef.current = effectiveSelectedModel
   }, [effectiveSelectedModel])
+
+  // Keep processSessionRef in sync with processSession state
+  useEffect(() => {
+    processSessionRef.current = processSession
+  }, [processSession])
 
   const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
     const url = new URL(window.location.href)
@@ -191,6 +214,8 @@ function App() {
       setRenameTarget(null)
       setIsLoadingConversation(true)
       setAppError(null)
+      // Clear process display when switching conversations
+      setProcessSession(null)
 
       // Find the conversation to get its agent_id
       const conversation = knownConversations.find(
@@ -217,8 +242,45 @@ function App() {
           setMessages(
             historyResult.value.messages.map((message) => toLocalMessage(message)),
           )
+          // Set message sequence for sidebar
+          const sequence = historyResult.value.message_sequence || []
+          setMessageSequence(sequence)
+
+          // Auto-select the latest session that has steps
+          if (sequence && sequence.length > 0) {
+            // Group steps by session_id
+            const stepsBySession = new Map<string, MessageStep[]>()
+            sequence.forEach((step) => {
+              const sid = step.session_id
+              if (!stepsBySession.has(sid)) {
+                stepsBySession.set(sid, [])
+              }
+              stepsBySession.get(sid)!.push(step)
+            })
+
+            // Find sessions that have steps (tool calls or thinking)
+            const sessionsWithSteps: string[] = []
+            stepsBySession.forEach((steps, sid) => {
+              const hasToolSteps = steps.some(s => s.message_type === "tool")
+              const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
+              if (hasToolSteps || hasThinking) {
+                sessionsWithSteps.push(sid)
+              }
+            })
+
+            // Select the latest session with steps
+            if (sessionsWithSteps.length > 0) {
+              setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
+            } else {
+              setSelectedSessionId(null)
+            }
+          } else {
+            setSelectedSessionId(null)
+          }
         } else {
           setMessages([])
+          setMessageSequence([])
+          setSelectedSessionId(null)
         }
 
         if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -257,12 +319,15 @@ function App() {
     setThreadId(newThreadId)
     writeThreadIdToUrl(null)
     setMessages([])
+    setMessageSequence([]) // Clear message sequence for new conversation
     setConversationTitleState(defaultConversationTitle)
     setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
     setIsAwaitingAgentSelection(true)
     setSelectedAgentId("") // Clear selected agent, user must choose one
     setAppError(null)
+    // Clear process display when creating new conversation
+    setProcessSession(null)
   }, [writeThreadIdToUrl, defaultConversationTitle])
 
   const pickAgentForCurrentConversation = useCallback((agentId: string) => {
@@ -461,57 +526,57 @@ function App() {
   }, [])
 
   const maybeGenerateTitle = useCallback(
-    async (
+    (
       userInput: string,
       aiResponse: string,
       targetThreadId: string,
       currentTitle: string,
     ) => {
+      // Non-blocking title generation - fire and forget
+      // This runs in the background without blocking user interaction
       if (!isDefaultConversationTitle(currentTitle) || !targetThreadId) {
         return
       }
 
-      const titlePrompt = t("app.titlePrompt", {
-        input: userInput,
-        response: aiResponse,
-      })
-
-      try {
-        const titleResponse = await invoke({
-          content: titlePrompt,
-          agent_id: "chatbot",
-        })
-
-        const generatedTitle = sanitizeTitle(
-          titleResponse.content.replace(/(^['"]|['"]$)/g, ""),
-        )
-
-        if (!generatedTitle) {
-          return
-        }
-
-        const updated = await setConversationTitle({
-          thread_id: targetThreadId,
-          title: generatedTitle,
-          is_deleted: false,
-        })
-
-        setConversationTitleState(generatedTitle)
-        setDraftTitle(generatedTitle)
-
-        if (updated) {
-          setConversations((previous) => {
-            const next = previous.filter(
-              (conversation) => conversation.thread_id !== updated.thread_id,
-            )
-            return sortConversationsByUpdatedAt([updated, ...next])
+      // Use void to explicitly mark as fire-and-forget
+      void (async () => {
+        try {
+          // Use the lightweight title generation endpoint
+          const result = await generateTitle({
+            user_message: userInput,
+            ai_response: aiResponse,
           })
+
+          const generatedTitle = sanitizeTitle(result.title)
+
+          if (!generatedTitle) {
+            return
+          }
+
+          const updated = await setConversationTitle({
+            thread_id: targetThreadId,
+            title: generatedTitle,
+            is_deleted: false,
+          })
+
+          setConversationTitleState(generatedTitle)
+          setDraftTitle(generatedTitle)
+
+          if (updated) {
+            setConversations((previous) => {
+              const next = previous.filter(
+                (conversation) => conversation.thread_id !== updated.thread_id,
+              )
+              return sortConversationsByUpdatedAt([updated, ...next])
+            })
+          }
+        } catch {
+          // Title generation should never block the main chat flow.
+          // Silently fail - user won't notice
         }
-      } catch {
-        // Title generation should never block the main chat flow.
-      }
+      })()
     },
-    [t],
+    [],
   )
 
   const handleSendMessage = useCallback(
@@ -564,6 +629,27 @@ function App() {
         setCalledTools([])
         setThinkingContent("")
 
+        // Initialize process session for real-time sidebar display
+        // Start with human message as step 0 (matching backend)
+        const humanStep: AgentProcessStep = {
+          id: `human-${Date.now()}`,
+          type: "human",
+          content: trimmed,
+          timestamp: Date.now(),
+          status: "done",
+        }
+
+        setProcessSession({
+          threadId: targetThreadId,
+          agentId: selectedAgentId,
+          steps: [humanStep],
+          isActive: true,
+          startTime: Date.now(),
+        })
+        // Reset process steps ref for direct access (avoids race condition)
+        // Include human message as first step (step 0)
+        processStepsRef.current = [humanStep]
+
         // Use ref to get the latest thinkingMode and model value to avoid stale closure
         const currentThinkingMode = thinkingModeRef.current
         const currentModel = effectiveModelRef.current
@@ -587,12 +673,42 @@ function App() {
               isProcessingRef.current = false
             }
 
-            if (event.type === "thinking") {
+            if (event.type === "llm") {
               // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
               setIsAgentThinking(true)
               setActiveToolCall(null)
               // Accumulate thinking content
               setThinkingContent((prev) => prev + event.content)
+
+              // Update process steps ref directly (avoids race condition)
+              // Use id to identify the same step and append content
+              const currentSteps = processStepsRef.current
+              const existingStepIndex = currentSteps.findIndex(s => s.id === event.id)
+
+              if (existingStepIndex >= 0) {
+                // Append to existing step (streaming)
+                const existingStep = currentSteps[existingStepIndex]
+                currentSteps[existingStepIndex] = {
+                  ...existingStep,
+                  content: (existingStep.content as string) + event.content,
+                }
+              } else {
+                // Create new thinking step (new LLM call)
+                const newStep: AgentProcessStep = {
+                  id: event.id,
+                  type: "thinking",
+                  content: event.content,
+                  timestamp: Date.now(),
+                  status: "running",
+                }
+                processStepsRef.current = [...currentSteps, newStep]
+              }
+
+              // Update process session for UI display
+              setProcessSession((prev) => {
+                if (!prev) return null
+                return { ...prev, steps: processStepsRef.current }
+              })
               return
             }
 
@@ -621,13 +737,19 @@ function App() {
               return
             }
 
-            if (event.type === "tool_call") {
+            if (event.type === "tool") {
               // Agent is calling a tool, show thinking state
               setIsAgentThinking(true)
-              setActiveToolCall(event.content)
+              // Create ToolCallEvent from the new event format
+              const toolCallEvent: ToolCallEvent = {
+                name: event.content.name,
+                id: event.content.tool_id,
+                args: event.content.args,
+              }
+              setActiveToolCall(toolCallEvent)
               // Add tool call info to list
               setCalledTools((prev) => {
-                const existing = prev.find((t) => t.id === event.content.id)
+                const existing = prev.find((t) => t.id === event.content.tool_id)
                 if (existing) {
                   return prev
                 }
@@ -635,12 +757,42 @@ function App() {
                   ...prev,
                   {
                     name: event.content.name,
-                    id: event.content.id,
+                    id: event.content.tool_id,
                     args: event.content.args || {},
                     status: "calling" as const,
                   },
                 ]
               })
+
+              // Mark thinking as done
+              processStepsRef.current = processStepsRef.current.map((step) => {
+                if (step.type === "thinking" && step.status === "running") {
+                  return { ...step, status: "done" as const }
+                }
+                return step
+              })
+
+              // Create tool_call step immediately (tool is being executed)
+              const newStep: AgentProcessStep = {
+                id: event.id,
+                type: "tool_call",
+                content: toolCallEvent,
+                timestamp: Date.now(),
+                status: "running",
+              }
+              processStepsRef.current = [...processStepsRef.current, newStep]
+
+              // Store pending tool call for result matching
+              pendingToolCallsRef.current.set(event.content.tool_id, toolCallEvent)
+
+              // Update process session for UI display
+              setProcessSession((prev) => {
+                if (!prev) return null
+                return { ...prev, steps: processStepsRef.current }
+              })
+
+              // Reset thinking content for the next LLM call
+              setThinkingContent("")
               return
             }
 
@@ -653,29 +805,124 @@ function App() {
                     : t,
                 ),
               )
+
+              // Find and update the existing tool step with the result
+              // The tool step was created when tool event was received
+              processStepsRef.current = processStepsRef.current.map((step) => {
+                // Match by tool_id stored in the content
+                if (step.type === "tool_call" && step.status === "running") {
+                  const toolContent = step.content as ToolCallEvent
+                  if (toolContent.id === event.content.id) {
+                    return { ...step, status: "done" as const, result: event.content.output }
+                  }
+                }
+                return step
+              })
+
+              // Clean up pending tool call
+              pendingToolCallsRef.current.delete(event.content.id)
+
+              // Update process session for UI display
+              setProcessSession((prev) => {
+                if (!prev) return null
+                return { ...prev, steps: processStepsRef.current }
+              })
               return
             }
 
-            // error event
-            setAppError(event.content)
-            setMessages((previous) => [
-              ...previous,
-              toLocalMessage({
-                type: "ai",
-                content: t("error.streamPrefix", { details: event.content }),
-              }),
-            ])
+            if (event.type === "usage") {
+              // Token usage event from backend - log for debugging
+              const usage = event.content.usage
+              console.log(
+                `[${event.content.node}] Token usage:`,
+                `input=${usage.input_tokens ?? 'N/A'}, output=${usage.output_tokens ?? 'N/A'},`,
+                `total=${usage.total_tokens ?? 'N/A'}`
+              )
+              return
+            }
+
+            // error event - TypeScript knows this must be { type: "error"; content: string }
+            if (event.type === "error") {
+              setAppError(event.content)
+              setMessages((previous) => [
+                ...previous,
+                toLocalMessage({
+                  type: "ai",
+                  content: t("error.streamPrefix", { details: event.content }),
+                }),
+              ])
+            }
           },
           controller.signal,
         )
 
-        // Ensure all streaming placeholders are marked as complete
+        // Add AI response step to process steps before saving
+        // Get the final AI message content
+        let finalAiContent = ""
+        let finalThinkingContent = ""
         setMessages((previous) => {
-          const updated = previous.map((message) =>
-            message.is_streaming
-              ? { ...message, is_streaming: false }
-              : message,
-          )
+          for (let i = previous.length - 1; i >= 0; i--) {
+            if (previous[i].type === "ai" && previous[i].content) {
+              finalAiContent = previous[i].content
+              finalThinkingContent = previous[i].custom_data?.thinking as string || ""
+              break
+            }
+          }
+          return previous
+        })
+
+        // Add AI response step if we have content
+        if (finalAiContent) {
+          const aiResponseStep: AgentProcessStep = {
+            id: `ai-response-${Date.now()}`,
+            type: "ai_response",
+            content: finalAiContent,
+            timestamp: Date.now(),
+            status: "done",
+            thinking: finalThinkingContent || undefined,
+          }
+          processStepsRef.current = [...processStepsRef.current, aiResponseStep]
+
+          // Update process session for UI display
+          setProcessSession((prev) => {
+            if (!prev) return null
+            return { ...prev, steps: processStepsRef.current }
+          })
+        }
+
+        // Ensure all streaming placeholders are marked as complete
+        // Also save process steps to the message's custom_data for history
+        // Use processStepsRef directly to avoid race condition with React state sync
+        setMessages((previous) => {
+          const updated = previous.map((message) => {
+            if (!message.is_streaming) {
+              return message
+            }
+            // Get the final process steps from processStepsRef (avoids race condition)
+            const finalSteps = processStepsRef.current
+
+            // Convert steps to historical format for persistence
+            const processSteps = finalSteps.map((step, index) => ({
+              id: step.id,
+              type: step.type,
+              content: step.type === "thinking" || step.type === "human" || step.type === "ai_response"
+                ? step.content as string
+                : (step.content as ToolCallEvent).name,
+              args: step.type === "tool_call" ? (step.content as ToolCallEvent).args : undefined,
+              result: step.result,
+              thinking: step.thinking,
+              order: index,
+            }))
+
+            return {
+              ...message,
+              is_streaming: false,
+              custom_data: {
+                ...message.custom_data,
+                process_steps: processSteps,
+              },
+            }
+          })
           return updated
         })
 
@@ -694,7 +941,9 @@ function App() {
           return previous
         })
 
-        await maybeGenerateTitle(trimmed, lastAiContent, targetThreadId, currentTitle)
+        // Non-blocking title generation - fire and forget
+        // User can continue chatting while title is being generated
+        maybeGenerateTitle(trimmed, lastAiContent, targetThreadId, currentTitle)
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           const details = getErrorMessage(error, t("error.unexpected"))
@@ -711,6 +960,55 @@ function App() {
         setIsStreaming(false)
         streamingPlaceholderIdRef.current = null
         abortControllerRef.current = null
+        // Mark process session as inactive
+        setProcessSession((prev) => {
+          if (!prev) return null
+          return {
+            ...prev,
+            isActive: false,
+            endTime: Date.now(),
+          }
+        })
+
+        // Fetch updated message sequence from backend for sidebar persistence
+        // This ensures the sidebar shows correct data after streaming ends
+        try {
+          const historyResult = await getHistory(selectedAgentId, targetThreadId)
+          if (historyResult.message_sequence) {
+            setMessageSequence(historyResult.message_sequence)
+
+            // Auto-select the latest session that has steps
+            const sequence = historyResult.message_sequence
+            if (sequence && sequence.length > 0) {
+              // Group steps by session_id
+              const stepsBySession = new Map<string, MessageStep[]>()
+              sequence.forEach((step) => {
+                const sid = step.session_id
+                if (!stepsBySession.has(sid)) {
+                  stepsBySession.set(sid, [])
+                }
+                stepsBySession.get(sid)!.push(step)
+              })
+
+              // Find sessions that have steps (tool calls or thinking)
+              const sessionsWithSteps: string[] = []
+              stepsBySession.forEach((steps, sid) => {
+                const hasToolSteps = steps.some(s => s.message_type === "tool")
+                const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
+                if (hasToolSteps || hasThinking) {
+                  sessionsWithSteps.push(sid)
+                }
+              })
+
+              // Select the latest session with steps
+              if (sessionsWithSteps.length > 0) {
+                setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
+              }
+            }
+          }
+        } catch {
+          // Ignore errors when fetching message sequence
+        }
       }
     },
     [
@@ -802,7 +1100,7 @@ function App() {
               isProcessingRef.current = false
             }
 
-            if (event.type === "thinking") {
+            if (event.type === "llm") {
               setIsAgentThinking(true)
               setActiveToolCall(null)
               setThinkingContent((prev) => prev + event.content)
@@ -830,11 +1128,16 @@ function App() {
               return
             }
 
-            if (event.type === "tool_call") {
+            if (event.type === "tool") {
               setIsAgentThinking(true)
-              setActiveToolCall(event.content)
+              const toolCallEvent: ToolCallEvent = {
+                name: event.content.name,
+                id: event.content.tool_id,
+                args: event.content.args,
+              }
+              setActiveToolCall(toolCallEvent)
               setCalledTools((prev) => {
-                const existing = prev.find((t) => t.id === event.content.id)
+                const existing = prev.find((t) => t.id === event.content.tool_id)
                 if (existing) {
                   return prev
                 }
@@ -842,7 +1145,7 @@ function App() {
                   ...prev,
                   {
                     name: event.content.name,
-                    id: event.content.id,
+                    id: event.content.tool_id,
                     args: event.content.args || {},
                     status: "calling" as const,
                   },
@@ -862,7 +1165,21 @@ function App() {
               return
             }
 
-            setAppError(event.content)
+            if (event.type === "usage") {
+              // Token usage event - log for debugging
+              console.log(
+                `[${event.content.node}] Token usage:`,
+                `input=${event.content.usage.input_tokens ?? 'N/A'},`,
+                `output=${event.content.usage.output_tokens ?? 'N/A'},`,
+                `total=${event.content.usage.total_tokens ?? 'N/A'}`
+              )
+              return
+            }
+
+            // error event
+            if (event.type === "error") {
+              setAppError(event.content)
+            }
           },
           controller.signal,
         )
@@ -1115,8 +1432,11 @@ function App() {
             setMessages(
               historyResult.value.messages.map((message) => toLocalMessage(message)),
             )
+            // Set message sequence for sidebar
+            setMessageSequence(historyResult.value.message_sequence || [])
           } else {
             setMessages([])
+            setMessageSequence([])
           }
 
           if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -1200,12 +1520,13 @@ function App() {
             isAwaitingAgentSelection={isAwaitingAgentSelection}
             isProcessing={isProcessing}
             isAgentThinking={isAgentThinking}
-            activeToolCall={activeToolCall}
             calledTools={calledTools}
             thinkingContent={thinkingContent}
             messages={messages}
             agents={agents}
             selectedAgentId={selectedAgentId}
+            processSession={processSession}
+            messageSequence={messageSequence}
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
             onSelectAgent={pickAgentForCurrentConversation}
@@ -1214,123 +1535,207 @@ function App() {
             modelSupportsThinking={modelSupportsThinking}
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
+            onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
+            aiMessageSessionIds={useMemo(() => {
+              // Build a map of message index to session_id
+              // Each AI message should have a corresponding session_id from messageSequence
+              if (!messageSequence || messageSequence.length === 0) {
+                return []
+              }
+
+              // Get all AI steps from messageSequence, grouped by session_id
+              const sessionIds: (string | null)[] = []
+
+              // For each message in messages array, determine its session_id
+              // AI messages have session_id from messageSequence
+              // User messages have null
+              messages.forEach((msg, index) => {
+                if (msg.type === "ai") {
+                  // Find the corresponding session_id from messageSequence
+                  // The AI steps in messageSequence are in order
+                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
+                  const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
+                  sessionIds.push(aiSteps[aiIndex]?.session_id || null)
+                } else {
+                  sessionIds.push(null)
+                }
+              })
+
+              return sessionIds
+            }, [messageSequence, messages])}
+            aiMessageHasSteps={useMemo(() => {
+              // For each AI message, determine if it has steps (more than just the AI step itself)
+              if (!messageSequence || messageSequence.length === 0) {
+                return []
+              }
+
+              // Group steps by session_id
+              const stepsBySession = new Map<string, MessageStep[]>()
+              messageSequence.forEach((step) => {
+                const sessionId = step.session_id
+                if (!stepsBySession.has(sessionId)) {
+                  stepsBySession.set(sessionId, [])
+                }
+                stepsBySession.get(sessionId)!.push(step)
+              })
+
+              // For each message, determine if it has steps
+              const hasSteps: boolean[] = []
+              messages.forEach((msg, index) => {
+                if (msg.type === "ai") {
+                  // Find the corresponding session_id
+                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
+                  const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
+                  const sessionId = aiSteps[aiIndex]?.session_id
+
+                  if (sessionId) {
+                    // Check if this session has more than just the AI step
+                    // A session has "steps" if it has tool calls or thinking content
+                    const sessionSteps = stepsBySession.get(sessionId) || []
+                    const hasToolSteps = sessionSteps.some(s => s.message_type === "tool")
+                    const hasThinking = sessionSteps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
+                    hasSteps.push(hasToolSteps || hasThinking)
+                  } else {
+                    hasSteps.push(false)
+                  }
+                } else {
+                  hasSteps.push(false)
+                }
+              })
+
+              return hasSteps
+            }, [messageSequence, messages])}
+            onSelectSession={(sessionId: string) => {
+              setSelectedSessionId(sessionId)
+              // Ensure sidebar is visible when selecting a session
+              if (!showSidebarProcess) {
+                setShowSidebarProcess(true)
+              }
+            }}
           />
         </SidebarInset>
 
         {/* Right Panel - same width as left sidebar (16rem) */}
         <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-2 w-64 min-w-64">
-          {/* Four buttons horizontally */}
-          <div className="flex gap-1 w-full">
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="size-8 flex-1"
-              disabled={isAwaitingAgentSelection || messages.length === 0}
-              onClick={() => {
-                navigator.clipboard.writeText(window.location.href)
-                setShowShareDialog(true)
-              }}
-              aria-label={t("share.button")}
-              title={t("share.button")}
-            >
-              <Share2 className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="cursor-pointer size-8 flex-1"
-              onClick={toggleTheme}
-              aria-label={t("theme.switch")}
-              title={t("theme.switch")}
-            >
-              {theme === "light" ? (
-                <Sun className="size-4" />
-              ) : (
-                <Moon className="size-4" />
-              )}
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="cursor-pointer size-8 flex-1"
-              onClick={toggleLocale}
-              aria-label={t("language.switch")}
-              title={t("language.switch")}
-            >
-              <Languages className="size-4" />
-            </Button>
-            <Button
-              type="button"
-              size="icon"
-              variant="outline"
-              className="cursor-pointer size-8 flex-1"
-              onClick={() => setShowProviderConfig(true)}
-              aria-label={t("provider.configure")}
-              title={t("provider.configure")}
-            >
-              <Settings className="size-4" />
-            </Button>
+          {/* Top Section: Configuration */}
+          <div className="space-y-2">
+            {/* Four buttons horizontally */}
+            <div className="flex gap-1 w-full">
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="size-8 flex-1"
+                disabled={isAwaitingAgentSelection || messages.length === 0}
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href)
+                  setShowShareDialog(true)
+                }}
+                aria-label={t("share.button")}
+                title={t("share.button")}
+              >
+                <Share2 className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="cursor-pointer size-8 flex-1"
+                onClick={toggleTheme}
+                aria-label={t("theme.switch")}
+                title={t("theme.switch")}
+              >
+                {theme === "light" ? (
+                  <Sun className="size-4" />
+                ) : (
+                  <Moon className="size-4" />
+                )}
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="cursor-pointer size-8 flex-1"
+                onClick={toggleLocale}
+                aria-label={t("language.switch")}
+                title={t("language.switch")}
+              >
+                <Languages className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="cursor-pointer size-8 flex-1"
+                onClick={() => setShowProviderConfig(true)}
+                aria-label={t("provider.configure")}
+                title={t("provider.configure")}
+              >
+                <Settings className="size-4" />
+              </Button>
+            </div>
+
+            {/* Model selector - only show in conversation page (not on home/agent selection page) */}
+            {!isInitializing && !isAwaitingAgentSelection && (
+              <ModelSelector
+                models={models}
+                selectedModel={selectedModel}
+                onSelectModel={setSelectedModel}
+                disabled={isStreaming || isInitializing || isLoadingConversation}
+              />
+            )}
+
+            {/* Agent selector - only show when not in agent selection page */}
+            {!isInitializing && !isAwaitingAgentSelection && (
+              <Select
+                value={selectedAgentId}
+                onValueChange={(value) => {
+                  if (!isStreaming || !isInitializing || !isLoadingConversation) {
+                    pickAgentForCurrentConversation(value)
+                  }
+                }}
+                disabled={isStreaming || isInitializing || isLoadingConversation}
+              >
+                <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(() => {
+                    // Sort agents to always show current selected agent first
+                    const sortedAgents = [...agents].sort((a, b) => {
+                      if (a.agent_id === selectedAgentId) return -1
+                      if (b.agent_id === selectedAgentId) return 1
+                      return 0
+                    })
+                    return sortedAgents.map((agent) => (
+                      <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                        {agent.agent_id}
+                      </SelectItem>
+                    ))
+                  })()}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
-          {/* Model selector - only show in conversation page (not on home/agent selection page) */}
+          {/* Middle Section: Agent Process Panel */}
+          <div className="flex-1 min-h-0 overflow-hidden">
+            {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && (
+              <AgentProcessPanel
+                session={processSession}
+                messageSequence={messageSequence}
+                isStreaming={isStreaming}
+                selectedSessionId={selectedSessionId}
+              />
+            )}
+          </div>
+
+          {/* Bottom Section: Token Stats */}
           {!isInitializing && !isAwaitingAgentSelection && (
-            <ModelSelector
-              models={models}
-              selectedModel={selectedModel}
-              onSelectModel={setSelectedModel}
-              disabled={isStreaming || isInitializing || isLoadingConversation}
+            <TokenStatsPanel
+              currentConversation={conversations.find(c => c.thread_id === threadId) ?? null}
             />
           )}
-
-          {/* Agent selector - only show when not in agent selection page */}
-          {!isInitializing && !isAwaitingAgentSelection && (
-            <Select
-              value={selectedAgentId}
-              onValueChange={(value) => {
-                if (!isStreaming && !isInitializing && !isLoadingConversation) {
-                  pickAgentForCurrentConversation(value)
-                }
-              }}
-              disabled={isStreaming || isInitializing || isLoadingConversation}
-            >
-              <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {(() => {
-                  // Sort agents to always show current selected agent first
-                  const sortedAgents = [...agents].sort((a, b) => {
-                    if (a.agent_id === selectedAgentId) return -1
-                    if (b.agent_id === selectedAgentId) return 1
-                    return 0
-                  })
-                  return sortedAgents.map((agent) => (
-                    <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                      {agent.agent_id}
-                    </SelectItem>
-                  ))
-                })()}
-              </SelectContent>
-            </Select>
-          )}
-
-          {/* Token Stats - show when in conversation */}
-          {!isAwaitingAgentSelection && threadId && (() => {
-            const currentConversation = conversations.find(c => c.thread_id === threadId)
-            const userTokens = currentConversation?.user_tokens ?? 0
-            const aiTokens = currentConversation?.ai_tokens ?? 0
-            const reasoningTokens = currentConversation?.reasoning_tokens ?? 0
-            return (userTokens > 0 || aiTokens > 0 || reasoningTokens > 0) && (
-              <TokenStats
-                userTokens={userTokens}
-                aiTokens={aiTokens}
-                reasoningTokens={reasoningTokens}
-              />
-            )
-          })()}
         </aside>
       </SidebarProvider>
 
@@ -1370,6 +1775,9 @@ function App() {
           }
         }}
       />
+
+      {/* Toast notifications */}
+      <Toaster />
     </>
   )
 }

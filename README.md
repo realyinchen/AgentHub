@@ -9,8 +9,6 @@ A modular AI Agent collection framework that provides a modern web interface for
 
 This is the GUI version of the [AgentLab](https://github.com/realyinchen/AgentLab) project.
 
-Inspired by: [agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)
-
 Follow my WeChat official account for the latest updates:
 
 ![wechat_qrcode](https://github.com/realyinchen/RAG/blob/main/imgs/wechat_qrcode.jpg)
@@ -27,6 +25,10 @@ Follow my WeChat official account for the latest updates:
 ✅ **Dark/Light Theme** — Customizable theme support for comfortable viewing.  
 ✅ **Image Zoom & Drag** — Click any image in markdown to zoom in/out and drag to pan. Universal feature for all agents.  
 ✅ **Token Stats Display** — Real-time token consumption visualization with vertical bar chart showing Input/Output/Reasoning tokens. Input tokens include system prompt (explained via tooltip). Dark mode compatible with internationalization support.  
+✅ **Agent Execution Visualization** — Real-time display of agent intermediate steps including thinking/reasoning process and tool calls with arguments and results. Timeline sidebar shows execution history for each conversation turn.  
+✅ **Flexible Model Configuration** — Configure models directly in the web UI. Switch between different agents and models within the same thread without losing conversation history.  
+
+![demo](https://github.com/realyinchen/AgentLab/blob/main/imgs/demo.gif)
 
 ## 🧩 Perfect For:
 
@@ -203,89 +205,6 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - **Parallel tool execution** — Multiple tools execute simultaneously for faster planning
   - Supports location queries, route planning, and nearby place searches
 
-## 📋 Environment Variables
-
-### Backend (backend/.env)
-```env
-# Application mode. If the value is "dev", it will enable uvicorn reload
-MODE=dev
-
-# Web server configuration
-HOST=0.0.0.0
-PORT=8080
-
-# =============================================================================
-# LLM Configuration - Multi-model via LLM_MODELS (Recommended)
-# =============================================================================
-# Model Naming Convention:
-#   - Regular models: any name without "thinking" suffix (e.g., "default", "gpt-4", "glm-4")
-#   - Thinking models: name MUST end with "thinking" (e.g., "deepseek-thinking", "qwen-thinking")
-#   - The "thinking" suffix determines if the model appears in thinking mode selector in UI
-#
-# Supported providers: dashscope (阿里云), zai (智谱) etc.
-# See LiteLLM documentation for full provider list: https://docs.litellm.ai/docs/providers
-
-LLM_MODELS=[{"model_name":"qwen3.5-27b","litellm_params":{"model":"dashscope/qwen3.5-27b","api_key":"sk-xxx","extra_body":{"enable_thinking":false}}},{"model_name":"qwen3.5-flash-thinking","litellm_params":{"model":"dashscope/qwen3.5-flash-2026-02-23","api_key":"sk-xxx","extra_body":{"enable_thinking":true}}},{"model_name":"glm5","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"disabled"}}}},{"model_name":"glm5-thinking","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"enabled"}}}}]
-
-# Default model for regular chat (must match a model_name in LLM_MODELS)
-LLM_DEFAULT_MODEL=qwen3.5-27b
-# Default thinking model (must match a model_name ending with "thinking")
-LLM_THINKING_MODEL=qwen3.5-flash-thinking
-
-# Embedding model
-EMBEDDING_MODEL_NAME=text-embedding-v4
-
-# =============================================================================
-# LangSmith Configuration
-# =============================================================================
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT="AgentHub"
-LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
-LANGCHAIN_API_KEY=lsv2_pt_xxx...
-
-# =============================================================================
-# PostgreSQL Configuration
-# =============================================================================
-POSTGRES_USER=langchain
-POSTGRES_PASSWORD=langgraph
-# POSTGRES_HOST is automatically detected:
-# - Local development: localhost
-# - Docker container: host.docker.internal
-# You can override by uncommenting and setting a value below:
-# POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=agentdb
-
-# =============================================================================
-# Qdrant Configuration
-# =============================================================================
-# QDRANT_HOST is automatically detected:
-# - Local development: localhost
-# - Docker container: host.docker.internal
-# You can override by uncommenting and setting a value below:
-# QDRANT_HOST=localhost
-QDRANT_PORT=6333
-QDRANT_COLLECTION=agentic_rag_survey
-
-# =============================================================================
-# Tavily Search API
-# =============================================================================
-TAVILY_API_KEY=tvly-dev-xxx...
-
-# =============================================================================
-# Amap (高德地图) Configuration
-# =============================================================================
-# Get your API key from: https://lbs.amap.com/api/webservice/guide/create-project/get-key
-AMAP_KEY=your_amap_api_key_here
-```
-
-### Frontend (frontend/.env)
-```env
-# Backend API Base URL
-# Default: /api/v1 (relative path, uses vite proxy in dev or nginx proxy in docker)
-VITE_API_BASE_URL=/api/v1
-```
-
 ## 🔄 Development Notes
 
 - **Backend**: Located in `backend/` directory, uses FastAPI with async lifespan management
@@ -389,7 +308,7 @@ docker-compose down
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NGINX_BACKEND_HOST` | Backend hostname for nginx to proxy to | `host.docker.internal` |
+| `NGINX_BACKEND_HOST` | Backend hostname for nginx to proxy to | `localhost` |
 | `NGINX_BACKEND_PORT` | Backend port | `8080` |
 | `FRONTEND_PORT` | Frontend exposed port | `5173` |
 

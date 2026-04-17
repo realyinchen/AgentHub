@@ -127,11 +127,26 @@ async def list_conversations(
 async def update_conversation_tokens(
     db: AsyncSession,
     thread_id: UUID,
-    user_tokens: int,
-    ai_tokens: int,
-    reasoning_tokens: int = 0,
+    input_tokens: int = 0,
+    cache_read: int = 0,
+    output_tokens: int = 0,
+    reasoning: int = 0,
+    total_tokens: int = 0,
 ) -> ConversationInDB | None:
-    """Update token counts for a conversation by adding new tokens to existing counts."""
+    """Update conversation token usage by accumulating the new values.
+
+    Args:
+        db: Database session
+        thread_id: Conversation thread ID
+        input_tokens: New input tokens to add
+        cache_read: New cache read tokens to add
+        output_tokens: New output tokens to add
+        reasoning: New reasoning tokens to add
+        total_tokens: New total tokens to add
+
+    Returns:
+        Updated conversation or None if not found
+    """
     stmt = (
         update(Conversation)
         .where(
@@ -139,9 +154,11 @@ async def update_conversation_tokens(
             Conversation.is_deleted.is_(False),
         )
         .values(
-            user_tokens=Conversation.user_tokens + user_tokens,
-            ai_tokens=Conversation.ai_tokens + ai_tokens,
-            reasoning_tokens=Conversation.reasoning_tokens + reasoning_tokens,
+            input_tokens=Conversation.input_tokens + input_tokens,
+            cache_read=Conversation.cache_read + cache_read,
+            output_tokens=Conversation.output_tokens + output_tokens,
+            reasoning=Conversation.reasoning + reasoning,
+            total_tokens=Conversation.total_tokens + total_tokens,
         )
         .returning(Conversation)
     )
@@ -152,4 +169,4 @@ async def update_conversation_tokens(
     if not updated:
         return None
 
-    return updated
+    return ConversationInDB.model_validate(updated)

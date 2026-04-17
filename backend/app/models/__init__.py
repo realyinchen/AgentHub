@@ -1,5 +1,6 @@
 from app.models.agent import Agent
 from app.models.chat import Conversation
 from app.models.model import Model
+from app.models.message_step import MessageStepRecord
 
-__all__ = ["Agent", "Conversation", "Model"]
+__all__ = ["Agent", "Conversation", "Model", "MessageStepRecord"]

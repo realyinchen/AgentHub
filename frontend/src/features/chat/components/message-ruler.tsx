@@ -70,13 +70,13 @@ export function MessageRuler({ messages, onJumpToMessage }: MessageRulerProps) {
   // Monitor container size changes
   useEffect(() => {
     checkScrollState()
-    
+
     const container = containerRef.current
     if (!container) return
 
     const resizeObserver = new ResizeObserver(checkScrollState)
     resizeObserver.observe(container)
-    
+
     return () => {
       resizeObserver.disconnect()
     }

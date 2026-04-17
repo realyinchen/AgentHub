@@ -9,8 +9,6 @@
 
 这是 [AgentLab](https://github.com/realyinchen/AgentLab) 项目的 GUI 版本。
 
-灵感来源：[agent-service-toolkit](https://github.com/JoshuaC215/agent-service-toolkit)
-
 关注我的微信公众号获取最新推送：
 
 ![wechat_qrcode](https://github.com/realyinchen/RAG/blob/main/imgs/wechat_qrcode.jpg)
@@ -27,6 +25,10 @@
 ✅ **深色/浅色主题** — 可自定义的主题支持，提供舒适的阅读体验。  
 ✅ **图片缩放拖拽** — 点击 Markdown 中的任意图片可放大/缩小，支持拖拽查看。通用功能，所有智能体可用。  
 ✅ **Token 用量展示** — 实时 Token 消耗可视化，纵向柱状图显示输入/输出/推理 Token。输入 Token 包含系统提示词（悬浮提示说明）。支持暗色模式和国际化。  
+✅ **Agent 执行过程可视化** — 实时展示 Agent 运行的中间步骤，包括思考/推理过程、工具调用及其参数和结果。时间线侧边栏显示每次对话轮次的执行历史。  
+✅ **灵活的模型配置** — 在 Web 界面直接配置模型。在同一会话内自由切换不同的 Agent 和模型，不会丢失会话历史记录。  
+
+![demo](https://github.com/realyinchen/AgentLab/blob/main/imgs/demo.gif)
 
 ## 🧩 适用场景：
 
@@ -203,89 +205,6 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
   - **并行工具执行** — 多个工具同时执行，规划速度更快
   - 支持位置查询、路线规划和周边地点搜索
 
-## 📋 环境变量
-
-### 后端（backend/.env）
-```env
-# 应用程序模式。"dev" 启用 uvicorn 自动重载
-MODE=dev
-
-# Web 服务器配置
-HOST=0.0.0.0
-PORT=8080
-
-# =============================================================================
-# LLM 配置 - 通过 LLM_MODELS 支持多模型（推荐）
-# =============================================================================
-# 模型命名约定：
-#   - 普通模型：名称不含 "thinking" 后缀（如 "default"、"gpt-4"、"glm-4"）
-#   - 思考模型：名称必须以 "thinking" 结尾（如 "deepseek-thinking"、"qwen-thinking"）
-#   - "thinking" 后缀决定模型是否出现在思考模式选择器中
-#
-# 支持的提供商：dashscope（阿里云）、zai（智谱）等
-# 完整提供商列表请参阅 LiteLLM 文档：https://docs.litellm.ai/docs/providers
-
-LLM_MODELS=[{"model_name":"qwen3.5-27b","litellm_params":{"model":"dashscope/qwen3.5-27b","api_key":"sk-xxx","extra_body":{"enable_thinking":false}}},{"model_name":"qwen3.5-flash-thinking","litellm_params":{"model":"dashscope/qwen3.5-flash-2026-02-23","api_key":"sk-xxx","extra_body":{"enable_thinking":true}}},{"model_name":"glm5","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"disabled"}}}},{"model_name":"glm5-thinking","litellm_params":{"model":"zai/glm-5","api_key":"xxx.xxx","extra_body":{"thinking":{"type":"enabled"}}}}]
-
-# 普通聊天的默认模型（必须与 LLM_MODELS 中的 model_name 匹配）
-LLM_DEFAULT_MODEL=qwen3.5-27b
-# 默认思考模型（必须与以 "thinking" 结尾的 model_name 匹配）
-LLM_THINKING_MODEL=qwen3.5-flash-thinking
-
-# 嵌入模型
-EMBEDDING_MODEL_NAME=text-embedding-v4
-
-# =============================================================================
-# LangSmith 配置
-# =============================================================================
-LANGCHAIN_TRACING_V2=true
-LANGCHAIN_PROJECT="AgentHub"
-LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
-LANGCHAIN_API_KEY=lsv2_pt_xxx...
-
-# =============================================================================
-# PostgreSQL 配置
-# =============================================================================
-POSTGRES_USER=langchain
-POSTGRES_PASSWORD=langgraph
-# POSTGRES_HOST 会自动检测：
-# - 本地开发：localhost
-# - Docker 容器：host.docker.internal
-# 如需覆盖，可取消注释并设置值：
-# POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=agentdb
-
-# =============================================================================
-# Qdrant 配置
-# =============================================================================
-# QDRANT_HOST 会自动检测：
-# - 本地开发：localhost
-# - Docker 容器：host.docker.internal
-# 如需覆盖，可取消注释并设置值：
-# QDRANT_HOST=localhost
-QDRANT_PORT=6333
-QDRANT_COLLECTION=agentic_rag_survey
-
-# =============================================================================
-# Tavily 搜索 API
-# =============================================================================
-TAVILY_API_KEY=tvly-dev-xxx...
-
-# =============================================================================
-# 高德地图配置
-# =============================================================================
-# 获取 API 密钥：https://lbs.amap.com/api/webservice/guide/create-project/get-key
-AMAP_KEY=your_amap_api_key_here
-```
-
-### 前端（frontend/.env）
-```env
-# 后端 API 基础 URL
-# 默认值：/api/v1（相对路径，开发时使用 vite 代理，Docker 时使用 nginx 代理）
-VITE_API_BASE_URL=/api/v1
-```
-
 ## 🔄 开发说明
 
 - **后端**：位于 `backend/` 目录，使用 FastAPI 和异步生命周期管理
@@ -389,7 +308,7 @@ docker-compose down
 
 | 变量 | 描述 | 默认值 |
 |------|------|--------|
-| `NGINX_BACKEND_HOST` | nginx 代理的后端主机名 | `host.docker.internal` |
+| `NGINX_BACKEND_HOST` | nginx 代理的后端主机名 | `localhost` |
 | `NGINX_BACKEND_PORT` | 后端端口 | `8080` |
 | `FRONTEND_PORT` | 前端暴露端口 | `5173` |
 
