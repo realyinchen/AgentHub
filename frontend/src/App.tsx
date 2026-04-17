@@ -245,7 +245,7 @@ function App() {
           // Set message sequence for sidebar
           const sequence = historyResult.value.message_sequence || []
           setMessageSequence(sequence)
-          
+
           // Auto-select the latest session that has steps
           if (sequence && sequence.length > 0) {
             // Group steps by session_id
@@ -257,7 +257,7 @@ function App() {
               }
               stepsBySession.get(sid)!.push(step)
             })
-            
+
             // Find sessions that have steps (tool calls or thinking)
             const sessionsWithSteps: string[] = []
             stepsBySession.forEach((steps, sid) => {
@@ -267,7 +267,7 @@ function App() {
                 sessionsWithSteps.push(sid)
               }
             })
-            
+
             // Select the latest session with steps
             if (sessionsWithSteps.length > 0) {
               setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
@@ -638,7 +638,7 @@ function App() {
           timestamp: Date.now(),
           status: "done",
         }
-        
+
         setProcessSession({
           threadId: targetThreadId,
           agentId: selectedAgentId,
@@ -679,12 +679,12 @@ function App() {
               setActiveToolCall(null)
               // Accumulate thinking content
               setThinkingContent((prev) => prev + event.content)
-              
+
               // Update process steps ref directly (avoids race condition)
               // Use id to identify the same step and append content
               const currentSteps = processStepsRef.current
               const existingStepIndex = currentSteps.findIndex(s => s.id === event.id)
-              
+
               if (existingStepIndex >= 0) {
                 // Append to existing step (streaming)
                 const existingStep = currentSteps[existingStepIndex]
@@ -703,7 +703,7 @@ function App() {
                 }
                 processStepsRef.current = [...currentSteps, newStep]
               }
-              
+
               // Update process session for UI display
               setProcessSession((prev) => {
                 if (!prev) return null
@@ -763,7 +763,7 @@ function App() {
                   },
                 ]
               })
-              
+
               // Mark thinking as done
               processStepsRef.current = processStepsRef.current.map((step) => {
                 if (step.type === "thinking" && step.status === "running") {
@@ -771,7 +771,7 @@ function App() {
                 }
                 return step
               })
-              
+
               // Create tool_call step immediately (tool is being executed)
               const newStep: AgentProcessStep = {
                 id: event.id,
@@ -781,16 +781,16 @@ function App() {
                 status: "running",
               }
               processStepsRef.current = [...processStepsRef.current, newStep]
-              
+
               // Store pending tool call for result matching
               pendingToolCallsRef.current.set(event.content.tool_id, toolCallEvent)
-              
+
               // Update process session for UI display
               setProcessSession((prev) => {
                 if (!prev) return null
                 return { ...prev, steps: processStepsRef.current }
               })
-              
+
               // Reset thinking content for the next LLM call
               setThinkingContent("")
               return
@@ -805,7 +805,7 @@ function App() {
                     : t,
                 ),
               )
-              
+
               // Find and update the existing tool step with the result
               // The tool step was created when tool event was received
               processStepsRef.current = processStepsRef.current.map((step) => {
@@ -818,10 +818,10 @@ function App() {
                 }
                 return step
               })
-              
+
               // Clean up pending tool call
               pendingToolCallsRef.current.delete(event.content.id)
-              
+
               // Update process session for UI display
               setProcessSession((prev) => {
                 if (!prev) return null
@@ -870,7 +870,7 @@ function App() {
           }
           return previous
         })
-        
+
         // Add AI response step if we have content
         if (finalAiContent) {
           const aiResponseStep: AgentProcessStep = {
@@ -882,7 +882,7 @@ function App() {
             thinking: finalThinkingContent || undefined,
           }
           processStepsRef.current = [...processStepsRef.current, aiResponseStep]
-          
+
           // Update process session for UI display
           setProcessSession((prev) => {
             if (!prev) return null
@@ -900,20 +900,20 @@ function App() {
             }
             // Get the final process steps from processStepsRef (avoids race condition)
             const finalSteps = processStepsRef.current
-            
+
             // Convert steps to historical format for persistence
             const processSteps = finalSteps.map((step, index) => ({
               id: step.id,
               type: step.type,
-              content: step.type === "thinking" || step.type === "human" || step.type === "ai_response" 
-                ? step.content as string 
+              content: step.type === "thinking" || step.type === "human" || step.type === "ai_response"
+                ? step.content as string
                 : (step.content as ToolCallEvent).name,
               args: step.type === "tool_call" ? (step.content as ToolCallEvent).args : undefined,
               result: step.result,
               thinking: step.thinking,
               order: index,
             }))
-            
+
             return {
               ...message,
               is_streaming: false,
@@ -969,14 +969,14 @@ function App() {
             endTime: Date.now(),
           }
         })
-        
+
         // Fetch updated message sequence from backend for sidebar persistence
         // This ensures the sidebar shows correct data after streaming ends
         try {
           const historyResult = await getHistory(selectedAgentId, targetThreadId)
           if (historyResult.message_sequence) {
             setMessageSequence(historyResult.message_sequence)
-            
+
             // Auto-select the latest session that has steps
             const sequence = historyResult.message_sequence
             if (sequence && sequence.length > 0) {
@@ -989,7 +989,7 @@ function App() {
                 }
                 stepsBySession.get(sid)!.push(step)
               })
-              
+
               // Find sessions that have steps (tool calls or thinking)
               const sessionsWithSteps: string[] = []
               stepsBySession.forEach((steps, sid) => {
@@ -999,7 +999,7 @@ function App() {
                   sessionsWithSteps.push(sid)
                 }
               })
-              
+
               // Select the latest session with steps
               if (sessionsWithSteps.length > 0) {
                 setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
@@ -1542,10 +1542,10 @@ function App() {
               if (!messageSequence || messageSequence.length === 0) {
                 return []
               }
-              
+
               // Get all AI steps from messageSequence, grouped by session_id
               const sessionIds: (string | null)[] = []
-              
+
               // For each message in messages array, determine its session_id
               // AI messages have session_id from messageSequence
               // User messages have null
@@ -1560,7 +1560,7 @@ function App() {
                   sessionIds.push(null)
                 }
               })
-              
+
               return sessionIds
             }, [messageSequence, messages])}
             aiMessageHasSteps={useMemo(() => {
@@ -1568,7 +1568,7 @@ function App() {
               if (!messageSequence || messageSequence.length === 0) {
                 return []
               }
-              
+
               // Group steps by session_id
               const stepsBySession = new Map<string, MessageStep[]>()
               messageSequence.forEach((step) => {
@@ -1578,7 +1578,7 @@ function App() {
                 }
                 stepsBySession.get(sessionId)!.push(step)
               })
-              
+
               // For each message, determine if it has steps
               const hasSteps: boolean[] = []
               messages.forEach((msg, index) => {
@@ -1587,7 +1587,7 @@ function App() {
                   const aiSteps = messageSequence.filter(s => s.message_type === "ai")
                   const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
                   const sessionId = aiSteps[aiIndex]?.session_id
-                  
+
                   if (sessionId) {
                     // Check if this session has more than just the AI step
                     // A session has "steps" if it has tool calls or thinking content
@@ -1602,7 +1602,7 @@ function App() {
                   hasSteps.push(false)
                 }
               })
-              
+
               return hasSteps
             }, [messageSequence, messages])}
             onSelectSession={(sessionId: string) => {

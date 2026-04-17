@@ -148,7 +148,7 @@ export function SciFiLoader({
       resize()
       if (canvas) init(canvas)
     })
-    
+
     const container = canvas.parentElement
     if (container) {
       resizeObserver.observe(container)

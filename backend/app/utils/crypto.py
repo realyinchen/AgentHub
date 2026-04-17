@@ -13,15 +13,13 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 def _get_encryption_key() -> bytes:
     """Get the encryption key from environment variable.
-    
+
     AES-GCM requires a 16, 24, or 32 byte key.
     We use SHA-256 to derive a 32-byte key from the secret.
     """
     import hashlib
-    
-    encryption_key = os.getenv(
-        "API_KEY_ENCRYPTION_KEY", "AgentHub2026SecureKey!@#$%"
-    )
+
+    encryption_key = os.getenv("API_KEY_ENCRYPTION_KEY", "AgentHub2026SecureKey!@#$%")
     # Derive a 32-byte key using SHA-256
     return hashlib.sha256(encryption_key.encode("utf-8")).digest()
 

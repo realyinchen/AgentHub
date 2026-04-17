@@ -140,7 +140,7 @@ function TimelineStepItem({
                       </div>
                     </div>
                   )}
-                  
+
                   {/* Content block */}
                   {step.content && (
                     <div>
@@ -237,17 +237,17 @@ export function AgentTimelineSidebar({
 
     // Get all unique session_ids, sorted by first occurrence (which represents chronological order)
     const sessionIds = [...new Set(messageSequence.map(m => m.session_id))]
-    
+
     // If no sessions, return empty
     if (sessionIds.length === 0) {
       return []
     }
-    
+
     // Determine which session to show:
     // 1. If selectedSessionId is provided, use that
     // 2. Otherwise, use the latest session (last in the array)
     const targetSessionId = selectedSessionId || sessionIds[sessionIds.length - 1]
-    
+
     // Filter steps by target session
     const filteredSequence = messageSequence.filter(m => m.session_id === targetSessionId)
 
@@ -259,7 +259,7 @@ export function AgentTimelineSidebar({
         const argsStr = msg.tool_args && Object.keys(msg.tool_args).length > 0
           ? JSON.stringify(msg.tool_args, null, 2)
           : undefined
-        
+
         steps.push({
           id: `step-${msg.step_number}-tool`,
           stepNumber: msg.step_number,
@@ -277,7 +277,7 @@ export function AgentTimelineSidebar({
         const hasThinking = thinkingContent.trim().length > 0
         const contentStr = msg.content || ""
         const hasContent = contentStr.trim().length > 0
-        
+
         steps.push({
           id: `step-${msg.step_number}-ai-final`,
           stepNumber: msg.step_number,
@@ -307,7 +307,7 @@ export function AgentTimelineSidebar({
       if (step.type === "human") {
         return
       }
-      
+
       if (step.type === "thinking") {
         steps.push({
           id: step.id,
@@ -337,7 +337,7 @@ export function AgentTimelineSidebar({
         const hasThinking = thinkingContent.trim().length > 0
         const contentStr = step.content as string || ""
         const hasContent = contentStr.trim().length > 0
-        
+
         steps.push({
           id: step.id,
           stepNumber: steps.length,

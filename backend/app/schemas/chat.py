@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 class ToolCall(BaseModel):
     """Tool call information."""
+
     name: str = Field(description="Tool name")
     args: dict[str, Any] = Field(default={}, description="Tool arguments")
     id: str | None = Field(default=None, description="Tool call ID")
@@ -13,15 +14,16 @@ class ToolCall(BaseModel):
 
 class MessageStep(BaseModel):
     """Single step in the agent execution sequence for sidebar display.
-    
+
     Each step represents a message in the conversation flow.
     Steps are numbered sequentially (Step 1, Step 2, etc.)
-    
+
     Types:
     - human: User message with content
     - ai: AI message with thinking, content, and optional tool_calls
     - tool: Tool execution with name, args, and output
     """
+
     session_id: UUID = Field(
         description="Session ID that groups steps from the same conversation turn",
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
@@ -161,7 +163,7 @@ class ChatMessage(BaseModel):
 
 class ChatHistory(BaseModel):
     """Chat history with messages and execution sequence."""
-    
+
     messages: list[ChatMessage] = Field(
         description="Messages for main chat UI (human and final AI messages)",
     )

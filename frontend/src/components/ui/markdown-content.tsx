@@ -316,7 +316,7 @@ const ImageWithZoom = ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImage
 				onClick={openViewer}
 				{...props}
 			/>
-			
+
 			{/* Full-screen immersive viewer */}
 			{isOpen && (
 				<div
@@ -349,7 +349,7 @@ const ImageWithZoom = ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImage
 						draggable={false}
 						onClick={(e) => e.stopPropagation()}
 					/>
-					
+
 					{/* Control bar */}
 					<div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-black/80 backdrop-blur-sm rounded-full px-4 py-2 shadow-lg">
 						<Button
@@ -392,7 +392,7 @@ const ImageWithZoom = ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImage
 							<RotateCcwIcon className="size-4" />
 						</Button>
 					</div>
-					
+
 					{/* Close button */}
 					<Button
 						variant="ghost"
@@ -405,7 +405,7 @@ const ImageWithZoom = ({ alt, src, ...props }: React.ImgHTMLAttributes<HTMLImage
 					>
 						<XIcon className="size-5" />
 					</Button>
-					
+
 					{/* Hint text */}
 					<div className="absolute top-4 left-1/2 -translate-x-1/2 text-white/60 text-sm">
 						滚轮缩放 · 拖动平移 · ESC 或点击空白处关闭

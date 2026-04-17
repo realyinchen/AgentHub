@@ -32,8 +32,8 @@ function resolveInitialTheme(): Theme {
 
 const ThemeContext = createContext<ThemeContextValue>({
   theme: "light",
-  setTheme: () => {},
-  toggleTheme: () => {},
+  setTheme: () => { },
+  toggleTheme: () => { },
 })
 
 export function ThemeProvider({ children }: PropsWithChildren) {

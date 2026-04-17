@@ -207,7 +207,9 @@ class ModelManager:
                     "google": "gemini",
                     "gemini": "gemini",
                 }
-                litellm_provider = provider_mapping.get(provider_prefix, provider_prefix)
+                litellm_provider = provider_mapping.get(
+                    provider_prefix, provider_prefix
+                )
                 litellm_model = f"{litellm_provider}/{m.model_id}"
 
             # Decrypt API key before passing to litellm
@@ -268,28 +270,8 @@ class ModelManager:
             # Build extra_body based on provider and thinking_mode
             extra_body = build_extra_body(model.provider, thinking_mode)
 
-            # Build litellm model name for Router
-            # The model_name in Router is the original model_id (without provider prefix)
-            # But we need to use the provider-prefixed format for litellm
-            if "/" in model_id:
-                litellm_model = model_id
-            else:
-                # Add provider prefix based on provider field
-                provider_prefix = model.provider.lower()
-                provider_mapping = {
-                    "dashscope": "dashscope",
-                    "alibaba": "dashscope",
-                    "zhipu": "zhipu",
-                    "zai": "zhipu",
-                    "openai": "openai",
-                    "deepseek": "deepseek",
-                    "anthropic": "anthropic",
-                    "google": "gemini",
-                    "gemini": "gemini",
-                }
-                litellm_provider = provider_mapping.get(provider_prefix, provider_prefix)
-                litellm_model = f"{litellm_provider}/{model_id}"
-
+            # Router uses model_name (original model_id) to lookup model config
+            # The provider prefix is already handled in _build_litellm_model_list
             llm = ChatLiteLLMRouter(
                 router=router,
                 model_name=model_id,  # Use original model_id as model_name (Router identifier)

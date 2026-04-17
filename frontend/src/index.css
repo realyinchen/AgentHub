@@ -7,25 +7,34 @@
 :root {
   --radius: 0.75rem;
   /* Light Mode - Grok-inspired Clean Theme */
-  --background: oklch(0.99 0 0);              /* #FAFAFA - Near white */
-  --foreground: oklch(0.14 0.01 250);         /* #18181B - Zinc 900 */
-  --card: oklch(1 0 0);                       /* #FFFFFF */
+  --background: oklch(0.99 0 0);
+  /* #FAFAFA - Near white */
+  --foreground: oklch(0.14 0.01 250);
+  /* #18181B - Zinc 900 */
+  --card: oklch(1 0 0);
+  /* #FFFFFF */
   --card-foreground: oklch(0.14 0.01 250);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.14 0.01 250);
-  --primary: oklch(0.14 0.01 250);            /* #18181B - Black */
+  --primary: oklch(0.14 0.01 250);
+  /* #18181B - Black */
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.96 0.005 250);         /* #F4F4F5 - Zinc 100 */
+  --secondary: oklch(0.96 0.005 250);
+  /* #F4F4F5 - Zinc 100 */
   --secondary-foreground: oklch(0.14 0.01 250);
-  --muted: oklch(0.96 0.005 250);             /* #F4F4F5 - AI bubble background */
-  --muted-foreground: oklch(0.45 0.01 250);   /* #71717A - Zinc 500 */
+  --muted: oklch(0.96 0.005 250);
+  /* #F4F4F5 - AI bubble background */
+  --muted-foreground: oklch(0.45 0.01 250);
+  /* #71717A - Zinc 500 */
   --accent: oklch(0.96 0.005 250);
   --accent-foreground: oklch(0.14 0.01 250);
   --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.005 250);            /* #E4E4E7 - Zinc 200 */
+  --border: oklch(0.92 0.005 250);
+  /* #E4E4E7 - Zinc 200 */
   --input: oklch(0.92 0.005 250);
   --ring: oklch(0.14 0.01 250);
-  --sidebar: oklch(0.99 0 0);                 /* Light sidebar */
+  --sidebar: oklch(0.99 0 0);
+  /* Light sidebar */
   --sidebar-foreground: oklch(0.14 0.01 250);
   --sidebar-primary: oklch(0.14 0.01 250);
   --sidebar-primary-foreground: oklch(0.99 0 0);
@@ -34,36 +43,50 @@
   --sidebar-border: oklch(0.92 0.005 250);
   --sidebar-ring: oklch(0.14 0.01 250);
   /* Chat bubble colors */
-  --ai-bubble: oklch(0.96 0.005 250);         /* #F4F4F5 - AI message bubble */
-  --user-bubble: oklch(0.14 0.01 250);        /* #18181B - User message bubble (black) */
-  --user-bubble-foreground: oklch(0.99 0 0);  /* User message text (white) */
+  --ai-bubble: oklch(0.96 0.005 250);
+  /* #F4F4F5 - AI message bubble */
+  --user-bubble: oklch(0.14 0.01 250);
+  /* #18181B - User message bubble (black) */
+  --user-bubble-foreground: oklch(0.99 0 0);
+  /* User message text (white) */
   /* Brand accent */
-  --brand-accent: oklch(0.75 0.15 55);        /* #FFB800 - Golden yellow for AH logo */
+  --brand-accent: oklch(0.75 0.15 55);
+  /* #FFB800 - Golden yellow for AH logo */
   /* Switch checked color */
-  --switch-checked: oklch(0.65 0.18 145);     /* Green for switch on state */
+  --switch-checked: oklch(0.65 0.18 145);
+  /* Green for switch on state */
 }
 
 .dark {
   /* Dark Mode - Grok-inspired Deep Dark Theme */
-  --background: oklch(0.10 0.01 250);         /* #0A0A0A - Near black */
-  --foreground: oklch(0.95 0.005 250);        /* #FAFAFA - Near white text */
-  --card: oklch(0.15 0.01 250);               /* #18181B - Zinc 900 */
+  --background: oklch(0.10 0.01 250);
+  /* #0A0A0A - Near black */
+  --foreground: oklch(0.95 0.005 250);
+  /* #FAFAFA - Near white text */
+  --card: oklch(0.15 0.01 250);
+  /* #18181B - Zinc 900 */
   --card-foreground: oklch(0.95 0.005 250);
   --popover: oklch(0.15 0.01 250);
   --popover-foreground: oklch(0.95 0.005 250);
-  --primary: oklch(0.99 0 0);                 /* #FFFFFF - White */
+  --primary: oklch(0.99 0 0);
+  /* #FFFFFF - White */
   --primary-foreground: oklch(0.10 0.01 250);
-  --secondary: oklch(0.20 0.01 250);          /* #27272A - Zinc 800 */
+  --secondary: oklch(0.20 0.01 250);
+  /* #27272A - Zinc 800 */
   --secondary-foreground: oklch(0.95 0.005 250);
-  --muted: oklch(0.20 0.01 250);              /* #27272A - AI message bubble */
-  --muted-foreground: oklch(0.60 0.01 250);   /* #A1A1AA - Zinc 400 */
+  --muted: oklch(0.20 0.01 250);
+  /* #27272A - AI message bubble */
+  --muted-foreground: oklch(0.60 0.01 250);
+  /* #A1A1AA - Zinc 400 */
   --accent: oklch(0.20 0.01 250);
   --accent-foreground: oklch(0.95 0.005 250);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.25 0.01 250);             /* #3F3F46 - Zinc 700 */
+  --border: oklch(0.25 0.01 250);
+  /* #3F3F46 - Zinc 700 */
   --input: oklch(0.25 0.01 250);
   --ring: oklch(0.99 0 0);
-  --sidebar: oklch(0.08 0.01 250);            /* #09090B - Zinc 950 */
+  --sidebar: oklch(0.08 0.01 250);
+  /* #09090B - Zinc 950 */
   --sidebar-foreground: oklch(0.95 0.005 250);
   --sidebar-primary: oklch(0.99 0 0);
   --sidebar-primary-foreground: oklch(0.10 0.01 250);
@@ -72,13 +95,18 @@
   --sidebar-border: oklch(0.25 0.01 250);
   --sidebar-ring: oklch(0.99 0 0);
   /* Chat bubble colors */
-  --ai-bubble: oklch(0.20 0.01 250);          /* #27272A - AI message bubble */
-  --user-bubble: oklch(0.99 0 0);             /* #FFFFFF - User message bubble (white) */
-  --user-bubble-foreground: oklch(0.10 0.01 250); /* User message text (black) */
+  --ai-bubble: oklch(0.20 0.01 250);
+  /* #27272A - AI message bubble */
+  --user-bubble: oklch(0.99 0 0);
+  /* #FFFFFF - User message bubble (white) */
+  --user-bubble-foreground: oklch(0.10 0.01 250);
+  /* User message text (black) */
   /* Brand accent */
-  --brand-accent: oklch(0.75 0.15 55);        /* #FFB800 - Golden yellow for AH logo */
+  --brand-accent: oklch(0.75 0.15 55);
+  /* #FFB800 - Golden yellow for AH logo */
   /* Switch checked color */
-  --switch-checked: oklch(0.55 0.16 145);     /* Green for switch on state - darker for dark mode */
+  --switch-checked: oklch(0.55 0.16 145);
+  /* Green for switch on state - darker for dark mode */
 }
 
 @theme inline {
@@ -178,11 +206,9 @@
   }
 
   .chat-messages-bottom-fade {
-    background: linear-gradient(
-      to bottom,
-      color-mix(in oklab, var(--color-background) 0%, transparent) 0%,
-      var(--color-background) 100%
-    );
+    background: linear-gradient(to bottom,
+        color-mix(in oklab, var(--color-background) 0%, transparent) 0%,
+        var(--color-background) 100%);
   }
 
   /* Sidebar scroll area */
@@ -280,6 +306,7 @@
   0% {
     background-position: 200% 0;
   }
+
   100% {
     background-position: -200% 0;
   }
@@ -294,6 +321,7 @@
   0% {
     transform: translateY(-100%);
   }
+
   100% {
     transform: translateY(200%);
   }
@@ -360,11 +388,9 @@
   position: absolute;
   inset: 0;
   border-radius: 50%;
-  background: conic-gradient(
-    transparent,
-    rgba(0, 247, 255, 0.8),
-    transparent
-  );
+  background: conic-gradient(transparent,
+      rgba(0, 247, 255, 0.8),
+      transparent);
   animation: sci-rotate 2s linear infinite;
   filter: blur(1px);
 }
@@ -383,10 +409,13 @@
 }
 
 @keyframes sci-pulse {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translate(-50%, -50%) scale(1);
     opacity: 0.7;
   }
+
   50% {
     transform: translate(-50%, -50%) scale(1.5);
     opacity: 1;
@@ -411,7 +440,7 @@
   transform: translate(-50%, -50%);
   background: #00f7ff;
   border-radius: 50%;
-  box-shadow: 
+  box-shadow:
     0 0 10px #00f7ff,
     0 0 30px #00f7ff,
     0 0 60px #00f7ff;
@@ -441,12 +470,29 @@
 }
 
 /* Different angles */
-.ai-loader-connections span:nth-child(1) { transform: rotate(0deg) translate(-50%, -100%); }
-.ai-loader-connections span:nth-child(2) { transform: rotate(60deg) translate(-50%, -100%); }
-.ai-loader-connections span:nth-child(3) { transform: rotate(120deg) translate(-50%, -100%); }
-.ai-loader-connections span:nth-child(4) { transform: rotate(180deg) translate(-50%, -100%); }
-.ai-loader-connections span:nth-child(5) { transform: rotate(240deg) translate(-50%, -100%); }
-.ai-loader-connections span:nth-child(6) { transform: rotate(300deg) translate(-50%, -100%); }
+.ai-loader-connections span:nth-child(1) {
+  transform: rotate(0deg) translate(-50%, -100%);
+}
+
+.ai-loader-connections span:nth-child(2) {
+  transform: rotate(60deg) translate(-50%, -100%);
+}
+
+.ai-loader-connections span:nth-child(3) {
+  transform: rotate(120deg) translate(-50%, -100%);
+}
+
+.ai-loader-connections span:nth-child(4) {
+  transform: rotate(180deg) translate(-50%, -100%);
+}
+
+.ai-loader-connections span:nth-child(5) {
+  transform: rotate(240deg) translate(-50%, -100%);
+}
+
+.ai-loader-connections span:nth-child(6) {
+  transform: rotate(300deg) translate(-50%, -100%);
+}
 
 /* Data flow */
 .ai-loader-connections span::after {
@@ -460,16 +506,29 @@
 
 /* Keyframes */
 @keyframes ai-loader-flow {
-  0% { top: -30%; opacity: 0; }
-  50% { opacity: 1; }
-  100% { top: 100%; opacity: 0; }
+  0% {
+    top: -30%;
+    opacity: 0;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    top: 100%;
+    opacity: 0;
+  }
 }
 
 @keyframes ai-loader-pulse-core {
-  0%, 100% {
+
+  0%,
+  100% {
     transform: translate(-50%, -50%) scale(1);
     opacity: 0.8;
   }
+
   50% {
     transform: translate(-50%, -50%) scale(1.4);
     opacity: 1;
@@ -477,5 +536,7 @@
 }
 
 @keyframes ai-loader-rotate-ring {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }

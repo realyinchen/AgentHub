@@ -134,7 +134,7 @@ async def update_conversation_tokens(
     total_tokens: int = 0,
 ) -> ConversationInDB | None:
     """Update conversation token usage by accumulating the new values.
-    
+
     Args:
         db: Database session
         thread_id: Conversation thread ID
@@ -143,7 +143,7 @@ async def update_conversation_tokens(
         output_tokens: New output tokens to add
         reasoning: New reasoning tokens to add
         total_tokens: New total tokens to add
-    
+
     Returns:
         Updated conversation or None if not found
     """
@@ -170,5 +170,3 @@ async def update_conversation_tokens(
         return None
 
     return ConversationInDB.model_validate(updated)
-
-

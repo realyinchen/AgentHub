@@ -345,8 +345,10 @@ async def streaming_message_generator(
                 if accumulated_thinking.strip():
                     try:
                         async with adb_manager.session() as session:
-                            max_step = await message_step_crud.get_max_step_number_for_session(
-                                session, thread_id, session_id
+                            max_step = (
+                                await message_step_crud.get_max_step_number_for_session(
+                                    session, thread_id, session_id
+                                )
                             )
                             thinking_step_number = max_step + 1
                             await message_step_crud.save_ai_step(
@@ -408,8 +410,10 @@ async def streaming_message_generator(
                 # Get current step number from database (for consistent ordering within session)
                 try:
                     async with adb_manager.session() as session:
-                        max_step = await message_step_crud.get_max_step_number_for_session(
-                            session, thread_id, session_id
+                        max_step = (
+                            await message_step_crud.get_max_step_number_for_session(
+                                session, thread_id, session_id
+                            )
                         )
                         tool_step_number = max_step + 1
                         await message_step_crud.save_tool_step(
@@ -446,22 +450,30 @@ async def streaming_message_generator(
                         input_tokens = usage.get("input_tokens", 0)
                         output_tokens = usage.get("output_tokens", 0)
                         total_tokens = usage.get("total_tokens", 0)
-                        
+
                         # Extract cache_read from input_token_details
                         input_token_details = usage.get("input_token_details", {})
-                        cache_read = input_token_details.get("cache_read", 0) if isinstance(input_token_details, dict) else 0
-                        
+                        cache_read = (
+                            input_token_details.get("cache_read", 0)
+                            if isinstance(input_token_details, dict)
+                            else 0
+                        )
+
                         # Extract reasoning from output_token_details
                         output_token_details = usage.get("output_token_details", {})
-                        reasoning = output_token_details.get("reasoning", 0) if isinstance(output_token_details, dict) else 0
-                        
+                        reasoning = (
+                            output_token_details.get("reasoning", 0)
+                            if isinstance(output_token_details, dict)
+                            else 0
+                        )
+
                         # Accumulate tokens
                         accumulated_tokens["input_tokens"] += input_tokens
                         accumulated_tokens["cache_read"] += cache_read
                         accumulated_tokens["output_tokens"] += output_tokens
                         accumulated_tokens["reasoning"] += reasoning
                         accumulated_tokens["total_tokens"] += total_tokens
-                        
+
                         logger.info(
                             f"[{node_name}] Token usage: "
                             f"input={input_tokens}, output={output_tokens}, "
@@ -477,12 +489,12 @@ async def streaming_message_generator(
                         input_tokens = token_usage.get("prompt_tokens", 0)
                         output_tokens = token_usage.get("completion_tokens", 0)
                         total_tokens = token_usage.get("total_tokens", 0)
-                        
+
                         # Accumulate tokens (no cache_read or reasoning in fallback)
                         accumulated_tokens["input_tokens"] += input_tokens
                         accumulated_tokens["output_tokens"] += output_tokens
                         accumulated_tokens["total_tokens"] += total_tokens
-                        
+
                         usage = {
                             "input_tokens": input_tokens,
                             "output_tokens": output_tokens,
@@ -508,10 +520,8 @@ async def streaming_message_generator(
                             # Save AI response step to database immediately
                             try:
                                 async with adb_manager.session() as session:
-                                    max_step = (
-                                        await message_step_crud.get_max_step_number_for_session(
-                                            session, thread_id, session_id
-                                        )
+                                    max_step = await message_step_crud.get_max_step_number_for_session(
+                                        session, thread_id, session_id
                                     )
                                     ai_step_number = max_step + 1
                                     await message_step_crud.save_ai_step(
@@ -569,7 +579,7 @@ async def streaming_message_generator(
                     f"Error updating conversation tokens: {e}",
                     exc_info=True,
                 )
-        
+
         yield "data: [DONE]\n\n"
 
 

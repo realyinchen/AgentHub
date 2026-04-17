@@ -284,7 +284,7 @@ function InlineProcessSteps({
       if (step.type === "human") {
         return
       }
-      
+
       if (step.type === "thinking") {
         steps.push({
           id: step.id,
@@ -313,7 +313,7 @@ function InlineProcessSteps({
         const hasThinking = thinkingContent.trim().length > 0
         const contentStr = (step.content as string) || ""
         const hasContent = contentStr.trim().length > 0
-        
+
         // Only add ai_response step if it has thinking or content
         if (hasThinking || hasContent) {
           steps.push({
@@ -566,7 +566,7 @@ export function ChatMessageItem({
   if (isAI && !isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
     return null
   }
-  
+
   // During streaming, if we're still processing (no content received yet), don't return null
   // The SciFiLoader will be shown instead
   if (isAI && isStreaming && !isProcessing && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {

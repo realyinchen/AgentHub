@@ -30,7 +30,9 @@ class Model(Base):
     model_type = Column(
         String(16), nullable=False, default="llm"
     )  # llm, vlm, embedding
-    model_id = Column(String(128), primary_key=True)  # e.g. "dashscope/qwen3.5-27b"
+    model_id = Column(
+        String(128), primary_key=True
+    )  # e.g. "qwen3.5-27b" (without provider prefix)
     model_name = Column(String(64), nullable=False)  # e.g. "qwen3.5-27b"
     thinking = Column(
         Boolean, nullable=False, default=False

@@ -24,7 +24,7 @@ class Conversation(Base):
         default=utc_now,
         onupdate=utc_now,
     )
-    
+
     # Token usage fields (cumulative for the conversation)
     input_tokens = Column(BigInteger, nullable=False, default=0)
     cache_read = Column(BigInteger, nullable=False, default=0)

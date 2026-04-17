@@ -77,15 +77,15 @@ type ChatInputContextType = {
 
 const ChatInputContext = createContext<ChatInputContextType>({
 	mentionConfigs: [],
-	addMentionConfig: () => {},
-	onSubmit: () => {},
+	addMentionConfig: () => { },
+	onSubmit: () => { },
 	onStop: undefined,
 	isStreaming: false,
 	disabled: false,
 	value: undefined,
 	onChange: undefined,
 	editor: null,
-	setEditor: () => {},
+	setEditor: () => { },
 });
 
 export function ChatInput({
@@ -306,7 +306,7 @@ const KeyboardShortcuts = Extension.create({
 	},
 	addOptions() {
 		return {
-			getOnEnter: () => () => {},
+			getOnEnter: () => () => { },
 		};
 	},
 });
@@ -719,8 +719,8 @@ type UseChatInputReturn<Mentions extends MentionConfigsObject | undefined> = {
 	value: JSONContent;
 	onChange: (value: JSONContent) => void;
 	parsed: Mentions extends MentionConfigsObject
-		? ParsedFromObject<Mentions>
-		: ParsedContentOnly;
+	? ParsedFromObject<Mentions>
+	: ParsedContentOnly;
 	clear: () => void;
 	handleSubmit: () => void;
 } & (Mentions extends MentionConfigsObject
@@ -802,8 +802,8 @@ type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (
 // biome-ignore lint/suspicious/noExplicitAny: Required for type inference
 type ConfigToField<Config extends MentionConfig<any>> =
 	Config extends MentionConfig<infer T>
-		? { [K in Config["type"]]: T[] }
-		: never;
+	? { [K in Config["type"]]: T[] }
+	: never;
 
 export type ParsedChatInputValue<
 	// biome-ignore lint/suspicious/noExplicitAny: Required for type inference

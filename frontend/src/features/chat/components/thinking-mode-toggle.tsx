@@ -51,10 +51,10 @@ export function ThinkingModeToggle({
           >
             <Brain
               className={`size-4 transition-colors ${!modelSupportsThinking
-                  ? "text-muted-foreground/50"
-                  : enabled
-                    ? "text-purple-500 dark:text-purple-400"
-                    : "text-muted-foreground"
+                ? "text-muted-foreground/50"
+                : enabled
+                  ? "text-purple-500 dark:text-purple-400"
+                  : "text-muted-foreground"
                 }`}
             />
             <span className="sr-only">

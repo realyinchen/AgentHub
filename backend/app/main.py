@@ -33,10 +33,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await adb_manager.initialize()
         db_manager.initialize()
         qdrant_manager.initialize()
-        
+
         # Initialize model manager (preload model configurations)
         await ModelManager.refresh()
-        
+
         # Initialize checkpointer (for short-term memory)
         async with get_checkpointer() as checkpointer:
             if hasattr(checkpointer, "setup"):

@@ -678,9 +678,7 @@ def get_chat_litellm(
         "streaming": True,
         "drop_params": True,
         # Critical: Enable usage tracking in streaming mode
-        "model_kwargs": {
-            "stream_options": {"include_usage": True}
-        },
+        "model_kwargs": {"stream_options": {"include_usage": True}},
     }
 
     # Get API key
@@ -710,7 +708,7 @@ def get_chat_litellm(
             tools,
             extra_body=extra_body,
             # Re-pass model_kwargs to ensure stream_options is preserved
-            **{"model_kwargs": {"stream_options": {"include_usage": True}}}
+            **{"model_kwargs": {"stream_options": {"include_usage": True}}},
         )
 
     # Detailed logging for debugging

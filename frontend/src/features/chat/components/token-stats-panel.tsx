@@ -21,9 +21,10 @@ interface TokenBarProps {
   value: number
   color: string
   tooltip?: string
+  percentage?: string
 }
 
-function TokenBar({ label, value, color, tooltip }: TokenBarProps) {
+function TokenBar({ label, value, color, tooltip, percentage }: TokenBarProps) {
   // Calculate fill ratio based on 128k max
   const ratio = Math.min((value / MAX_TOKENS) * 100, 100)
 
@@ -45,7 +46,12 @@ function TokenBar({ label, value, color, tooltip }: TokenBarProps) {
             </TooltipProvider>
           )}
         </div>
-        <span>{value.toLocaleString()}</span>
+        <div className="flex items-center gap-1">
+          <span>{value.toLocaleString()}</span>
+          {percentage && (
+            <span className="text-[10px] text-muted-foreground/70">({percentage})</span>
+          )}
+        </div>
       </div>
       <div className="h-2 bg-muted rounded-full overflow-hidden">
         <div
@@ -77,7 +83,7 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
       <div className="text-xs font-medium text-muted-foreground">
         {t("token.title")}
       </div>
-      
+
       {/* Input Tokens */}
       <TokenBar
         label={t("token.input")}
@@ -85,28 +91,34 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
         color="#3b82f6"
         tooltip={t("token.inputTooltip")}
       />
-      
+
       {/* Cache Read */}
       <TokenBar
         label={t("token.cacheRead")}
         value={tokens.cache_read}
         color="#8b5cf6"
+        tooltip={t("token.cacheReadTooltip")}
+        percentage={
+          tokens.input_tokens > 0
+            ? `${((tokens.cache_read / tokens.input_tokens) * 100).toFixed(1)}%`
+            : undefined
+        }
       />
-      
+
       {/* Output Tokens */}
       <TokenBar
         label={t("token.output")}
         value={tokens.output_tokens}
         color="#10b981"
       />
-      
+
       {/* Reasoning Tokens */}
       <TokenBar
         label={t("token.reasoning")}
         value={tokens.reasoning}
         color="#f59e0b"
       />
-      
+
       {/* Total */}
       <div className="pt-2 border-t">
         <TokenBar

@@ -306,344 +306,344 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
       <Dialog open={open} onOpenChange={onOpenChange}>
         <DialogContent className="dialog-scroll-area max-w-5xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <Settings2 className="size-5" />
-            {t("provider.configTitle")}
-            <a
-              href="https://docs.litellm.ai/docs/providers"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              title={t("provider.helpLink") || "View provider documentation"}
-            >
-              <HelpCircle className="size-4" />
-            </a>
-          </DialogTitle>
-          <DialogDescription>
-            {t("provider.configDescription")}
-          </DialogDescription>
-        </DialogHeader>
-
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {/* New Model Button */}
-            <div className="flex justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowNewModelForm(!showNewModelForm)}
-                className="gap-1"
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings2 className="size-5" />
+              {t("provider.configTitle")}
+              <a
+                href="https://docs.litellm.ai/docs/providers"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-muted-foreground hover:text-foreground transition-colors"
+                title={t("provider.helpLink") || "View provider documentation"}
               >
-                <Plus className="size-4" />
-                {t("common.add") || "Add Model"}
-              </Button>
+                <HelpCircle className="size-4" />
+              </a>
+            </DialogTitle>
+            <DialogDescription>
+              {t("provider.configDescription")}
+            </DialogDescription>
+          </DialogHeader>
+
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
             </div>
-
-            {/* New Model Form */}
-            {showNewModelForm && (
-              <div className="border rounded-lg p-4 space-y-4 bg-muted/50">
-                <h4 className="font-medium">{t("model.new") || "New Model"}</h4>
-
-                {/* Row 1: Provider and Model Type */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Provider */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium flex items-center gap-1">
-                      {t("model.provider")}
-                      <a
-                        href="https://docs.litellm.ai/docs/providers"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted-foreground hover:text-foreground transition-colors"
-                        title={t("provider.helpLink") || "View provider documentation"}
-                      >
-                        <HelpCircle className="size-3.5" />
-                      </a>
-                    </label>
-                    <Select
-                      value={newModel.provider}
-                      onValueChange={(value) => setNewModel(prev => ({ ...prev, provider: value }))}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select provider" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {providers.map(p => (
-                          <SelectItem key={p} value={p}>{p}</SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Model Type */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">{t("model.type") || "Model Type"}</label>
-                    <Select
-                      value={newModel.model_type}
-                      onValueChange={handleModelTypeChange}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {MODEL_TYPES.map(type => (
-                          <SelectItem key={type} value={type}>
-                            {type.toUpperCase()}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-
-                {/* Row 2: API Key */}
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">API Key</label>
-                  <div className="relative">
-                    <Input
-                      type={newModelApiKeyVisible ? "text" : "password"}
-                      placeholder={t("provider.apiKeyPlaceholder")}
-                      value={newModel.api_key || ""}
-                      onChange={(e) => setNewModel(prev => ({ ...prev, api_key: e.target.value }))}
-                      className="pr-10"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setNewModelApiKeyVisible(!newModelApiKeyVisible)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    >
-                      {newModelApiKeyVisible ? (
-                        <EyeOff className="size-4" />
-                      ) : (
-                        <Eye className="size-4" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Row 3: Model ID and Model Name */}
-                <div className="grid grid-cols-2 gap-4">
-                  {/* Model ID */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Model ID</label>
-                    <Input
-                      placeholder="qwen3.5-27b"
-                      value={newModel.model_id}
-                      onChange={(e) => handleModelIdChange(e.target.value)}
-                    />
-                  </div>
-
-                  {/* Model Name */}
-                  <div className="space-y-2">
-                    <label className="text-sm font-medium">Model Name</label>
-                    <Input
-                      placeholder="qwen3.5-27b"
-                      value={newModel.model_name}
-                      onChange={(e) => setNewModel(prev => ({ ...prev, model_name: e.target.value }))}
-                    />
-                  </div>
-                </div>
-
-                {/* Row 4: Thinking, Active, Default switches */}
-                <div className="flex items-center gap-4 flex-wrap">
-                  {/* Thinking Switch */}
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="new-thinking"
-                      checked={newModel.thinking}
-                      onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, thinking: checked }))}
-                    />
-                    <label htmlFor="new-thinking" className="text-sm">{t("model.thinking")}</label>
-                  </div>
-
-                  {/* Is Active */}
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="new-active"
-                      checked={newModel.is_active}
-                      onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, is_active: checked }))}
-                    />
-                    <label htmlFor="new-active" className="text-sm">{t("model.active")}</label>
-                  </div>
-
-                  {/* Is Default */}
-                  <div className="flex items-center gap-2">
-                    <Switch
-                      id="new-default"
-                      checked={newModel.is_default}
-                      onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, is_default: checked }))}
-                    />
-                    <label htmlFor="new-default" className="text-sm flex items-center gap-1">
-                      <Star className="size-3" />
-                      {t("model.default")}
-                    </label>
-                  </div>
-                </div>
-
-                <div className="flex justify-end gap-2">
-                  <Button variant="outline" onClick={() => setShowNewModelForm(false)}>
-                    {t("common.cancel")}
-                  </Button>
-                  <Button onClick={handleCreateModel} disabled={!newModel.model_id?.trim() || !newModel.provider?.trim() || !newModel.model_name?.trim() || !newModel.api_key?.trim()}>
-                    {t("common.save")}
-                  </Button>
-                </div>
+          ) : (
+            <div className="space-y-4">
+              {/* New Model Button */}
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowNewModelForm(!showNewModelForm)}
+                  className="gap-1"
+                >
+                  <Plus className="size-4" />
+                  {t("common.add") || "Add Model"}
+                </Button>
               </div>
-            )}
 
-            <Separator />
+              {/* New Model Form */}
+              {showNewModelForm && (
+                <div className="border rounded-lg p-4 space-y-4 bg-muted/50">
+                  <h4 className="font-medium">{t("model.new") || "New Model"}</h4>
 
-            {/* Models List - Grouped by provider (sorted alphabetically) */}
-            <div className="space-y-6">
-              {Array.from(new Set(models.map(m => m.provider))).sort().map(provider => {
-                const providerModels = models
-                  .filter(m => m.provider === provider)
-                  .sort((a, b) => a.model_name.localeCompare(b.model_name))
-
-                return (
-                  <div key={provider} className="space-y-3">
-                    <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-                      <Badge variant="secondary">{provider}</Badge>
-                    </h4>
-                    {providerModels.map(model => {
-                      const hasChanges = hasPendingChanges(model.model_id)
-                      const effectiveThinking = getEffectiveValue(model, "thinking") as boolean
-                      const effectiveActive = getEffectiveValue(model, "is_active") as boolean
-                      const effectiveDefault = getEffectiveValue(model, "is_default") as boolean
-                      const isDeleting = deletingModelIds.has(model.model_id)
-
-                      return (
-                        <div
-                          key={model.model_id}
-                          className="border rounded-lg p-4 space-y-3 transition-all duration-300 ease-out"
-                          style={{
-                            opacity: isDeleting ? 0 : 1,
-                            transform: isDeleting ? 'scale(0.95)' : 'scale(1)',
-                            height: isDeleting ? 0 : 'auto',
-                            overflow: 'hidden',
-                            marginBottom: isDeleting ? 0 : undefined,
-                            padding: isDeleting ? 0 : undefined,
-                          }}
+                  {/* Row 1: Provider and Model Type */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Provider */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium flex items-center gap-1">
+                        {t("model.provider")}
+                        <a
+                          href="https://docs.litellm.ai/docs/providers"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-muted-foreground hover:text-foreground transition-colors"
+                          title={t("provider.helpLink") || "View provider documentation"}
                         >
-                          {/* Model Header - Model Name, Type, and Delete Button on same line */}
-                           <div className="flex items-center justify-between gap-2 flex-wrap">
-                             <div className="flex items-center gap-2 flex-wrap">
-                               <span className="font-medium">{model.model_name}</span>
-                               <Badge variant="outline">{model.model_type.toUpperCase()}</Badge>
-                              {model.thinking && (
-                                <Badge variant="secondary">{t("model.thinking")}</Badge>
-                              )}
-                              {model.is_default && (
-                                <Star className="size-4 text-yellow-500 fill-yellow-500" />
-                              )}
-                            </div>
+                          <HelpCircle className="size-3.5" />
+                        </a>
+                      </label>
+                      <Select
+                        value={newModel.provider}
+                        onValueChange={(value) => setNewModel(prev => ({ ...prev, provider: value }))}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select provider" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {providers.map(p => (
+                            <SelectItem key={p} value={p}>{p}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
-                            {/* Delete Button - Right side - Direct delete */}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="size-8 text-destructive hover:text-destructive"
-                              onClick={() => void handleDeleteModel(model.model_id)}
-                            >
-                              <Trash2 className="size-4" />
-                            </Button>
-                          </div>
-
-                          {/* API Key */}
-                          <div className="space-y-1">
-                            <label className="text-xs text-muted-foreground">API Key</label>
-                            <Input
-                              type="password"
-                              placeholder={model.has_api_key ? "••••••••••••" : t("provider.apiKeyPlaceholder")}
-                              value={apiKeyEdits[model.model_id] ?? ""}
-                              onChange={(e) => handleApiKeyChange(model.model_id, e.target.value)}
-                            />
-                          </div>
-
-                          {/* Switches */}
-                          <div className="flex items-center justify-between flex-wrap gap-2">
-                            <div className="flex items-center gap-4 flex-wrap">
-                              <TooltipProvider>
-                                {/* Thinking Switch */}
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <div className="flex items-center gap-2">
-                                      <Switch
-                                        id={`thinking-${model.model_id}`}
-                                        checked={effectiveThinking}
-                                        onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "thinking", checked)}
-                                      />
-                                      <label htmlFor={`thinking-${model.model_id}`} className="text-sm">{t("model.thinking")}</label>
-                                    </div>
-                                  </TooltipTrigger>
-                                </Tooltip>
-                              </TooltipProvider>
-
-                              {/* Active Switch */}
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  id={`active-${model.model_id}`}
-                                  checked={effectiveActive}
-                                  onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_active", checked)}
-                                />
-                                <label htmlFor={`active-${model.model_id}`} className="text-sm">{t("model.active")}</label>
-                              </div>
-
-                              {/* Default Switch */}
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  id={`default-${model.model_id}`}
-                                  checked={effectiveDefault}
-                                  onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_default", checked)}
-                                />
-                                <label htmlFor={`default-${model.model_id}`} className="text-sm flex items-center gap-1">
-                                  <Star className="size-3" />
-                                  {t("model.default")}
-                                </label>
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Cancel/Save Buttons - Only show when there are pending changes */}
-                          {hasChanges && (
-                            <div className="flex justify-end gap-2 pt-2 border-t">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => cancelChanges(model.model_id)}
-                              >
-                                {t("common.cancel")}
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => void saveChanges(model.model_id)}
-                              >
-                                {t("common.save")}
-                              </Button>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
+                    {/* Model Type */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">{t("model.type") || "Model Type"}</label>
+                      <Select
+                        value={newModel.model_type}
+                        onValueChange={handleModelTypeChange}
+                      >
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {MODEL_TYPES.map(type => (
+                            <SelectItem key={type} value={type}>
+                              {type.toUpperCase()}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
                   </div>
-                )
-              })}
 
-              {models.length === 0 && (
-                <div className="text-center py-8 text-muted-foreground">
-                  No models configured. Click "Add Model" to add one.
+                  {/* Row 2: API Key */}
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium">API Key</label>
+                    <div className="relative">
+                      <Input
+                        type={newModelApiKeyVisible ? "text" : "password"}
+                        placeholder={t("provider.apiKeyPlaceholder")}
+                        value={newModel.api_key || ""}
+                        onChange={(e) => setNewModel(prev => ({ ...prev, api_key: e.target.value }))}
+                        className="pr-10"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setNewModelApiKeyVisible(!newModelApiKeyVisible)}
+                        className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      >
+                        {newModelApiKeyVisible ? (
+                          <EyeOff className="size-4" />
+                        ) : (
+                          <Eye className="size-4" />
+                        )}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Row 3: Model ID and Model Name */}
+                  <div className="grid grid-cols-2 gap-4">
+                    {/* Model ID */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Model ID</label>
+                      <Input
+                        placeholder="qwen3.5-27b"
+                        value={newModel.model_id}
+                        onChange={(e) => handleModelIdChange(e.target.value)}
+                      />
+                    </div>
+
+                    {/* Model Name */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">Model Name</label>
+                      <Input
+                        placeholder="qwen3.5-27b"
+                        value={newModel.model_name}
+                        onChange={(e) => setNewModel(prev => ({ ...prev, model_name: e.target.value }))}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Row 4: Thinking, Active, Default switches */}
+                  <div className="flex items-center gap-4 flex-wrap">
+                    {/* Thinking Switch */}
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="new-thinking"
+                        checked={newModel.thinking}
+                        onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, thinking: checked }))}
+                      />
+                      <label htmlFor="new-thinking" className="text-sm">{t("model.thinking")}</label>
+                    </div>
+
+                    {/* Is Active */}
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="new-active"
+                        checked={newModel.is_active}
+                        onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, is_active: checked }))}
+                      />
+                      <label htmlFor="new-active" className="text-sm">{t("model.active")}</label>
+                    </div>
+
+                    {/* Is Default */}
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id="new-default"
+                        checked={newModel.is_default}
+                        onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, is_default: checked }))}
+                      />
+                      <label htmlFor="new-default" className="text-sm flex items-center gap-1">
+                        <Star className="size-3" />
+                        {t("model.default")}
+                      </label>
+                    </div>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowNewModelForm(false)}>
+                      {t("common.cancel")}
+                    </Button>
+                    <Button onClick={handleCreateModel} disabled={!newModel.model_id?.trim() || !newModel.provider?.trim() || !newModel.model_name?.trim() || !newModel.api_key?.trim()}>
+                      {t("common.save")}
+                    </Button>
+                  </div>
                 </div>
               )}
+
+              <Separator />
+
+              {/* Models List - Grouped by provider (sorted alphabetically) */}
+              <div className="space-y-6">
+                {Array.from(new Set(models.map(m => m.provider))).sort().map(provider => {
+                  const providerModels = models
+                    .filter(m => m.provider === provider)
+                    .sort((a, b) => a.model_name.localeCompare(b.model_name))
+
+                  return (
+                    <div key={provider} className="space-y-3">
+                      <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide flex items-center gap-2">
+                        <Badge variant="secondary">{provider}</Badge>
+                      </h4>
+                      {providerModels.map(model => {
+                        const hasChanges = hasPendingChanges(model.model_id)
+                        const effectiveThinking = getEffectiveValue(model, "thinking") as boolean
+                        const effectiveActive = getEffectiveValue(model, "is_active") as boolean
+                        const effectiveDefault = getEffectiveValue(model, "is_default") as boolean
+                        const isDeleting = deletingModelIds.has(model.model_id)
+
+                        return (
+                          <div
+                            key={model.model_id}
+                            className="border rounded-lg p-4 space-y-3 transition-all duration-300 ease-out"
+                            style={{
+                              opacity: isDeleting ? 0 : 1,
+                              transform: isDeleting ? 'scale(0.95)' : 'scale(1)',
+                              height: isDeleting ? 0 : 'auto',
+                              overflow: 'hidden',
+                              marginBottom: isDeleting ? 0 : undefined,
+                              padding: isDeleting ? 0 : undefined,
+                            }}
+                          >
+                            {/* Model Header - Model Name, Type, and Delete Button on same line */}
+                            <div className="flex items-center justify-between gap-2 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium">{model.model_name}</span>
+                                <Badge variant="outline">{model.model_type.toUpperCase()}</Badge>
+                                {model.thinking && (
+                                  <Badge variant="secondary">{t("model.thinking")}</Badge>
+                                )}
+                                {model.is_default && (
+                                  <Star className="size-4 text-yellow-500 fill-yellow-500" />
+                                )}
+                              </div>
+
+                              {/* Delete Button - Right side - Direct delete */}
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="size-8 text-destructive hover:text-destructive"
+                                onClick={() => void handleDeleteModel(model.model_id)}
+                              >
+                                <Trash2 className="size-4" />
+                              </Button>
+                            </div>
+
+                            {/* API Key */}
+                            <div className="space-y-1">
+                              <label className="text-xs text-muted-foreground">API Key</label>
+                              <Input
+                                type="password"
+                                placeholder={model.has_api_key ? "••••••••••••" : t("provider.apiKeyPlaceholder")}
+                                value={apiKeyEdits[model.model_id] ?? ""}
+                                onChange={(e) => handleApiKeyChange(model.model_id, e.target.value)}
+                              />
+                            </div>
+
+                            {/* Switches */}
+                            <div className="flex items-center justify-between flex-wrap gap-2">
+                              <div className="flex items-center gap-4 flex-wrap">
+                                <TooltipProvider>
+                                  {/* Thinking Switch */}
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <div className="flex items-center gap-2">
+                                        <Switch
+                                          id={`thinking-${model.model_id}`}
+                                          checked={effectiveThinking}
+                                          onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "thinking", checked)}
+                                        />
+                                        <label htmlFor={`thinking-${model.model_id}`} className="text-sm">{t("model.thinking")}</label>
+                                      </div>
+                                    </TooltipTrigger>
+                                  </Tooltip>
+                                </TooltipProvider>
+
+                                {/* Active Switch */}
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    id={`active-${model.model_id}`}
+                                    checked={effectiveActive}
+                                    onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_active", checked)}
+                                  />
+                                  <label htmlFor={`active-${model.model_id}`} className="text-sm">{t("model.active")}</label>
+                                </div>
+
+                                {/* Default Switch */}
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    id={`default-${model.model_id}`}
+                                    checked={effectiveDefault}
+                                    onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_default", checked)}
+                                  />
+                                  <label htmlFor={`default-${model.model_id}`} className="text-sm flex items-center gap-1">
+                                    <Star className="size-3" />
+                                    {t("model.default")}
+                                  </label>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Cancel/Save Buttons - Only show when there are pending changes */}
+                            {hasChanges && (
+                              <div className="flex justify-end gap-2 pt-2 border-t">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => cancelChanges(model.model_id)}
+                                >
+                                  {t("common.cancel")}
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  onClick={() => void saveChanges(model.model_id)}
+                                >
+                                  {t("common.save")}
+                                </Button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })}
+
+                {models.length === 0 && (
+                  <div className="text-center py-8 text-muted-foreground">
+                    No models configured. Click "Add Model" to add one.
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-      </DialogContent>
-    </Dialog>
+          )}
+        </DialogContent>
+      </Dialog>
     </>
   )
 }

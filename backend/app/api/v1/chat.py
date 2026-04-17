@@ -466,9 +466,8 @@ async def generate_title(request: TitleGenerateRequest) -> TitleGenerateResponse
     """
     Generate a conversation title using the default LLM.
 
-    This is a lightweight endpoint that directly uses the default LLM
-    without going through the agent flow. It's designed for background
-    title generation that doesn't block user interaction.
+    This is a lightweight endpoint that directly uses LiteLLM
+    without going through LangChain to avoid pydantic compatibility warnings.
 
     Args:
         request: Contains user_message and optional ai_response
@@ -477,11 +476,17 @@ async def generate_title(request: TitleGenerateRequest) -> TitleGenerateResponse
         TitleGenerateResponse with the generated title
     """
     try:
-        # Get the default LLM (not thinking mode, just regular LLM)
-        llm = await ModelManager.get_llm(model_type="llm")
+        # Get the default LLM model ID
+        model_id = ModelManager.get_default_llm_id()
+        if not model_id:
+            raise ValueError("No default LLM configured")
+
+        # Get Router (direct LiteLLM, bypassing LangChain)
+        router = await ModelManager.get_router()
+        if not router:
+            raise ValueError("Model router not initialized")
 
         # Build the prompt for title generation
-        # Use a simple, concise prompt to minimize token usage
         if request.ai_response:
             prompt = f"""Based on the following conversation, generate a concise title (max 20 characters, in the same language as the conversation):
 
@@ -496,11 +501,15 @@ Title:"""
 
 Title:"""
 
-        # Call the LLM
-        response = await llm.ainvoke([HumanMessage(content=prompt)])
+        # Direct LiteLLM call (bypassing LangChain to avoid pydantic warnings)
+        resp = await router.acompletion(
+            model=model_id,
+            messages=[{"role": "user", "content": prompt}],
+        )
 
         # Extract and clean the title
-        title = response.content.strip()
+        content = resp.choices[0].message.content
+        title = content.strip() if content else ""
         # Remove quotes if present (both single and double quotes)
         if title.startswith('"') and title.endswith('"'):
             title = title[1:-1]
