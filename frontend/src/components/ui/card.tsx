@@ -8,10 +8,10 @@ function Card({ className, ...props }: React.ComponentProps<"div">) {
       data-slot="card"
       className={cn(
         "bg-card text-card-foreground flex flex-col gap-6 rounded-2xl border py-6 transition-all duration-200",
-        // 暗色模式：玻璃态效果
+        // Dark mode: glass effect
         "dark:bg-white/[0.03] dark:border-[var(--border)] dark:backdrop-blur-sm",
         "dark:hover:bg-white/[0.05] dark:hover:border-primary/30",
-        // 亮色模式：柔和阴影
+        // Light mode: soft shadow
         "bg-white shadow-[0_10px_30px_rgba(0,0,0,0.06)]",
         "hover:shadow-[0_15px_40px_rgba(0,0,0,0.08)]",
         className
@@ -87,18 +87,18 @@ function CardFooter({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-// 特殊卡片变体：玻璃卡片（更强的玻璃效果）
+// Glass card variant (enhanced glass effect)
 function GlassCard({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="glass-card"
       className={cn(
         "flex flex-col gap-6 rounded-2xl py-6 transition-all duration-200",
-        // 暗色模式：强玻璃态
+        // Dark mode: strong glass effect
         "dark:bg-white/[0.02] dark:border dark:border-[var(--border)] dark:backdrop-blur-md",
         "dark:hover:bg-white/[0.04] dark:hover:border-primary/30",
         "dark:hover:shadow-[0_0_30px_rgba(0,209,255,0.1)]",
-        // 亮色模式
+        // Light mode
         "bg-white border border-transparent shadow-lg",
         "hover:shadow-xl hover:border-primary/10",
         className
@@ -108,7 +108,7 @@ function GlassCard({ className, ...props }: React.ComponentProps<"div">) {
   )
 }
 
-// 高亮卡片（用于选中状态）
+// Highlight card (for selected state)
 function HighlightCard({ className, active, ...props }: React.ComponentProps<"div"> & { active?: boolean }) {
   return (
     <div
@@ -116,13 +116,13 @@ function HighlightCard({ className, active, ...props }: React.ComponentProps<"di
       data-active={active}
       className={cn(
         "flex flex-col gap-4 rounded-2xl p-4 transition-all duration-200 cursor-pointer",
-        // 暗色模式
+        // Dark mode
         "dark:bg-white/[0.02] dark:border dark:border-transparent",
         "dark:hover:bg-white/[0.05] dark:hover:border-primary/20",
-        // 亮色模式
+        // Light mode
         "bg-slate-50/50 border border-transparent",
         "hover:bg-slate-100/80 hover:border-primary/10",
-        // 激活状态
+        // Active state
         active && [
           "border-l-4 border-l-[var(--warm)]",
           "dark:bg-[var(--warm)]/5 dark:border-primary/20",
@@ -135,17 +135,17 @@ function HighlightCard({ className, active, ...props }: React.ComponentProps<"di
   )
 }
 
-// 数据卡片（用于展示数据）
+// Data card (for displaying data)
 function DataCard({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="data-card"
       className={cn(
         "rounded-2xl p-5 transition-all duration-200",
-        // 暗色模式
+        // Dark mode
         "dark:bg-white/[0.03] dark:border dark:border-[var(--border)]",
         "dark:hover:border-primary/30 dark:hover:shadow-[0_0_20px_rgba(0,209,255,0.1)]",
-        // 亮色模式
+        // Light mode
         "bg-gradient-to-br from-white to-slate-50/50 border border-slate-100",
         "hover:shadow-md hover:border-primary/10",
         className

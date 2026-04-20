@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { ChevronDownIcon, ChevronRightIcon, Sparkles, Wrench, Brain, CheckCircle2 } from "lucide-react"
+import { ChevronDownIcon, Sparkles, Wrench, Brain, CheckCircle2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type {

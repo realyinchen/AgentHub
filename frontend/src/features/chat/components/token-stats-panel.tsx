@@ -1,4 +1,4 @@
-import { HelpCircle, Coins, Flame } from "lucide-react"
+import { HelpCircle, Flame } from "lucide-react"
 import type { ConversationInDB } from "@/types"
 import { useI18n } from "@/i18n"
 import {
@@ -42,8 +42,8 @@ function TokenBar({ label, value, colorClass, bgClass, glowClass, tooltip, perce
                 <TooltipTrigger asChild>
                   <HelpCircle className="size-3 cursor-help opacity-60 hover:opacity-100 transition-opacity" />
                 </TooltipTrigger>
-                <TooltipContent 
-                  side="top" 
+                <TooltipContent
+                  side="top"
                   className="text-xs bg-[var(--bg-elevated)]/95 backdrop-blur-sm border-[var(--border)] text-[var(--text-main)]"
                 >
                   {tooltip}

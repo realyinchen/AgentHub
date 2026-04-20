@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react"
-import { Eye, EyeOff, Plus, Trash2, Star, Settings2, HelpCircle } from "lucide-react"
+import { Eye, EyeOff, Plus, Trash2, Settings2, HelpCircle } from "lucide-react"
 
 import type { ModelInfo, ModelType, ModelCreate, ModelUpdate } from "@/types"
 import { getAllModels, createModel, updateModel, deleteModel, setDefaultModel, getProviders } from "@/lib/api"
@@ -74,12 +74,16 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   // API Key editing state (model_id -> raw value)
   const [apiKeyEdits, setApiKeyEdits] = useState<Record<string, string>>({})
 
+  // Default model selection state
+  const [selectedDefaultLLM, setSelectedDefaultLLM] = useState<string>("")
+  const [selectedDefaultVLM, setSelectedDefaultVLM] = useState<string>("")
+  const [hasDefaultChanges, setHasDefaultChanges] = useState(false)
+
   // Pending changes state (model_id -> changes)
   const [pendingChanges, setPendingChanges] = useState<Record<string, ModelChanges>>({})
 
   // Error alert hook
   const errorAlert = useErrorAlert()
-
 
   // Load models and providers on dialog open
   const loadData = useCallback(async () => {
@@ -93,6 +97,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       const configurableModels = modelsResult.models.filter(m => m.model_type !== "embedding")
       setModels(configurableModels)
       setProviders(providersResult.providers)
+
+      // Initialize default model selections
+      const defaultLLM = configurableModels.find(m => m.model_type === "llm" && m.is_default)
+      const defaultVLM = configurableModels.find(m => m.model_type === "vlm" && m.is_default)
+      setSelectedDefaultLLM(defaultLLM?.model_id || "")
+      setSelectedDefaultVLM(defaultVLM?.model_id || "")
+      setHasDefaultChanges(false)
     } catch (error) {
       console.error("Failed to load data:", error)
     } finally {
@@ -196,9 +207,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       const errorMessage = error instanceof Error ? error.message : String(error)
       // Check for specific error types
       if (errorMessage.includes("model_name_exists")) {
-        errorAlert.showError("Model Name 已存在，请使用其他名称")
+        errorAlert.showError(t("error.modelNameExists"))
       } else {
-        errorAlert.showError(errorMessage)
+        errorAlert.showError(t("error.saveFailed", { details: errorMessage }))
       }
       console.error("Failed to save changes:", error)
     }
@@ -227,11 +238,11 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       const errorMessage = error instanceof Error ? error.message : String(error)
       // Check for specific error types
       if (errorMessage.includes("model_id_exists")) {
-        errorAlert.showError("Model ID 已存在，请使用其他 ID")
+        errorAlert.showError(t("error.modelIdExists"))
       } else if (errorMessage.includes("model_name_exists")) {
-        errorAlert.showError("Model Name 已存在，请使用其他名称")
+        errorAlert.showError(t("error.modelNameExists"))
       } else {
-        errorAlert.showError(errorMessage)
+        errorAlert.showError(t("error.createFailed", { details: errorMessage }))
       }
       console.error("Failed to create model:", error)
     }
@@ -300,13 +311,61 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     return model[field as keyof ModelInfo]
   }
 
+  // Handle default model selection change
+  const handleDefaultLLMChange = (value: string) => {
+    // Treat __none__ as empty string
+    setSelectedDefaultLLM(value === "__none__" ? "" : value)
+    setHasDefaultChanges(true)
+  }
+
+  const handleDefaultVLMChange = (value: string) => {
+    // Treat __none__ as empty string
+    setSelectedDefaultVLM(value === "__none__" ? "" : value)
+    setHasDefaultChanges(true)
+  }
+
+  // Save default model changes
+  const saveDefaultChanges = async () => {
+    try {
+      // Update default LLM (use empty string if __none__)
+      const currentDefaultLLM = models.find(m => m.model_type === "llm" && m.is_default)
+      const newDefaultLLM = selectedDefaultLLM || undefined
+      if (newDefaultLLM && newDefaultLLM !== currentDefaultLLM?.model_id) {
+        await setDefaultModel(newDefaultLLM)
+      }
+
+      // Update default VLM (use empty string if __none__)
+      const currentDefaultVLM = models.find(m => m.model_type === "vlm" && m.is_default)
+      const newDefaultVLM = selectedDefaultVLM || undefined
+      if (newDefaultVLM && newDefaultVLM !== currentDefaultVLM?.model_id) {
+        await setDefaultModel(newDefaultVLM)
+      }
+
+      setHasDefaultChanges(false)
+      await loadData()
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      errorAlert.showError(errorMessage)
+      console.error("Failed to save default changes:", error)
+    }
+  }
+
+  // Cancel default model changes
+  const cancelDefaultChanges = () => {
+    const defaultLLM = models.find(m => m.model_type === "llm" && m.is_default)
+    const defaultVLM = models.find(m => m.model_type === "vlm" && m.is_default)
+    setSelectedDefaultLLM(defaultLLM?.model_id || "")
+    setSelectedDefaultVLM(defaultVLM?.model_id || "")
+    setHasDefaultChanges(false)
+  }
+
   return (
     <>
       {/* Error Alert Dialog - Centered on screen */}
       <ErrorAlertDialog state={errorAlert.state} onOpenChange={errorAlert.setOpen} />
 
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="dialog-scroll-area max-w-5xl max-h-[85vh] overflow-y-auto
+        <DialogContent style={{ maxWidth: '90vw', width: 'max-content' }} className="dialog-scroll-area max-h-[85vh] overflow-y-auto
                                    bg-gradient-to-br from-background via-background to-muted/30
                                    dark:bg-gradient-to-br dark:from-[#0B0F1A] dark:via-[#111827] dark:to-[#1A2238]/50
                                    dark:border-primary/20 dark:backdrop-blur-xl
@@ -351,20 +410,77 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
             </div>
           ) : (
             <div className="space-y-4">
-              {/* New Model Button */}
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowNewModelForm(!showNewModelForm)}
-                  className="gap-1.5 rounded-xl px-4 py-2
-                             border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50
-                             dark:border-primary/40 dark:text-primary dark:hover:bg-primary/15
-                             transition-all duration-200 hover:shadow-[0_0_12px_rgba(0,209,255,0.2)]"
-                >
-                  <Plus className="size-4" />
-                  {t("common.add") || "Add Model"}
-                </Button>
+              {/* Header Row: Default Model Selectors - Left/Right Aligned */}
+              <div className="flex items-center justify-between gap-3">
+                {/* Default LLM Select - Left */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">{t("model.defaultLLM")}:</span>
+                  <Select
+                    value={selectedDefaultLLM || "__none__"}
+                    onValueChange={handleDefaultLLMChange}
+                  >
+                    <SelectTrigger className="w-36 h-8 rounded-lg text-xs">
+                      <SelectValue placeholder={t("model.selectPlaceholder")} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__" className="text-xs">{t("model.none")}</SelectItem>
+                      {models.filter(m => m.model_type === "llm" && m.is_active).map(m => (
+                        <SelectItem key={m.model_id} value={m.model_id} className="text-xs">
+                          {m.model_name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {/* Right side: VLM + Buttons */}
+                <div className="flex items-center gap-3">
+                  {/* Default VLM Select */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">{t("model.defaultVLM")}:</span>
+                    <Select
+                      value={selectedDefaultVLM || "__none__"}
+                      onValueChange={handleDefaultVLMChange}
+                    >
+                      <SelectTrigger className="w-36 h-8 rounded-lg text-xs">
+                        <SelectValue placeholder={t("model.selectPlaceholder")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__" className="text-xs">{t("model.none")}</SelectItem>
+                        {models.filter(m => m.model_type === "vlm" && m.is_active).map(m => (
+                          <SelectItem key={m.model_id} value={m.model_id} className="text-xs">
+                            {m.model_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Save/Cancel Buttons for Default Changes */}
+                  {hasDefaultChanges && (
+                    <>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={cancelDefaultChanges}
+                        className="h-8 px-2 text-xs"
+                      >
+                        {t("common.cancel")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        onClick={() => void saveDefaultChanges()}
+                        className="h-8 px-3 text-xs rounded-lg
+                                   bg-gradient-to-r from-primary to-accent
+                                   hover:from-primary/90 hover:to-accent/90
+                                   shadow-[0_0_8px_rgba(0,209,255,0.3)]
+                                   transition-all duration-200"
+                      >
+                        {t("common.save")}
+                      </Button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {/* New Model Form */}
@@ -510,8 +626,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                         checked={newModel.is_default}
                         onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, is_default: checked }))}
                       />
-                      <label htmlFor="new-default" className="text-sm flex items-center gap-1">
-                        <Star className="size-3" />
+                      <label htmlFor="new-default" className="text-sm">
                         {t("model.default")}
                       </label>
                     </div>
@@ -541,12 +656,22 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                     <div key={provider} className="space-y-3">
                       <h4 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide flex items-center gap-2">
                         <Badge variant="secondary">{provider}</Badge>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="size-6 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10"
+                          onClick={() => {
+                            setNewModel(prev => ({ ...prev, provider, model_type: "llm" }))
+                            setShowNewModelForm(true)
+                          }}
+                        >
+                          <Plus className="size-3.5" />
+                        </Button>
                       </h4>
                       {providerModels.map(model => {
                         const hasChanges = hasPendingChanges(model.model_id)
                         const effectiveThinking = getEffectiveValue(model, "thinking") as boolean
                         const effectiveActive = getEffectiveValue(model, "is_active") as boolean
-                        const effectiveDefault = getEffectiveValue(model, "is_default") as boolean
                         const isDeleting = deletingModelIds.has(model.model_id)
 
                         return (
@@ -568,29 +693,20 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               padding: isDeleting ? 0 : undefined,
                             }}
                           >
-                            {/* Model Header - Model Name, Type, and Delete Button on same line */}
+                            {/* Model Header - Model Name, Type, Switches, and Delete Button on same line */}
                             <div className="flex items-center justify-between gap-3 flex-wrap">
-                              <div className="flex items-center gap-2.5 flex-wrap">
+                              <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-semibold text-base">{model.model_name}</span>
-                                <Badge 
-                                  variant="outline" 
+                                <Badge
+                                  variant="outline"
                                   className="rounded-lg px-2.5 py-0.5 text-xs font-medium
                                              border-primary/30 text-primary
                                              dark:border-primary/40 dark:text-primary"
                                 >
                                   {model.model_type.toUpperCase()}
                                 </Badge>
-                                {model.thinking && (
-                                  <Badge 
-                                    variant="secondary"
-                                    className="rounded-lg px-2.5 py-0.5 text-xs
-                                               bg-accent/10 text-accent border-accent/20"
-                                  >
-                                    {t("model.thinking")}
-                                  </Badge>
-                                )}
                                 {model.is_default && (
-                                  <Badge 
+                                  <Badge
                                     variant="secondary"
                                     className="rounded-lg px-2 py-0.5 text-xs font-medium
                                                bg-warm/10 text-warm border-warm/20"
@@ -598,6 +714,34 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                     {t("model.default")}
                                   </Badge>
                                 )}
+
+                                {/* Thinking Switch - moved to header row */}
+                                <div className="flex items-center gap-1.5 ml-1">
+                                  <Switch
+                                    id={`thinking-${model.model_id}`}
+                                    checked={effectiveThinking}
+                                    onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "thinking", checked)}
+                                    className="scale-75"
+                                  />
+                                  <label htmlFor={`thinking-${model.model_id}`}
+                                    className="text-xs text-muted-foreground cursor-pointer">
+                                    {t("model.thinking")}
+                                  </label>
+                                </div>
+
+                                {/* Active Switch - moved to header row */}
+                                <div className="flex items-center gap-1.5">
+                                  <Switch
+                                    id={`active-${model.model_id}`}
+                                    checked={effectiveActive}
+                                    onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_active", checked)}
+                                    className="scale-75"
+                                  />
+                                  <label htmlFor={`active-${model.model_id}`}
+                                    className="text-xs text-muted-foreground cursor-pointer">
+                                    {t("model.active")}
+                                  </label>
+                                </div>
                               </div>
 
                               {/* Delete Button - Right side - Direct delete */}
@@ -632,59 +776,6 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               />
                             </div>
 
-                            {/* Switches */}
-                            <div className="flex items-center justify-between flex-wrap gap-3 
-                                            p-3 rounded-xl bg-muted/30 dark:bg-white/[0.02]">
-                              <div className="flex items-center gap-5 flex-wrap">
-                                <TooltipProvider>
-                                  {/* Thinking Switch */}
-                                  <Tooltip>
-                                    <TooltipTrigger asChild>
-                                      <div className="flex items-center gap-2.5 group/switch">
-                                        <Switch
-                                          id={`thinking-${model.model_id}`}
-                                          checked={effectiveThinking}
-                                          onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "thinking", checked)}
-                                          className="data-[state=checked]:bg-accent"
-                                        />
-                                        <label htmlFor={`thinking-${model.model_id}`} 
-                                               className="text-sm cursor-pointer group-hover/switch:text-foreground transition-colors">
-                                          {t("model.thinking")}
-                                        </label>
-                                      </div>
-                                    </TooltipTrigger>
-                                  </Tooltip>
-                                </TooltipProvider>
-
-                                {/* Active Switch */}
-                                <div className="flex items-center gap-2.5 group/switch">
-                                  <Switch
-                                    id={`active-${model.model_id}`}
-                                    checked={effectiveActive}
-                                    onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_active", checked)}
-                                    className="data-[state=checked]:bg-primary"
-                                  />
-                                  <label htmlFor={`active-${model.model_id}`} 
-                                         className="text-sm cursor-pointer group-hover/switch:text-foreground transition-colors">
-                                    {t("model.active")}
-                                  </label>
-                                </div>
-
-                                {/* Default Switch */}
-                                <div className="flex items-center gap-2.5 group/switch">
-                                  <Switch
-                                    id={`default-${model.model_id}`}
-                                    checked={effectiveDefault}
-                                    onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_default", checked)}
-                                    className="data-[state=checked]:bg-warm"
-                                  />
-                                  <label htmlFor={`default-${model.model_id}`} 
-                                         className="text-sm cursor-pointer group-hover/switch:text-foreground transition-colors">
-                                    {t("model.default")}
-                                  </label>
-                                </div>
-                              </div>
-                            </div>
 
                             {/* Cancel/Save Buttons - Only show when there are pending changes */}
                             {hasChanges && (
