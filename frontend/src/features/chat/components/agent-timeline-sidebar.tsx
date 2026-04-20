@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { ChevronDownIcon, Sparkles, Wrench, Brain, CheckCircle2 } from "lucide-react"
+import { ChevronDownIcon, Sparkles, Wrench, Brain, CheckCircle2, Maximize2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type {
@@ -9,6 +9,12 @@ import type {
   ToolCallEvent,
 } from "@/types"
 import { useI18n } from "@/i18n"
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 type AgentTimelineSidebarProps = {
   session: AgentProcessSession | null
@@ -224,6 +230,12 @@ export function AgentTimelineSidebar({
 
   // Track expanded state for each step - default to all collapsed
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
+  
+  // Track expanded state for the modal view
+  const [expandedStepsInModal, setExpandedStepsInModal] = useState<Set<string>>(new Set())
+  
+  // Modal open state
+  const [isModalOpen, setIsModalOpen] = useState(false)
 
   // Reset expanded state when message sequence changes (thread switch)
   useEffect(() => {
@@ -378,6 +390,27 @@ export function AgentTimelineSidebar({
       return next
     })
   }, [])
+  
+  // Toggle step in modal
+  const toggleStepInModal = useCallback((stepId: string) => {
+    setExpandedStepsInModal(prev => {
+      const next = new Set(prev)
+      if (next.has(stepId)) {
+        next.delete(stepId)
+      } else {
+        next.add(stepId)
+      }
+      return next
+    })
+  }, [])
+  
+  // Open modal and expand all steps
+  const openExpandedView = useCallback(() => {
+    // Expand all steps when opening modal
+    const allStepIds = new Set(timelineSteps.map(s => s.id))
+    setExpandedStepsInModal(allStepIds)
+    setIsModalOpen(true)
+  }, [timelineSteps])
 
   // Empty state - no steps to show
   if (timelineSteps.length === 0) {
@@ -424,41 +457,76 @@ export function AgentTimelineSidebar({
 
   // History mode - simple card with title, steps always visible
   return (
-    <div className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden
-                    backdrop-blur-sm shadow-lg">
-      {/* Header - static title */}
-      <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
-        <div className="flex items-center gap-2">
-          <div className="size-6 rounded-lg bg-accent/15 flex items-center justify-center">
-            <CheckCircle2 className="size-3.5 text-accent" />
+    <>
+      <div className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden
+                      backdrop-blur-sm shadow-lg">
+        {/* Header - static title */}
+        <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
+          <div className="flex items-center gap-2">
+            <div className="size-6 rounded-lg bg-accent/15 flex items-center justify-center">
+              <CheckCircle2 className="size-3.5 text-accent" />
+            </div>
+            <span className="text-sm font-semibold text-foreground">
+              {t("process.executionSteps")}
+            </span>
           </div>
-          <span className="text-sm font-semibold text-foreground">
-            {t("process.executionSteps")}
-          </span>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={openExpandedView}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              title={t("process.expandView") || "Expand view"}
+            >
+              <Maximize2 className="size-4" />
+            </button>
+            <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
+              {timelineSteps.length}
+            </span>
+          </div>
         </div>
-        <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
-          {timelineSteps.length}
-        </span>
+
+        {/* Timeline content */}
+        <div
+          ref={scrollRef}
+          className="p-3 max-h-80 overflow-y-auto process-steps-scroll"
+        >
+          <div className="space-y-0">
+            {timelineSteps.map((step, index) => (
+              <TimelineStepItem
+                key={step.id}
+                step={step}
+                isLast={index === timelineSteps.length - 1}
+                isExpanded={expandedSteps.has(step.id)}
+                onToggle={() => toggleStep(step.id)}
+              />
+            ))}
+          </div>
+        </div>
       </div>
 
-      {/* Timeline content */}
-      <div
-        ref={scrollRef}
-        className="p-3 max-h-80 overflow-y-auto process-steps-scroll"
-      >
-        <div className="space-y-0">
-          {timelineSteps.map((step, index) => (
-            <TimelineStepItem
-              key={step.id}
-              step={step}
-              isLast={index === timelineSteps.length - 1}
-              isExpanded={expandedSteps.has(step.id)}
-              onToggle={() => toggleStep(step.id)}
-            />
-          ))}
-        </div>
-      </div>
-    </div>
+      {/* Expanded modal */}
+      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{t("process.executionSteps")}（{timelineSteps.length}）</DialogTitle>
+          </DialogHeader>
+          
+          <div className="flex-1 overflow-y-auto process-steps-scroll">
+            <div className="space-y-0 p-1">
+              {timelineSteps.map((step, index) => (
+                <TimelineStepItem
+                  key={step.id}
+                  step={step}
+                  isLast={index === timelineSteps.length - 1}
+                  isExpanded={expandedStepsInModal.has(step.id)}
+                  onToggle={() => toggleStepInModal(step.id)}
+                />
+              ))}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
