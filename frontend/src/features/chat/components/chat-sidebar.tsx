@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { MessageSquarePlus, MoreHorizontal, PencilLine, Trash2, History, ChevronsLeft, ChevronsRight, ChevronsDown } from "lucide-react"
+import { MessageSquarePlus, MoreHorizontal, PencilLine, Trash2, History, ChevronsLeft, ChevronsRight, ChevronsDown, Search } from "lucide-react"
 
 import type { ConversationInDB } from "@/types"
 import { Button } from "@/components/ui/button"
@@ -41,6 +41,29 @@ type ChatSidebarProps = {
 const INITIAL_DISPLAY_COUNT = 10
 const LOAD_MORE_COUNT = 10
 
+// Search component
+function SearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
+  const { t } = useI18n()
+  return (
+    <div className="relative group">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-sidebar-foreground/50 transition-colors group-focus-within:text-primary" />
+      <input
+        type="text"
+        placeholder={t("conversation.search") || "Search conversations..."}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full h-9 pl-9 pr-3 rounded-xl bg-sidebar-accent/30 border border-transparent
+                   text-sm text-sidebar-foreground placeholder:text-sidebar-foreground/40
+                   transition-all duration-200 ease-out
+                   focus:outline-none focus:border-primary/40 focus:bg-sidebar-accent/50
+                   focus:shadow-[0_0_0_3px_rgba(0,209,255,0.1)]
+                   dark:focus:shadow-[0_0_0_3px_rgba(0,209,255,0.15)]
+                   hover:bg-sidebar-accent/40"
+      />
+    </div>
+  )
+}
+
 export function ChatSidebar({
   threadId,
   conversations,
@@ -56,10 +79,19 @@ export function ChatSidebar({
 
   // Pagination state
   const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT)
+  // Search state
+  const [searchQuery, setSearchQuery] = useState("")
+
+  // Filter conversations by search query
+  const filteredConversations = searchQuery
+    ? conversations.filter((c) =>
+        c.title.toLowerCase().includes(searchQuery.toLowerCase())
+      )
+    : conversations
 
   // Get visible conversations
-  const visibleConversations = conversations.slice(0, displayCount)
-  const hasMore = conversations.length > displayCount
+  const visibleConversations = filteredConversations.slice(0, displayCount)
+  const hasMore = filteredConversations.length > displayCount
 
   // Load more conversations
   const loadMore = () => {
@@ -141,9 +173,16 @@ export function ChatSidebar({
         <SidebarGroup className="pt-1 group-data-[collapsible=icon]:hidden">
           <SidebarGroupLabel className="px-2">{t("conversation.recent")}</SidebarGroupLabel>
           <SidebarGroupContent>
-            {conversations.length === 0 ? (
-              <p className="mt-3 rounded-lg border border-dashed p-3 text-sm text-sidebar-foreground/70">
-                {t("conversation.none")}
+            {/* Search input */}
+            <div className="px-1 mb-3">
+              <SearchInput value={searchQuery} onChange={setSearchQuery} />
+            </div>
+            
+            {filteredConversations.length === 0 ? (
+              <p className="mt-3 rounded-xl border border-dashed border-sidebar-border/50 p-4 text-sm text-sidebar-foreground/60 text-center">
+                {searchQuery 
+                  ? (t("conversation.noResults") || "No conversations found") 
+                  : t("conversation.none")}
               </p>
             ) : (
               <SidebarMenu>
@@ -155,14 +194,18 @@ export function ChatSidebar({
                       <div className="group/item relative">
                         <SidebarMenuButton
                           isActive={isActive}
-                          className="h-auto items-start py-2 pr-10 cursor-pointer"
+                          className={`h-auto items-start py-2.5 pr-10 cursor-pointer rounded-xl
+                                     transition-all duration-200 ease-out
+                                     ${isActive 
+                                       ? 'bg-gradient-to-r from-warm/15 to-transparent border-l-2 border-warm pl-3 ml-0' 
+                                       : 'hover:bg-sidebar-accent/50 hover:translate-x-0.5'}`}
                           onClick={() => onOpenConversation(conversation)}
                         >
                           <div className="min-w-0">
-                            <p className="line-clamp-1 text-sm font-medium">
+                            <p className={`line-clamp-1 text-sm transition-colors duration-200 ${isActive ? 'font-semibold text-sidebar-foreground' : 'font-medium text-sidebar-foreground/90'}`}>
                               {conversation.title}
                             </p>
-                            <p className="text-xs text-sidebar-foreground/60">
+                            <p className="text-xs text-sidebar-foreground/50 mt-0.5">
                               {formatUpdatedAt(conversation.updated_at, locale)}
                             </p>
                           </div>
@@ -173,7 +216,10 @@ export function ChatSidebar({
                             <Button
                               variant="ghost"
                               size="icon"
-                              className="absolute top-1.5 cursor-pointer right-1 size-7 text-sidebar-foreground/65"
+                              className="absolute top-2 cursor-pointer right-2 size-7 text-sidebar-foreground/50
+                                         opacity-0 group-hover/item:opacity-100 transition-all duration-200
+                                         hover:bg-sidebar-accent/80 hover:text-sidebar-foreground
+                                         rounded-lg"
                               onClick={(event) => {
                                 event.stopPropagation()
                               }}

@@ -26,6 +26,7 @@ import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 import {
   Tooltip,
+  TooltipContent,
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
@@ -305,22 +306,41 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       <ErrorAlertDialog state={errorAlert.state} onOpenChange={errorAlert.setOpen} />
 
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="dialog-scroll-area max-w-5xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Settings2 className="size-5" />
-              {t("provider.configTitle")}
-              <a
-                href="https://docs.litellm.ai/docs/providers"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-muted-foreground hover:text-foreground transition-colors"
-                title={t("provider.helpLink") || "View provider documentation"}
-              >
-                <HelpCircle className="size-4" />
-              </a>
+        <DialogContent className="dialog-scroll-area max-w-5xl max-h-[85vh] overflow-y-auto
+                                   bg-gradient-to-br from-background via-background to-muted/30
+                                   dark:bg-gradient-to-br dark:from-[#0B0F1A] dark:via-[#111827] dark:to-[#1A2238]/50
+                                   dark:border-primary/20 dark:backdrop-blur-xl
+                                   shadow-2xl dark:shadow-[0_0_40px_rgba(0,209,255,0.1)]
+                                   rounded-2xl">
+          <DialogHeader className="pb-4 border-b border-border/50">
+            <DialogTitle className="flex items-center gap-3 text-lg">
+              <div className="size-9 rounded-xl bg-gradient-to-br from-primary/20 to-accent/20 
+                               flex items-center justify-center
+                               shadow-[0_0_12px_rgba(0,209,255,0.2)]">
+                <Settings2 className="size-5 text-primary" />
+              </div>
+              <span className="bg-gradient-to-r from-foreground to-foreground/80 bg-clip-text">
+                {t("provider.configTitle")}
+              </span>
+              <TooltipProvider>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <a
+                      href="https://docs.litellm.ai/docs/providers"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-muted-foreground hover:text-primary transition-colors p-1.5 rounded-lg hover:bg-primary/10"
+                    >
+                      <HelpCircle className="size-4" />
+                    </a>
+                  </TooltipTrigger>
+                  <TooltipContent side="right" className="max-w-xs">
+                    <p>{t("provider.helpLink") || "View provider documentation"}</p>
+                  </TooltipContent>
+                </Tooltip>
+              </TooltipProvider>
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-muted-foreground/80 ml-12">
               {t("provider.configDescription")}
             </DialogDescription>
           </DialogHeader>
@@ -337,7 +357,10 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                   variant="outline"
                   size="sm"
                   onClick={() => setShowNewModelForm(!showNewModelForm)}
-                  className="gap-1"
+                  className="gap-1.5 rounded-xl px-4 py-2
+                             border-primary/30 text-primary hover:bg-primary/10 hover:border-primary/50
+                             dark:border-primary/40 dark:text-primary dark:hover:bg-primary/15
+                             transition-all duration-200 hover:shadow-[0_0_12px_rgba(0,209,255,0.2)]"
                 >
                   <Plus className="size-4" />
                   {t("common.add") || "Add Model"}
@@ -346,8 +369,17 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
               {/* New Model Form */}
               {showNewModelForm && (
-                <div className="border rounded-lg p-4 space-y-4 bg-muted/50">
-                  <h4 className="font-medium">{t("model.new") || "New Model"}</h4>
+                <div className="border border-primary/20 dark:border-primary/30 rounded-2xl p-5 space-y-5 
+                                bg-gradient-to-br from-muted/50 to-muted/30 
+                                dark:bg-gradient-to-br dark:from-primary/5 dark:to-accent/5
+                                shadow-lg dark:shadow-[0_0_20px_rgba(0,209,255,0.08)]
+                                animate-in fade-in-0 slide-in-from-top-4 duration-300">
+                  <h4 className="font-semibold text-base flex items-center gap-2">
+                    <div className="size-6 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <Plus className="size-3.5 text-primary" />
+                    </div>
+                    {t("model.new") || "New Model"}
+                  </h4>
 
                   {/* Row 1: Provider and Model Type */}
                   <div className="grid grid-cols-2 gap-4">
@@ -520,7 +552,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                         return (
                           <div
                             key={model.model_id}
-                            className="border rounded-lg p-4 space-y-3 transition-all duration-300 ease-out"
+                            className="group border border-border/50 dark:border-primary/10 
+                                       rounded-2xl p-5 space-y-4 
+                                       bg-card/50 dark:bg-gradient-to-br dark:from-white/[0.03] dark:to-white/[0.01]
+                                       dark:backdrop-blur-sm
+                                       hover:border-primary/30 dark:hover:border-primary/30
+                                       hover:shadow-lg dark:hover:shadow-[0_0_20px_rgba(0,209,255,0.08)]
+                                       transition-all duration-300 ease-out"
                             style={{
                               opacity: isDeleting ? 0 : 1,
                               transform: isDeleting ? 'scale(0.95)' : 'scale(1)',
@@ -531,15 +569,34 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                             }}
                           >
                             {/* Model Header - Model Name, Type, and Delete Button on same line */}
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <div className="flex items-center gap-2 flex-wrap">
-                                <span className="font-medium">{model.model_name}</span>
-                                <Badge variant="outline">{model.model_type.toUpperCase()}</Badge>
+                            <div className="flex items-center justify-between gap-3 flex-wrap">
+                              <div className="flex items-center gap-2.5 flex-wrap">
+                                <span className="font-semibold text-base">{model.model_name}</span>
+                                <Badge 
+                                  variant="outline" 
+                                  className="rounded-lg px-2.5 py-0.5 text-xs font-medium
+                                             border-primary/30 text-primary
+                                             dark:border-primary/40 dark:text-primary"
+                                >
+                                  {model.model_type.toUpperCase()}
+                                </Badge>
                                 {model.thinking && (
-                                  <Badge variant="secondary">{t("model.thinking")}</Badge>
+                                  <Badge 
+                                    variant="secondary"
+                                    className="rounded-lg px-2.5 py-0.5 text-xs
+                                               bg-accent/10 text-accent border-accent/20"
+                                  >
+                                    {t("model.thinking")}
+                                  </Badge>
                                 )}
                                 {model.is_default && (
-                                  <Star className="size-4 text-yellow-500 fill-yellow-500" />
+                                  <Badge 
+                                    variant="secondary"
+                                    className="rounded-lg px-2 py-0.5 text-xs font-medium
+                                               bg-warm/10 text-warm border-warm/20"
+                                  >
+                                    {t("model.default")}
+                                  </Badge>
                                 )}
                               </div>
 
@@ -547,7 +604,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="size-8 text-destructive hover:text-destructive"
+                                className="size-9 rounded-xl text-destructive/60 hover:text-destructive 
+                                           hover:bg-destructive/10 hover:shadow-[0_0_8px_rgba(239,68,68,0.2)]
+                                           transition-all duration-200"
                                 onClick={() => void handleDeleteModel(model.model_id)}
                               >
                                 <Trash2 className="size-4" />
@@ -555,54 +614,72 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                             </div>
 
                             {/* API Key */}
-                            <div className="space-y-1">
-                              <label className="text-xs text-muted-foreground">API Key</label>
+                            <div className="space-y-1.5">
+                              <label className="text-xs font-medium text-muted-foreground flex items-center gap-1.5">
+                                <div className="size-1 rounded-full bg-primary/50" />
+                                API Key
+                              </label>
                               <Input
                                 type="password"
                                 placeholder={model.has_api_key ? "••••••••••••" : t("provider.apiKeyPlaceholder")}
                                 value={apiKeyEdits[model.model_id] ?? ""}
                                 onChange={(e) => handleApiKeyChange(model.model_id, e.target.value)}
+                                className="rounded-xl bg-muted/50 dark:bg-white/5 
+                                           border-border/50 dark:border-primary/10
+                                           focus:border-primary/50 dark:focus:border-primary/30
+                                           focus:ring-primary/20 dark:focus:ring-primary/10
+                                           transition-all duration-200"
                               />
                             </div>
 
                             {/* Switches */}
-                            <div className="flex items-center justify-between flex-wrap gap-2">
-                              <div className="flex items-center gap-4 flex-wrap">
+                            <div className="flex items-center justify-between flex-wrap gap-3 
+                                            p-3 rounded-xl bg-muted/30 dark:bg-white/[0.02]">
+                              <div className="flex items-center gap-5 flex-wrap">
                                 <TooltipProvider>
                                   {/* Thinking Switch */}
                                   <Tooltip>
                                     <TooltipTrigger asChild>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2.5 group/switch">
                                         <Switch
                                           id={`thinking-${model.model_id}`}
                                           checked={effectiveThinking}
                                           onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "thinking", checked)}
+                                          className="data-[state=checked]:bg-accent"
                                         />
-                                        <label htmlFor={`thinking-${model.model_id}`} className="text-sm">{t("model.thinking")}</label>
+                                        <label htmlFor={`thinking-${model.model_id}`} 
+                                               className="text-sm cursor-pointer group-hover/switch:text-foreground transition-colors">
+                                          {t("model.thinking")}
+                                        </label>
                                       </div>
                                     </TooltipTrigger>
                                   </Tooltip>
                                 </TooltipProvider>
 
                                 {/* Active Switch */}
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2.5 group/switch">
                                   <Switch
                                     id={`active-${model.model_id}`}
                                     checked={effectiveActive}
                                     onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_active", checked)}
+                                    className="data-[state=checked]:bg-primary"
                                   />
-                                  <label htmlFor={`active-${model.model_id}`} className="text-sm">{t("model.active")}</label>
+                                  <label htmlFor={`active-${model.model_id}`} 
+                                         className="text-sm cursor-pointer group-hover/switch:text-foreground transition-colors">
+                                    {t("model.active")}
+                                  </label>
                                 </div>
 
                                 {/* Default Switch */}
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2.5 group/switch">
                                   <Switch
                                     id={`default-${model.model_id}`}
                                     checked={effectiveDefault}
                                     onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "is_default", checked)}
+                                    className="data-[state=checked]:bg-warm"
                                   />
-                                  <label htmlFor={`default-${model.model_id}`} className="text-sm flex items-center gap-1">
-                                    <Star className="size-3" />
+                                  <label htmlFor={`default-${model.model_id}`} 
+                                         className="text-sm cursor-pointer group-hover/switch:text-foreground transition-colors">
                                     {t("model.default")}
                                   </label>
                                 </div>
@@ -611,17 +688,24 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
                             {/* Cancel/Save Buttons - Only show when there are pending changes */}
                             {hasChanges && (
-                              <div className="flex justify-end gap-2 pt-2 border-t">
+                              <div className="flex justify-end gap-2.5 pt-3 border-t border-border/50 dark:border-primary/10">
                                 <Button
                                   variant="outline"
                                   size="sm"
                                   onClick={() => cancelChanges(model.model_id)}
+                                  className="rounded-xl px-4"
                                 >
                                   {t("common.cancel")}
                                 </Button>
                                 <Button
                                   size="sm"
                                   onClick={() => void saveChanges(model.model_id)}
+                                  className="rounded-xl px-4 
+                                             bg-gradient-to-r from-primary to-accent
+                                             hover:from-primary/90 hover:to-accent/90
+                                             shadow-[0_0_12px_rgba(0,209,255,0.3)]
+                                             hover:shadow-[0_0_16px_rgba(0,209,255,0.4)]
+                                             transition-all duration-200"
                                 >
                                   {t("common.save")}
                                 </Button>

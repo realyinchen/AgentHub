@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { ChevronDownIcon, ChevronRightIcon } from "lucide-react"
+import { ChevronDownIcon, ChevronRightIcon, Sparkles, Wrench, Brain, CheckCircle2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type {
@@ -39,25 +39,7 @@ type TimelineStep = {
   timestamp: number
 }
 
-// ==================== Icon Mapping ====================
-
-const STEP_ICONS: Record<TimelineStepType, string> = {
-  ai_thinking: "🧠",
-  tool: "🔧",
-  ai_final: "🧠",
-}
-
 // ==================== Sub-components ====================
-
-function LoadingDots() {
-  return (
-    <span className="inline-flex items-center gap-0.5 ml-1">
-      <span className="size-1 rounded-full bg-current animate-bounce [animation-delay:-0.3s]" />
-      <span className="size-1 rounded-full bg-current animate-bounce [animation-delay:-0.15s]" />
-      <span className="size-1 rounded-full bg-current animate-bounce" />
-    </span>
-  )
-}
 
 function TimelineStepItem({
   step,
@@ -71,71 +53,90 @@ function TimelineStepItem({
   onToggle: () => void
 }) {
   const { t } = useI18n()
-  const icon = STEP_ICONS[step.type]
   const isRunning = step.status === "running"
+
+  // Get icon based on type
+  const getIcon = () => {
+    switch (step.type) {
+      case "ai_thinking":
+        return <Brain className="size-3.5" />
+      case "tool":
+        return <Wrench className="size-3.5" />
+      case "ai_final":
+        return <Sparkles className="size-3.5" />
+    }
+  }
 
   return (
     <div className="relative">
       {/* Timeline vertical line */}
       {!isLast && (
-        <div className="absolute left-[11px] top-5 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
+        <div className="absolute left-[15px] top-8 bottom-0 w-0.5 bg-gradient-to-b from-primary/30 to-transparent" />
       )}
 
       {/* Step row */}
-      <div className="flex items-start gap-2">
-        {/* Dot/Circle */}
+      <div className="flex items-start gap-3">
+        {/* Dot/Circle - 简洁的圆圈配勾号，无光环 */}
         <div
           className={cn(
-            "flex-shrink-0 size-5 rounded-full flex items-center justify-center text-[10px] z-10",
+            "flex-shrink-0 size-6 rounded-full flex items-center justify-center z-10 border border-muted-foreground/30",
             isRunning
-              ? "bg-blue-100 dark:bg-blue-900/30 animate-pulse"
-              : "bg-green-100 dark:bg-green-900/30"
+              ? "bg-primary/20 dark:bg-primary/30 animate-pulse"
+              : "bg-transparent"
           )}
         >
           {isRunning ? (
-            <LoadingDots />
+            <div className="text-primary dark:text-primary">
+              {getIcon()}
+            </div>
           ) : (
-            <span className="text-green-600 dark:text-green-400 text-[8px]">✔</span>
+            <CheckCircle2 className="size-4 text-primary" />
           )}
         </div>
 
         {/* Content */}
-        <div className="flex-1 min-w-0 pb-2">
-          {/* Header - clickable */}
+        <div className="flex-1 min-w-0 pb-3 w-full">
+          {/* Header - clickable - 点击步骤名称即可展开/收起 */}
           <button
             type="button"
             onClick={onToggle}
-            className="w-full text-left flex items-center gap-1.5 group"
+            className="w-full text-left flex items-center gap-2 group"
           >
-            {/* Expand/Collapse icon */}
-            {isExpanded ? (
-              <ChevronDownIcon className="size-3 text-gray-400 flex-shrink-0" />
-            ) : (
-              <ChevronRightIcon className="size-3 text-gray-400 flex-shrink-0" />
-            )}
-
             {/* Icon */}
-            <span className="text-xs">{icon}</span>
+            <div className={cn(
+              "size-6 rounded-lg flex items-center justify-center transition-all duration-200",
+              step.type === "ai_thinking" && "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+              step.type === "tool" && "bg-blue-500/15 text-blue-600 dark:text-blue-400",
+              step.type === "ai_final" && "bg-primary/15 text-primary"
+            )}>
+              {getIcon()}
+            </div>
 
             {/* Title */}
-            <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
+            <span className="text-sm font-medium text-foreground/90 group-hover:text-foreground truncate flex-1 transition-colors">
               {step.title}
             </span>
+
+            {/* Expand/Collapse indicator */}
+            <ChevronDownIcon className={cn(
+              "size-4 text-muted-foreground/50 transition-transform duration-200",
+              isExpanded && "rotate-180"
+            )} />
           </button>
 
-          {/* Expandable content */}
+          {/* Expandable content - 尽可能宽地展示 */}
           {isExpanded && (
-            <div className="mt-1.5 ml-5 space-y-2">
+            <div className="mt-2 -ml-2 -mr-1 space-y-2 animate-in slide-in-from-top-2 duration-200 w-full max-w-none">
               {/* AI Thinking step - show reasoning and content in separate blocks */}
               {step.type === "ai_final" && (step.thinking || step.content) && (
                 <>
                   {/* Reasoning block */}
                   {step.thinking && (
-                    <div>
-                      <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                    <div className="rounded-xl overflow-hidden">
+                      <div className="text-[10px] text-muted-foreground px-3 py-1.5 bg-amber-500/10 font-medium uppercase tracking-wider">
                         {t("process.reasoning") || "Reasoning"}
                       </div>
-                      <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
+                      <div className="bg-amber-500/5 dark:bg-amber-500/10 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll border border-amber-500/10 rounded-b-xl">
                         {step.thinking}
                       </div>
                     </div>
@@ -143,11 +144,11 @@ function TimelineStepItem({
 
                   {/* Content block */}
                   {step.content && (
-                    <div>
-                      <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5 font-medium">
+                    <div className="rounded-xl overflow-hidden">
+                      <div className="text-[10px] text-muted-foreground px-3 py-1.5 bg-primary/10 font-medium uppercase tracking-wider">
                         {t("process.content") || "Content"}
                       </div>
-                      <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
+                      <div className="bg-muted/50 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll border border-border/50 rounded-b-xl">
                         {step.content}
                       </div>
                     </div>
@@ -157,23 +158,23 @@ function TimelineStepItem({
 
               {/* AI Thinking step during streaming */}
               {step.type === "ai_thinking" && step.thinking && (
-                <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
+                <div className="rounded-xl bg-amber-500/5 dark:bg-amber-500/10 p-3 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll border border-amber-500/10">
                   {step.thinking}
                 </div>
               )}
 
               {/* Tool calls (for AI messages with tool calls) */}
               {step.toolCalls && step.toolCalls.length > 0 && (
-                <div>
-                  <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5">
+                <div className="rounded-xl overflow-hidden">
+                  <div className="text-[10px] text-muted-foreground px-3 py-1.5 bg-blue-500/10 font-medium uppercase tracking-wider">
                     {t("process.toolCalls") || "Tool Calls"}
                   </div>
-                  <div className="space-y-1">
+                  <div className="space-y-1.5 p-2">
                     {step.toolCalls.map((tc, idx) => (
-                      <div key={idx} className="rounded-md bg-blue-50 dark:bg-blue-900/20 p-2 text-[11px]">
-                        <div className="font-medium text-blue-700 dark:text-blue-300">{tc.name}</div>
+                      <div key={idx} className="rounded-lg bg-blue-500/5 dark:bg-blue-500/10 p-2.5 text-xs border border-blue-500/10">
+                        <div className="font-semibold text-blue-600 dark:text-blue-400">{tc.name}</div>
                         {Object.keys(tc.args).length > 0 && (
-                          <pre className="mt-1 text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words">
+                          <pre className="mt-1.5 text-muted-foreground whitespace-pre-wrap break-words font-mono text-[11px]">
                             {JSON.stringify(tc.args, null, 2)}
                           </pre>
                         )}
@@ -185,11 +186,11 @@ function TimelineStepItem({
 
               {/* Args (for tool result steps) */}
               {step.args && (
-                <div>
-                  <div className="text-[9px] text-gray-500 dark:text-gray-400 mb-0.5">
+                <div className="rounded-xl overflow-hidden">
+                  <div className="text-[10px] text-muted-foreground px-3 py-1.5 bg-muted/50 font-medium uppercase tracking-wider">
                     {t("process.arguments") || "Arguments"}
                   </div>
-                  <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono step-detail-scroll">
+                  <div className="bg-muted/30 px-3 py-2 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-32 overflow-y-auto font-mono step-detail-scroll border border-border/30 rounded-b-xl">
                     {step.args}
                   </div>
                 </div>
@@ -197,7 +198,7 @@ function TimelineStepItem({
 
               {/* Result (for tool result steps) - show directly without "Result" label */}
               {step.result && (
-                <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll">
+                <div className="rounded-xl bg-muted/30 p-3 text-xs text-muted-foreground whitespace-pre-wrap break-words max-h-40 overflow-y-auto step-detail-scroll border border-border/30">
                   {step.result}
                 </div>
               )}
@@ -386,11 +387,16 @@ export function AgentTimelineSidebar({
   // Streaming mode - show real-time process in a card
   if (isStreaming && session?.isActive) {
     return (
-      <div className="space-y-2 p-2 rounded-lg bg-muted/50 border">
+      <div className="space-y-3 p-3 rounded-2xl bg-gradient-to-br from-primary/5 to-accent/5 
+                      border border-primary/20 backdrop-blur-sm
+                      shadow-[0_0_20px_rgba(0,209,255,0.1)] dark:shadow-[0_0_20px_rgba(0,209,255,0.05)]">
         {/* Header */}
-        <div className="flex items-center gap-2">
-          <div className="size-3 rounded-full border-2 border-blue-500 border-t-transparent animate-spin" />
-          <span className="text-xs font-medium text-muted-foreground">
+        <div className="flex items-center gap-2.5">
+          <div className="relative">
+            <div className="size-4 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            <div className="absolute inset-0 size-4 rounded-full bg-primary/20 animate-ping" />
+          </div>
+          <span className="text-sm font-semibold text-foreground">
             {t("process.agentWorking")}
           </span>
         </div>
@@ -418,13 +424,19 @@ export function AgentTimelineSidebar({
 
   // History mode - simple card with title, steps always visible
   return (
-    <div className="rounded-lg bg-muted/50 border">
+    <div className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden
+                    backdrop-blur-sm shadow-lg">
       {/* Header - static title */}
-      <div className="p-2 flex items-center justify-between">
-        <span className="text-xs font-medium text-muted-foreground">
-          {t("process.executionSteps")}
-        </span>
-        <span className="text-[10px] text-muted-foreground">
+      <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
+        <div className="flex items-center gap-2">
+          <div className="size-6 rounded-lg bg-accent/15 flex items-center justify-center">
+            <CheckCircle2 className="size-3.5 text-accent" />
+          </div>
+          <span className="text-sm font-semibold text-foreground">
+            {t("process.executionSteps")}
+          </span>
+        </div>
+        <span className="text-xs font-medium text-muted-foreground bg-muted/50 px-2 py-0.5 rounded-full">
           {timelineSteps.length}
         </span>
       </div>
@@ -432,7 +444,7 @@ export function AgentTimelineSidebar({
       {/* Timeline content */}
       <div
         ref={scrollRef}
-        className="px-2 pb-2 max-h-80 overflow-y-auto process-steps-scroll"
+        className="p-3 max-h-80 overflow-y-auto process-steps-scroll"
       >
         <div className="space-y-0">
           {timelineSteps.map((step, index) => (

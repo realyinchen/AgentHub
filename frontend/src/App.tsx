@@ -1625,7 +1625,7 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="size-8 flex-1"
+                className="size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
                 disabled={isAwaitingAgentSelection || messages.length === 0}
                 onClick={() => {
                   navigator.clipboard.writeText(window.location.href)
@@ -1640,7 +1640,7 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="cursor-pointer size-8 flex-1"
+                className="cursor-pointer size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
                 onClick={toggleTheme}
                 aria-label={t("theme.switch")}
                 title={t("theme.switch")}
@@ -1655,7 +1655,7 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="cursor-pointer size-8 flex-1"
+                className="cursor-pointer size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
                 onClick={toggleLocale}
                 aria-label={t("language.switch")}
                 title={t("language.switch")}
@@ -1666,7 +1666,7 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="cursor-pointer size-8 flex-1"
+                className="cursor-pointer size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
                 onClick={() => setShowProviderConfig(true)}
                 aria-label={t("provider.configure")}
                 title={t("provider.configure")}
