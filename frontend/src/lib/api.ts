@@ -9,7 +9,9 @@ import type {
   ModelUpdate,
   StreamEvent,
   UserInput,
+  ProviderInfo,
   ProvidersResponse,
+  ProviderUpdate,
 } from "@/types"
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
@@ -193,22 +195,22 @@ export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
 // ==================== Model API ====================
 
 /**
- * 获取可用模型列表（前端下拉框使用）
- * 只返回已配置 API Key 的模型
+ * Get available models (for frontend dropdown)
+ * Only returns models with API key configured
  */
 export async function getAvailableModels(): Promise<ModelsResponse> {
   return requestJson<ModelsResponse>("/models/")
 }
 
 /**
- * 获取所有模型（配置页面使用）
+ * Get all models (for configuration page)
  */
 export async function getAllModels(): Promise<ModelsResponse> {
   return requestJson<ModelsResponse>("/models/all")
 }
 
 /**
- * 创建新模型
+ * Create a new model
  */
 export async function createModel(data: ModelCreate): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/", {
@@ -218,37 +220,37 @@ export async function createModel(data: ModelCreate): Promise<ModelInfo> {
 }
 
 /**
- * 更新模型配置
+ * Update model configuration
  */
-export async function updateModel(modelId: string, data: ModelUpdate): Promise<ModelInfo> {
+export async function updateModel(id: string, data: ModelUpdate): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/update", {
     method: "POST",
-    body: JSON.stringify({ model_id: modelId, ...data }),
+    body: JSON.stringify({ id, ...data }),
   })
 }
 
 /**
- * 删除模型
+ * Delete a model
  */
-export async function deleteModel(modelId: string): Promise<void> {
+export async function deleteModel(id: string): Promise<void> {
   await requestJson<void>("/models/delete", {
     method: "POST",
-    body: JSON.stringify({ model_id: modelId }),
+    body: JSON.stringify({ id }),
   })
 }
 
 /**
- * 设置默认模型
+ * Set default model
  */
-export async function setDefaultModel(modelId: string): Promise<ModelInfo> {
+export async function setDefaultModel(id: string): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/set-default", {
     method: "POST",
-    body: JSON.stringify({ model_id: modelId }),
+    body: JSON.stringify({ id }),
   })
 }
 
 /**
- * 设置默认思考模型
+ * Set default thinking model
  */
 export async function setDefaultThinkingModel(modelId: string): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/set-default-thinking", {
@@ -258,7 +260,7 @@ export async function setDefaultThinkingModel(modelId: string): Promise<ModelInf
 }
 
 /**
- * 手动刷新模型缓存
+ * Manually refresh model cache
  */
 export async function refreshModelsCache(): Promise<{ success: boolean; message: string; models_count: number }> {
   return requestJson<{ success: boolean; message: string; models_count: number }>("/models/refresh", {
@@ -267,8 +269,18 @@ export async function refreshModelsCache(): Promise<{ success: boolean; message:
 }
 
 /**
- * 获取可用的模型提供商列表
+ * Get all providers with their configuration
  */
 export async function getProviders(): Promise<ProvidersResponse> {
-  return requestJson<ProvidersResponse>("/models/providers")
+  return requestJson<ProvidersResponse>("/providers/")
+}
+
+/**
+ * Update provider configuration (API key and/or base URL)
+ */
+export async function updateProvider(data: ProviderUpdate): Promise<ProviderInfo> {
+  return requestJson<ProviderInfo>("/providers/update", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
 }

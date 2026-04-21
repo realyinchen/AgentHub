@@ -1,4 +1,5 @@
 import os
+import uuid
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +16,6 @@ from app.schemas.model import (
     RefreshResponse,
     ProvidersResponse,
 )
-from app.utils.crypto import encrypt_api_key
 
 api_router = APIRouter(prefix="/models", tags=["Models"])
 
@@ -29,11 +29,10 @@ async def get_db():
 def model_to_info(model) -> ModelInfo:
     """Convert database model to ModelInfo"""
     return ModelInfo(
+        id=str(model.id),
         provider=model.provider,
         model_type=model.model_type,
         model_id=model.model_id,
-        model_name=model.model_name,
-        has_api_key=bool(model.api_key),
         thinking=model.thinking,
         is_default=model.is_default,
         is_active=model.is_active,
@@ -118,10 +117,10 @@ def _build_models_response(models: list) -> ModelsResponse:
 async def get_available_models(db: AsyncSession = Depends(get_db)) -> ModelsResponse:
     """
     Get all available models (for frontend dropdown).
-    Only returns models with API key configured.
+    Only returns models with provider API key configured.
     Models are sorted by provider (alphabetically), then by model_id.
     """
-    models = await crud.get_models_with_api_key(db)
+    models = await crud.get_models_with_provider_config(db)
     return _build_models_response(models)
 
 
@@ -148,25 +147,12 @@ async def create_model(
             detail="model_id_exists",
         )
 
-    # Check if model_name already exists
-    existing_name = await crud.get_model_by_name(db, model_data.model_name)
-    if existing_name:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="model_name_exists",
-        )
-
     # If setting as default, clear other models' default flag of same type first
     if model_data.is_default:
         await crud.clear_default_models(db, model_data.model_type)
 
-    # Encrypt API key before storing
-    model_dict = model_data.model_dump()
-    if model_dict.get("api_key"):
-        model_dict["api_key"] = encrypt_api_key(model_dict["api_key"])
-
     # Create model
-    new_model = await crud.create_model(db, model_dict)
+    new_model = await crud.create_model(db, model_data.model_dump())
 
     # Refresh model manager cache
     from app.core.model_manager import ModelManager
@@ -181,37 +167,31 @@ async def update_model(
     request: ModelUpdateRequest, db: AsyncSession = Depends(get_db)
 ) -> ModelInfo:
     """Update model configuration"""
-    model_id = request.model_id
+    # Parse UUID from string
+    try:
+        model_uuid = uuid.UUID(request.id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid UUID format: '{request.id}'",
+        )
 
     # Check if model exists
-    existing = await crud.get_model(db, model_id)
+    existing = await crud.get_model_by_id(db, model_uuid)
     if not existing:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Model '{model_id}' not found",
+            detail=f"Model with id '{request.id}' not found",
         )
 
-    # Check if model_name is being updated and already exists
-    if request.model_name and request.model_name != existing.model_name:
-        existing_name = await crud.get_model_by_name(db, request.model_name)
-        if existing_name:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="model_name_exists",
-            )
-
     # If setting as default, clear other models' default flag of same type first
-    update_dict = request.model_dump(exclude_unset=True, exclude={"model_id"})
+    update_dict = request.model_dump(exclude_unset=True, exclude={"id"})
     if update_dict.get("is_default"):
         model_type = str(update_dict.get("model_type") or existing.model_type)
         await crud.clear_default_models(db, model_type)
 
-    # Encrypt API key before storing
-    if update_dict.get("api_key"):
-        update_dict["api_key"] = encrypt_api_key(update_dict["api_key"])
-
     # Update model
-    updated_model = await crud.update_model(db, model_id, update_dict)
+    updated_model = await crud.update_model_by_id(db, model_uuid, update_dict)
 
     # Refresh model manager cache
     from app.core.model_manager import ModelManager
@@ -224,13 +204,20 @@ async def update_model(
 @api_router.post("/delete", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_model(request: DeleteModelRequest, db: AsyncSession = Depends(get_db)):
     """Delete a model"""
-    model_id = request.model_id
+    # Parse UUID from string
+    try:
+        model_uuid = uuid.UUID(request.id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid UUID format: '{request.id}'",
+        )
 
-    deleted = await crud.delete_model(db, model_id)
+    deleted = await crud.delete_model_by_id(db, model_uuid)
     if not deleted:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Model '{model_id}' not found",
+            detail=f"Model with id '{request.id}' not found",
         )
 
     # Refresh model manager cache
@@ -246,11 +233,20 @@ async def set_default_model(
     request: SetDefaultModelRequest, db: AsyncSession = Depends(get_db)
 ) -> ModelInfo:
     """Set default model for its type"""
-    model = await crud.set_default_model(db, request.model_id)
+    # Parse UUID from string
+    try:
+        model_uuid = uuid.UUID(request.id)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid UUID format: '{request.id}'",
+        )
+
+    model = await crud.set_default_model_by_id(db, model_uuid)
     if not model:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Model '{request.model_id}' not found",
+            detail=f"Model with id '{request.id}' not found",
         )
 
     # Refresh model manager cache

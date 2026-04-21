@@ -138,54 +138,48 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
    cd AgentHub
    ```
 
-4. **配置 LLM 和 VLM 模型（重要！）**
-   
-   在初始化数据库之前，您需要配置 LLM 和 VLM 模型：
-   
-   ```bash
-   # 编辑 SQL 文件添加您的 API 密钥
-   # 打开 backend/scripts/sql/init_database.sql 并：
-   # - 将空的 api_key 值替换为您的实际 API 密钥
-   # - 根据需要调整 model_id、model_name
-   # - 为您偏好的默认 LLM 和 VLM 设置 is_default=true
-   ```
-
-5. **配置环境变量**
+4. **配置环境变量**
    ```bash
    cd backend
    cp .env.example .env
    ```
    编辑 `.env` 文件配置以下内容：
-   - **嵌入模型**：配置 `EMBEDDING_MODEL_NAME` 和 `EMBEDDING_API_KEY`
-   - **其他 API 密钥**：Tavily、高德地图、LangSmith 等
-   
-   > **注意**：LLM 和 VLM 模型在 `init_database.sql` 中配置，不在 `.env` 中。嵌入模型在 `.env` 中配置。
+   - **三方 API 密钥**：Tavily、高德地图、LangSmith 等
 
-6. **安装后端依赖**
+5. **安装后端依赖**
    ```bash
    pip install -r requirements.txt
    ```
 
-7. **初始化数据库**
+6. **初始化数据库**
    ```bash
    python scripts/init_database.py
    ```
 
-8. **启动后端服务器**
+7. **启动后端服务器**
    ```bash
    python run_backend.py
    ```
 
-9. **在新终端中，导航到前端并启动开发服务器**
+8. **在新终端中，导航到前端并启动开发服务器**
    ```bash
    cd frontend
    npm install
    npm run dev
    ```
 
+9. **配置供应商和模型（重要！）**
+   
+   应用启动后，需要配置模型供应商和模型：
+   
+   1. 打开 Web 界面访问 `http://localhost:5173`
+   2. 点击右上角设置图标
+   3. 先配置供应商（输入 API 密钥）
+   4. 然后为每个已配置的供应商添加模型
+
 10. **访问应用程序**
-   - 前端：在浏览器中打开 `http://localhost:5173`
-   - 后端 API：访问 `http://localhost:8080/docs` 查看 Swagger UI
+    - 前端：在浏览器中打开 `http://localhost:5173`
+    - 后端 API：访问 `http://localhost:8080/docs` 查看 Swagger UI
 
 ## 🤖 可用智能体
 

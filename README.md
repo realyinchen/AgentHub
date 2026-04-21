@@ -138,54 +138,48 @@ git clone -b dev https://github.com/realyinchen/AgentHub.git
    cd AgentHub
    ```
 
-4. **Configure LLM and VLM models (IMPORTANT!)**
-   
-   Before initializing the database, you need to configure your LLM and VLM models:
-   
-   ```bash
-   # Edit the SQL file to add your API keys
-   # Open backend/scripts/sql/init_database.sql and:
-   # - Replace empty api_key values with your actual API keys
-   # - Adjust model_id, model_name as needed
-   # - Set is_default=true for your preferred default LLM and VLM
-   ```
-
-5. **Configure environment variables**
+4. **Configure environment variables**
    ```bash
    cd backend
    cp .env.example .env
    ```
-   Edit `.env` with your configuration:
-   - **Embedding model**: Configure `EMBEDDING_MODEL_NAME` and `EMBEDDING_API_KEY`
-   - **Other API keys**: Tavily, Amap, LangSmith, etc.
-   
-   > **Note**: LLM and VLM models are configured in `init_database.sql`, not in `.env`. Embedding models are configured in `.env`.
+   Edit `.env` file to configure the following:
+   - **Third-party API keys**: Tavily, Amap, LangSmith, etc.
 
-6. **Install backend dependencies**
+5. **Install backend dependencies**
    ```bash
    pip install -r requirements.txt
    ```
 
-7. **Initialize database**
+6. **Initialize database**
    ```bash
    python scripts/init_database.py
    ```
 
-8. **Start backend server**
+7. **Start backend server**
    ```bash
    python run_backend.py
    ```
 
-9. **In a new terminal, navigate to frontend and start development server**
+8. **In a new terminal, navigate to frontend and start development server**
    ```bash
    cd frontend
    npm install
    npm run dev
    ```
 
+9. **Configure providers and models (Important!)**
+   
+   After the application starts, you need to configure model providers and models:
+   
+   1. Open the web UI at `http://localhost:5173`
+   2. Click the settings icon in the top right corner
+   3. Configure providers first (enter API keys)
+   4. Then add models for each configured provider
+
 10. **Access the application**
-   - Frontend: Open `http://localhost:5173` in your browser
-   - Backend API: Visit `http://localhost:8080/docs` for Swagger UI
+    - Frontend: Open `http://localhost:5173` in your browser
+    - Backend API: Visit `http://localhost:8080/docs` for Swagger UI
 
 ## 🤖 Available Agents
 

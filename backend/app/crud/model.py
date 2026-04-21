@@ -1,3 +1,5 @@
+import uuid
+
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
@@ -8,8 +10,14 @@ from app.models.model import Model
 # ==================== Model CRUD ====================
 
 
+async def get_model_by_id(db: AsyncSession, id: uuid.UUID) -> Optional[Model]:
+    """Get a single model by UUID primary key"""
+    result = await db.execute(select(Model).where(Model.id == id))
+    return result.scalar_one_or_none()
+
+
 async def get_model(db: AsyncSession, model_id: str) -> Optional[Model]:
-    """Get a single model by ID"""
+    """Get a single model by model_id string"""
     result = await db.execute(select(Model).where(Model.model_id == model_id))
     return result.scalar_one_or_none()
 
@@ -44,13 +52,16 @@ async def get_models_by_type(
     return list(result.scalars().all())
 
 
-async def get_models_with_api_key(db: AsyncSession) -> list[Model]:
-    """Get all active models with API key configured"""
+async def get_models_with_provider_config(db: AsyncSession) -> list[Model]:
+    """Get all active models with their provider configured"""
+    from app.models.provider import Provider
+
     result = await db.execute(
         select(Model)
+        .join(Provider, Model.provider == Provider.provider)
         .where(
             Model.is_active.is_(True),
-            Model.api_key != "",
+            Provider.api_key != "",
         )
         .order_by(Model.provider, Model.model_id)
     )
@@ -66,10 +77,27 @@ async def create_model(db: AsyncSession, model_data: dict) -> Model:
     return new_model
 
 
+async def update_model_by_id(
+    db: AsyncSession, id: uuid.UUID, model_data: dict
+) -> Optional[Model]:
+    """Update a model by UUID primary key"""
+    model = await get_model_by_id(db, id)
+    if not model:
+        return None
+
+    for key, value in model_data.items():
+        if value is not None:
+            setattr(model, key, value)
+
+    await db.commit()
+    await db.refresh(model)
+    return model
+
+
 async def update_model(
     db: AsyncSession, model_id: str, model_data: dict
 ) -> Optional[Model]:
-    """Update a model"""
+    """Update a model by model_id string (legacy)"""
     model = await get_model(db, model_id)
     if not model:
         return None
@@ -83,8 +111,19 @@ async def update_model(
     return model
 
 
+async def delete_model_by_id(db: AsyncSession, id: uuid.UUID) -> bool:
+    """Delete a model by UUID primary key"""
+    model = await get_model_by_id(db, id)
+    if not model:
+        return False
+
+    await db.delete(model)
+    await db.commit()
+    return True
+
+
 async def delete_model(db: AsyncSession, model_id: str) -> bool:
-    """Delete a model"""
+    """Delete a model by model_id string (legacy)"""
     model = await get_model(db, model_id)
     if not model:
         return False
@@ -108,8 +147,29 @@ async def get_default_model_by_type(
     return result.scalar_one_or_none()
 
 
+async def set_default_model_by_id(db: AsyncSession, id: uuid.UUID) -> Optional[Model]:
+    """Set default model for its model_type by UUID primary key (clears other models' default flag of same type)"""
+    model = await get_model_by_id(db, id)
+    if not model:
+        return None
+
+    # Clear other models' default flag of the same type
+    await db.execute(
+        update(Model)
+        .where(Model.model_type == model.model_type)
+        .values(is_default=False)
+    )
+
+    # Set this model as default
+    setattr(model, "is_default", True)
+
+    await db.commit()
+    await db.refresh(model)
+    return model
+
+
 async def set_default_model(db: AsyncSession, model_id: str) -> Optional[Model]:
-    """Set default model for its model_type (clears other models' default flag of same type)"""
+    """Set default model for its model_type by model_id string (legacy)"""
     model = await get_model(db, model_id)
     if not model:
         return None

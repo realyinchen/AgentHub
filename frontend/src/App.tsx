@@ -2,6 +2,17 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Languages, Moon, Share2, Sun, Settings } from "lucide-react"
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+
+import {
   createConversation,
   generateTitle,
   getConversationTitle,
@@ -36,16 +47,8 @@ import {
   TokenStatsPanel,
 } from "@/features/chat/components"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
-import { ModelSelector } from "@/features/chat/components/model-selector"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   getErrorMessage,
   isDefaultConversationTitle,
@@ -127,6 +130,7 @@ function App() {
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [showProviderConfig, setShowProviderConfig] = useState(false)
+  const [showNoModelDialog, setShowNoModelDialog] = useState(false)
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
@@ -153,6 +157,24 @@ function App() {
   useEffect(() => {
     processSessionRef.current = processSession
   }, [processSession])
+
+  // Check if there are available models (active LLM/VLM)
+  const hasAvailableModels = useMemo(() => {
+    return models.some(m =>
+      (m.model_type === "llm" || m.model_type === "vlm") &&
+      m.is_active
+    )
+  }, [models])
+
+  // Show dialog when no models are available after initialization
+  useEffect(() => {
+    if (!isInitializing && !isLoadingConversation) {
+      // Show dialog when no models are configured (including when models array is empty)
+      if (!hasAvailableModels) {
+        setShowNoModelDialog(true)
+      }
+    }
+  }, [isInitializing, isLoadingConversation, hasAvailableModels])
 
   const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
     const url = new URL(window.location.href)
@@ -1612,6 +1634,12 @@ function App() {
                 setShowSidebarProcess(true)
               }
             }}
+            models={models}
+            selectedModel={selectedModel}
+            onSelectModel={setSelectedModel}
+            onSelectAgentId={pickAgentForCurrentConversation}
+            onOpenModelConfig={() => setShowProviderConfig(true)}
+            hasAvailableModels={hasAvailableModels}
           />
         </SidebarInset>
 
@@ -1675,47 +1703,6 @@ function App() {
               </Button>
             </div>
 
-            {/* Model selector - only show in conversation page (not on home/agent selection page) */}
-            {!isInitializing && !isAwaitingAgentSelection && (
-              <ModelSelector
-                models={models}
-                selectedModel={selectedModel}
-                onSelectModel={setSelectedModel}
-                disabled={isStreaming || isInitializing || isLoadingConversation}
-              />
-            )}
-
-            {/* Agent selector - only show when not in agent selection page */}
-            {!isInitializing && !isAwaitingAgentSelection && (
-              <Select
-                value={selectedAgentId}
-                onValueChange={(value) => {
-                  if (!isStreaming || !isInitializing || !isLoadingConversation) {
-                    pickAgentForCurrentConversation(value)
-                  }
-                }}
-                disabled={isStreaming || isInitializing || isLoadingConversation}
-              >
-                <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    // Sort agents to always show current selected agent first
-                    const sortedAgents = [...agents].sort((a, b) => {
-                      if (a.agent_id === selectedAgentId) return -1
-                      if (b.agent_id === selectedAgentId) return 1
-                      return 0
-                    })
-                    return sortedAgents.map((agent) => (
-                      <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                        {agent.agent_id}
-                      </SelectItem>
-                    ))
-                  })()}
-                </SelectContent>
-              </Select>
-            )}
           </div>
 
           {/* Middle Section: Agent Process Panel */}
@@ -1775,6 +1762,29 @@ function App() {
           }
         }}
       />
+
+      {/* No Model Dialog */}
+      <AlertDialog open={showNoModelDialog} onOpenChange={setShowNoModelDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("model.noModelDialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("model.noModelDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("model.noModelDialogCancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowNoModelDialog(false)
+                setShowProviderConfig(true)
+              }}
+            >
+              {t("model.noModelDialogConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Toast notifications */}
       <Toaster />

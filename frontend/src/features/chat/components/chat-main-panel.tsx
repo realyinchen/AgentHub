@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage, ToolCallInfo, AgentProcessSession, MessageStep } from "@/types"
+import type { AgentInDB, LocalChatMessage, ToolCallInfo, AgentProcessSession, MessageStep, ModelInfo } from "@/types"
 import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
+import { ModelSelector } from "@/features/chat/components/model-selector"
 import {
   Alert,
   AlertDescription,
@@ -21,6 +22,14 @@ import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { Loader } from "~/components/ai/loader"
 import { AgentGrid } from "@/components/agent"
 import { useI18n } from "@/i18n"
+
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
 
 type ChatMainPanelProps = {
   appError: string | null
@@ -49,6 +58,13 @@ type ChatMainPanelProps = {
   onJumpToMessage?: (localId: string) => void // Jump to message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectSession?: (sessionId: string) => void // Select a specific session to view
+  // Model and Agent selection props
+  models: ModelInfo[]
+  selectedModel: string | null
+  onSelectModel: (modelId: string | null) => void
+  onSelectAgentId: (agentId: string) => void
+  onOpenModelConfig?: () => void // Open model configuration dialog
+  hasAvailableModels?: boolean // Whether there are available models to select
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -85,6 +101,12 @@ export function ChatMainPanel({
   onJumpToMessage,
   onToggleSidebarProcess,
   onSelectSession,
+  models,
+  selectedModel,
+  onSelectModel,
+  onSelectAgentId,
+  onOpenModelConfig,
+  hasAvailableModels = true,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
@@ -124,7 +146,7 @@ export function ChatMainPanel({
   }, [isInitializing, isLoadingConversation, isStreaming])
 
   const isComposerDisabled =
-    isInitializing || isLoadingConversation || isAwaitingAgentSelection
+    isInitializing || isLoadingConversation || isAwaitingAgentSelection || !hasAvailableModels
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current
@@ -290,6 +312,9 @@ export function ChatMainPanel({
     setQuotedMessageId(null)
   }, [])
 
+  // Check if there are messages (for layout decision)
+  const hasMessages = messages.length > 0
+
   return (
     <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-background">
       <div
@@ -365,7 +390,7 @@ export function ChatMainPanel({
               </div>
             )}
           </div>
-          {!isAwaitingAgentSelection ? (
+          {!isAwaitingAgentSelection && hasMessages ? (
             <div
               aria-hidden="true"
               className="chat-messages-bottom-fade pointer-events-none absolute inset-x-0 bottom-0 z-10 mx-auto h-8 max-w-4xl"
@@ -378,8 +403,11 @@ export function ChatMainPanel({
       </div>
 
       {!isAwaitingAgentSelection ? (
-        <footer className="relative  z-20 bg-background ">
-          {shouldShowScrollButton ? (
+        <footer className={[
+          "relative z-20 bg-background transition-all duration-300",
+          hasMessages ? "" : "absolute inset-0 flex items-center justify-center"
+        ].join(" ")}>
+          {shouldShowScrollButton && hasMessages ? (
             <Button
               size="icon"
               variant="secondary"
@@ -396,8 +424,11 @@ export function ChatMainPanel({
               <ArrowDown className="size-4" />
             </Button>
           ) : null}
-          <div className="mx-auto w-full max-w-4xl space-y-3 overflow-y-auto p-2 mb-2">
-            <div className="flex flex-wrap gap-2">
+          <div className={[
+            "mx-auto w-full max-w-4xl space-y-3 overflow-y-auto",
+            hasMessages ? "p-2 mb-2" : "p-6"
+          ].join(" ")}>
+            <div className="flex flex-wrap gap-2 justify-center">
               {messages.length === 0 ? (
                 suggestions.map((suggestion) => (
                   <Button
@@ -461,6 +492,45 @@ export function ChatMainPanel({
                     modelSupportsThinking={modelSupportsThinking}
                     onToggle={onToggleThinkingMode}
                   />
+                  {/* Agent selector */}
+                  <Select
+                    value={selectedAgentId}
+                    onValueChange={(value) => {
+                      if (!isStreaming || !isInitializing || !isLoadingConversation) {
+                        onSelectAgentId(value)
+                      }
+                    }}
+                    disabled={isStreaming || isInitializing || isLoadingConversation}
+                  >
+                    <SelectTrigger size="sm" className="h-8 px-2 text-xs w-28">
+                      <SelectValue placeholder={t("agent.select")} />
+                    </SelectTrigger>
+                    <SelectContent position="popper" side="top" align="start">
+                      {(() => {
+                        // Sort agents to always show current selected agent first
+                        const sortedAgents = [...agents].sort((a, b) => {
+                          if (a.agent_id === selectedAgentId) return -1
+                          if (b.agent_id === selectedAgentId) return 1
+                          return 0
+                        })
+                        return sortedAgents.map((agent) => (
+                          <SelectItem key={agent.agent_id} value={agent.agent_id}>
+                            {agent.agent_id}
+                          </SelectItem>
+                        ))
+                      })()}
+                    </SelectContent>
+                  </Select>
+                  {/* Model selector - only show if there are available models */}
+                  {hasAvailableModels && (
+                    <ModelSelector
+                      models={models}
+                      selectedModel={selectedModel}
+                      onSelectModel={onSelectModel}
+                      disabled={isStreaming || isInitializing || isLoadingConversation}
+                      onOpenConfig={onOpenModelConfig}
+                    />
+                  )}
                 </div>
                 <PromptInputSubmit
                   disabled={submitButtonDisabled}

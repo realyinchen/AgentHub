@@ -6,7 +6,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Button } from "@/components/ui/button"
 import type { ModelInfo } from "@/types"
 
 interface ModelSelectorProps {
@@ -14,11 +13,12 @@ interface ModelSelectorProps {
   selectedModel: string | null
   onSelectModel: (modelId: string | null) => void
   disabled?: boolean
+  onOpenConfig?: () => void // Callback to open model configuration dialog
 }
 
 /**
  * A dropdown selector for choosing a model.
- * 
+ *
  * Shows all available active LLM and VLM models (not embedding models).
  * Each model shows its provider name for disambiguation.
  */
@@ -30,29 +30,21 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const { t } = useI18n()
 
-  // Filter to show only LLM and VLM models that are active, then sort alphabetically by model_name
+  // Filter to show only LLM and VLM models that are active, then sort alphabetically by model_id
   const availableModels = models
     .filter(m =>
       (m.model_type === "llm" || m.model_type === "vlm") && m.is_active
     )
-    .sort((a, b) => a.model_name.localeCompare(b.model_name))
+    .sort((a, b) => a.model_id.localeCompare(b.model_id))
 
+  // If no available models, don't render anything (dialog will be shown by parent)
   if (availableModels.length === 0) {
-    return (
-      <Button
-        size="sm"
-        variant="outline"
-        className="h-7 px-2 text-xs"
-        disabled
-      >
-        {t("model.select")}
-      </Button>
-    )
+    return null
   }
 
-  // Get display name - just show model_name (e.g., "glm5")
+  // Get display name - show full model_id (e.g., "dashscope/qwen3.5-27b")
   const getDisplayName = (model: ModelInfo): string => {
-    return model.model_name
+    return model.model_id
   }
 
   return (

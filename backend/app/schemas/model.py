@@ -11,14 +11,12 @@ class ModelBase(BaseModel):
 
     provider: str  # e.g. "dashscope", "zai"
     model_type: Literal["llm", "vlm", "embedding"] = "llm"
-    model_id: str  # e.g. "qwen3.5-27b" (without provider prefix)
-    model_name: str  # e.g. "qwen3.5-27b" (display name)
+    model_id: str  # e.g. "dashscope/qwen3.5-27b" (with provider prefix)
 
 
 class ModelCreate(ModelBase):
     """Create model"""
 
-    api_key: Optional[str] = None
     thinking: bool = False
     is_default: bool = False
     is_active: bool = True
@@ -29,21 +27,19 @@ class ModelUpdate(BaseModel):
 
     provider: Optional[str] = None
     model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
-    model_name: Optional[str] = None
-    api_key: Optional[str] = None
+    model_id: Optional[str] = None  # Allow updating model_id (primary key)
     thinking: Optional[bool] = None
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
 
 
 class ModelInDB(BaseModel):
-    """Model database model (without api_key)"""
+    """Model database model"""
 
+    id: str  # UUID primary key
     provider: str
     model_type: str
     model_id: str
-    model_name: str
-    has_api_key: bool  # don't return actual API Key, just whether it exists
     thinking: bool
     is_default: bool
     is_active: bool
@@ -77,26 +73,25 @@ class ModelsResponse(BaseModel):
 class SetDefaultModelRequest(BaseModel):
     """Set default model request"""
 
-    model_id: str
+    id: str  # UUID primary key
 
 
 class ModelUpdateRequest(BaseModel):
-    """Update model request (with model_id in body)"""
+    """Update model request (with id in body)"""
 
-    model_id: str
+    id: str  # UUID primary key (used to find the record)
+    model_id: Optional[str] = None  # New model_id if changing
     provider: Optional[str] = None
     model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
-    model_name: Optional[str] = None
-    api_key: Optional[str] = None
     thinking: Optional[bool] = None
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
 
 
 class DeleteModelRequest(BaseModel):
-    """Delete model request (with model_id in body)"""
+    """Delete model request (with id in body)"""
 
-    model_id: str
+    id: str  # UUID primary key
 
 
 class TestConnectionRequest(BaseModel):
