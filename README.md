@@ -26,7 +26,7 @@ Follow my WeChat official account for the latest updates:
 ✅ **Image Zoom & Drag** — Click any image in markdown to zoom in/out and drag to pan. Universal feature for all agents.  
 ✅ **Token Stats Display** — Real-time token consumption visualization with vertical bar chart showing Input/Output/Reasoning tokens. Input tokens include system prompt (explained via tooltip). Dark mode compatible with internationalization support.  
 ✅ **Agent Execution Visualization** — Real-time display of agent intermediate steps including thinking/reasoning process and tool calls with arguments and results. Timeline sidebar shows execution history for each conversation turn.  
-✅ **Flexible Model Configuration** — Configure models directly in the web UI. Switch between different agents and models within the same thread without losing conversation history.  
+✅ **Flexible Model Configuration** — Configure LLM, VLM, and Embedding models directly in the web UI. Switch between different agents and models within the same thread without losing conversation history. Each model type (LLM/VLM/Embedding) can have its own default model.
 
 ![demo](https://github.com/realyinchen/AgentLab/blob/main/imgs/demo.gif)
 

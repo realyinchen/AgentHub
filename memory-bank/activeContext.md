@@ -2,6 +2,43 @@
 
 ## Current Work Focus
 
+**User-Configurable Embedding Models (2026-04-21)**
+
+Implemented user-configurable embedding models in the model configuration dialog:
+
+**Changes Made**:
+1. **Backend - ModelManager** (`backend/app/core/model_manager.py`):
+   - Added `get_embedding_model_instance()` method to retrieve embedding model config from database
+   - Returns `(model_name, api_key)` tuple for LiteLLMEmbeddings
+
+2. **Backend - Vector Store** (`backend/app/tools/vectorstore_retriever.py`):
+   - Modified `_get_vectorstore()` to use ModelManager instead of `.env` configuration
+   - Added async `_aget_vectorstore()` for async contexts
+
+3. **Frontend - Model Configuration Dialog** (`frontend/src/features/chat/components/provider-config-dialog.tsx`):
+   - Extended `MODEL_TYPES` to include `"embedding"`
+   - Added Default Embedding selector alongside LLM and VLM selectors
+   - Default model selectors now ordered: LLM → VLM → Embedding
+   - Hidden thinking switch for embedding models (both in new model form and existing model editing)
+   - Removed filtering that excluded embedding models from the UI
+
+4. **Frontend - i18n** (`frontend/src/i18n/useI18n.tsx`):
+   - Added `model.defaultEmbedding` translation key (English: "Default Embedding", Chinese: "默认嵌入模型")
+
+**Key Decisions**:
+- Embedding models are now fully configurable via database (same as LLM/VLM)
+- `.env` embedding configuration is kept for reference but no longer used as fallback
+- Each model type (LLM/VLM/EMBEDDING) can have one default model
+- Embedding models don't have thinking mode (hidden in UI)
+
+**Files Modified**:
+- `backend/app/core/model_manager.py`
+- `backend/app/tools/vectorstore_retriever.py`
+- `frontend/src/features/chat/components/provider-config-dialog.tsx`
+- `frontend/src/i18n/useI18n.tsx`
+
+---
+
 **Steps Display & Sidebar Optimization (2026-04-17)**
 
 Optimized the steps display logic and sidebar UI:
