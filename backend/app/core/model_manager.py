@@ -332,6 +332,47 @@ class ModelManager:
         raise ValueError("No embedding models available.")
 
     @classmethod
+    async def get_embedding_model_instance(cls, model_id: Optional[str] = None):
+        """
+        Get embedding model instance for vector store.
+
+        Args:
+            model_id: Specify model ID, use default if not provided
+
+        Returns:
+            Tuple of (model_name, api_key) for LiteLLMEmbeddings
+        """
+        # Get model ID (either specified or default)
+        actual_model_id = await cls.get_embedding_model(model_id)
+        model = cls._models_cache.get(actual_model_id)
+
+        if not model:
+            raise ValueError(f"Embedding model '{actual_model_id}' not found in cache.")
+
+        # Build litellm model name (provider/model_id format)
+        if "/" in model.model_id:
+            litellm_model = model.model_id
+        else:
+            provider_prefix = model.provider.lower()
+            provider_mapping = {
+                "dashscope": "dashscope",
+                "alibaba": "dashscope",
+                "zhipu": "zhipu",
+                "zai": "zhipu",
+                "openai": "openai",
+                "deepseek": "deepseek",
+            }
+            litellm_provider = provider_mapping.get(provider_prefix, provider_prefix)
+            litellm_model = f"{litellm_provider}/{model.model_id}"
+
+        # Decrypt API key
+        decrypted_api_key = ""
+        if model.api_key:
+            decrypted_api_key = decrypt_api_key(model.api_key)
+
+        return litellm_model, decrypted_api_key
+
+    @classmethod
     def get_model(cls, model_id: str):
         """Get model from cache"""
         return cls._models_cache.get(model_id)

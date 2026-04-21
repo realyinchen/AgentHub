@@ -4,27 +4,47 @@ from langchain_core.tools import tool
 from langchain_qdrant import QdrantVectorStore
 from langchain_litellm import LiteLLMEmbeddings
 
-from app.core.config import settings
 from app.database import qdrant_manager
+from app.core.model_manager import ModelManager
 
 
-def _get_vectorstore(collection_name: str) -> QdrantVectorStore:
+async def _aget_vectorstore(collection_name: str) -> QdrantVectorStore:
+    """Async get vectorstore with embedding model from database."""
     client = qdrant_manager.get_client()
-    # Get embedding model configuration from environment variables
-    model_name = settings.EMBEDDING_MODEL_NAME
-    if not model_name:
-        raise ValueError("EMBEDDING_MODEL_NAME is not configured in .env")
-    api_key = (
-        settings.EMBEDDING_API_KEY.get_secret_value()
-        if settings.EMBEDDING_API_KEY
-        else None
-    )
+    # Get embedding model configuration from ModelManager (database)
+    model_name, api_key = await ModelManager.get_embedding_model_instance()
     embeddings = LiteLLMEmbeddings(model=model_name, api_key=api_key)
     return QdrantVectorStore(
         client=client,
         collection_name=collection_name,
         embedding=embeddings,
     )
+
+
+def _get_vectorstore(collection_name: str) -> QdrantVectorStore:
+    """Sync wrapper for _aget_vectorstore.
+
+    Note: This function should be called from sync contexts only.
+    In async contexts, use _aget_vectorstore directly.
+    """
+    import asyncio
+
+    # Try to get the running loop
+    try:
+        _ = asyncio.get_running_loop()
+        # We have a running loop but this is a sync function
+        # This should not happen in normal operation since tools are run
+        # in async contexts through LangGraph. If it does happen,
+        # we raise an error to avoid blocking issues.
+        raise RuntimeError(
+            "_get_vectorstore() called from async context. "
+            "Use _aget_vectorstore() instead in async code."
+        )
+    except RuntimeError as e:
+        if "no running event loop" in str(e):
+            # No running loop, safe to use asyncio.run
+            return asyncio.run(_aget_vectorstore(collection_name))
+        raise
 
 
 @tool

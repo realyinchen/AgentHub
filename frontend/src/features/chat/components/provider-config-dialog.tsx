@@ -36,8 +36,8 @@ type ProviderConfigDialogProps = {
   onOpenChange: (open: boolean) => void
 }
 
-// Only LLM and VLM types for frontend configuration
-const MODEL_TYPES: ModelType[] = ["llm", "vlm"]
+// All model types for frontend configuration
+const MODEL_TYPES: ModelType[] = ["llm", "vlm", "embedding"]
 
 // Model change state type
 type ModelChanges = {
@@ -77,6 +77,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   // Default model selection state
   const [selectedDefaultLLM, setSelectedDefaultLLM] = useState<string>("")
   const [selectedDefaultVLM, setSelectedDefaultVLM] = useState<string>("")
+  const [selectedDefaultEmbedding, setSelectedDefaultEmbedding] = useState<string>("")
   const [hasDefaultChanges, setHasDefaultChanges] = useState(false)
 
   // Pending changes state (model_id -> changes)
@@ -93,16 +94,17 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
         getAllModels(),
         getProviders(),
       ])
-      // Filter out embedding models - they are configured via .env
-      const configurableModels = modelsResult.models.filter(m => m.model_type !== "embedding")
-      setModels(configurableModels)
+      // All model types are now configurable (llm, vlm, embedding)
+      setModels(modelsResult.models)
       setProviders(providersResult.providers)
 
       // Initialize default model selections
-      const defaultLLM = configurableModels.find(m => m.model_type === "llm" && m.is_default)
-      const defaultVLM = configurableModels.find(m => m.model_type === "vlm" && m.is_default)
+      const defaultLLM = modelsResult.models.find(m => m.model_type === "llm" && m.is_default)
+      const defaultVLM = modelsResult.models.find(m => m.model_type === "vlm" && m.is_default)
+      const defaultEmbedding = modelsResult.models.find(m => m.model_type === "embedding" && m.is_default)
       setSelectedDefaultLLM(defaultLLM?.model_id || "")
       setSelectedDefaultVLM(defaultVLM?.model_id || "")
+      setSelectedDefaultEmbedding(defaultEmbedding?.model_id || "")
       setHasDefaultChanges(false)
     } catch (error) {
       console.error("Failed to load data:", error)
@@ -324,6 +326,12 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     setHasDefaultChanges(true)
   }
 
+  const handleDefaultEmbeddingChange = (value: string) => {
+    // Treat __none__ as empty string
+    setSelectedDefaultEmbedding(value === "__none__" ? "" : value)
+    setHasDefaultChanges(true)
+  }
+
   // Save default model changes
   const saveDefaultChanges = async () => {
     try {
@@ -341,6 +349,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
         await setDefaultModel(newDefaultVLM)
       }
 
+      // Update default Embedding (use empty string if __none__)
+      const currentDefaultEmbedding = models.find(m => m.model_type === "embedding" && m.is_default)
+      const newDefaultEmbedding = selectedDefaultEmbedding || undefined
+      if (newDefaultEmbedding && newDefaultEmbedding !== currentDefaultEmbedding?.model_id) {
+        await setDefaultModel(newDefaultEmbedding)
+      }
+
       setHasDefaultChanges(false)
       await loadData()
     } catch (error) {
@@ -354,8 +369,10 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   const cancelDefaultChanges = () => {
     const defaultLLM = models.find(m => m.model_type === "llm" && m.is_default)
     const defaultVLM = models.find(m => m.model_type === "vlm" && m.is_default)
+    const defaultEmbedding = models.find(m => m.model_type === "embedding" && m.is_default)
     setSelectedDefaultLLM(defaultLLM?.model_id || "")
     setSelectedDefaultVLM(defaultVLM?.model_id || "")
+    setSelectedDefaultEmbedding(defaultEmbedding?.model_id || "")
     setHasDefaultChanges(false)
   }
 
@@ -410,31 +427,31 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
             </div>
           ) : (
             <div className="space-y-4">
-              {/* Header Row: Default Model Selectors - Left/Right Aligned */}
-              <div className="flex items-center justify-between gap-3">
-                {/* Default LLM Select - Left */}
-                <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">{t("model.defaultLLM")}:</span>
-                  <Select
-                    value={selectedDefaultLLM || "__none__"}
-                    onValueChange={handleDefaultLLMChange}
-                  >
-                    <SelectTrigger className="w-36 h-8 rounded-lg text-xs">
-                      <SelectValue placeholder={t("model.selectPlaceholder")} />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__" className="text-xs">{t("model.none")}</SelectItem>
-                      {models.filter(m => m.model_type === "llm" && m.is_active).map(m => (
-                        <SelectItem key={m.model_id} value={m.model_id} className="text-xs">
-                          {m.model_name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* Right side: VLM + Buttons */}
+              {/* Header Row: Default Model Selectors - LLM, VLM, Embedding */}
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                {/* Left side: LLM + VLM + Embedding */}
                 <div className="flex items-center gap-3">
+                  {/* Default LLM Select */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">{t("model.defaultLLM")}:</span>
+                    <Select
+                      value={selectedDefaultLLM || "__none__"}
+                      onValueChange={handleDefaultLLMChange}
+                    >
+                      <SelectTrigger className="w-36 h-8 rounded-lg text-xs">
+                        <SelectValue placeholder={t("model.selectPlaceholder")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__" className="text-xs">{t("model.none")}</SelectItem>
+                        {models.filter(m => m.model_type === "llm" && m.is_active).map(m => (
+                          <SelectItem key={m.model_id} value={m.model_id} className="text-xs">
+                            {m.model_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
                   {/* Default VLM Select */}
                   <div className="flex items-center gap-1.5">
                     <span className="text-xs text-muted-foreground whitespace-nowrap">{t("model.defaultVLM")}:</span>
@@ -456,31 +473,52 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                     </Select>
                   </div>
 
-                  {/* Save/Cancel Buttons for Default Changes */}
-                  {hasDefaultChanges && (
-                    <>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={cancelDefaultChanges}
-                        className="h-8 px-2 text-xs"
-                      >
-                        {t("common.cancel")}
-                      </Button>
-                      <Button
-                        size="sm"
-                        onClick={() => void saveDefaultChanges()}
-                        className="h-8 px-3 text-xs rounded-lg
-                                   bg-gradient-to-r from-primary to-accent
-                                   hover:from-primary/90 hover:to-accent/90
-                                   shadow-[0_0_8px_rgba(0,209,255,0.3)]
-                                   transition-all duration-200"
-                      >
-                        {t("common.save")}
-                      </Button>
-                    </>
-                  )}
+                  {/* Default Embedding Select */}
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">{t("model.defaultEmbedding")}:</span>
+                    <Select
+                      value={selectedDefaultEmbedding || "__none__"}
+                      onValueChange={handleDefaultEmbeddingChange}
+                    >
+                      <SelectTrigger className="w-36 h-8 rounded-lg text-xs">
+                        <SelectValue placeholder={t("model.selectPlaceholder")} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none__" className="text-xs">{t("model.none")}</SelectItem>
+                        {models.filter(m => m.model_type === "embedding" && m.is_active).map(m => (
+                          <SelectItem key={m.model_id} value={m.model_id} className="text-xs">
+                            {m.model_name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
+
+                {/* Right side: Save/Cancel Buttons */}
+                {hasDefaultChanges && (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={cancelDefaultChanges}
+                      className="h-8 px-2 text-xs"
+                    >
+                      {t("common.cancel")}
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => void saveDefaultChanges()}
+                      className="h-8 px-3 text-xs rounded-lg
+                                 bg-gradient-to-r from-primary to-accent
+                                 hover:from-primary/90 hover:to-accent/90
+                                 shadow-[0_0_8px_rgba(0,209,255,0.3)]
+                                 transition-all duration-200"
+                    >
+                      {t("common.save")}
+                    </Button>
+                  </div>
+                )}
               </div>
 
               {/* New Model Form */}
@@ -599,15 +637,17 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
                   {/* Row 4: Thinking, Active, Default switches */}
                   <div className="flex items-center gap-4 flex-wrap">
-                    {/* Thinking Switch */}
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id="new-thinking"
-                        checked={newModel.thinking}
-                        onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, thinking: checked }))}
-                      />
-                      <label htmlFor="new-thinking" className="text-sm">{t("model.thinking")}</label>
-                    </div>
+                    {/* Thinking Switch - only for llm/vlm, not embedding */}
+                    {newModel.model_type !== "embedding" && (
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id="new-thinking"
+                          checked={newModel.thinking}
+                          onCheckedChange={(checked: boolean) => setNewModel(prev => ({ ...prev, thinking: checked }))}
+                        />
+                        <label htmlFor="new-thinking" className="text-sm">{t("model.thinking")}</label>
+                      </div>
+                    )}
 
                     {/* Is Active */}
                     <div className="flex items-center gap-2">
@@ -715,19 +755,21 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                   </Badge>
                                 )}
 
-                                {/* Thinking Switch - moved to header row */}
-                                <div className="flex items-center gap-1.5 ml-1">
-                                  <Switch
-                                    id={`thinking-${model.model_id}`}
-                                    checked={effectiveThinking}
-                                    onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "thinking", checked)}
-                                    className="scale-75"
-                                  />
-                                  <label htmlFor={`thinking-${model.model_id}`}
-                                    className="text-xs text-muted-foreground cursor-pointer">
-                                    {t("model.thinking")}
-                                  </label>
-                                </div>
+                                {/* Thinking Switch - only show for llm/vlm, not embedding */}
+                                {model.model_type !== "embedding" && (
+                                  <div className="flex items-center gap-1.5 ml-1">
+                                    <Switch
+                                      id={`thinking-${model.model_id}`}
+                                      checked={effectiveThinking}
+                                      onCheckedChange={(checked: boolean) => handleSwitchChange(model.model_id, "thinking", checked)}
+                                      className="scale-75"
+                                    />
+                                    <label htmlFor={`thinking-${model.model_id}`}
+                                      className="text-xs text-muted-foreground cursor-pointer">
+                                      {t("model.thinking")}
+                                    </label>
+                                  </div>
+                                )}
 
                                 {/* Active Switch - moved to header row */}
                                 <div className="flex items-center gap-1.5">
