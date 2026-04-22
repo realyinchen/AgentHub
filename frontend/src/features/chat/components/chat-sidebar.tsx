@@ -85,8 +85,8 @@ export function ChatSidebar({
   // Filter conversations by search query
   const filteredConversations = searchQuery
     ? conversations.filter((c) =>
-        c.title.toLowerCase().includes(searchQuery.toLowerCase())
-      )
+      c.title.toLowerCase().includes(searchQuery.toLowerCase())
+    )
     : conversations
 
   // Get visible conversations
@@ -177,11 +177,11 @@ export function ChatSidebar({
             <div className="px-1 mb-3">
               <SearchInput value={searchQuery} onChange={setSearchQuery} />
             </div>
-            
+
             {filteredConversations.length === 0 ? (
               <p className="mt-3 rounded-xl border border-dashed border-sidebar-border/50 p-4 text-sm text-sidebar-foreground/60 text-center">
-                {searchQuery 
-                  ? (t("conversation.noResults") || "No conversations found") 
+                {searchQuery
+                  ? (t("conversation.noResults") || "No conversations found")
                   : t("conversation.none")}
               </p>
             ) : (
@@ -196,9 +196,9 @@ export function ChatSidebar({
                           isActive={isActive}
                           className={`h-auto items-start py-2.5 pr-10 cursor-pointer rounded-xl
                                      transition-all duration-200 ease-out
-                                     ${isActive 
-                                       ? 'bg-gradient-to-r from-warm/15 to-transparent border-l-2 border-warm pl-3 ml-0' 
-                                       : 'hover:bg-sidebar-accent/50 hover:translate-x-0.5'}`}
+                                     ${isActive
+                              ? 'bg-gradient-to-r from-warm/15 to-transparent border-l-2 border-warm pl-3 ml-0'
+                              : 'hover:bg-sidebar-accent/50 hover:translate-x-0.5'}`}
                           onClick={() => onOpenConversation(conversation)}
                         >
                           <div className="min-w-0">

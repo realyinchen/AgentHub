@@ -18,9 +18,13 @@ class Provider(Base):
 
     __tablename__ = "providers"
 
-    provider = Column(String(64), primary_key=True)  # e.g. "dashscope", "zai", "openai-compatible"
+    provider = Column(
+        String(64), primary_key=True
+    )  # e.g. "dashscope", "zai", "openai-compatible"
     api_key = Column(Text, nullable=False, default="")  # encrypted API key
-    base_url = Column(String(512), nullable=True)  # base URL for OpenAI-Compatible providers
+    base_url = Column(
+        String(512), nullable=True
+    )  # base URL for OpenAI-Compatible providers
     is_openai_compatible = Column(Boolean, nullable=False, default=False)
     created_at = Column(
         DateTime(timezone=True), nullable=False, server_default=func.now()

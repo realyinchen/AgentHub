@@ -254,13 +254,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   }
 
   const updateNewModelForm = (formId: string, updates: Partial<ModelCreate>) => {
-    setNewModelForms(prev => prev.map(f => 
+    setNewModelForms(prev => prev.map(f =>
       f.id === formId ? { ...f, data: { ...f.data, ...updates } } : f
     ))
   }
 
   const updateNewModelType = (formId: string, modelType: ModelType) => {
-    setNewModelForms(prev => prev.map(f => 
+    setNewModelForms(prev => prev.map(f =>
       f.id === formId ? { ...f, data: { ...f.data, model_type: modelType } } : f
     ))
   }
@@ -272,8 +272,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     if (validForms.length === 0) return
 
     const saveOperations = validForms.map(form => {
-      const fullModelId = form.data.model_id.includes("/") 
-        ? form.data.model_id 
+      const fullModelId = form.data.model_id.includes("/")
+        ? form.data.model_id
         : `${selectedProvider}/${form.data.model_id.trim()}`
       return createModel({
         ...form.data,
@@ -281,11 +281,11 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
         provider: selectedProvider || "",
       })
     })
-    
+
     try {
       await Promise.all(saveOperations)
       setNewModelForms([])
-      
+
       const modelsResult = await getAllModels()
       setModels(modelsResult.models)
       if (selectedProvider) {
@@ -449,13 +449,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                     {t("provider.title")}
                   </h4>
                 </div>
-                
+
                 <div className="flex-1 overflow-y-auto p-3 space-y-1">
                   {providers.map((provider) => {
                     const isExpanded = expandedProviders.has(provider.provider)
                     const isSelected = selectedProvider === provider.provider
                     const providerModelCount = models.filter(m => m.provider === provider.provider).length
-                    
+
                     return (
                       <div key={provider.provider}>
                         <button
@@ -468,8 +468,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                             toggleProviderExpand(provider.provider)
                           }}
                           className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors
-                            ${isSelected 
-                              ? 'bg-primary/10 text-primary border border-primary/20' 
+                            ${isSelected
+                              ? 'bg-primary/10 text-primary border border-primary/20'
                               : 'hover:bg-muted text-foreground'
                             }`}
                         >
@@ -481,7 +481,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                           <span className="font-medium flex-1 text-left">{provider.provider}</span>
                           <Badge variant="secondary" className="text-xs">{providerModelCount}</Badge>
                         </button>
-                        
+
                         {isExpanded && (
                           <div className="ml-4 mt-1 space-y-0.5">
                             {models
@@ -504,7 +504,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                       </div>
                     )
                   })}
-                  
+
                   {providers.length === 0 && (
                     <div className="text-center py-8 text-muted-foreground text-sm">
                       {t("provider.noProviders") || "No providers configured"}
@@ -545,7 +545,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                           {t("common.save")}
                         </Button>
                       </div>
-                      
+
                       {selectedProviderInfo.is_openai_compatible && (
                         <div>
                           <Input
@@ -620,8 +620,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               <div className="grid grid-cols-2 gap-3">
                                 <div className="space-y-1.5">
                                   <label className="text-xs font-medium text-muted-foreground">{t("model.type")}</label>
-                                  <Select 
-                                    value={form.data.model_type} 
+                                  <Select
+                                    value={form.data.model_type}
                                     onValueChange={(value: ModelType) => updateNewModelType(form.id, value)}
                                   >
                                     <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -632,9 +632,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                 </div>
                                 <div className="space-y-1.5">
                                   <label className="text-xs font-medium text-muted-foreground">Model ID</label>
-                                  <Input 
-                                    placeholder="qwen3.5-27b" 
-                                    value={form.data.model_id} 
+                                  <Input
+                                    placeholder="qwen3.5-27b"
+                                    value={form.data.model_id}
                                     onChange={(e) => updateNewModelForm(form.id, { model_id: e.target.value })}
                                     className="h-8 text-xs"
                                   />
@@ -643,9 +643,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               <div className="flex items-center gap-4 flex-wrap">
                                 {form.data.model_type !== "embedding" && (
                                   <div className="flex items-center gap-2">
-                                    <Switch 
+                                    <Switch
                                       id={`${form.id}-thinking`}
-                                      checked={form.data.thinking} 
+                                      checked={form.data.thinking}
                                       onCheckedChange={(checked) => updateNewModelForm(form.id, { thinking: checked })}
                                       className="scale-75"
                                     />
@@ -653,18 +653,18 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                   </div>
                                 )}
                                 <div className="flex items-center gap-2">
-                                  <Switch 
+                                  <Switch
                                     id={`${form.id}-active`}
-                                    checked={form.data.is_active} 
+                                    checked={form.data.is_active}
                                     onCheckedChange={(checked) => updateNewModelForm(form.id, { is_active: checked })}
                                     className="scale-75"
                                   />
                                   <label htmlFor={`${form.id}-active`} className="text-xs">{t("model.active")}</label>
                                 </div>
                                 <div className="flex items-center gap-2">
-                                  <Switch 
+                                  <Switch
                                     id={`${form.id}-default`}
-                                    checked={form.data.is_default} 
+                                    checked={form.data.is_default}
                                     onCheckedChange={(checked) => updateNewModelForm(form.id, { is_default: checked })}
                                     className="scale-75"
                                   />
@@ -673,7 +673,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               </div>
                             </div>
                           ))}
-                          
+
                           {/* Add another model button */}
                           <Button
                             variant="secondary"
@@ -702,10 +702,10 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               const effectiveActive = getEffectiveValue(model, "is_active") as boolean
                               const isDeleting = deletingModelIds.has(model.model_id)
                               const isEditing = isEditingModel(model.model_id)
-                              
+
                               return (
-                                <div 
-                                  key={model.model_id} 
+                                <div
+                                  key={model.model_id}
                                   className="group border border-border/50 rounded-xl p-4 space-y-3 bg-card/50"
                                   style={{ opacity: isDeleting ? 0 : 1 }}
                                 >
@@ -718,16 +718,17 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                     <div className="flex items-center gap-1">
                                       {isEditing ? (
                                         <>
-                                          <Button 
-                                            size="sm" 
+                                          <Button
+                                            size="sm"
                                             className="h-8 px-3 transition-all hover:scale-105 active:scale-95"
                                             onClick={() => void saveChanges(model.model_id)}
+                                            disabled={!hasChanges}
                                           >
                                             {t("common.save")}
                                           </Button>
-                                          <Button 
-                                            variant="secondary" 
-                                            size="sm" 
+                                          <Button
+                                            variant="secondary"
+                                            size="sm"
                                             className="h-8 px-3 transition-all hover:scale-105 active:scale-95"
                                             onClick={() => cancelChanges(model.model_id)}
                                           >
@@ -735,34 +736,34 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                           </Button>
                                         </>
                                       ) : (
-                                        <Button 
-                                          variant="ghost" 
-                                          size="icon" 
-                                          className="size-8 rounded-lg text-muted-foreground/60 hover:text-primary transition-all hover:scale-105 active:scale-95" 
+                                        <Button
+                                          variant="ghost"
+                                          size="icon"
+                                          className="size-8 rounded-lg text-muted-foreground/60 hover:text-primary transition-all hover:scale-105 active:scale-95"
                                           onClick={() => toggleModelEdit(model.model_id)}
                                         >
                                           <Edit2 className="size-4" />
                                         </Button>
                                       )}
-                                      <Button 
-                                        variant="ghost" 
-                                        size="icon" 
-                                        className="size-8 rounded-lg text-destructive/60 hover:text-destructive transition-all hover:scale-105 active:scale-95" 
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="size-8 rounded-lg text-destructive/60 hover:text-destructive transition-all hover:scale-105 active:scale-95"
                                         onClick={() => void handleDeleteModel(model)}
                                       >
                                         <Trash2 className="size-4" />
                                       </Button>
                                     </div>
                                   </div>
-                                  
+
                                   {/* Read-only switches when not editing */}
                                   {!isEditing ? (
                                     <div className="flex items-center gap-4 flex-wrap">
                                       {model.model_type !== "embedding" && (
                                         <div className="flex items-center gap-1.5">
-                                          <Switch 
-                                            id={`thinking-${model.model_id}`} 
-                                            checked={model.thinking} 
+                                          <Switch
+                                            id={`thinking-${model.model_id}`}
+                                            checked={model.thinking}
                                             disabled
                                             className="scale-75"
                                           />
@@ -772,9 +773,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                         </div>
                                       )}
                                       <div className="flex items-center gap-1.5">
-                                        <Switch 
-                                          id={`active-${model.model_id}`} 
-                                          checked={model.is_active} 
+                                        <Switch
+                                          id={`active-${model.model_id}`}
+                                          checked={model.is_active}
                                           disabled
                                           className="scale-75"
                                         />
@@ -783,8 +784,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                         </label>
                                       </div>
                                       <div className="flex items-center gap-1.5">
-                                        <Switch 
-                                          id={`default-${model.model_id}`} 
+                                        <Switch
+                                          id={`default-${model.model_id}`}
                                           checked={model.is_default}
                                           disabled
                                           className="scale-75"
@@ -799,9 +800,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                       <div className="flex items-center gap-4 flex-wrap">
                                         {model.model_type !== "embedding" && (
                                           <div className="flex items-center gap-1.5">
-                                            <Switch 
-                                              id={`thinking-${model.model_id}`} 
-                                              checked={effectiveThinking} 
+                                            <Switch
+                                              id={`thinking-${model.model_id}`}
+                                              checked={effectiveThinking}
                                               onCheckedChange={(checked) => handleSwitchChange(model.model_id, "thinking", checked)}
                                               className="scale-75"
                                             />
@@ -811,9 +812,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                           </div>
                                         )}
                                         <div className="flex items-center gap-1.5">
-                                          <Switch 
-                                            id={`active-${model.model_id}`} 
-                                            checked={effectiveActive} 
+                                          <Switch
+                                            id={`active-${model.model_id}`}
+                                            checked={effectiveActive}
                                             onCheckedChange={(checked) => handleSwitchChange(model.model_id, "is_active", checked)}
                                             className="scale-75"
                                           />
@@ -822,8 +823,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                           </label>
                                         </div>
                                         <div className="flex items-center gap-1.5">
-                                          <Switch 
-                                            id={`default-${model.model_id}`} 
+                                          <Switch
+                                            id={`default-${model.model_id}`}
                                             checked={(pendingChanges[model.model_id]?.is_default ?? model.is_default)}
                                             onCheckedChange={(checked) => handleSwitchChange(model.model_id, "is_default", checked)}
                                             className="scale-75"
@@ -838,17 +839,17 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                         <div className="grid grid-cols-2 gap-3">
                                           <div className="space-y-1.5">
                                             <label className="text-xs font-medium text-muted-foreground">Model ID</label>
-                                            <Input 
-                                              placeholder="" 
-                                              value={modelIdEdits[model.model_id] ?? ""} 
+                                            <Input
+                                              placeholder=""
+                                              value={modelIdEdits[model.model_id] ?? ""}
                                               onChange={(e) => handleModelIdChange(model.model_id, e.target.value)}
                                               className="h-8 text-xs"
                                             />
                                           </div>
                                           <div className="space-y-1.5">
                                             <label className="text-xs font-medium text-muted-foreground">{t("model.type")}</label>
-                                            <Select 
-                                              value={modelTypeEdits[model.model_id] ?? model.model_type} 
+                                            <Select
+                                              value={modelTypeEdits[model.model_id] ?? model.model_type}
                                               onValueChange={(value: ModelType) => handleModelTypeChangeForEdit(model.model_id, value)}
                                             >
                                               <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
@@ -858,12 +859,6 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                             </Select>
                                           </div>
                                         </div>
-                                        {hasChanges && (
-                                          <div className="flex items-center justify-end gap-2 pt-2">
-                                            <Button size="sm" onClick={() => void saveChanges(model.model_id)}>{t("common.save")}</Button>
-                                            <Button variant="secondary" size="sm" onClick={() => cancelChanges(model.model_id)}>{t("common.cancel")}</Button>
-                                          </div>
-                                        )}
                                       </div>
                                     </>
                                   )}

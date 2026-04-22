@@ -95,6 +95,23 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
 
   // Calculate total percentage for header indicator
   const totalPercentage = ((tokens.total_tokens / MAX_TOKENS) * 100).toFixed(1)
+  const totalPercentageNum = parseFloat(totalPercentage)
+
+  // Determine color based on percentage: normal (default), 80%+ warning (yellow), 90%+ danger (red)
+  const getPercentageColorClass = () => {
+    if (totalPercentageNum >= 90) return "text-red-500"
+    if (totalPercentageNum >= 80) return "text-yellow-500"
+    return "text-muted-foreground"
+  }
+
+  const getIndicatorColorClass = () => {
+    if (totalPercentageNum >= 90) return "bg-red-500"
+    if (totalPercentageNum >= 80) return "bg-yellow-500"
+    return "bg-primary/50"
+  }
+
+  const percentageColorClass = getPercentageColorClass()
+  const indicatorColorClass = getIndicatorColorClass()
 
   return (
     <div className="rounded-2xl bg-gradient-to-br from-muted/30 to-muted/50 
@@ -111,10 +128,10 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
           </span>
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-xs font-medium text-muted-foreground">
+          <span className={cn("text-xs font-medium", percentageColorClass)}>
             {totalPercentage}%
           </span>
-          <div className="size-1.5 rounded-full bg-primary/50" />
+          <div className={cn("size-1.5 rounded-full", indicatorColorClass)} />
           <span className="text-xs text-muted-foreground">
             128k
           </span>

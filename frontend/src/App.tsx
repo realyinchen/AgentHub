@@ -124,7 +124,11 @@ function App() {
   const [messageSequence, setMessageSequence] = useState<MessageStep[]>([])
   // Toggle for showing/hiding the sidebar process panel
   const [showSidebarProcess, setShowSidebarProcess] = useState(true)
+
+
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+
+
 
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
@@ -1586,47 +1590,67 @@ function App() {
               return sessionIds
             }, [messageSequence, messages])}
             aiMessageHasSteps={useMemo(() => {
-              // For each AI message, determine if it has steps (more than just the AI step itself)
-              if (!messageSequence || messageSequence.length === 0) {
-                return []
+              // For each message, determine if it has steps based on its session_id
+              const hasSteps: boolean[] = []
+
+              // Pre-compute which sessions have steps
+              const sessionsWithSteps = new Set<string>()
+              if (messageSequence && messageSequence.length > 0) {
+                messageSequence.forEach(step => {
+                  if (step.message_type === "tool" || (step.message_type === "ai" && step.thinking?.trim())) {
+                    sessionsWithSteps.add(step.session_id)
+                  }
+                })
               }
 
-              // Group steps by session_id
-              const stepsBySession = new Map<string, MessageStep[]>()
-              messageSequence.forEach((step) => {
-                const sessionId = step.session_id
-                if (!stepsBySession.has(sessionId)) {
-                  stepsBySession.set(sessionId, [])
-                }
-                stepsBySession.get(sessionId)!.push(step)
-              })
+              // Get session IDs for each message (same logic as aiMessageSessionIds)
+              const getSessionId = (msgIndex: number): string | null => {
+                const msg = messages[msgIndex]
+                if (msg?.type !== "ai") return null
+                const aiSteps = messageSequence?.filter(s => s.message_type === "ai") || []
+                const aiIndex = messages.slice(0, msgIndex + 1).filter(m => m.type === "ai").length - 1
+                return aiSteps[aiIndex]?.session_id || null
+              }
 
-              // For each message, determine if it has steps
-              const hasSteps: boolean[] = []
               messages.forEach((msg, index) => {
-                if (msg.type === "ai") {
-                  // Find the corresponding session_id
-                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
-                  const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
-                  const sessionId = aiSteps[aiIndex]?.session_id
-
-                  if (sessionId) {
-                    // Check if this session has more than just the AI step
-                    // A session has "steps" if it has tool calls or thinking content
-                    const sessionSteps = stepsBySession.get(sessionId) || []
-                    const hasToolSteps = sessionSteps.some(s => s.message_type === "tool")
-                    const hasThinking = sessionSteps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
-                    hasSteps.push(hasToolSteps || hasThinking)
-                  } else {
-                    hasSteps.push(false)
-                  }
-                } else {
+                if (msg.type !== "ai") {
                   hasSteps.push(false)
+                  return
                 }
+
+                // Check 1: Does message have process_steps from streaming?
+                const processSteps = msg.custom_data?.process_steps
+                if (Array.isArray(processSteps) && processSteps.length > 0) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                // Check 2: Does message have tool calls?
+                if (msg.tool_calls && msg.tool_calls.length > 0) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                // Check 3: Does message have thinking content?
+                if (msg.custom_data?.thinking || msg.response_metadata?.thinking || msg.reasoning_content) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                // Check 4: Does the message's session have steps?
+                const sessionId = getSessionId(index)
+                if (sessionId && sessionsWithSteps.has(sessionId)) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                hasSteps.push(false)
               })
 
               return hasSteps
             }, [messageSequence, messages])}
+
+
             onSelectSession={(sessionId: string) => {
               setSelectedSessionId(sessionId)
               // Ensure sidebar is visible when selecting a session
@@ -1640,6 +1664,7 @@ function App() {
             onSelectAgentId={pickAgentForCurrentConversation}
             onOpenModelConfig={() => setShowProviderConfig(true)}
             hasAvailableModels={hasAvailableModels}
+            selectedSessionId={selectedSessionId}
           />
         </SidebarInset>
 
@@ -1705,9 +1730,11 @@ function App() {
 
           </div>
 
-          {/* Middle Section: Agent Process Panel */}
+
+
+          {/* Middle Section: Agent Process Panel - only show when there's actual content */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && (
+            {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && (messages.length > 0 || messageSequence.length > 0 || (processSession && processSession.steps && processSession.steps.length > 0)) && (
               <AgentProcessPanel
                 session={processSession}
                 messageSequence={messageSequence}

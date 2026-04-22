@@ -7,13 +7,13 @@
 :root {
   --radius: 1rem;
   /* Light Mode - Modern Tech Console Theme */
-  
+
   /* Background layers */
   --background: oklch(0.98 0.005 250);
   /* #F8FAFC - Soft blue-white */
   --background-elevated: oklch(0.96 0.008 250);
   /* #F1F5F9 - Elevated surface */
-  
+
   --foreground: oklch(0.13 0.02 250);
   /* #0F172A - Deep slate */
   --card: oklch(1 0 0);
@@ -21,36 +21,36 @@
   --card-foreground: oklch(0.13 0.02 250);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.13 0.02 250);
-  
+
   /* Primary - Tech Blue */
   --primary: oklch(0.55 0.22 250);
   /* #2563EB - Vibrant blue */
   --primary-foreground: oklch(0.99 0 0);
-  
+
   /* Accent - Cyan glow */
   --accent: oklch(0.72 0.15 200);
   /* #38BDF8 - Sky blue */
   --accent-foreground: oklch(0.13 0.02 250);
-  
+
   /* Warm colors - For CTA and highlights only */
   --warm: oklch(0.72 0.18 50);
   /* #FF9F45 - Warm orange */
   --warm-soft: oklch(0.85 0.15 75);
   /* #FFD166 - Soft gold */
   --warm-foreground: oklch(0.13 0.02 250);
-  
+
   --secondary: oklch(0.96 0.008 250);
   --secondary-foreground: oklch(0.13 0.02 250);
   --muted: oklch(0.96 0.008 250);
   --muted-foreground: oklch(0.48 0.01 250);
   /* #64748B - Slate 500 */
-  
+
   --destructive: oklch(0.58 0.22 25);
   --border: oklch(0.90 0.01 250);
   /* Soft border */
   --input: oklch(0.90 0.01 250);
   --ring: oklch(0.55 0.22 250);
-  
+
   /* Sidebar */
   --sidebar: oklch(0.98 0.005 250);
   --sidebar-foreground: oklch(0.13 0.02 250);
@@ -60,21 +60,21 @@
   --sidebar-accent-foreground: oklch(0.13 0.02 250);
   --sidebar-border: oklch(0.90 0.01 250);
   --sidebar-ring: oklch(0.55 0.22 250);
-  
+
   /* Chat bubble colors */
   --ai-bubble: oklch(0.96 0.008 250);
   /* Soft AI bubble */
   --user-bubble: oklch(0.55 0.22 250);
   /* Blue user bubble */
   --user-bubble-foreground: oklch(0.99 0 0);
-  
+
   /* Brand accent */
   --brand-accent: oklch(0.72 0.18 50);
   /* Warm orange for brand */
-  
+
   /* Switch checked - Warm accent */
   --switch-checked: oklch(0.72 0.18 50);
-  
+
   /* Glow effects */
   --glow-primary: 0 0 20px oklch(0.55 0.22 250 / 0.3);
   --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.4);
@@ -83,13 +83,13 @@
 
 .dark {
   /* Dark Mode - Modern Tech Console Theme */
-  
+
   /* Background layers */
   --background: oklch(0.12 0.02 260);
   /* #0B0F1A - Deep tech blue-black */
   --background-elevated: oklch(0.15 0.02 260);
   /* #111827 - Elevated surface */
-  
+
   --foreground: oklch(0.92 0.01 260);
   /* #E6F1FF - Soft blue-white text */
   --card: oklch(0.18 0.02 260);
@@ -97,36 +97,36 @@
   --card-foreground: oklch(0.92 0.01 260);
   --popover: oklch(0.16 0.02 260);
   --popover-foreground: oklch(0.92 0.01 260);
-  
+
   /* Primary - Tech Cyan */
   --primary: oklch(0.75 0.15 195);
   /* #00D1FF - Tech blue */
   --primary-foreground: oklch(0.12 0.02 260);
-  
+
   /* Accent - Neon Cyan */
   --accent: oklch(0.85 0.15 165);
   /* #00FFC6 - Bright cyan */
   --accent-foreground: oklch(0.12 0.02 260);
-  
+
   /* Warm colors - For CTA and highlights only */
   --warm: oklch(0.72 0.18 50);
   /* #FF9F45 - Warm orange */
   --warm-soft: oklch(0.85 0.15 75);
   /* #FFD166 - Soft gold */
   --warm-foreground: oklch(0.12 0.02 260);
-  
+
   --secondary: oklch(0.22 0.02 260);
   --secondary-foreground: oklch(0.92 0.01 260);
   --muted: oklch(0.22 0.02 260);
   --muted-foreground: oklch(0.65 0.02 260);
   /* #94A3B8 - Slate 400 */
-  
+
   --destructive: oklch(0.65 0.20 25);
   --border: oklch(0.30 0.03 260);
   /* Semi-transparent tech border */
   --input: oklch(0.25 0.02 260);
   --ring: oklch(0.75 0.15 195);
-  
+
   /* Sidebar */
   --sidebar: oklch(0.10 0.02 260);
   /* #0B0F1A - Same as main bg */
@@ -137,21 +137,21 @@
   --sidebar-accent-foreground: oklch(0.92 0.01 260);
   --sidebar-border: oklch(0.25 0.03 260);
   --sidebar-ring: oklch(0.75 0.15 195);
-  
+
   /* Chat bubble colors */
   --ai-bubble: oklch(0.20 0.02 260);
   /* Semi-transparent AI bubble */
   --user-bubble: oklch(0.75 0.15 195);
   /* Tech blue user bubble */
   --user-bubble-foreground: oklch(0.12 0.02 260);
-  
+
   /* Brand accent */
   --brand-accent: oklch(0.72 0.18 50);
   /* Warm orange for brand */
-  
+
   /* Switch checked - Warm accent */
   --switch-checked: oklch(0.72 0.18 50);
-  
+
   /* Glow effects */
   --glow-primary: 0 0 20px oklch(0.75 0.15 195 / 0.4);
   --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.5);
@@ -216,6 +216,32 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Smooth theme transition - applied to color-related properties only */
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition: background-color 0.3s ease-out,
+      color 0.3s ease-out,
+      border-color 0.3s ease-out,
+      fill 0.3s ease-out,
+      stroke 0.3s ease-out,
+      box-shadow 0.3s ease-out !important;
+  }
+
+  /* Critical: Animate html root background immediately */
+  html {
+    transition: background-color 0.3s ease-out, color 0.3s ease-out;
+  }
+
+  /* Prevent FOUC - ensure smooth initial render */
+  html.no-transitions,
+  html.no-transitions *,
+  html.no-transitions *::before,
+  html.no-transitions *::after {
+    transition: none !important;
   }
 }
 

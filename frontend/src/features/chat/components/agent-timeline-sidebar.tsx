@@ -1,5 +1,6 @@
+
 import { useEffect, useRef, useState, useCallback } from "react"
-import { ChevronDownIcon, Sparkles, Wrench, Brain, CheckCircle2, Maximize2 } from "lucide-react"
+import { ChevronDownIcon, Brain, CheckCircle2, Maximize2 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type {
@@ -8,6 +9,7 @@ import type {
   MessageStep,
   ToolCallEvent,
 } from "@/types"
+
 import { useI18n } from "@/i18n"
 import {
   Dialog,
@@ -16,12 +18,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
+
 type AgentTimelineSidebarProps = {
   session: AgentProcessSession | null
   messageSequence: MessageStep[]
   isStreaming: boolean
   selectedSessionId?: string | null  // Filter steps by session
-  onClose?: () => void
 }
 
 // ==================== Types ====================
@@ -61,16 +63,9 @@ function TimelineStepItem({
   const { t } = useI18n()
   const isRunning = step.status === "running"
 
-  // Get icon based on type
+  // Get icon based on type - all use brain icon
   const getIcon = () => {
-    switch (step.type) {
-      case "ai_thinking":
-        return <Brain className="size-3.5" />
-      case "tool":
-        return <Wrench className="size-3.5" />
-      case "ai_final":
-        return <Sparkles className="size-3.5" />
-    }
+    return <Brain className="size-3.5" />
   }
 
   return (
@@ -218,22 +213,23 @@ function TimelineStepItem({
 
 // ==================== Main Component ====================
 
+
 export function AgentTimelineSidebar({
   session,
   messageSequence,
   isStreaming,
   selectedSessionId,
-  onClose: _onClose,  // eslint-disable-line @typescript-eslint/no-unused-vars
 }: AgentTimelineSidebarProps) {
+
   const { t } = useI18n()
   const scrollRef = useRef<HTMLDivElement>(null)
 
   // Track expanded state for each step - default to all collapsed
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
-  
+
   // Track expanded state for the modal view
   const [expandedStepsInModal, setExpandedStepsInModal] = useState<Set<string>>(new Set())
-  
+
   // Modal open state
   const [isModalOpen, setIsModalOpen] = useState(false)
 
@@ -390,7 +386,7 @@ export function AgentTimelineSidebar({
       return next
     })
   }, [])
-  
+
   // Toggle step in modal
   const toggleStepInModal = useCallback((stepId: string) => {
     setExpandedStepsInModal(prev => {
@@ -403,7 +399,7 @@ export function AgentTimelineSidebar({
       return next
     })
   }, [])
-  
+
   // Open modal and expand all steps
   const openExpandedView = useCallback(() => {
     // Expand all steps when opening modal
@@ -412,9 +408,39 @@ export function AgentTimelineSidebar({
     setIsModalOpen(true)
   }, [timelineSteps])
 
-  // Empty state - no steps to show
-  if (timelineSteps.length === 0) {
+
+  // When streaming with no steps yet, don't show anything (agent is still initializing)
+  if (timelineSteps.length === 0 && isStreaming) {
     return null
+  }
+
+  // Empty state - show friendly message only when not streaming
+  if (timelineSteps.length === 0) {
+    return (
+      <div className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden backdrop-blur-sm shadow-lg">
+        <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
+          <div className="flex items-center gap-2">
+            <div className="size-6 rounded-lg bg-accent/15 flex items-center justify-center">
+              <CheckCircle2 className="size-3.5 text-accent" />
+            </div>
+            <span className="text-sm font-semibold text-foreground">
+              {t("process.executionSteps")}
+            </span>
+          </div>
+        </div>
+        <div className="p-6 flex flex-col items-center justify-center text-center">
+          <div className="size-12 rounded-full bg-muted/40 flex items-center justify-center mb-3">
+            <Brain className="size-6 text-muted-foreground/50" />
+          </div>
+          <p className="text-sm text-muted-foreground">
+            {t("process.noSteps") || "暂无执行步骤信息"}
+          </p>
+          <p className="text-xs text-muted-foreground/50 mt-1">
+            {t("process.noStepsHint") || "该会话没有记录任何执行步骤"}
+          </p>
+        </div>
+      </div>
+    )
   }
 
   // Streaming mode - show real-time process in a card
@@ -455,12 +481,14 @@ export function AgentTimelineSidebar({
     )
   }
 
+
+
   // History mode - simple card with title, steps always visible
   return (
     <>
       <div className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden
                       backdrop-blur-sm shadow-lg">
-        {/* Header - static title */}
+        {/* Header - simple static title */}
         <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
           <div className="flex items-center gap-2">
             <div className="size-6 rounded-lg bg-accent/15 flex items-center justify-center">
@@ -506,11 +534,11 @@ export function AgentTimelineSidebar({
 
       {/* Expanded modal */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="max-w-3xl max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-6xl w-[90vw] max-h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle>{t("process.executionSteps")}（{timelineSteps.length}）</DialogTitle>
           </DialogHeader>
-          
+
           <div className="flex-1 overflow-y-auto process-steps-scroll">
             <div className="space-y-0 p-1">
               {timelineSteps.map((step, index) => (

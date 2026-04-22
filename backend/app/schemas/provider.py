@@ -7,8 +7,12 @@ class ProviderInfo(BaseModel):
 
     provider: str = Field(..., description="Provider name, e.g. 'dashscope', 'zai'")
     has_api_key: bool = Field(False, description="Whether API key is configured")
-    base_url: str | None = Field(None, description="Base URL for OpenAI-Compatible providers")
-    is_openai_compatible: bool = Field(False, description="Whether this is an OpenAI-Compatible provider")
+    base_url: str | None = Field(
+        None, description="Base URL for OpenAI-Compatible providers"
+    )
+    is_openai_compatible: bool = Field(
+        False, description="Whether this is an OpenAI-Compatible provider"
+    )
     created_at: datetime
     updated_at: datetime
 
@@ -27,4 +31,6 @@ class ProviderUpdateRequest(BaseModel):
 
     provider: str = Field(..., description="Provider name")
     api_key: str | None = Field(None, description="API key (will be encrypted)")
-    base_url: str | None = Field(None, description="Base URL for OpenAI-Compatible providers")
+    base_url: str | None = Field(
+        None, description="Base URL for OpenAI-Compatible providers"
+    )

@@ -350,12 +350,12 @@ async def streaming_completion(
     # Get model config from ModelManager
     model_config = ModelManager.get_model(model)
 
-    # Get API key
+    # Get API key from provider (not from model)
     api_key = None
     if model_config:
-        api_key = (
-            decrypt_api_key(model_config.api_key) if model_config.api_key else None
-        )
+        provider_config = ModelManager._providers_cache.get(model_config.provider)
+        if provider_config and provider_config.api_key:
+            api_key = decrypt_api_key(provider_config.api_key)
 
     # Convert messages to litellm format
     litellm_messages = _convert_messages_to_litellm_format(messages)
@@ -507,12 +507,12 @@ async def streaming_completion_with_yield(
     # Get model config from ModelManager
     model_config = ModelManager.get_model(model)
 
-    # Get API key
+    # Get API key from provider (not from model)
     api_key = None
     if model_config:
-        api_key = (
-            decrypt_api_key(model_config.api_key) if model_config.api_key else None
-        )
+        provider_config = ModelManager._providers_cache.get(model_config.provider)
+        if provider_config and provider_config.api_key:
+            api_key = decrypt_api_key(provider_config.api_key)
 
     # Convert messages to litellm format
     litellm_messages = _convert_messages_to_litellm_format(messages)
@@ -681,12 +681,15 @@ def get_chat_litellm(
         "model_kwargs": {"stream_options": {"include_usage": True}},
     }
 
-    # Get API key
+    # Get API key from provider (not from model)
     has_api_key = False
-    if model_config and model_config.api_key:
-        api_key = decrypt_api_key(model_config.api_key)
-        llm_kwargs["api_key"] = api_key
-        has_api_key = True
+    if model_config:
+        # Get provider config from ModelManager cache
+        provider_config = ModelManager._providers_cache.get(model_config.provider)
+        if provider_config and provider_config.api_key:
+            api_key = decrypt_api_key(provider_config.api_key)
+            llm_kwargs["api_key"] = api_key
+            has_api_key = True
 
     # Key fix: Always build extra_body to explicitly control thinking_mode
     # When thinking_mode=False, we MUST explicitly disable it to prevent

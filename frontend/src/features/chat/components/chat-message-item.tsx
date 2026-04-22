@@ -1,10 +1,12 @@
 import {
   BrainIcon,
+  CheckCircle2,
   CheckIcon,
   ChevronDown,
   ChevronDownIcon,
   ChevronRightIcon,
   CopyIcon,
+  ListOrdered,
   PencilIcon,
   QuoteIcon,
 } from "lucide-react"
@@ -31,6 +33,7 @@ type ChatMessageItemProps = {
   messageSequence?: MessageStep[] // Message sequence for historical display
   sessionId?: string | null // session_id for this AI message
   hasSteps?: boolean // Whether this AI message has steps (tool calls or thinking)
+  isSelected?: boolean // Whether this message's session is currently selected in sidebar
   onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
   editDisabled?: boolean // Whether edit is disabled
   onQuote?: () => void // Callback when user wants to quote this message
@@ -245,15 +248,14 @@ function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
   return groups
 }
 
-// ==================== Inline Process Steps Component ====================
-// Shows steps in main chat UI during agent execution (before final content streams)
+// ==================== Timeline Step Types ====================
 
-type InlineTimelineStepType = "ai_thinking" | "tool" | "ai_final"
+type TimelineStepType = "ai_thinking" | "tool" | "ai_final"
 
-type InlineTimelineStep = {
+type TimelineStep = {
   id: string
   stepNumber: number
-  type: InlineTimelineStepType
+  type: TimelineStepType
   title: string
   content: string
   args?: string
@@ -262,6 +264,17 @@ type InlineTimelineStep = {
   status: "running" | "done"
   timestamp: number
 }
+
+// Icon mapping
+const getStepIcon = (type: TimelineStepType) => {
+  if (type === "ai_thinking" || type === "ai_final") {
+    return "🧠"
+  }
+  return "🔧"
+}
+
+// ==================== Inline Process Steps Component (for streaming) ====================
+// Shows steps in main chat UI during agent execution (before final content streams)
 
 function InlineProcessSteps({
   session,
@@ -272,12 +285,12 @@ function InlineProcessSteps({
   const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
 
   // Convert streaming session to timeline steps
-  const getTimelineStepsFromSession = (): InlineTimelineStep[] => {
+  const getTimelineStepsFromSession = (): TimelineStep[] => {
     if (!session || !session.steps || session.steps.length === 0) {
       return []
     }
 
-    const steps: InlineTimelineStep[] = []
+    const steps: TimelineStep[] = []
 
     session.steps.forEach((step) => {
       // Skip human messages
@@ -363,14 +376,6 @@ function InlineProcessSteps({
     return null
   }
 
-  // Icon mapping
-  const getIcon = (type: InlineTimelineStepType) => {
-    if (type === "ai_thinking" || type === "ai_final") {
-      return "🧠"
-    }
-    return "🔧"
-  }
-
   return (
     <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
       {/* Header */}
@@ -430,7 +435,7 @@ function InlineProcessSteps({
                     )}
 
                     {/* Icon */}
-                    <span className="text-xs">{getIcon(step.type)}</span>
+                    <span className="text-xs">{getStepIcon(step.type)}</span>
 
                     {/* Title */}
                     <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
@@ -476,7 +481,7 @@ export function ChatMessageItem({
   processSession,
   messageSequence: _messageSequence,  // eslint-disable-line @typescript-eslint/no-unused-vars
   sessionId,
-  hasSteps = false,
+  isSelected = false,
   onEditMessage,
   editDisabled = false,
   onQuote,
@@ -534,7 +539,7 @@ export function ChatMessageItem({
 
   // Determine what to show in the action bar
   // Show brain icon only if this AI message has steps (tool calls or thinking)
-  const showBrainIcon = hasSteps
+  const showBrainIcon = !!sessionId
 
   // Get quoted message ID and user content from custom_data
   const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
@@ -582,20 +587,26 @@ export function ChatMessageItem({
       <Message
         from={isUser ? "user" : "assistant"}
         className={cn(
-          "min-w-0 shrink-0",
+          "min-w-0 shrink-0 transition-all duration-300",
           isUser
             ? "w-auto max-w-[72%] items-end"
             : "w-full max-w-[85%]",
+          isAI && isSelected && "scale-[1.01]"
         )}
         onMouseEnter={() => isUser && setIsHovered(true)}
         onMouseLeave={() => isUser && setIsHovered(false)}
       >
         <MessageContent
           className={cn(
-            "max-w-full overflow-visible rounded-3xl px-5 py-3.5 text-[15px] leading-relaxed",
+            "max-w-full overflow-visible rounded-3xl px-5 py-3.5 text-[15px] leading-relaxed transition-all duration-300",
             isUser
               ? "w-fit mr-3 bg-user-bubble text-user-bubble-foreground"
               : "w-full bg-ai-bubble text-foreground border border-border/50",
+            // Add selected highlight for AI messages
+            isAI && isSelected && [
+              "border-primary/40 shadow-[0_0_0_1px_rgba(var(--primary),0.2),0_0_20px_rgba(var(--primary),0.15)]",
+              "dark:shadow-[0_0_0_1px_rgba(var(--primary),0.3),0_0_30px_rgba(var(--primary),0.2)]"
+            ],
             // Add relative positioning when showing neural network loader
             isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 && "relative",
           )}
@@ -628,7 +639,7 @@ export function ChatMessageItem({
           {/* Show when: AI message, streaming, processing state, no content yet */}
           {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
             <div className="w-full h-24 min-h-24 rounded-xl overflow-hidden">
-              <NeuralNetworkLoader className="h-full w-full" showText={false} particleCount={40} maxDistance={70} />
+              <NeuralNetworkLoader className="h-full w-full" showText={false} />
             </div>
           ) : null}
 
@@ -795,6 +806,15 @@ export function ChatMessageItem({
           </Actions>
         ) : null}
 
+        {/* Message Steps - hidden per user request */}
+        {/* {isAI && !isStreaming && hasSteps ? (
+          <MessageSteps
+            messageSequence={_messageSequence}
+            sessionId={sessionId}
+            defaultExpanded={false}
+          />
+        ) : null} */}
+
         {/* Actions area: copy, thinking process, tool calls */}
         {isAI && !isStreaming ? (
           <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
@@ -820,21 +840,30 @@ export function ChatMessageItem({
                   <QuoteIcon className="size-4" />
                 </Action>
               ) : null}
-              {/* Brain icon - click to show this session's steps in sidebar */}
-              {showBrainIcon ? (
-                <Action
+
+              {/* Steps icon - click to show this session's steps in sidebar */}
+              {showBrainIcon && sessionId ? (
+                <button
+                  type="button"
                   onClick={() => {
                     // Select this session to show its steps
-                    if (sessionId && onSelectSession) {
+                    if (onSelectSession) {
                       onSelectSession(sessionId)
                     }
                   }}
-                  tooltip={t("process.showProcess")}
-                  label={t("process.agentProcess")}
-                  className="cursor-pointer"
+                  className={cn(
+                    "p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer",
+                    isSelected && "text-accent hover:text-accent"
+                  )}
+                  title={t("process.showProcess")}
                 >
-                  <BrainIcon className="size-4" />
-                </Action>
+                  {/* Show check circle icon if this message's session is currently selected in sidebar, otherwise show list icon */}
+                  {isSelected ? (
+                    <CheckCircle2 className="size-4" />
+                  ) : (
+                    <ListOrdered className="size-4" />
+                  )}
+                </button>
               ) : null}
             </Actions>
           </div>
