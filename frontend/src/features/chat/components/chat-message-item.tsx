@@ -19,7 +19,6 @@ import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo, AgentProcessSe
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
-import { NeuralNetworkLoader } from "@/components/ai/neural-network-loader"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
@@ -27,7 +26,7 @@ type ChatMessageItemProps = {
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
   thinkingContent?: string // Accumulated thinking content (streaming)
-  isProcessing?: boolean // Processing, no content received yet
+  isProcessing?: boolean // Processing, no content received yet (kept for backward compatibility, not used)
   isStreaming?: boolean // Whether the current message is streaming
   processSession?: AgentProcessSession | null // Process session for inline display during streaming
   messageSequence?: MessageStep[] // Message sequence for historical display
@@ -476,7 +475,6 @@ export function ChatMessageItem({
   messageIndex,
   calledTools = [],
   thinkingContent = "",
-  isProcessing = false,
   isStreaming = false,
   processSession,
   messageSequence: _messageSequence,  // eslint-disable-line @typescript-eslint/no-unused-vars
@@ -503,7 +501,8 @@ export function ChatMessageItem({
     (isUser && message.custom_data?.user_content as string | undefined) || message.content
   )
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [isHovered, setIsHovered] = useState(false)
+  const [isActionsHovered, setIsActionsHovered] = useState(false)
+  const actionsRef = useRef<HTMLDivElement>(null)
 
   // Parse thinking content from message (for history) or use streaming content
   const historicalThinking = parseThinkingContent(message)
@@ -514,6 +513,7 @@ export function ChatMessageItem({
   // For streaming messages, use calledTools; for history messages, use stored tool_info
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
   const hasToolCalls = allTools.length > 0
+
 
   useEffect(() => {
     if (!copied) {
@@ -572,9 +572,9 @@ export function ChatMessageItem({
     return null
   }
 
-  // During streaming, if we're still processing (no content received yet), don't return null
-  // The SciFiLoader will be shown instead
-  if (isAI && isStreaming && !isProcessing && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
+  // During streaming, if there's no content, thinking, or tools, return null
+  // The center loader (in chat-main-panel.tsx) will show instead
+  if (isAI && isStreaming && !message.content.trim() && !hasThinkingContent && !hasToolCalls) {
     return null
   }
 
@@ -593,8 +593,6 @@ export function ChatMessageItem({
             : "w-full max-w-[85%]",
           isAI && isSelected && "scale-[1.01]"
         )}
-        onMouseEnter={() => isUser && setIsHovered(true)}
-        onMouseLeave={() => isUser && setIsHovered(false)}
       >
         <MessageContent
           className={cn(
@@ -607,8 +605,6 @@ export function ChatMessageItem({
               "border-primary/40 shadow-[0_0_0_1px_rgba(var(--primary),0.2),0_0_20px_rgba(var(--primary),0.15)]",
               "dark:shadow-[0_0_0_1px_rgba(var(--primary),0.3),0_0_30px_rgba(var(--primary),0.2)]"
             ],
-            // Add relative positioning when showing neural network loader
-            isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 && "relative",
           )}
         >
           {/* Sources */}
@@ -632,15 +628,6 @@ export function ChatMessageItem({
                 ))}
               </div>
             </details>
-          ) : null}
-
-
-          {/* Processing state - show neural network loading animation before any content arrives */}
-          {/* Show when: AI message, streaming, processing state, no content yet */}
-          {isAI && isStreaming && isProcessing && !message.content.trim() && !displayThinkingContent && allTools.length === 0 ? (
-            <div className="w-full h-24 min-h-24 rounded-xl overflow-hidden">
-              <NeuralNetworkLoader className="h-full w-full" showText={false} />
-            </div>
           ) : null}
 
           {/* Inline Process Steps - show during streaming before final content arrives */}
@@ -770,9 +757,17 @@ export function ChatMessageItem({
           )}
         </MessageContent>
 
-        {/* User message actions: copy, edit, quote - only show on hover */}
-        {isUser && !isEditing && isHovered ? (
-          <Actions className="pt-1 justify-end">
+        {/* User message actions: copy, edit, quote - always rendered, controlled by opacity */}
+        {isUser && !isEditing && (
+          <Actions
+            ref={actionsRef}
+            className={cn(
+              "pt-1 justify-end transition-opacity duration-200",
+              isActionsHovered ? "opacity-100" : "opacity-0"
+            )}
+            onMouseEnter={() => setIsActionsHovered(true)}
+            onMouseLeave={() => setIsActionsHovered(false)}
+          >
             <Action
               onClick={() => {
                 void handleCopy()
@@ -804,7 +799,7 @@ export function ChatMessageItem({
               </Action>
             ) : null}
           </Actions>
-        ) : null}
+        )}
 
         {/* Message Steps - hidden per user request */}
         {/* {isAI && !isStreaming && hasSteps ? (

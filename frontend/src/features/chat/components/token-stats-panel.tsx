@@ -20,22 +20,23 @@ const MAX_TOKENS = 128000
 interface TokenBarProps {
   label: string
   value: number
-  colorClass: string
-  bgClass: string
-  glowClass: string
+  colorVar: string
+  bgVar: string
+  glowVar: string
   tooltip?: string
   percentage?: string
+  isTotal?: boolean
 }
 
-function TokenBar({ label, value, colorClass, bgClass, glowClass, tooltip, percentage }: TokenBarProps) {
+function TokenBar({ label, value, colorVar, bgVar, glowVar, tooltip, percentage, isTotal }: TokenBarProps) {
   // Calculate fill ratio based on 128k max
   const ratio = Math.min((value / MAX_TOKENS) * 100, 100)
 
   return (
-    <div className="space-y-1.5">
+    <div className={cn("space-y-1.5", isTotal && "font-medium")}>
       <div className="flex justify-between items-center text-xs">
-        <div className="flex items-center gap-1.5 text-[var(--text-dim)]">
-          <span>{label}</span>
+        <div className="flex items-center gap-1.5 text-muted-foreground">
+          <span className={cn(isTotal && "text-foreground")}>{label}</span>
           {tooltip && (
             <TooltipProvider>
               <Tooltip>
@@ -44,7 +45,7 @@ function TokenBar({ label, value, colorClass, bgClass, glowClass, tooltip, perce
                 </TooltipTrigger>
                 <TooltipContent
                   side="top"
-                  className="text-xs bg-[var(--bg-elevated)]/95 backdrop-blur-sm border-[var(--border)] text-[var(--text-main)]"
+                  className="text-xs bg-popover/95 backdrop-blur-sm border-border text-popover-foreground"
                 >
                   {tooltip}
                 </TooltipContent>
@@ -53,23 +54,28 @@ function TokenBar({ label, value, colorClass, bgClass, glowClass, tooltip, perce
           )}
         </div>
         <div className="flex items-center gap-1">
-          <span className="font-semibold text-[var(--text-main)]">{value.toLocaleString()}</span>
+          <span className={cn("font-semibold text-foreground", isTotal && "text-base")}>
+            {value.toLocaleString()}
+          </span>
           {percentage && (
-            <span className="text-[10px] text-[var(--text-dim)]/70">({percentage})</span>
+            <span className="text-[10px] text-muted-foreground/70">({percentage})</span>
           )}
         </div>
       </div>
-      <div className={cn(
-        "h-2 rounded-full overflow-hidden transition-all duration-200",
-        bgClass
-      )}>
+      <div
+        className={cn(
+          "h-2 rounded-full overflow-hidden transition-all duration-200",
+          isTotal && "h-2.5"
+        )}
+        style={{ backgroundColor: `var(${bgVar})` }}
+      >
         <div
-          className={cn(
-            "h-full transition-all duration-500 ease-out rounded-full relative",
-            colorClass,
-            ratio > 5 && glowClass
-          )}
-          style={{ width: `${ratio}%` }}
+          className="h-full transition-all duration-500 ease-out rounded-full relative"
+          style={{
+            width: `${ratio}%`,
+            backgroundColor: `var(${colorVar})`,
+            boxShadow: ratio > 5 ? `var(${glowVar})` : 'none'
+          }}
         >
           {/* Shimmer effect for non-empty bars */}
           {ratio > 10 && (
@@ -120,8 +126,17 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
       {/* Header */}
       <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
         <div className="flex items-center gap-2">
-          <div className="size-7 rounded-lg bg-gradient-to-br from-orange-500/20 to-red-500/20 flex items-center justify-center shadow-[0_0_12px_rgba(249,115,22,0.3)]">
-            <Flame className="size-4 text-orange-500" />
+          <div
+            className="size-7 rounded-lg flex items-center justify-center"
+            style={{
+              background: 'linear-gradient(135deg, var(--token-reasoning-bg), var(--token-total-bg))',
+              boxShadow: 'var(--token-reasoning-glow)'
+            }}
+          >
+            <Flame
+              className="size-4"
+              style={{ color: 'var(--token-reasoning)' }}
+            />
           </div>
           <span className="text-sm font-semibold text-foreground">
             {t("token.title")}
@@ -144,9 +159,9 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
         <TokenBar
           label={t("token.input")}
           value={tokens.input_tokens}
-          colorClass="bg-blue-500"
-          bgClass="bg-blue-500/10"
-          glowClass="shadow-[0_0_8px_rgba(59,130,246,0.4)]"
+          colorVar="--token-input"
+          bgVar="--token-track"
+          glowVar="--token-input-glow"
           tooltip={t("token.inputTooltip")}
         />
 
@@ -154,9 +169,9 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
         <TokenBar
           label={t("token.cacheRead") || "缓存"}
           value={tokens.cache_read}
-          colorClass="bg-violet-500"
-          bgClass="bg-violet-500/10"
-          glowClass="shadow-[0_0_8px_rgba(139,92,246,0.4)]"
+          colorVar="--token-cache"
+          bgVar="--token-track"
+          glowVar="--token-cache-glow"
           tooltip={t("token.cacheReadTooltip")}
           percentage={
             tokens.input_tokens > 0
@@ -169,18 +184,18 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
         <TokenBar
           label={t("token.output")}
           value={tokens.output_tokens}
-          colorClass="bg-emerald-500"
-          bgClass="bg-emerald-500/10"
-          glowClass="shadow-[0_0_8px_rgba(16,185,129,0.4)]"
+          colorVar="--token-output"
+          bgVar="--token-track"
+          glowVar="--token-output-glow"
         />
 
         {/* Reasoning Tokens */}
         <TokenBar
           label={t("token.reasoning")}
           value={tokens.reasoning}
-          colorClass="bg-amber-500"
-          bgClass="bg-amber-500/10"
-          glowClass="shadow-[0_0_8px_rgba(245,158,11,0.4)]"
+          colorVar="--token-reasoning"
+          bgVar="--token-track"
+          glowVar="--token-reasoning-glow"
         />
 
         {/* Total */}
@@ -188,9 +203,10 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
           <TokenBar
             label={t("token.total")}
             value={tokens.total_tokens}
-            colorClass="bg-indigo-500"
-            bgClass="bg-indigo-500/10"
-            glowClass="shadow-[0_0_8px_rgba(99,102,241,0.4)]"
+            colorVar="--token-total"
+            bgVar="--token-track"
+            glowVar="--token-total-glow"
+            isTotal
           />
         </div>
       </div>

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
 import type { AgentInDB, LocalChatMessage, ToolCallInfo, AgentProcessSession, MessageStep, ModelInfo } from "@/types"
-import { ThinkingModeToggle } from "@/features/chat/components/thinking-mode-toggle"
 import { ModelSelector } from "@/features/chat/components/model-selector"
 import { AgentSelector } from "@/features/chat/components/agent-selector"
 import {
@@ -20,8 +19,7 @@ import {
   PromptInputTextarea,
 } from "@/components/ai/prompt-input"
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
-import { Loader } from "~/components/ai/loader"
-import { AgentGrid } from "@/components/agent"
+import { SciFiLoader } from "@/components/ai/neural-network-loader"
 import { useI18n } from "@/i18n"
 
 
@@ -30,7 +28,6 @@ type ChatMainPanelProps = {
   isStreaming: boolean
   isInitializing: boolean
   isLoadingConversation: boolean
-  isAwaitingAgentSelection: boolean
   isProcessing: boolean // Processing, no content received yet
   isAgentThinking: boolean
   calledTools: ToolCallInfo[]
@@ -46,9 +43,6 @@ type ChatMainPanelProps = {
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
   onSelectAgent: (agentId: string) => void
-  thinkingMode: boolean
-  onToggleThinkingMode: () => void
-  modelSupportsThinking: boolean // Whether current model supports thinking mode
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to quoted message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
@@ -74,7 +68,6 @@ export function ChatMainPanel({
   isStreaming,
   isInitializing,
   isLoadingConversation,
-  isAwaitingAgentSelection,
   isProcessing,
   isAgentThinking,
   calledTools,
@@ -89,10 +82,6 @@ export function ChatMainPanel({
   selectedSessionId,
   onSendMessage,
   onStopStreaming,
-  onSelectAgent,
-  thinkingMode,
-  onToggleThinkingMode,
-  modelSupportsThinking,
   onEditMessage,
   onJumpToMessage,
   onToggleSidebarProcess,
@@ -142,7 +131,7 @@ export function ChatMainPanel({
   }, [isInitializing, isLoadingConversation, isStreaming])
 
   const isComposerDisabled =
-    isInitializing || isLoadingConversation || isAwaitingAgentSelection || !hasAvailableModels
+    isInitializing || isLoadingConversation || !hasAvailableModels
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current
@@ -194,7 +183,7 @@ export function ChatMainPanel({
   }, [isStreaming, stopStreamFollow])
 
   useEffect(() => {
-    if (isAwaitingAgentSelection || isLoadingConversation || !autoScrollEnabledRef.current) {
+    if (isLoadingConversation || !autoScrollEnabledRef.current) {
       return
     }
 
@@ -205,7 +194,6 @@ export function ChatMainPanel({
 
     scrollToBottom("auto")
   }, [
-    isAwaitingAgentSelection,
     isLoadingConversation,
     isStreaming,
     messages,
@@ -289,7 +277,7 @@ export function ChatMainPanel({
     ? false
     : !inputValue.trim() || status !== "ready" || isComposerDisabled
   const shouldShowScrollButton =
-    showScrollButton && !isAwaitingAgentSelection && !isLoadingConversation
+    showScrollButton && !isLoadingConversation
 
   // Handle quote action - set quoted content and message ID
   // Use message index as stable ID for jump functionality
@@ -312,7 +300,10 @@ export function ChatMainPanel({
   const hasMessages = messages.length > 0
 
   return (
-    <section className="grid h-full min-h-0 min-w-0 flex-1 grid-rows-[minmax(0,1fr)_auto] overflow-hidden bg-background">
+    <section className={[
+      "grid h-full min-h-0 min-w-0 flex-1 overflow-hidden bg-background shadow-[inset_0_0_20px_rgba(0,0,0,0.02)] dark:shadow-[inset_0_0_20px_rgba(255,255,255,0.02)] border-x border-border/50",
+      hasMessages ? "grid-rows-[minmax(0,1fr)_auto]" : "grid-rows-[0fr_1fr]"
+    ].join(" ")}>
       <div
         className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background px-4 pb-2 md:px-6"
       >
@@ -334,21 +325,7 @@ export function ChatMainPanel({
           >
             {isLoadingConversation ? (
               <div className=" flex h-full w-full items-center justify-center">
-                <Loader size={32} />
-              </div>
-            ) : isAwaitingAgentSelection ? (
-              <div className="grid min-h-full place-items-center px-2 py-6">
-                <div className="mx-auto flex w-full max-w-4xl -translate-y-6 flex-col items-center gap-4 md:-translate-y-8">
-                  <div className="w-full space-y-1 text-center">
-                    <h1 className="mb-8 text-4xl font-semibold">{t("chat.chooseAgent")}</h1>
-                  </div>
-
-                  <AgentGrid
-                    agents={agents}
-                    selectedAgentId={selectedAgentId}
-                    onSelectAgent={onSelectAgent}
-                  />
-                </div>
+                <SciFiLoader className="w-32 h-32" showText={false} />
               </div>
             ) : (
               <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-8">
@@ -395,11 +372,19 @@ export function ChatMainPanel({
                     )
                   })
                 )}
+
+                {/* Neural network loading indicator - shown when processing and no AI content yet */}
+                {isProcessing && messages.length > 0 && (
+                  <div className="flex items-center justify-center py-8">
+                    <SciFiLoader className="w-24 h-24" showText={false} />
+                  </div>
+                )}
+
                 <div ref={endOfMessagesRef} />
               </div>
             )}
           </div>
-          {!isAwaitingAgentSelection && hasMessages ? (
+          {hasMessages ? (
             <div
               aria-hidden="true"
               className="chat-messages-bottom-fade pointer-events-none absolute inset-x-0 bottom-0 z-10 mx-auto h-8 max-w-4xl"
@@ -411,126 +396,119 @@ export function ChatMainPanel({
 
       </div>
 
-      {!isAwaitingAgentSelection ? (
-        <footer className={[
-          "relative z-20 bg-background transition-all duration-300",
-          hasMessages ? "" : "absolute inset-0 flex items-center justify-center"
+      <footer className={[
+        "relative z-20 bg-background transition-all duration-300",
+        hasMessages ? "" : "h-full flex flex-col items-center justify-center"
+      ].join(" ")}>
+        {shouldShowScrollButton && hasMessages ? (
+          <Button
+            size="icon"
+            variant="secondary"
+            className="absolute top-0 left-1/2 z-30 cursor-pointer -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md"
+            onClick={() => {
+              autoScrollEnabledRef.current = true
+              setShowScrollButton(false)
+              scrollToBottom("smooth")
+              if (isStreamingRef.current) {
+                startStreamFollow()
+              }
+            }}
+          >
+            <ArrowDown className="size-4" />
+          </Button>
+        ) : null}
+        <div className={[
+          "mx-auto w-full max-w-4xl space-y-3 overflow-y-auto",
+          hasMessages ? "p-2 mb-2" : "p-6"
         ].join(" ")}>
-          {shouldShowScrollButton && hasMessages ? (
-            <Button
-              size="icon"
-              variant="secondary"
-              className="absolute top-0 left-1/2 z-30 cursor-pointer -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md"
-              onClick={() => {
-                autoScrollEnabledRef.current = true
-                setShowScrollButton(false)
-                scrollToBottom("smooth")
-                if (isStreamingRef.current) {
-                  startStreamFollow()
-                }
-              }}
-            >
-              <ArrowDown className="size-4" />
-            </Button>
-          ) : null}
-          <div className={[
-            "mx-auto w-full max-w-4xl space-y-3 overflow-y-auto",
-            hasMessages ? "p-2 mb-2" : "p-6"
-          ].join(" ")}>
-            <div className="flex flex-wrap gap-2 justify-center">
-              {messages.length === 0 ? (
-                suggestions.map((suggestion) => (
-                  <Button
-                    key={suggestion}
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="rounded-4 cursor-pointer"
-                    onClick={() => handleSuggestionClick(suggestion)}
-                    disabled={isStreaming || isComposerDisabled}
-                  >
-                    {suggestion}
-                  </Button>
-                ))
-              ) : null}
-            </div>
-
-            <PromptInput
-              className="h-auto min-h-12 bg-background [&_[data-slot=input-group]]:rounded-2xl"
-              onSubmit={({ text }) => {
-                submitMessage(text)
-              }}
-            >
-              {/* Quoted content display above input */}
-              {quotedContent ? (
-                <div className="relative px-3 pt-3">
-                  <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
-                    {/* Close button */}
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      className="absolute top-2 right-2 size-5 cursor-pointer"
-                      onClick={clearQuote}
-                    >
-                      <XIcon className="size-3" />
-                    </Button>
-                    {/* Quoted text - gray, show first 100 chars */}
-                    <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words line-clamp-3 pr-6">
-                      {quotedContent.length > 100 ? `${quotedContent.slice(0, 100)}_` : quotedContent}
-                    </p>
-                  </div>
-                  {/* Separator line */}
-                  <Separator className="mt-3" />
-                </div>
-              ) : null}
-
-              <PromptInputBody  >
-                <PromptInputTextarea
-                  className="max-h-26 min-h-8"
-                  disabled={isComposerDisabled}
-                  onChange={(event) => setInputValue(event.currentTarget.value)}
-                  value={inputValue}
-                  placeholder={quotedContent ? t("message.addYourMessage") : t("prompt.placeholder")}
-                />
-              </PromptInputBody>
-              <PromptInputFooter className="pb-3 justify-between">
-                <div className="flex items-center gap-2">
-                  <ThinkingModeToggle
-                    enabled={thinkingMode}
-                    modelSupportsThinking={modelSupportsThinking}
-                    onToggle={onToggleThinkingMode}
-                  />
-                  {/* Agent selector */}
-                  <AgentSelector
-                    agents={agents}
-                    selectedAgentId={selectedAgentId}
-                    onSelectAgent={onSelectAgentId}
-                    disabled={isStreaming || isInitializing || isLoadingConversation}
-                  />
-                  {/* Model selector - only show if there are available models */}
-                  {hasAvailableModels && (
-                    <ModelSelector
-                      models={models}
-                      selectedModel={selectedModel}
-                      onSelectModel={onSelectModel}
-                      disabled={isStreaming || isInitializing || isLoadingConversation}
-                      onOpenConfig={onOpenModelConfig}
-                    />
-                  )}
-                </div>
-                <PromptInputSubmit
-                  disabled={submitButtonDisabled}
-                  onClick={isStreaming ? onStopStreaming : undefined}
-                  status={status}
-                  className="cursor-pointer"
-                  type={isStreaming ? "button" : "submit"}
-                />
-              </PromptInputFooter>
-            </PromptInput>
+          <div className="flex flex-wrap gap-2 justify-center">
+            {messages.length === 0 ? (
+              suggestions.map((suggestion) => (
+                <Button
+                  key={suggestion}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="rounded-4 cursor-pointer"
+                  onClick={() => handleSuggestionClick(suggestion)}
+                  disabled={isStreaming || isComposerDisabled}
+                >
+                  {suggestion}
+                </Button>
+              ))
+            ) : null}
           </div>
-        </footer>
-      ) : null}
+
+          <PromptInput
+            className="h-auto min-h-12 bg-background [&_[data-slot=input-group]]:rounded-2xl"
+            onSubmit={({ text }) => {
+              submitMessage(text)
+            }}
+          >
+            {/* Quoted content display above input */}
+            {quotedContent ? (
+              <div className="relative px-3 pt-3">
+                <div className="rounded-lg border border-border/60 bg-muted/30 p-3">
+                  {/* Close button */}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="absolute top-2 right-2 size-5 cursor-pointer"
+                    onClick={clearQuote}
+                  >
+                    <XIcon className="size-3" />
+                  </Button>
+                  {/* Quoted text - gray, show first 100 chars */}
+                  <p className="text-sm text-muted-foreground whitespace-pre-wrap break-words line-clamp-3 pr-6">
+                    {quotedContent.length > 100 ? `${quotedContent.slice(0, 100)}_` : quotedContent}
+                  </p>
+                </div>
+                {/* Separator line */}
+                <Separator className="mt-3" />
+              </div>
+            ) : null}
+
+            <PromptInputBody  >
+              <PromptInputTextarea
+                className="max-h-26 min-h-8"
+                disabled={isComposerDisabled}
+                onChange={(event) => setInputValue(event.currentTarget.value)}
+                value={inputValue}
+                placeholder={quotedContent ? t("message.addYourMessage") : t("prompt.placeholder")}
+              />
+            </PromptInputBody>
+            <PromptInputFooter className="pb-3 justify-between">
+              <div className="flex items-center gap-2">
+                {/* Agent selector */}
+                <AgentSelector
+                  agents={agents}
+                  selectedAgentId={selectedAgentId}
+                  onSelectAgent={onSelectAgentId}
+                  disabled={isStreaming || isInitializing || isLoadingConversation}
+                />
+                {/* Model selector - only show if there are available models */}
+                {hasAvailableModels && (
+                  <ModelSelector
+                    models={models}
+                    selectedModel={selectedModel}
+                    onSelectModel={onSelectModel}
+                    disabled={isStreaming || isInitializing || isLoadingConversation}
+                    onOpenConfig={onOpenModelConfig}
+                  />
+                )}
+              </div>
+              <PromptInputSubmit
+                disabled={submitButtonDisabled}
+                onClick={isStreaming ? onStopStreaming : undefined}
+                status={status}
+                className="cursor-pointer"
+                type={isStreaming ? "button" : "submit"}
+              />
+            </PromptInputFooter>
+          </PromptInput>
+        </div>
+      </footer>
     </section>
   )
 }

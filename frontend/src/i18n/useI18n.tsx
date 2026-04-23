@@ -26,6 +26,7 @@ const en = {
   "common.submit": "Submit",
   "common.add": "Add",
   "common.of": "of",
+  "common.loadMore": "Load more",
   "conversation.defaultTitle": "New conversation",
   "conversation.untitled": "Untitled",
   "conversation.new": "New conversation",
@@ -101,6 +102,11 @@ const en = {
   "thinking.clickToEnable": "Click to enable thinking mode",
   "thinking.notSupported": "Current model does not support thinking mode",
   "agent.select": "Select agent",
+  "agent.availableAgents": "Available Agents",
+  "agent.shuffle": "Shuffle",
+  "agent.search": "Search agents...",
+  "agent.noResults": "No agents found",
+  "agent.none": "No agents available",
   "model.select": "Select model",
   "model.default": "Default",
   "model.defaultLLM": "Default LLM",
@@ -204,6 +210,9 @@ const en = {
   "token.output": "Output",
   "token.reasoning": "Reasoning",
   "token.total": "Total",
+  // Solar System Agent Grid
+  "solarSystem.chatbotHint": "Don't know where to start? Click me!",
+  "solarSystem.comingSoon": "Coming Soon",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -233,6 +242,7 @@ const zh: TranslationDictionary = {
   "common.submit": "提交",
   "common.add": "添加",
   "common.of": "/",
+  "common.loadMore": "加载更多",
   "conversation.defaultTitle": "新会话",
   "conversation.untitled": "未命名",
   "conversation.new": "新会话",
@@ -306,6 +316,11 @@ const zh: TranslationDictionary = {
   "thinking.clickToEnable": "点击以开启思考模式",
   "thinking.notSupported": "当前模型不支持思考模式",
   "agent.select": "选择智能体",
+  "agent.availableAgents": "可用智能体",
+  "agent.shuffle": "换一批",
+  "agent.search": "搜索智能体...",
+  "agent.noResults": "未找到智能体",
+  "agent.none": "暂无智能体",
   "model.select": "选择模型",
   "model.default": "默认",
   "model.defaultLLM": "默认LLM",
@@ -408,6 +423,9 @@ const zh: TranslationDictionary = {
   "token.output": "输出",
   "token.reasoning": "推理",
   "token.total": "总计",
+  // Solar System Agent Grid
+  "solarSystem.chatbotHint": "不知道从哪开始？点我！",
+  "solarSystem.comingSoon": "等待开发",
 }
 
 const dictionaries = {

@@ -72,6 +72,12 @@
   --brand-accent: oklch(0.72 0.18 50);
   /* Warm orange for brand */
 
+  /* Text dim - for placeholder and secondary text */
+  --text-dim: oklch(0.55 0.01 250);
+  /* Gray placeholder text */
+  --text-main: oklch(0.25 0.02 250);
+  /* Main text color */
+
   /* Switch checked - Warm accent */
   --switch-checked: oklch(0.72 0.18 50);
 
@@ -79,6 +85,29 @@
   --glow-primary: 0 0 20px oklch(0.55 0.22 250 / 0.3);
   --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.4);
   --glow-accent: 0 0 15px oklch(0.72 0.15 200 / 0.3);
+
+  /* Token stats - Light theme (clean, high readability) */
+  --token-input: #2563EB;
+  --token-input-bg: rgba(37, 99, 235, 0.12);
+  --token-input-glow: 0 0 8px rgba(37, 99, 235, 0.35);
+
+  --token-output: #059669;
+  --token-output-bg: rgba(5, 150, 105, 0.12);
+  --token-output-glow: 0 0 8px rgba(5, 150, 105, 0.35);
+
+  --token-cache: #7C3AED;
+  --token-cache-bg: rgba(124, 58, 237, 0.12);
+  --token-cache-glow: 0 0 8px rgba(124, 58, 237, 0.35);
+
+  --token-reasoning: #D97706;
+  --token-reasoning-bg: rgba(217, 119, 6, 0.12);
+  --token-reasoning-glow: 0 0 8px rgba(217, 119, 6, 0.35);
+
+  --token-total: #4F46E5;
+  --token-total-bg: rgba(79, 70, 229, 0.12);
+  --token-total-glow: 0 0 10px rgba(79, 70, 229, 0.4);
+
+  --token-track: #E5E7EB;
 }
 
 .dark {
@@ -149,6 +178,12 @@
   --brand-accent: oklch(0.72 0.18 50);
   /* Warm orange for brand */
 
+  /* Text dim - for placeholder and secondary text (dark mode) */
+  --text-dim: oklch(0.55 0.02 260);
+  /* Gray placeholder text */
+  --text-main: oklch(0.92 0.01 260);
+  /* Main text color */
+
   /* Switch checked - Warm accent */
   --switch-checked: oklch(0.72 0.18 50);
 
@@ -156,6 +191,29 @@
   --glow-primary: 0 0 20px oklch(0.75 0.15 195 / 0.4);
   --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.5);
   --glow-accent: 0 0 15px oklch(0.85 0.15 165 / 0.4);
+
+  /* Token stats - Dark theme (cool tech, unified palette) */
+  --token-input: #60A5FA;
+  --token-input-bg: rgba(96, 165, 250, 0.15);
+  --token-input-glow: 0 0 10px rgba(96, 165, 250, 0.4);
+
+  --token-output: #34D399;
+  --token-output-bg: rgba(52, 211, 153, 0.15);
+  --token-output-glow: 0 0 10px rgba(52, 211, 153, 0.4);
+
+  --token-cache: #A78BFA;
+  --token-cache-bg: rgba(167, 139, 250, 0.15);
+  --token-cache-glow: 0 0 10px rgba(167, 139, 250, 0.4);
+
+  --token-reasoning: #FB923C;
+  --token-reasoning-bg: rgba(251, 146, 60, 0.15);
+  --token-reasoning-glow: 0 0 10px rgba(251, 146, 60, 0.4);
+
+  --token-total: #818CF8;
+  --token-total-bg: rgba(129, 140, 248, 0.15);
+  --token-total-glow: 0 0 12px rgba(129, 140, 248, 0.5);
+
+  --token-track: rgba(255, 255, 255, 0.08);
 }
 
 @theme inline {
@@ -644,4 +702,19 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ==================== Token Bar Shimmer Animation ==================== */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
 }

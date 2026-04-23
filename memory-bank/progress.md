@@ -24,6 +24,45 @@
 - ✅ Image Zoom & Drag in markdown
 - ✅ Token Stats Display with vertical bar chart
 - ✅ **Sidebar Message Sequence** — Step-by-step display of agent execution (LangSmith-style)
+- ✅ **Solar System Agent Grid** — Master chatbot as sun, agents as planets with 3D glassmorphism effect
+
+### Recent Feature (2026-04-23)
+
+1. **Agent Sidebar**: Right-side fixed-width sidebar for agent selection
+   - **Design**: Minimalist, lightweight style with light color scheme
+   - **Width**: Fixed 240px with card width 100% adaptive
+   - **Card Structure**:
+     - Title: 14px, font-weight 600, color #1d2129, max 2 lines with ellipsis
+     - Description: 12px, font-weight 400, color #666666, max 2 lines with ellipsis
+     - Gap between title and description: 4px
+   - **Card Container**:
+     - Padding: 12px 14px
+     - Gap between cards: 8px
+     - Border radius: 10px
+     - Background: white (#ffffff)
+     - Left border: 4px transparent (for selected state highlight)
+   - **Interactions**:
+     - Hover: Background #f5f7fa, 0.2s ease transition
+     - Selected: Brand color light transparent rgba(255,107,0,0.1), left border brand color #ff6b00
+   - **Features**:
+     - Vertical scroll for overflow
+     - Min-height 72px, auto-expand for content
+     - Search functionality with i18n support
+     - Load more pagination (10 agents at a time)
+     - chatbot always displayed first
+     - Light/Dark theme adaptation
+   - **Files**: `agent-sidebar.tsx`, `agent-sidebar-card.tsx`
+
+2. **Solar System Agent Grid**: Redesigned agent selection with solar system layout
+   - **Design**: Master chatbot as center sun (恒星), agents as planets (行星)
+   - **Features**:
+     - Center sun with Bot icon and prompt text "不知道从哪开始就点我吧"
+     - 8 planet positions with non-uniform scattered layout
+     - 3D glassmorphism bubbles with gradient + highlight + shadow effects
+     - Agent names centered and bold in planet bubbles
+     - Light/Dark theme adaptation
+     - Placeholders smaller and semi-transparent for empty slots
+   - **Files**: `solar-system-agent-grid.tsx`
 
 ### Development Experience
 - ✅ Database initialization scripts

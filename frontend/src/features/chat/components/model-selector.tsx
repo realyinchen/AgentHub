@@ -1,5 +1,5 @@
 import { useMemo } from "react"
-import { Brain, Eye, Sparkles } from "lucide-react"
+import { Brain, Eye } from "lucide-react"
 import { useI18n } from "@/i18n"
 import {
   Select,
@@ -52,7 +52,9 @@ function ModelTypeIcon({ type, className }: { type: string; className?: string }
  * A dropdown selector for choosing a model.
  *
  * Shows all available active LLM and VLM models (not embedding models).
- * Models are grouped by provider with type icons and capability badges.
+ * Models are grouped by provider with type icons and thinking capability indicators.
+ * 
+ * Display format: provider/model_id with Brain icon (amber if thinking enabled, gray if not)
  */
 export function ModelSelector({
   models,
@@ -105,24 +107,24 @@ export function ModelSelector({
     >
       <SelectTrigger
         size="sm"
-        className="h-9 px-3 text-sm w-[180px] border-border/60 bg-background/80 backdrop-blur-sm hover:bg-accent/30 hover:border-primary/40 transition-all duration-200"
+        className="h-9 px-3 text-sm w-[200px] border-border/60 bg-background/80 backdrop-blur-sm hover:bg-accent/30 hover:border-primary/40 transition-all duration-200"
       >
         <SelectValue placeholder={
           <span className="flex items-center gap-2 text-muted-foreground">
-            <Sparkles className="size-3.5" />
+            <Brain className="size-3.5" />
             {t("model.select")}
           </span>
         }>
           {selectedModelInfo && (
             <span className="flex items-center gap-2">
-              <ModelTypeIcon
-                type={selectedModelInfo.model_type}
-                className="size-3.5 text-primary"
+              {/* Brain icon: amber if thinking enabled, gray if not */}
+              <Brain
+                className={`size-3.5 ${selectedModelInfo.thinking ? 'text-amber-500' : 'text-muted-foreground'}`}
               />
-              <span className="truncate">{getShortModelName(selectedModelInfo.model_id)}</span>
-              {selectedModelInfo.thinking && (
-                <Sparkles className="size-3 text-amber-500" />
-              )}
+              {/* Display as provider/model_id */}
+              <span className="truncate text-xs">
+                {selectedModelInfo.provider}/{getShortModelName(selectedModelInfo.model_id)}
+              </span>
             </span>
           )}
         </SelectValue>
@@ -131,7 +133,7 @@ export function ModelSelector({
         position="popper"
         side="top"
         align="start"
-        className="max-h-[320px] w-[220px] border-border/60 bg-popover/95 backdrop-blur-md"
+        className="max-h-[320px] w-[240px] border-border/60 bg-popover/95 backdrop-blur-md"
       >
         {groupedModels.map(({ provider, displayName, models: providerModels }) => (
           <SelectGroup key={provider}>
@@ -145,25 +147,21 @@ export function ModelSelector({
                 className="py-2 px-2 cursor-pointer focus:bg-accent/50"
               >
                 <span className="flex items-center gap-2 w-full">
+                  {/* Model type icon: amber if thinking enabled, gray if not */}
                   <ModelTypeIcon
                     type={model.model_type}
-                    className="size-3.5 text-muted-foreground shrink-0"
+                    className={`size-3.5 shrink-0 ${model.thinking ? 'text-blue-500' : 'text-muted-foreground'}`}
                   />
+                  {/* Short model name */}
                   <span className="flex-1 truncate text-sm">
                     {getShortModelName(model.model_id)}
                   </span>
-                  <span className="flex items-center gap-1 shrink-0">
-                    {model.thinking && (
-                      <span title={t("model.thinking")}>
-                        <Sparkles className="size-3 text-amber-500" />
-                      </span>
-                    )}
-                    {model.model_type === "vlm" && (
-                      <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4">
-                        Vision
-                      </Badge>
-                    )}
-                  </span>
+                  {/* VLM badge */}
+                  {model.model_type === "vlm" && (
+                    <Badge variant="secondary" className="text-[9px] px-1 py-0 h-4 shrink-0">
+                      Vision
+                    </Badge>
+                  )}
                 </span>
               </SelectItem>
             ))}

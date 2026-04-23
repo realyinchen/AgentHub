@@ -46,6 +46,7 @@ import {
   ShareDialog,
   TokenStatsPanel,
 } from "@/features/chat/components"
+import { AgentSidebar } from "@/components/agent"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
@@ -79,16 +80,13 @@ function App() {
 
   // Thinking mode state - persisted per conversation in localStorage
   const {
-    thinkingMode,
-    toggleThinkingMode,
+    thinkingMode
   } = useThinkingMode(threadId)
 
   // Model selection state - persisted per conversation in localStorage
   const {
     models,
-    selectedModel,
     setSelectedModel,
-    getSelectedModelInfo,
     getEffectiveModel,
     refreshModels,
   } = useModels(threadId)
@@ -97,8 +95,6 @@ function App() {
   const effectiveSelectedModel = getEffectiveModel()
 
   // Get current model info to check if it supports thinking
-  const currentModelInfo = getSelectedModelInfo()
-  const modelSupportsThinking = currentModelInfo?.thinking ?? false
   const [conversationTitle, setConversationTitleState] = useState(
     defaultConversationTitle,
   )
@@ -111,7 +107,6 @@ function App() {
   const [isLoadingConversation, setIsLoadingConversation] = useState(false)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
-  const [isAwaitingAgentSelection, setIsAwaitingAgentSelection] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false) // Processing, no content received yet
   const [isAgentThinking, setIsAgentThinking] = useState(false)
   const [, setActiveToolCall] = useState<ToolCallEvent | null>(null)
@@ -234,7 +229,6 @@ function App() {
 
       abortControllerRef.current?.abort()
       setIsStreaming(false)
-      setIsAwaitingAgentSelection(false)
       setThreadId(targetThreadId)
       writeThreadIdToUrl(targetThreadId)
       setRenameTarget(null)
@@ -349,18 +343,25 @@ function App() {
     setConversationTitleState(defaultConversationTitle)
     setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
-    setIsAwaitingAgentSelection(true)
-    setSelectedAgentId("") // Clear selected agent, user must choose one
+    setSelectedAgentId(agents[0]?.agent_id ?? "chatbot") // Use first agent as default
     setAppError(null)
     // Clear process display when creating new conversation
     setProcessSession(null)
-  }, [writeThreadIdToUrl, defaultConversationTitle])
+  }, [writeThreadIdToUrl, defaultConversationTitle, agents])
 
   const pickAgentForCurrentConversation = useCallback((agentId: string) => {
     setSelectedAgentId(agentId)
-    setIsAwaitingAgentSelection(false)
     setAppError(null)
   }, [])
+
+  // Ensure chatbot is selected by default when no agent is selected
+  useEffect(() => {
+    if (!selectedAgentId && agents.length > 0) {
+      // Find chatbot agent, or use first agent as fallback
+      const chatbotAgent = agents.find(a => a.agent_id === 'chatbot')
+      setSelectedAgentId(chatbotAgent?.agent_id ?? agents[0]?.agent_id ?? "")
+    }
+  }, [selectedAgentId, agents])
 
   const createStreamingPlaceholder = useCallback(() => {
     const placeholderId = crypto.randomUUID()
@@ -612,8 +613,7 @@ function App() {
         !trimmed ||
         !threadId ||
         !selectedAgentId ||
-        isStreaming ||
-        isAwaitingAgentSelection
+        isStreaming
       ) {
         return
       }
@@ -1043,7 +1043,6 @@ function App() {
       conversationTitle,
       createStreamingPlaceholder,
       ensureConversationExists,
-      isAwaitingAgentSelection,
       isStreaming,
       maybeGenerateTitle,
       refreshConversations,
@@ -1423,11 +1422,9 @@ function App() {
             : ""
           setSelectedAgentId(validAgentId)
         }
-        // If no agent_id in URL, don't pre-select any agent
-        // User will need to select one from the agent grid
+        // If no agent_id in URL, use default agent
 
         if (queryThreadId) {
-          setIsAwaitingAgentSelection(false)
           setThreadId(queryThreadId)
           writeThreadIdToUrl(queryThreadId)
           setIsLoadingConversation(true)
@@ -1485,13 +1482,8 @@ function App() {
           setConversationTitleState(defaultConversationTitle)
           setDraftTitle(defaultConversationTitle)
           setMessages([])
-
-          // If URL has agent_id, enter chat directly without needing to select agent
-          if (queryAgentId) {
-            setIsAwaitingAgentSelection(false)
-          } else {
-            setIsAwaitingAgentSelection(true)
-          }
+          // Use default agent for new conversation
+          setSelectedAgentId(defaultAgentId)
           writeThreadIdToUrl(null)
         }
       } catch (error) {
@@ -1543,7 +1535,6 @@ function App() {
             isStreaming={isStreaming}
             isInitializing={isInitializing}
             isLoadingConversation={isLoadingConversation}
-            isAwaitingAgentSelection={isAwaitingAgentSelection}
             isProcessing={isProcessing}
             isAgentThinking={isAgentThinking}
             calledTools={calledTools}
@@ -1556,9 +1547,6 @@ function App() {
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
             onSelectAgent={pickAgentForCurrentConversation}
-            thinkingMode={thinkingMode}
-            onToggleThinkingMode={toggleThinkingMode}
-            modelSupportsThinking={modelSupportsThinking}
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
@@ -1659,7 +1647,7 @@ function App() {
               }
             }}
             models={models}
-            selectedModel={selectedModel}
+            selectedModel={effectiveSelectedModel}
             onSelectModel={setSelectedModel}
             onSelectAgentId={pickAgentForCurrentConversation}
             onOpenModelConfig={() => setShowProviderConfig(true)}
@@ -1679,7 +1667,7 @@ function App() {
                 size="icon"
                 variant="outline"
                 className="size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
-                disabled={isAwaitingAgentSelection || messages.length === 0}
+                disabled={messages.length === 0}
                 onClick={() => {
                   navigator.clipboard.writeText(window.location.href)
                   setShowShareDialog(true)
@@ -1730,22 +1718,32 @@ function App() {
 
           </div>
 
-
-
-          {/* Middle Section: Agent Process Panel - only show when there's actual content */}
+          {/* Middle Section: Agent Process Panel (chat mode) or Agent Sidebar (home mode) */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && (messages.length > 0 || messageSequence.length > 0 || (processSession && processSession.steps && processSession.steps.length > 0)) && (
-              <AgentProcessPanel
-                session={processSession}
-                messageSequence={messageSequence}
-                isStreaming={isStreaming}
-                selectedSessionId={selectedSessionId}
-              />
+            {!isInitializing && (
+              messages.length === 0 ? (
+                // Home mode: Show available agents in sidebar
+                <AgentSidebar
+                  agents={agents}
+                  selectedAgentId={selectedAgentId}
+                  onSelectAgent={pickAgentForCurrentConversation}
+                />
+              ) : (
+                // Chat mode: Show agent process panel
+                showSidebarProcess && (messageSequence.length > 0 || (processSession && processSession.steps && processSession.steps.length > 0)) && (
+                  <AgentProcessPanel
+                    session={processSession}
+                    messageSequence={messageSequence}
+                    isStreaming={isStreaming}
+                    selectedSessionId={selectedSessionId}
+                  />
+                )
+              )
             )}
           </div>
 
-          {/* Bottom Section: Token Stats */}
-          {!isInitializing && !isAwaitingAgentSelection && (
+          {/* Bottom Section: Token Stats - only show in chat mode */}
+          {!isInitializing && messages.length > 0 && (
             <TokenStatsPanel
               currentConversation={conversations.find(c => c.thread_id === threadId) ?? null}
             />

@@ -1,6 +1,6 @@
 
 import { useEffect, useRef, useState, useCallback } from "react"
-import { ChevronDownIcon, Brain, CheckCircle2, Maximize2 } from "lucide-react"
+import { ChevronDownIcon, Brain, CheckCircle2, Maximize2, Wrench } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type {
@@ -63,8 +63,11 @@ function TimelineStepItem({
   const { t } = useI18n()
   const isRunning = step.status === "running"
 
-  // Get icon based on type - all use brain icon
+  // Get icon based on type
   const getIcon = () => {
+    if (step.type === "tool") {
+      return <Wrench className="size-3.5" />
+    }
     return <Brain className="size-3.5" />
   }
 
@@ -101,7 +104,7 @@ function TimelineStepItem({
           <button
             type="button"
             onClick={onToggle}
-            className="w-full text-left flex items-center gap-2 group"
+            className="w-full text-left flex items-center gap-2 group cursor-pointer"
           >
             {/* Icon */}
             <div className={cn(
@@ -502,8 +505,8 @@ export function AgentTimelineSidebar({
             <button
               type="button"
               onClick={openExpandedView}
-              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              title={t("process.expandView") || "Expand view"}
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+              title="展开查看全部步骤详情"
             >
               <Maximize2 className="size-4" />
             </button>
