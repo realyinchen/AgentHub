@@ -40,14 +40,46 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function listAgents(): Promise<AgentInDB[]> {
-  return requestJson<AgentInDB[]>("/agents/?active_only=true&limit=100&offset=0")
+export async function listAgents(
+  limit = 10,
+  offset = 0,
+): Promise<{ agents: AgentInDB[]; total: number }> {
+  const agents = await requestJson<AgentInDB[]>(
+    `/agents/?active_only=true&limit=${limit}&offset=${offset}`,
+  )
+  // Note: Backend doesn't return total for agents, we use hasMore pattern
+  return { agents, total: agents.length }
 }
 
-export async function listConversations(limit = 100): Promise<ConversationInDB[]> {
-  return requestJson<ConversationInDB[]>(
-    `/chat/conversations?limit=${limit}&offset=0`,
+export async function listConversations(
+  limit = 10,
+  offset = 0,
+): Promise<{ conversations: ConversationInDB[]; total: number }> {
+  const response = await fetch(
+    `${apiBaseUrl}/chat/conversations?limit=${limit}&offset=${offset}`,
   )
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+  const conversations = (await response.json()) as ConversationInDB[]
+  // Get total from X-Total-Count header if available, otherwise estimate
+  const totalHeader = response.headers.get("X-Total-Count")
+  const total = totalHeader ? parseInt(totalHeader, 10) : conversations.length
+  return { conversations, total }
+}
+
+export async function loadMoreAgents(
+  offset: number,
+  limit = 10,
+): Promise<{ agents: AgentInDB[]; total: number }> {
+  return listAgents(limit, offset)
+}
+
+export async function loadMoreConversations(
+  offset: number,
+  limit = 10,
+): Promise<{ conversations: ConversationInDB[]; total: number }> {
+  return listConversations(limit, offset)
 }
 
 export async function createConversation(input: {

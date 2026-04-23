@@ -7,11 +7,10 @@ interface AgentSidebarProps {
   agents: AgentInDB[]
   selectedAgentId: string
   onSelectAgent: (agentId: string) => void
+  hasMore?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
-
-// Pagination constants
-const INITIAL_DISPLAY_COUNT = 10
-const LOAD_MORE_COUNT = 10
 
 // Search component
 function SearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -33,11 +32,16 @@ function SearchInput({ value, onChange }: { value: string; onChange: (value: str
   )
 }
 
-export function AgentSidebar({ agents, selectedAgentId, onSelectAgent }: AgentSidebarProps) {
+export function AgentSidebar({
+  agents,
+  selectedAgentId,
+  onSelectAgent,
+  hasMore: hasMoreProp,
+  isLoadingMore,
+  onLoadMore,
+}: AgentSidebarProps) {
   const { t } = useI18n()
 
-  // Pagination state
-  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT)
   // Search state
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -62,14 +66,8 @@ export function AgentSidebar({ agents, selectedAgentId, onSelectAgent }: AgentSi
     )
   }, [sortedAgents, searchQuery])
 
-  // Get visible agents
-  const visibleAgents = filteredAgents.slice(0, displayCount)
-  const hasMore = filteredAgents.length > displayCount
-
-  // Load more agents
-  const loadMore = () => {
-    setDisplayCount(prev => prev + LOAD_MORE_COUNT)
-  }
+  // Use prop hasMore if provided (server-side pagination)
+  const hasMore = hasMoreProp !== undefined ? hasMoreProp : false
 
   // Handle agent selection
   const handleSelectAgent = (agentId: string) => {
@@ -89,7 +87,7 @@ export function AgentSidebar({ agents, selectedAgentId, onSelectAgent }: AgentSi
       {/* Agent List */}
       <div className="flex-1 overflow-y-auto p-2 sidebar-scroll-area">
         <div className="flex flex-col gap-2">
-          {visibleAgents.map((agent) => (
+          {filteredAgents.map((agent) => (
             <AgentSidebarCard
               key={agent.agent_id}
               agent={agent}
@@ -100,16 +98,18 @@ export function AgentSidebar({ agents, selectedAgentId, onSelectAgent }: AgentSi
         </div>
 
         {/* Load more button */}
-        {hasMore && (
+        {hasMore && onLoadMore && (
           <button
-            onClick={loadMore}
+            onClick={onLoadMore}
+            disabled={isLoadingMore}
             className="w-full mt-2 py-2 flex items-center justify-center
                        text-xs text-[#666666] dark:text-muted-foreground 
                        hover:text-[#1d2129] dark:hover:text-foreground
                        transition-colors duration-200
-                       rounded-lg hover:bg-white/50 dark:hover:bg-card/50"
+                       rounded-lg hover:bg-white/50 dark:hover:bg-card/50
+                       disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {t("common.loadMore")}
+            {isLoadingMore ? (t("common.loading") || "Loading...") : t("common.loadMore")}
           </button>
         )}
 

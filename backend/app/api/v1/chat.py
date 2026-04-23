@@ -414,7 +414,7 @@ async def update_conversation_title(
         )
 
 
-@api_router.get("/conversations", response_model=List[ConversationInDB])
+@api_router.get("/conversations")
 async def get_conversations(
     limit: int = Query(
         20,
@@ -431,11 +431,21 @@ async def get_conversations(
     Get a list of recent conversations (most recently updated first).
 
     Returns a paginated list of conversations that are not deleted.
+    Response includes X-Total-Count header with total number of conversations.
     """
     try:
-        conversations, _ = await list_conversations(db=db, limit=limit, offset=offset)
+        conversations, total = await list_conversations(
+            db=db, limit=limit, offset=offset
+        )
 
-        return conversations
+        # Return conversations with total count in header
+        from fastapi.responses import JSONResponse
+
+        response = JSONResponse(
+            content=[conv.model_dump(mode="json") for conv in conversations],
+            headers={"X-Total-Count": str(total)},
+        )
+        return response  # type: ignore
 
     except Exception as e:
         logger.error(f"Error retrieving conversations: {e}")

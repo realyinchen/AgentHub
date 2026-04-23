@@ -35,11 +35,10 @@ type ChatSidebarProps = {
   onDeleteConversation: (conversation: ConversationInDB) => void
   onCreateConversation: () => void
   disableCreateConversation: boolean
+  hasMore?: boolean
+  isLoadingMore?: boolean
+  onLoadMore?: () => void
 }
-
-// Pagination constants
-const INITIAL_DISPLAY_COUNT = 10
-const LOAD_MORE_COUNT = 10
 
 // Search component
 function SearchInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -72,13 +71,14 @@ export function ChatSidebar({
   onDeleteConversation,
   onCreateConversation,
   disableCreateConversation,
+  hasMore: hasMoreProp,
+  isLoadingMore,
+  onLoadMore,
 }: ChatSidebarProps) {
   const { locale, t } = useI18n()
   const { state, toggleSidebar } = useSidebar()
   const isCollapsed = state === "collapsed"
 
-  // Pagination state
-  const [displayCount, setDisplayCount] = useState(INITIAL_DISPLAY_COUNT)
   // Search state
   const [searchQuery, setSearchQuery] = useState("")
 
@@ -89,14 +89,8 @@ export function ChatSidebar({
     )
     : conversations
 
-  // Get visible conversations
-  const visibleConversations = filteredConversations.slice(0, displayCount)
-  const hasMore = filteredConversations.length > displayCount
-
-  // Load more conversations
-  const loadMore = () => {
-    setDisplayCount(prev => prev + LOAD_MORE_COUNT)
-  }
+  // Use prop hasMore if provided (server-side pagination), otherwise calculate from search results
+  const hasMore = hasMoreProp !== undefined ? hasMoreProp : false
 
   return (
     <Sidebar collapsible="icon" variant="sidebar">
@@ -186,7 +180,7 @@ export function ChatSidebar({
               </p>
             ) : (
               <SidebarMenu>
-                {visibleConversations.map((conversation) => {
+                {filteredConversations.map((conversation) => {
                   const isActive = conversation.thread_id === threadId
 
                   return (
@@ -252,13 +246,18 @@ export function ChatSidebar({
                 })}
 
                 {/* Load more button */}
-                {hasMore && (
+                {hasMore && onLoadMore && (
                   <SidebarMenuItem>
                     <SidebarMenuButton
                       className="cursor-pointer justify-center"
-                      onClick={loadMore}
+                      onClick={onLoadMore}
+                      disabled={isLoadingMore}
                     >
-                      <ChevronsDown className="size-5" />
+                      {isLoadingMore ? (
+                        <span className="text-xs">{t("common.loading") || "Loading..."}</span>
+                      ) : (
+                        <ChevronsDown className="size-5" />
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 )}

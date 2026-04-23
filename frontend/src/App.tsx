@@ -19,6 +19,7 @@ import {
   getHistory,
   listAgents,
   listConversations,
+  loadMoreConversations,
   setConversationTitle,
   streamChat,
 } from "@/lib/api"
@@ -77,6 +78,10 @@ function App() {
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
+  // Pagination state for conversations
+  const [conversationsOffset, setConversationsOffset] = useState(0)
+  const [hasMoreConversations, setHasMoreConversations] = useState(true)
+  const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false)
 
   // Thinking mode state - persisted per conversation in localStorage
   const {
@@ -186,9 +191,39 @@ function App() {
   }, [])
 
   const refreshConversations = useCallback(async () => {
-    const latest = await listConversations(100)
+    const { conversations: latest, total } = await listConversations(10, 0)
     setConversations(sortConversationsByUpdatedAt(latest))
+    setConversationsOffset(latest.length)
+    setHasMoreConversations(latest.length < total)
   }, [])
+
+  const handleLoadMoreConversations = useCallback(async () => {
+    if (isLoadingMoreConversations || !hasMoreConversations) {
+      return
+    }
+
+    setIsLoadingMoreConversations(true)
+    try {
+      const { conversations: moreConversations, total } = await loadMoreConversations(
+        conversationsOffset,
+        10
+      )
+
+      if (moreConversations.length > 0) {
+        setConversations((prev) =>
+          sortConversationsByUpdatedAt([...prev, ...moreConversations])
+        )
+        setConversationsOffset((prev) => prev + moreConversations.length)
+        setHasMoreConversations(conversationsOffset + moreConversations.length < total)
+      } else {
+        setHasMoreConversations(false)
+      }
+    } catch (error) {
+      console.error("Failed to load more conversations:", error)
+    } finally {
+      setIsLoadingMoreConversations(false)
+    }
+  }, [conversationsOffset, hasMoreConversations, isLoadingMoreConversations])
 
   const ensureConversationExists = useCallback(
     async (targetThreadId: string, title: string, agentId?: string) => {
@@ -1395,18 +1430,20 @@ function App() {
       setAppError(null)
 
       try {
-        const [agentList, conversationList] = await Promise.all([
+        const [agentResult, conversationResult] = await Promise.all([
           listAgents(),
-          listConversations(100),
+          listConversations(10, 0),
         ])
 
         if (cancelled) {
           return
         }
 
+        const agentList = agentResult.agents
         setAgents(agentList)
         const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
 
+        const conversationList = conversationResult.conversations
         const sorted = sortConversationsByUpdatedAt(conversationList)
         setConversations(sorted)
 
@@ -1527,6 +1564,9 @@ function App() {
           }}
           onRenameConversation={startRenameConversation}
           onDeleteConversation={setDeleteTarget}
+          hasMore={hasMoreConversations}
+          isLoadingMore={isLoadingMoreConversations}
+          onLoadMore={handleLoadMoreConversations}
         />
 
         <SidebarInset className="min-h-0 overflow-hidden bg-background flex-1">
