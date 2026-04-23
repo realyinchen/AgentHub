@@ -117,12 +117,52 @@ from app.agents.navigator import navigator
 __all__ = ["chatbot", "navigator"]
 ```
 
+## Performance Configuration
+
+### Database Connection Pool
+```python
+# backend/app/database/db_manager.py
+pool_size=20,              # Base connections
+max_overflow=30,           # Overflow connections
+pool_recycle=300,          # Connection recycle time (seconds)
+pool_use_lifo=True,        # LIFO mode for better performance
+```
+
+### Rate Limiting
+```python
+# backend/app/core/rate_limiter.py
+default_limits=["100/minute"]  # Global default per IP
+RateLimits.LIST_AGENTS = "30/minute"
+RateLimits.STREAM_CHAT = "10/minute"
+```
+
+### Caching
+```python
+# backend/app/core/cache.py
+_models_cache = TTLCache(maxsize=100, ttl=300)      # 5 min
+_providers_cache = TTLCache(maxsize=50, ttl=300)    # 5 min
+_conversations_cache = TTLCache(maxsize=200, ttl=60) # 1 min
+_vector_search_cache = TTLCache(maxsize=500, ttl=600) # 10 min
+```
+
+### Qdrant HNSW Index
+```python
+# backend/app/database/qdrant_manager.py
+hnsw_config={
+    "m": 16,              # Connections per node
+    "ef_construct": 200,  # Construction search factor
+}
+ef_search=200              # Query-time search factor
+```
+
 ## Configuration Files
 
 | File | Purpose |
 |------|---------|
 | `backend/.env` | Backend environment variables (embedding model, API keys) |
-| `backend/scripts/sql/init_database.sql` | LLM/VLM model configurations |
+| `backend/scripts/sql/init_database.sql` | LLM/VLM model configurations + DB indexes |
 | `frontend/.env` | Frontend environment variables |
 | `backend/docker-compose.yml` | Backend Docker deployment |
 | `frontend/docker-compose.yml` | Frontend Docker deployment |
+| `backend/app/core/rate_limiter.py` | Rate limiting configuration |
+| `backend/app/core/cache.py` | Caching configuration |

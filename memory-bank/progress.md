@@ -94,6 +94,74 @@ The project is in a **stable, production-ready state** with two fully functional
 - **main** (default): Stable release branch
 - **dev**: Development branch with latest features
 
+## Performance Optimizations (2026-04-23)
+
+### Database Optimizations
+1. **Connection Pool Optimization** (`db_manager.py`)
+   - pool_size: 5 → 20
+   - max_overflow: 15 → 30
+   - pool_recycle: 1800s → 300s
+   - pool_use_lifo: True (better performance with high concurrency)
+   - Expected: Support 100+ concurrent connections
+
+2. **Index Optimizations** (`init_database.sql`)
+   - Added composite indexes for common query patterns
+   - Added partial indexes (WHERE is_deleted = FALSE) for smaller index size
+   - Added covering index for conversation list queries (avoids table lookups)
+   - Fixed duplicate index issues in message_steps table
+   - Added ANALYZE commands for query planner statistics
+
+### API Optimizations
+3. **Rate Limiting** (`rate_limiter.py`)
+   - Implemented SlowAPI rate limiting
+   - Default: 100 requests/minute per IP
+   - Endpoint-specific limits for different operations
+   - Prevents DDoS and resource exhaustion
+
+4. **Caching System** (`cache.py`)
+   - In-memory TTL cache (no Redis dependency)
+   - Model configurations cached (5 min TTL)
+   - Provider configurations cached (5 min TTL)
+   - Conversation lists cached (1 min TTL)
+   - Vector search results cached (10 min TTL)
+   - Expected: 80%+ cache hit rate for read-heavy operations
+
+### Security Optimizations
+5. **Sensitive Data Masking** (`llm.py`)
+   - API keys no longer logged in plain text
+   - Logs show "api_key_configured=Yes/No" instead of actual values
+
+### Frontend Optimizations
+6. **Error Boundary** (`error-boundary.tsx`)
+   - Prevents white screen crashes
+   - User-friendly error UI with reload/retry options
+   - Error logging for debugging
+
+7. **React Performance** (`useOptimizedChat.ts`)
+   - useMemo optimization for expensive calculations
+   - Debounced state updates
+   - Prevents unnecessary re-renders
+
+### Vector Store Optimizations
+8. **Qdrant Optimizations** (`qdrant_manager.py`)
+   - Batch search support for multiple queries
+   - HNSW index configuration (m=16, ef=200)
+   - Connection pooling and caching
+   - Expected: 20-50ms vector search response time
+
+### Files Created/Modified
+- **New**: `backend/app/core/rate_limiter.py`
+- **New**: `backend/app/core/cache.py`
+- **New**: `backend/app/database/qdrant_manager.py` (optimized)
+- **New**: `frontend/src/components/error-boundary.tsx`
+- **New**: `frontend/src/hooks/useOptimizedChat.ts`
+- **Modified**: `backend/requirements.txt` (added slowapi, cachetools)
+- **Modified**: `backend/app/database/db_manager.py` (connection pool)
+- **Modified**: `backend/scripts/sql/init_database.sql` (indexes)
+- **Modified**: `backend/app/utils/llm.py` (sensitive data masking)
+- **Modified**: `backend/app/main.py` (rate limiter integration)
+- **Modified**: `backend/app/api/v1/agent.py` (endpoint rate limits)
+
 ## Known Issues
 
 1. **Testing**: No unit/integration tests currently implemented

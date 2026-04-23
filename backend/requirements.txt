@@ -1,5 +1,7 @@
 dashscope==1.25.1
 fastapi==0.121.2
+slowapi==0.1.9
+cachetools==5.5.0
 langchain==1.2.10
 langchain-community==0.4.1
 langchain-litellm==0.6.4

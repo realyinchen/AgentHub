@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Query
+from fastapi import APIRouter, HTTPException, status, Depends, Query, Request
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
@@ -6,6 +6,7 @@ from typing import List
 from app.database import adb_manager
 from app.models.agent import Agent
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentInDB
+from app.core.rate_limiter import limiter, RateLimits
 
 api_router = APIRouter(prefix="/agents", tags=["Agent"])
 
@@ -31,7 +32,9 @@ async def create_agent(
 
 
 @api_router.get("/", response_model=List[AgentInDB])
+@limiter.limit(RateLimits.LIST_AGENTS)
 async def list_agents(
+    request: Request,
     active_only: bool = Query(True, description="Only show active agents"),
     limit: int = Query(20, ge=1, le=100, description="Max number of agents to return"),
     offset: int = Query(0, ge=0, description="Number of agents to skip"),

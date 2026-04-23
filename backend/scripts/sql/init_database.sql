@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS public.agents (
 INSERT INTO public.agents (agent_id, description, is_active)
 VALUES 
     ('chatbot',   'A Simple chatbot', true),
-    ('navigator', 'A smart navigation assistant based on AMap(高德地图)', true)
+    ('navigator', 'A smart navigation assistant', true)
 ON CONFLICT (agent_id) DO NOTHING;
 
 -- 2. conversations table
@@ -37,6 +37,16 @@ CREATE TABLE IF NOT EXISTS public.conversations (
 -- Index for conversations
 CREATE INDEX IF NOT EXISTS idx_conversations_deleted_updated 
 ON public.conversations (is_deleted, updated_at DESC);
+
+-- Index for agent_id lookups (used in conversation filtering)
+CREATE INDEX IF NOT EXISTS idx_conversations_agent_id 
+ON public.conversations (agent_id) 
+WHERE is_deleted = FALSE;
+
+-- Index for pagination and sorting by created_at
+CREATE INDEX IF NOT EXISTS idx_conversations_created_at 
+ON public.conversations (created_at DESC) 
+WHERE is_deleted = FALSE;
 
 -- 3. providers table (stores provider API keys and base URLs)
 CREATE TABLE IF NOT EXISTS public.providers (
@@ -62,7 +72,7 @@ INSERT INTO public.providers (provider, api_key, is_openai_compatible)
 VALUES ('dashscope', '', false)
 ON CONFLICT (provider) DO NOTHING;
 
--- ZhipuAI provider
+-- ZAI provider
 -- Get your API key from: https://open.bigmodel.cn/apikey
 INSERT INTO public.providers (provider, api_key, is_openai_compatible)
 VALUES ('zai', '', false)
@@ -122,7 +132,45 @@ CREATE TABLE IF NOT EXISTS public.message_steps (
 );
 
 -- Indexes for efficient queries
-CREATE INDEX IF NOT EXISTS idx_message_steps_thread ON public.message_steps(thread_id);
 CREATE INDEX IF NOT EXISTS idx_message_steps_session ON public.message_steps(session_id);
 CREATE INDEX IF NOT EXISTS idx_message_steps_type ON public.message_steps(message_type);
 
+-- Composite index for message steps lookup (most common query pattern - covers thread_id lookups)
+CREATE INDEX IF NOT EXISTS idx_message_steps_thread_session_step 
+ON public.message_steps (thread_id, session_id, step_number);
+
+-- Index for message steps pagination
+CREATE INDEX IF NOT EXISTS idx_message_steps_created_at 
+ON public.message_steps (created_at DESC);
+
+-- ============================================================================
+-- Additional Performance Optimizations (2026-04-23)
+-- ============================================================================
+
+-- Partial index for active conversations only (most queries filter by is_deleted=FALSE)
+-- This index is smaller and faster for the common case
+CREATE INDEX IF NOT EXISTS idx_conversations_active_updated 
+ON public.conversations (updated_at DESC) 
+WHERE is_deleted = FALSE;
+
+-- Covering index for conversation list query
+-- Includes all fields needed to avoid table lookups
+CREATE INDEX IF NOT EXISTS idx_conversations_list_covering 
+ON public.conversations (is_deleted, updated_at DESC) 
+INCLUDE (thread_id, title, agent_id, created_at, input_tokens, cache_read, output_tokens, reasoning, total_tokens)
+WHERE is_deleted = FALSE;
+
+-- Index for tool_name lookups (when filtering by specific tools)
+CREATE INDEX IF NOT EXISTS idx_message_steps_tool_name 
+ON public.message_steps (tool_name) 
+WHERE tool_name IS NOT NULL;
+
+-- Index for AI message content search (full-text search preparation)
+-- Note: For production, consider using PostgreSQL full-text search with GIN index
+-- CREATE INDEX idx_message_steps_content_fts ON public.message_steps USING GIN (to_tsvector('simple', content));
+
+-- Analyze tables after index creation for query planner
+ANALYZE public.conversations;
+ANALYZE public.message_steps;
+ANALYZE public.models;
+ANALYZE public.providers;

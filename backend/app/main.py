@@ -1,12 +1,15 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.routing import APIRoute
+from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
 
 from app.utils.agent_utils import get_available_agents
 from app.core.config import settings
 from app.core.model_manager import ModelManager
+from app.core.rate_limiter import limiter, rate_limit_exceeded_handler
 from app.database import (
     adb_manager,
     db_manager,
@@ -56,4 +59,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(lifespan=lifespan, generate_unique_id_function=custom_generate_unique_id)
+
+# Add rate limiter to app
+app.state.limiter = limiter
+
 app.include_router(api_router, prefix=settings.API_V1_STR)

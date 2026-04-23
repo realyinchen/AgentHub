@@ -714,12 +714,13 @@ def get_chat_litellm(
             **{"model_kwargs": {"stream_options": {"include_usage": True}}},
         )
 
-    # Detailed logging for debugging
+    # Detailed logging for debugging (with sensitive info masked)
     logger.info(
         f"Created ChatLiteLLM: model={litellm_model}, temperature={temperature}, "
         f"streaming=True, include_usage=True, thinking_mode={thinking_mode}, "
-        f"extra_body={extra_body}, tools_count={len(tools) if tools else 0}, "
-        f"has_api_key={has_api_key}, drop_params=True"
+        f"extra_body_keys={list(extra_body.keys()) if extra_body else []}, "
+        f"tools_count={len(tools) if tools else 0}, "
+        f"api_key_configured={'Yes' if has_api_key else 'No'}, drop_params=True"
     )
 
     return llm

@@ -40,10 +40,11 @@ class AsyncDatabaseManager:
             settings.ASYNC_POSTGRE_URL,
             poolclass=AsyncAdaptedQueuePool,  # Explicitly use async-compatible pool
             pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=15,
-            pool_timeout=30,
-            pool_recycle=1800,
+            pool_size=20,  # Increased from 5 to 20 for better concurrency
+            max_overflow=30,  # Increased from 15 to 30 for burst handling
+            pool_timeout=30,  # Keep as is - 30 seconds to wait for connection
+            pool_recycle=300,  # Reduced from 1800 to 300 (5 min) to prevent stale connections
+            pool_use_lifo=True,  # LIFO mode improves cache locality
             connect_args={
                 "server_settings": {
                     "application_name": f"{settings.POSTGRES_APPLICATION_NAME}"
@@ -121,10 +122,11 @@ class DatabaseManager:
             settings.POSTGRE_URL,
             poolclass=QueuePool,
             pool_pre_ping=True,
-            pool_size=5,
-            max_overflow=15,
-            pool_timeout=30,
-            pool_recycle=1800,
+            pool_size=20,  # Increased from 5 to 20 for better concurrency
+            max_overflow=30,  # Increased from 15 to 30 for burst handling
+            pool_timeout=30,  # Keep as is - 30 seconds to wait for connection
+            pool_recycle=300,  # Reduced from 1800 to 300 (5 min) to prevent stale connections
+            pool_use_lifo=True,  # LIFO mode improves cache locality
             connect_args={
                 "server_settings": {
                     "application_name": f"{settings.POSTGRES_APPLICATION_NAME}"
