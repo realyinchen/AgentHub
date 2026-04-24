@@ -49,6 +49,7 @@ async def create_conversation(
     db.add(db_obj)
     # Ensure ORM/DB defaults (e.g. created_at/updated_at) are populated before response serialization.
     await db.flush()
+    await db.commit()
     await db.refresh(db_obj)
 
     return db_obj
@@ -71,6 +72,7 @@ async def update_conversation_by_thread_id(
     )
 
     result = await db.execute(stmt)
+    await db.commit()
     updated = result.scalar_one_or_none()
 
     if not updated:
@@ -93,6 +95,7 @@ async def soft_delete_conversation_by_thread_id(
     )
 
     result = await db.execute(stmt)
+    await db.commit()
     deleted = result.scalar_one_or_none()
 
     return bool(deleted)
@@ -164,6 +167,7 @@ async def update_conversation_tokens(
     )
 
     result = await db.execute(stmt)
+    await db.commit()
     updated = result.scalar_one_or_none()
 
     if not updated:

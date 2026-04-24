@@ -10,7 +10,7 @@ from langchain_core.tools import tool
 from sqlalchemy import text, inspect
 from sqlalchemy.exc import SQLAlchemyError
 
-from app.database import adb_manager
+from app.database import get_database
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +68,8 @@ async def execute_sql_query(
         return "Error: Query contains potentially harmful or disallowed operations."
 
     try:
-        async with adb_manager.session() as session:
+        db = get_database()
+        async with db.session() as session:
             result = await session.execute(text(sql))
             rows = result.fetchall()
 
@@ -151,7 +152,8 @@ async def get_table_schema(
         Formatted string with table schema information, or an error message if something fails.
     """
     try:
-        async with adb_manager.session() as session:
+        db = get_database()
+        async with db.session() as session:
             insp = inspect(session.bind)
 
             # Determine which tables to inspect

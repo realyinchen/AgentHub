@@ -8,7 +8,8 @@ from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any, List
 
-from app.database import adb_manager
+from app.api.v1.dependencies import get_db
+from app.database import get_database
 from app.schemas.chat import (
     ConversationCreate,
     ConversationInDB,
@@ -39,12 +40,6 @@ from app.crud import message_step as message_step_crud
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/chat", tags=["Chat"])
-
-
-async def get_db():
-    """Dependency to provide async session"""
-    async with adb_manager.session() as session:
-        yield session
 
 
 def _sse_response_example() -> dict[int | str, Any]:
@@ -317,7 +312,8 @@ async def history(
 
     try:
         # Get message steps from database for sidebar
-        async with adb_manager.session() as session:
+        db = get_database()
+        async with db.session() as session:
             message_sequence = await message_step_crud.get_message_steps_by_thread(
                 db=session, thread_id=thread_id
             )

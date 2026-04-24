@@ -95,6 +95,22 @@ class Settings(BaseSettings):
     QDRANT_PORT: int | None = None
     QDRANT_COLLECTION: str = ""
 
+    # =============================================================================
+    # Database Backend Configuration
+    # =============================================================================
+    # Database type: "postgres" or "sqlite"
+    DATABASE_TYPE: str = "postgres"
+
+    # SQLite configuration (used when DATABASE_TYPE=sqlite)
+    SQLITE_DATABASE_PATH: str = "./data/agenthub.db"
+
+    # Vectorstore type: "qdrant" or "sqlite_vec"
+    # If not set, defaults based on DATABASE_TYPE (postgres->qdrant, sqlite->sqlite_vec)
+    VECTORSTORE_TYPE: str = "qdrant"
+
+    # SQLiteVec configuration (used when VECTORSTORE_TYPE=sqlite_vec)
+    SQLITE_VEC_DATABASE_PATH: str = "./data/agenthub_vec.db"
+
     # Amap (高德地图) Configuration
     AMAP_KEY: SecretStr | None = None
 

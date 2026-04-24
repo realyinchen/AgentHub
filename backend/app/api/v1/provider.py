@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import adb_manager
+from app.api.v1.dependencies import get_db
 from app.crud import provider as crud
 from app.schemas.provider import (
     ProviderInfo,
@@ -11,12 +11,6 @@ from app.schemas.provider import (
 from app.utils.crypto import encrypt_api_key
 
 api_router = APIRouter(prefix="/providers", tags=["Providers"])
-
-
-async def get_db():
-    """Dependency to provide async session"""
-    async with adb_manager.session() as session:
-        yield session
 
 
 def provider_to_info(provider) -> ProviderInfo:

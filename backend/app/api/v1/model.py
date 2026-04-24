@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import adb_manager
+from app.api.v1.dependencies import get_db
 from app.crud import model as crud
 from app.schemas.model import (
     ModelCreate,
@@ -18,12 +18,6 @@ from app.schemas.model import (
 )
 
 api_router = APIRouter(prefix="/models", tags=["Models"])
-
-
-async def get_db():
-    """Dependency to provide async session"""
-    async with adb_manager.session() as session:
-        yield session
 
 
 def model_to_info(model) -> ModelInfo:

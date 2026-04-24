@@ -80,7 +80,7 @@ function App() {
   const [threadId, setThreadId] = useState("")
   // Pagination state for conversations
   const [conversationsOffset, setConversationsOffset] = useState(0)
-  const [hasMoreConversations, setHasMoreConversations] = useState(true)
+  const [hasMoreConversations, setHasMoreConversations] = useState(false)
   const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false)
 
   // Thinking mode state - persisted per conversation in localStorage
@@ -210,11 +210,18 @@ function App() {
       )
 
       if (moreConversations.length > 0) {
-        setConversations((prev) =>
-          sortConversationsByUpdatedAt([...prev, ...moreConversations])
-        )
-        setConversationsOffset((prev) => prev + moreConversations.length)
-        setHasMoreConversations(conversationsOffset + moreConversations.length < total)
+        setConversations((prev) => {
+          // Remove duplicates based on thread_id
+          const existingIds = new Set(prev.map((c) => c.thread_id))
+          const uniqueNew = moreConversations.filter((c) => !existingIds.has(c.thread_id))
+          return sortConversationsByUpdatedAt([...prev, ...uniqueNew])
+        })
+        setConversationsOffset((prev) => {
+          const newOffset = prev + moreConversations.length
+          // Use functional update to ensure we have the latest offset
+          setHasMoreConversations(newOffset < total)
+          return newOffset
+        })
       } else {
         setHasMoreConversations(false)
       }
@@ -1444,8 +1451,21 @@ function App() {
         const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
 
         const conversationList = conversationResult.conversations
+        const total = conversationResult.total
         const sorted = sortConversationsByUpdatedAt(conversationList)
-        setConversations(sorted)
+        // Use functional update to avoid duplicates if bootstrap runs twice (React StrictMode)
+        setConversations((prev) => {
+          if (prev.length === 0) {
+            return sorted
+          }
+          // If we already have conversations, merge and deduplicate
+          const existingIds = new Set(prev.map((c) => c.thread_id))
+          const uniqueNew = sorted.filter((c) => !existingIds.has(c.thread_id))
+          return sortConversationsByUpdatedAt([...prev, ...uniqueNew])
+        })
+        // Update pagination state based on first load
+        setConversationsOffset(sorted.length)
+        setHasMoreConversations(sorted.length < total)
 
         const queryThreadId = readThreadIdFromUrl()
         const queryAgentId = readAgentIdFromUrl()

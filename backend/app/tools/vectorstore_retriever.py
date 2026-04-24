@@ -1,77 +1,73 @@
-from typing import List
-from langchain_core.documents import Document
+"""
+Vectorstore Retriever Tool
+
+Provides a LangGraph tool for searching the vector store.
+Uses the abstract VectorstoreInterface so the tool is backend-agnostic.
+"""
+
+import logging
+from typing import Optional
+
 from langchain_core.tools import tool
-from langchain_qdrant import QdrantVectorStore
-from langchain_litellm import LiteLLMEmbeddings
+from pydantic import BaseModel, Field
 
-from app.database import qdrant_manager
-from app.core.model_manager import ModelManager
+from app.database.factory import get_vectorstore
+
+logger = logging.getLogger(__name__)
 
 
-async def _aget_vectorstore(collection_name: str) -> QdrantVectorStore:
-    """Async get vectorstore with embedding model from database."""
-    client = qdrant_manager.get_client()
-    # Get embedding model configuration from ModelManager (database)
-    model_name, api_key = await ModelManager.get_embedding_model_instance()
-    embeddings = LiteLLMEmbeddings(model=model_name, api_key=api_key)
-    return QdrantVectorStore(
-        client=client,
-        collection_name=collection_name,
-        embedding=embeddings,
+class VectorStoreSearchInput(BaseModel):
+    """Input schema for vector store search tool."""
+
+    query: str = Field(description="The search query text")
+    collection_name: str = Field(
+        default="documents",
+        description="The name of the collection to search in",
+    )
+    limit: int = Field(
+        default=5,
+        description="Maximum number of results to return",
     )
 
 
-def _get_vectorstore(collection_name: str) -> QdrantVectorStore:
-    """Sync wrapper for _aget_vectorstore.
-
-    Note: This function should be called from sync contexts only.
-    In async contexts, use _aget_vectorstore directly.
+@tool(args_schema=VectorStoreSearchInput)
+async def vectorstore_search(
+    query: str,
+    collection_name: str = "documents",
+    limit: int = 5,
+) -> str:
     """
-    import asyncio
+    Search the vector store for relevant documents.
 
-    # Try to get the running loop
+    This tool searches the configured vector store backend (Qdrant/sqlite-vec)
+    for documents similar to the query text.
+    """
     try:
-        _ = asyncio.get_running_loop()
-        # We have a running loop but this is a sync function
-        # This should not happen in normal operation since tools are run
-        # in async contexts through LangGraph. If it does happen,
-        # we raise an error to avoid blocking issues.
-        raise RuntimeError(
-            "_get_vectorstore() called from async context. "
-            "Use _aget_vectorstore() instead in async code."
+        vectorstore = get_vectorstore()
+
+        # Use the vectorstore's text search which handles embedding internally
+        results = await vectorstore.search(
+            collection_name=collection_name,
+            query_text=query,
+            limit=limit,
         )
-    except RuntimeError as e:
-        if "no running event loop" in str(e):
-            # No running loop, safe to use asyncio.run
-            return asyncio.run(_aget_vectorstore(collection_name))
-        raise
 
+        if not results:
+            return "No relevant documents found."
 
-@tool
-def retrieve_from_vectorstore(
-    collection_name: str, query: str
-) -> tuple[str, List[Document]]:
-    """Retrieve information to help answer a query.
+        # Format results
+        formatted = []
+        for i, result in enumerate(results, 1):
+            score = result.get("score", 0)
+            payload = result.get("payload", {})
+            content = payload.get("content", payload.get("text", str(payload)))
+            source = payload.get(
+                "source", payload.get("metadata", {}).get("source", "unknown")
+            )
+            formatted.append(f"[{i}] (Score: {score:.4f}, Source: {source})\n{content}")
 
-    This tool searches a vector store collection for documents similar to the query.
-    Use this when you need to retrieve relevant information from a knowledge base.
+        return "\n\n---\n\n".join(formatted)
 
-    Args:
-        collection_name: Name of the vector store collection to search.
-        query: The search query to find relevant documents.
-
-    Returns:
-        A tuple containing:
-        - serialized_content: Formatted string with retrieved documents
-        - documents: List of retrieved Document objects
-
-    Examples:
-        >>> retrieve_from_vectorstore.invoke({"collection_name": "docs", "query": "What is AI?"})
-    """
-    vectorstore = _get_vectorstore(collection_name)
-    retrieved_docs = vectorstore.similarity_search(query, k=2)
-    serialized = "\n\n".join(
-        (f"Source: {doc.metadata}\nContent: {doc.page_content}")
-        for doc in retrieved_docs
-    )
-    return serialized, retrieved_docs
+    except Exception as e:
+        logger.error(f"Vectorstore search error: {e}")
+        return f"Error searching vector store: {str(e)}"

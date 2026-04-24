@@ -3,18 +3,12 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
-from app.database import adb_manager
 from app.models.agent import Agent
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentInDB
 from app.core.rate_limiter import limiter, RateLimits
+from app.api.v1.dependencies import get_db
 
 api_router = APIRouter(prefix="/agents", tags=["Agent"])
-
-
-async def get_db():
-    """Dependency to provide async session"""
-    async with adb_manager.session() as session:
-        yield session
 
 
 @api_router.post("/", response_model=AgentInDB, status_code=status.HTTP_201_CREATED)
@@ -27,6 +21,8 @@ async def create_agent(
     db_obj = Agent(**create_data)
 
     db.add(db_obj)
+    await db.commit()
+    await db.refresh(db_obj)
 
     return AgentInDB.model_validate(db_obj)
 
@@ -102,6 +98,7 @@ async def update_agent(
     )
 
     result = await db.execute(stmt)
+    await db.commit()
     updated = result.scalar_one_or_none()
 
     if not updated:
@@ -126,6 +123,7 @@ async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     )
 
     result = await db.execute(stmt)
+    await db.commit()
     deactivated = result.scalar_one_or_none()
 
     if not deactivated:

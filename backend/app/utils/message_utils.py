@@ -14,7 +14,7 @@ from langgraph.types import Command
 from langgraph.graph.state import CompiledStateGraph
 from typing import Any
 
-from app.database import adb_manager
+from app.database import get_database
 from app.schemas.chat import ChatMessage, ToolCall, UserInput
 from app.crud import message_step as message_step_crud
 from app.crud import chat as chat_crud
@@ -344,7 +344,8 @@ async def streaming_message_generator(
                 # This happens when LLM thinks before deciding to call a tool
                 if accumulated_thinking.strip():
                     try:
-                        async with adb_manager.session() as session:
+                        db = get_database()
+                        async with db.session() as session:
                             max_step = (
                                 await message_step_crud.get_max_step_number_for_session(
                                     session, thread_id, session_id
@@ -409,7 +410,8 @@ async def streaming_message_generator(
 
                 # Get current step number from database (for consistent ordering within session)
                 try:
-                    async with adb_manager.session() as session:
+                    db = get_database()
+                    async with db.session() as session:
                         max_step = (
                             await message_step_crud.get_max_step_number_for_session(
                                 session, thread_id, session_id
@@ -519,7 +521,8 @@ async def streaming_message_generator(
 
                             # Save AI response step to database immediately
                             try:
-                                async with adb_manager.session() as session:
+                                db = get_database()
+                                async with db.session() as session:
                                     max_step = await message_step_crud.get_max_step_number_for_session(
                                         session, thread_id, session_id
                                     )
@@ -554,7 +557,8 @@ async def streaming_message_generator(
         # Update conversation token usage in database
         if accumulated_tokens["total_tokens"] > 0:
             try:
-                async with adb_manager.session() as session:
+                db = get_database()
+                async with db.session() as session:
                     updated_conv = await chat_crud.update_conversation_tokens(
                         db=session,
                         thread_id=thread_id,

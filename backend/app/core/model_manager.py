@@ -8,7 +8,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage
 import litellm
 
-from app.database import adb_manager
+from app.database import get_database
 from app.crud import model as crud
 from app.crud import provider as provider_crud
 from app.utils.crypto import decrypt_api_key
@@ -139,13 +139,14 @@ class ModelManager:
         """Internal refresh method (must be called with lock held)"""
         logger.info("Refreshing model configuration from database...")
 
-        async with adb_manager.session() as db:
+        db = get_database()
+        async with db.session() as db_session:
             # Load all providers into cache
-            providers = await provider_crud.get_all_providers(db)
+            providers = await provider_crud.get_all_providers(db_session)
             cls._providers_cache = {p.provider: p for p in providers}
 
             # Load all active models with provider API key configured
-            models = await crud.get_models_with_provider_config(db)
+            models = await crud.get_models_with_provider_config(db_session)
             cls._models_cache = {m.model_id: m for m in models}
 
             # Cache default model IDs by type

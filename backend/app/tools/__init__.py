@@ -1,7 +1,7 @@
 """Tools module for AgentHub."""
 
 from .execute_sql_query import execute_sql_query, get_table_schema
-from .vectorstore_retriever import retrieve_from_vectorstore
+from .vectorstore_retriever import vectorstore_search
 from .time import get_current_time, get_current_local_time
 from .web import create_web_search
 from .amap import (
@@ -18,7 +18,7 @@ __all__ = [
     "create_web_search",
     "execute_sql_query",
     "get_table_schema",
-    "retrieve_from_vectorstore",
+    "vectorstore_search",
     "amap_geocode",
     "amap_place_search",
     "amap_place_around",
