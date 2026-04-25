@@ -25,6 +25,7 @@ _cp_instance: Optional[CheckpointInterface] = None
 # ── Backend import paths (lazy import to avoid circular deps) ──────────
 _DB_BACKENDS = {
     "postgres": "app.database.backends.postgres.db.PostgresDatabase",
+    "sqlite": "app.database.backends.sqlite.db.SQLiteDatabase",
 }
 
 _VS_BACKENDS = {
@@ -33,6 +34,7 @@ _VS_BACKENDS = {
 
 _CP_BACKENDS = {
     "postgres": "app.database.backends.postgres.checkpointer.PostgresCheckpointer",
+    "sqlite": "app.database.backends.sqlite.checkpointer.SqliteCheckpointer",
 }
 
 
@@ -63,6 +65,7 @@ def get_database() -> DatabaseInterface:
         cls = _import_class(_DB_BACKENDS[db_type])
         _db_instance = cls()
         logger.info(f"Created database instance: {db_type}")
+    assert _db_instance is not None
     return _db_instance
 
 
@@ -84,6 +87,7 @@ def get_vectorstore() -> VectorstoreInterface:
         cls = _import_class(_VS_BACKENDS[vs_type])
         _vs_instance = cls()
         logger.info(f"Created vectorstore instance: {vs_type}")
+    assert _vs_instance is not None
     return _vs_instance
 
 
@@ -104,6 +108,7 @@ def get_checkpointer() -> CheckpointInterface:
         cls = _import_class(_CP_BACKENDS[db_type])
         _cp_instance = cls()
         logger.info(f"Created checkpointer instance: {db_type}")
+    assert _cp_instance is not None
     return _cp_instance
 
 

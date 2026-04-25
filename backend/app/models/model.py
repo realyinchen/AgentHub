@@ -1,9 +1,12 @@
 import uuid
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.sql import func
+from datetime import datetime, timezone
+from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Uuid
 
 from app.database.base import Base
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 
 class Model(Base):
@@ -28,7 +31,7 @@ class Model(Base):
     __tablename__ = "models"
 
     id = Column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        Uuid, primary_key=True, default=uuid.uuid4
     )  # UUID primary key
     provider = Column(
         String(64), ForeignKey("providers.provider"), nullable=False
@@ -45,11 +48,11 @@ class Model(Base):
     is_default = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
+        default=utc_now,
+        onupdate=utc_now,
     )

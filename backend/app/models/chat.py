@@ -1,5 +1,4 @@
-from sqlalchemy import Column, Boolean, String, DateTime, BigInteger
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy import Column, Boolean, String, DateTime, BigInteger, Uuid
 from uuid import uuid4
 from datetime import datetime, timezone
 
@@ -13,7 +12,7 @@ def utc_now():
 class Conversation(Base):
     __tablename__ = "conversations"
 
-    thread_id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    thread_id = Column(Uuid, primary_key=True, default=uuid4)
     title = Column(String(64), nullable=False)
     agent_id = Column(String(64), nullable=True, default="chatbot")
     is_deleted = Column(Boolean, nullable=False, default=False)

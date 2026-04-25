@@ -1,7 +1,11 @@
 from sqlalchemy import Column, String, Boolean, DateTime, Text
-from sqlalchemy.sql import func
+from datetime import datetime, timezone
 
 from app.database.base import Base
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
 
 
 class Provider(Base):
@@ -27,11 +31,11 @@ class Provider(Base):
     )  # base URL for OpenAI-Compatible providers
     is_openai_compatible = Column(Boolean, nullable=False, default=False)
     created_at = Column(
-        DateTime(timezone=True), nullable=False, server_default=func.now()
+        DateTime(timezone=True), nullable=False, default=utc_now
     )
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        server_default=func.now(),
-        onupdate=func.now(),
+        default=utc_now,
+        onupdate=utc_now,
     )
