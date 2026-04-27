@@ -224,6 +224,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
       setPendingChanges(prev => { const n = { ...prev }; delete n[modelId]; return n })
       setModelIdEdits(prev => { const n = { ...prev }; delete n[modelId]; return n })
+      setModelTypeEdits(prev => { const n = { ...prev }; delete n[modelId]; return n })
+      setEditingModelIds(prev => { const n = new Set(prev); n.delete(modelId); return n })
 
       const modelsResult = await getAllModels()
       setModels(modelsResult.models)

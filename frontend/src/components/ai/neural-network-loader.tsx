@@ -1,260 +1,204 @@
-import { useEffect, useRef, useCallback, useState } from "react"
-import { cn } from "@/lib/utils"
 import { useI18n } from "@/i18n"
 import { useTheme } from "@/hooks/use-theme"
+import { cn } from "@/lib/utils"
 
 export type SciFiLoaderProps = {
   className?: string
   showText?: boolean
-  /** Cell size in pixels - default 14, auto-calculated from container if not provided */
-  cellSize?: number
-  /** Gap between cells in pixels - default 5 */
-  gap?: number
-  /** Animation duration in seconds - default 2.2 */
-  animationDuration?: number
-}
-
-interface CellData {
-  x: number
-  y: number
-  dist: number
-  delay: number
-  isCenter: boolean
 }
 
 /**
- * A CSS Grid-based AI pulse wave animation loader.
- * Features: 3D perspective grid, heartbeat pulse animation, wave propagation from center.
- * Adapts colors for light/dark mode: darker cyan for light mode, bright cyan for dark mode.
- * Grid size is automatically calculated based on container size.
+ * AI Agent Dashboard Loading animation.
+ * Features: 3D atom orbits, multi-token streaming flow, rotating status messages.
+ * Adapts colors for light/dark mode. All animations are pure CSS.
  */
 export function SciFiLoader({
   className,
   showText = true,
-  cellSize: providedCellSize,
-  gap = 5,
-  animationDuration = 2.2,
 }: SciFiLoaderProps) {
   const { t } = useI18n()
   const { theme } = useTheme()
-  const containerRef = useRef<HTMLDivElement>(null)
-  const [cells, setCells] = useState<CellData[]>([])
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-
-  // Determine if we're in dark mode
   const isDark = theme === "dark"
 
-  // Calculate cell size and grid size based on container
-  const calculateGrid = useCallback(() => {
-    const container = containerRef.current
-    if (!container || dimensions.width === 0 || dimensions.height === 0) {
-      return { cellSize: 14, gridSize: 21 }
-    }
-
-    const containerSize = Math.min(dimensions.width, dimensions.height)
-
-    // If cellSize is provided, use it; otherwise calculate based on container
-    let actualCellSize: number
-    if (providedCellSize) {
-      actualCellSize = providedCellSize
-    } else {
-      // Calculate cell size to fit approximately 21 cells in smaller dimension
-      // But cap it so it doesn't get too big or too small
-      actualCellSize = Math.max(8, Math.min(14, containerSize / 22))
-    }
-
-    // Calculate grid size (number of cells per row/column)
-    const gridSize = Math.max(5, Math.floor((containerSize + gap) / (actualCellSize + gap)))
-
-    return { cellSize: actualCellSize, gridSize }
-  }, [dimensions, providedCellSize, gap])
-
-  const { cellSize, gridSize } = calculateGrid()
-  const totalSize = gridSize * cellSize + (gridSize - 1) * gap
-
-  // Generate cell data based on grid size
-  const generateCells = useCallback(() => {
-    const newCells: CellData[] = []
-    const center = Math.floor(gridSize / 2)
-
-    for (let y = 0; y < gridSize; y++) {
-      for (let x = 0; x < gridSize; x++) {
-        const dx = x - center
-        const dy = y - center
-        const dist = Math.sqrt(dx * dx + dy * dy)
-        const delay = dist * 0.08
-
-        newCells.push({
-          x,
-          y,
-          dist,
-          delay,
-          isCenter: x === center && y === center,
-        })
-      }
-    }
-
-    setCells(newCells)
-  }, [gridSize])
-
-  useEffect(() => {
-    generateCells()
-  }, [generateCells])
-
-  // Observe container size changes
-  useEffect(() => {
-    const container = containerRef.current
-    if (!container) return
-
-    const resizeObserver = new ResizeObserver((entries) => {
-      for (const entry of entries) {
-        const { width, height } = entry.contentRect
-        setDimensions({ width, height })
-      }
-    })
-
-    resizeObserver.observe(container)
-
-    return () => {
-      resizeObserver.disconnect()
-    }
-  }, [])
-
-  // Color palette based on theme
-  // Dark mode: bright cyan (#00ffff)
-  // Light mode: darker cyan (#006b6b) for sci-fi effect
   const colors = isDark
     ? {
-      bgBase: "rgba(0, 255, 255, 0.05)",
-      borderBase: "rgba(0, 255, 255, 0.08)",
-      bg0: "rgba(0, 255, 255, 0.03)",
-      bg20: "rgba(0, 255, 255, 0.15)",
-      bg40: "rgba(0, 255, 255, 0.8)",
-      bg70: "rgba(0, 255, 255, 0.1)",
-      shadow0: "rgba(0, 255, 255, 0)",
-      shadow20: "rgba(0, 255, 255, 0.5)",
-      shadow40: "rgba(0, 255, 255, 0.9)",
-      shadow70: "rgba(0, 255, 255, 0.2)",
-      center: "rgba(0, 255, 255, 1)",
-      centerShadow: "rgba(0, 255, 255, 1)",
+      nucleusCore: "#00d4ff",
+      nucleusGlow1: "#00eaff",
+      nucleusGlow2: "#00aaff",
+      nucleusGlow3: "rgba(0,170,255,0.5)",
+      orbitBorder: "rgba(0,255,255,0.32)",
+      orbitGlow: "rgba(0,255,255,0.15)",
+      tokenBg: "#00f7ff",
+      tokenGlow1: "#00f7ff",
+      tokenGlow2: "#00c3ff",
+      titleColor: "#8fbfff",
+      statusColor: "#5f7fa3",
     }
     : {
-      // Light mode: darker cyan for visibility
-      bgBase: "rgba(0, 107, 107, 0.1)",
-      borderBase: "rgba(0, 107, 107, 0.15)",
-      bg0: "rgba(0, 107, 107, 0.05)",
-      bg20: "rgba(0, 107, 107, 0.25)",
-      bg40: "rgba(0, 107, 107, 0.6)",
-      bg70: "rgba(0, 107, 107, 0.2)",
-      shadow0: "rgba(0, 107, 107, 0)",
-      shadow20: "rgba(0, 107, 107, 0.4)",
-      shadow40: "rgba(0, 107, 107, 0.7)",
-      shadow70: "rgba(0, 107, 107, 0.2)",
-      center: "rgba(0, 80, 80, 1)",
-      centerShadow: "rgba(0, 80, 80, 0.8)",
+      nucleusCore: "#008b9e",
+      nucleusGlow1: "#009aab",
+      nucleusGlow2: "#007a8a",
+      nucleusGlow3: "rgba(0,120,140,0.4)",
+      orbitBorder: "rgba(0,120,140,0.25)",
+      orbitGlow: "rgba(0,120,140,0.1)",
+      tokenBg: "#0099aa",
+      tokenGlow1: "#0099aa",
+      tokenGlow2: "#007788",
+      titleColor: "#2a6888",
+      statusColor: "#4a7a9a",
     }
 
+  const statusMessages = [
+    t("loader.status.analyzing"),
+    t("loader.status.routing"),
+    t("loader.status.reasoning"),
+    t("loader.status.generating"),
+  ]
+
   return (
-    <div className={cn("flex flex-col items-center justify-center", className)}>
-      <div
-        ref={containerRef}
-        className="relative flex items-center justify-center"
-        style={{
-          width: "100%",
-          height: "100%",
-          minWidth: `${totalSize}px`,
-          minHeight: `${totalSize}px`,
-        }}
-      >
-        <div
-          className="grid"
-          style={{
-            display: "grid",
-            gridTemplateColumns: `repeat(${gridSize}, ${cellSize}px)`,
-            gridTemplateRows: `repeat(${gridSize}, ${cellSize}px)`,
-            gap: `${gap}px`,
-            transform: "perspective(800px) rotateX(55deg)",
-            transformStyle: "preserve-3d",
-          }}
-        >
-          {cells.map((cell, index) => (
-            <div
-              key={index}
-              className={cell.isCenter ? "scifi-cell scifi-cell-center" : "scifi-cell"}
-              style={{
-                width: cellSize,
-                height: cellSize,
-                animationDelay: `${cell.delay}s`,
-                animationDuration: `${animationDuration}s`,
-              }}
-            />
-          ))}
+    <div className={cn("flex flex-col items-center gap-[26px]", className)}>
+      <div className="agent-atom" style={{ transformStyle: "preserve-3d" }}>
+        <div className="agent-nucleus" />
+        <div className="agent-orbit agent-orbit1">
+          <span className="agent-token" />
+          <span className="agent-token agent-d1" />
+          <span className="agent-token agent-d2" />
         </div>
-
-        <style>{`
-          .scifi-cell {
-            background: ${colors.bgBase};
-            border: 1px solid ${colors.borderBase};
-            transform: scale(1);
-            animation: scifi-pulse 2.2s infinite;
-            will-change: transform, background, box-shadow;
-          }
-
-          .scifi-cell-center {
-            background: ${colors.center} !important;
-            box-shadow: 0 0 25px ${colors.centerShadow} !important;
-          }
-
-          @keyframes scifi-pulse {
-            0% {
-              background: ${colors.bg0};
-              box-shadow: 0 0 0 ${colors.shadow0};
-              transform: scale(1);
-            }
-            20% {
-              background: ${colors.bg20};
-              box-shadow: 0 0 8px ${colors.shadow20};
-            }
-            40% {
-              background: ${colors.bg40};
-              box-shadow: 0 0 18px ${colors.shadow40};
-              transform: scale(1.25);
-            }
-            70% {
-              background: ${colors.bg70};
-              box-shadow: 0 0 5px ${colors.shadow70};
-              transform: scale(1);
-            }
-            100% {
-              background: ${colors.bg0};
-              box-shadow: 0 0 0 ${colors.shadow0};
-            }
-          }
-        `}</style>
+        <div className="agent-orbit agent-orbit2">
+          <span className="agent-token" />
+          <span className="agent-token agent-d1" />
+        </div>
+        <div className="agent-orbit agent-orbit3">
+          <span className="agent-token" />
+          <span className="agent-token agent-d2" />
+        </div>
       </div>
+
       {showText && (
-        <span className={cn(
-          "text-sm animate-pulse mt-2",
-          isDark ? "text-cyan-400/80" : "text-cyan-700/80"
-        )}>
-          {t("loader.title")}
-        </span>
+        <div className="agent-panel">
+          <div className="agent-title">{t("loader.title")}</div>
+          <div className="agent-status">
+            {statusMessages.map((msg, i) => (
+              <span
+                key={i}
+                className="agent-status-span"
+                style={{ animationDelay: `${i * 2}s` }}
+              >
+                {msg}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
+
+      <style>{`
+        .agent-atom {
+          position: relative;
+          width: 160px;
+          height: 160px;
+          transform-style: preserve-3d;
+          animation: agentAtomSpin 14s linear infinite;
+        }
+        .agent-nucleus {
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          width: 16px;
+          height: 16px;
+          transform: translate(-50%, -50%);
+          border-radius: 50%;
+          background: radial-gradient(circle, #b6fff9, ${colors.nucleusCore});
+          box-shadow:
+            0 0 15px ${colors.nucleusGlow1},
+            0 0 40px ${colors.nucleusGlow2},
+            0 0 70px ${colors.nucleusGlow3};
+          animation: agentPulse 1.6s ease-in-out infinite alternate;
+        }
+        .agent-orbit {
+          position: absolute;
+          inset: 0;
+          border-radius: 50%;
+          border: 1px solid ${colors.orbitBorder};
+          box-shadow:
+            0 0 6px ${colors.orbitBorder},
+            0 0 12px ${colors.orbitGlow};
+        }
+        .agent-orbit1 { transform: rotateX(70deg) scaleY(0.55); }
+        .agent-orbit2 { transform: rotateY(70deg) scaleY(0.55); }
+        .agent-orbit3 { transform: rotateX(70deg) rotateY(70deg) scaleY(0.55); }
+        .agent-token {
+          position: absolute;
+          top: -5px;
+          left: 50%;
+          width: 8px;
+          height: 8px;
+          transform: translateX(-50%);
+          border-radius: 50%;
+          background: ${colors.tokenBg};
+          box-shadow:
+            0 0 8px ${colors.tokenGlow1},
+            0 0 20px ${colors.tokenGlow2};
+        }
+        .agent-orbit1 .agent-token { animation: agentFlow 2.2s linear infinite; }
+        .agent-orbit2 .agent-token { animation: agentFlow 3s linear infinite; }
+        .agent-orbit3 .agent-token { animation: agentFlow 2.6s linear infinite; }
+        .agent-d1 { animation-delay: 0.6s; }
+        .agent-d2 { animation-delay: 1.2s; }
+        @keyframes agentFlow {
+          0% { transform: rotate(0deg) translateX(80px) rotate(0deg); opacity: 0; }
+          10% { opacity: 1; }
+          90% { opacity: 1; }
+          100% { transform: rotate(360deg) translateX(80px) rotate(-360deg); opacity: 0; }
+        }
+        @keyframes agentPulse {
+          from { transform: translate(-50%, -50%) scale(1); }
+          to   { transform: translate(-50%, -50%) scale(1.35); }
+        }
+        @keyframes agentAtomSpin {
+          from { transform: rotateX(0deg) rotateY(0deg); }
+          to   { transform: rotateX(360deg) rotateY(360deg); }
+        }
+        .agent-panel { text-align: center; }
+        .agent-title {
+          font-size: 14px;
+          letter-spacing: 1px;
+          color: ${colors.titleColor};
+        }
+        .agent-status {
+          position: relative;
+          height: 18px;
+          overflow: hidden;
+          margin-top: 6px;
+        }
+        .agent-status-span {
+          display: block;
+          font-size: 12px;
+          color: ${colors.statusColor};
+          height: 18px;
+          line-height: 18px;
+          animation: agentStatusLoop 8s infinite;
+        }
+        @keyframes agentStatusLoop {
+          0%   { opacity: 0; transform: translateY(10px); }
+          10%  { opacity: 1; transform: translateY(0); }
+          40%  { opacity: 1; }
+          50%  { opacity: 0; transform: translateY(-10px); }
+          100% { opacity: 0; }
+        }
+      `}</style>
     </div>
   )
 }
 
-// Keep backward compatibility alias
 export const NeuralNetworkLoader = SciFiLoader
 
-/** Demo component for preview */
 export default function SciFiLoaderDemo() {
   const { theme, toggleTheme } = useTheme()
 
   return (
     <div
       className="flex flex-col items-center justify-center gap-12 p-8 min-h-screen"
-      style={{ background: theme === "dark" ? "radial-gradient(circle at center, #050b12, #02040a 70%)" : "radial-gradient(circle at center, #f0f9ff, #e0f2fe 70%)" }}
+      style={{ background: theme === "dark" ? "radial-gradient(circle at center, #0a0f1c, #02040a)" : "radial-gradient(circle at center, #f0f9ff, #e0f2fe 70%)" }}
     >
       <div className="flex flex-col items-center gap-4">
         <button
@@ -264,13 +208,17 @@ export default function SciFiLoaderDemo() {
           Toggle Theme (Current: {theme})
         </button>
       </div>
-      <div className="flex flex-col items-center gap-2 w-[300px] h-[200px]">
-        <SciFiLoader showText={false} />
-        <span className="text-xs text-foreground/60">Adaptive (auto-calculated)</span>
+      <div className="flex flex-col items-center gap-2">
+        <SciFiLoader showText={true} />
+        <span className="text-xs text-foreground/60">With status text</span>
       </div>
-      <div className="flex flex-col items-center gap-2 w-[300px] h-[200px]">
-        <SciFiLoader showText={true} cellSize={10} />
-        <span className="text-xs text-foreground/60">Fixed cell size (10px)</span>
+      <div className="flex flex-col items-center gap-2">
+        <SciFiLoader showText={false} />
+        <span className="text-xs text-foreground/60">Without status text</span>
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <SciFiLoader className="w-24 h-24" showText={false} />
+        <span className="text-xs text-foreground/60">Compact (w-24 h-24)</span>
       </div>
     </div>
   )
