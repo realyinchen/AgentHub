@@ -671,6 +671,12 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                   <label htmlFor={`${form.id}-default`} className="text-xs">{t("model.default")}</label>
                                 </div>
                               </div>
+                              {form.data.model_type === "embedding" && (
+                                <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                                  <AlertTriangle className="size-4 text-amber-500 mt-0.5 shrink-0" />
+                                  <span className="text-xs text-amber-600 dark:text-amber-400">{t("model.embeddingWarning")}</span>
+                                </div>
+                              )}
                             </div>
                           ))}
 
@@ -835,6 +841,12 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                         </div>
                                       </div>
 
+                                      {model.model_type === "embedding" && (
+                                        <div className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                                          <AlertTriangle className="size-4 text-amber-500 mt-0.5 shrink-0" />
+                                          <span className="text-xs text-amber-600 dark:text-amber-400">{t("model.embeddingWarning")}</span>
+                                        </div>
+                                      )}
                                       <div className="space-y-3 pt-2 border-t border-border/50 animate-in fade-in-0 slide-in-from-top-2 duration-200">
                                         <div className="grid grid-cols-2 gap-3">
                                           <div className="space-y-1.5">

@@ -30,9 +30,7 @@ class Model(Base):
 
     __tablename__ = "models"
 
-    id = Column(
-        Uuid, primary_key=True, default=uuid.uuid4
-    )  # UUID primary key
+    id = Column(Uuid, primary_key=True, default=uuid.uuid4)  # UUID primary key
     provider = Column(
         String(64), ForeignKey("providers.provider"), nullable=False
     )  # e.g. "dashscope", "zai" - FK to providers table
@@ -47,9 +45,7 @@ class Model(Base):
     )  # whether supports thinking mode
     is_default = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

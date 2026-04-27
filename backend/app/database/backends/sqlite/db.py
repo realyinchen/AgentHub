@@ -61,7 +61,11 @@ class SQLiteDatabase(DatabaseInterface):
         )
 
     async def initialize(self) -> None:
-        """Initialize the async engine, session factory, and create tables."""
+        """Initialize the async engine and session factory.
+
+        Note: Table creation must be done explicitly via create_tables() or
+        by running the scripts/init_database.py script.
+        """
         if self._engine is not None:
             logger.warning("Database already initialized, skipping")
             return
@@ -75,15 +79,17 @@ class SQLiteDatabase(DatabaseInterface):
             expire_on_commit=False,
         )
 
-        # Create all tables from ORM models
-        await self._create_tables()
-
         logger.info(
             f"SQLite database engine initialized at {settings.SQLITE_DATABASE_PATH}"
         )
 
-    async def _create_tables(self) -> None:
-        """Create all database tables from ORM models."""
+    async def create_tables(self) -> None:
+        """Create all database tables from ORM models.
+
+        Note: This is provided for convenience only. The recommended way to
+        initialize tables is by running scripts/init_database.py, which uses
+        the official SQL schema files under scripts/sql/.
+        """
         from app.database.base import Base
 
         # Import all models so they register with Base.metadata

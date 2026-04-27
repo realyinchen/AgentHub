@@ -37,10 +37,13 @@ class PostgresDatabase(DatabaseInterface):
 
     def _build_database_url(self) -> str:
         """Build the SQLAlchemy async connection URL from settings."""
+        from urllib.parse import quote_plus
+
         if settings.POSTGRES_PASSWORD is None:
             raise ValueError("POSTGRES_PASSWORD is not set")
+        password = quote_plus(settings.POSTGRES_PASSWORD.get_secret_value())
         return (
-            f"postgresql+asyncpg://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD.get_secret_value()}"
+            f"postgresql+asyncpg://{settings.POSTGRES_USER}:{password}"
             f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
         )
 

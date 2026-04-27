@@ -506,7 +506,6 @@ export function AgentTimelineSidebar({
               type="button"
               onClick={openExpandedView}
               className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-              title="展开查看全部步骤详情"
             >
               <Maximize2 className="size-4" />
             </button>

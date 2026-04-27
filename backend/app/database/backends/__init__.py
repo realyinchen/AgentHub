@@ -1,15 +1,15 @@
 """
-数据库后端实现包
+Database backend implementations package.
 
-包含 PostgreSQL 和 SQLite 两种后端实现。
+Contains PostgreSQL and SQLite backend implementations.
 
-结构:
+Structure:
     backends/
-    ├── postgres/       # PostgreSQL + Qdrant 实现
+    ├── postgres/       # PostgreSQL + Qdrant implementation
     │   ├── db.py
     │   ├── checkpointer.py
     │   └── vectorstore.py
-    └── sqlite/         # SQLite + sqlite-vec 实现
+    └── sqlite/         # SQLite + sqlite-vec implementation
         ├── db.py
         ├── checkpointer.py
         └── vectorstore.py

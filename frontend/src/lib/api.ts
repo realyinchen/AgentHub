@@ -99,14 +99,21 @@ export async function getConversationTitle(
   return requestJson<ConversationInDB | null>(`/chat/title/${threadId}`)
 }
 
-export async function setConversationTitle(input: {
-  thread_id: string
-  title: string
-  is_deleted?: boolean
-}): Promise<ConversationInDB | null> {
-  return requestJson<ConversationInDB | null>("/chat/title", {
+export async function setConversationTitle(
+  threadId: string,
+  title: string,
+): Promise<ConversationInDB | null> {
+  return requestJson<ConversationInDB | null>(`/chat/title?thread_id=${encodeURIComponent(threadId)}`, {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function deleteConversation(
+  threadId: string,
+): Promise<void> {
+  await fetch(`${apiBaseUrl}/chat/conversations/${encodeURIComponent(threadId)}`, {
+    method: "DELETE",
   })
 }
 

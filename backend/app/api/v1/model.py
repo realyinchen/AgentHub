@@ -141,12 +141,14 @@ async def create_model(
             detail="model_id_exists",
         )
 
-    # If setting as default, clear other models' default flag of same type first
-    if model_data.is_default:
-        await crud.clear_default_models(db, model_data.model_type)
-
     # Create model
     new_model = await crud.create_model(db, model_data.model_dump())
+
+    # If setting as default, use atomic CASE statement to set as default and clear others
+    if model_data.is_default:
+        new_model = await crud.set_default_model_by_model_id(
+            db, str(new_model.model_id)
+        )
 
     # Refresh model manager cache
     from app.core.model_manager import ModelManager
@@ -178,14 +180,14 @@ async def update_model(
             detail=f"Model with id '{request.id}' not found",
         )
 
-    # If setting as default, clear other models' default flag of same type first
     update_dict = request.model_dump(exclude_unset=True, exclude={"id"})
-    if update_dict.get("is_default"):
-        model_type = str(update_dict.get("model_type") or existing.model_type)
-        await crud.clear_default_models(db, model_type)
 
     # Update model
     updated_model = await crud.update_model_by_id(db, model_uuid, update_dict)
+
+    # If setting as default, use atomic CASE statement to set as default and clear others
+    if updated_model and update_dict.get("is_default"):
+        updated_model = await crud.set_default_model_by_id(db, model_uuid)
 
     # Refresh model manager cache
     from app.core.model_manager import ModelManager
@@ -264,5 +266,5 @@ async def refresh_models_cache() -> RefreshResponse:
     return RefreshResponse(
         success=True,
         message="Model cache refreshed successfully",
-        models_count=len(ModelManager._models_cache),
+        models_count=ModelManager.get_models_count(),
     )

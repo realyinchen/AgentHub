@@ -118,25 +118,32 @@ class Settings(BaseSettings):
     @property
     def ASYNC_POSTGRE_URL(self) -> str:
         """Build and return the asynchronous PostgreSQL connection string."""
-        if settings.POSTGRES_PASSWORD is None:
+        from urllib.parse import quote_plus
+
+        if self.POSTGRES_PASSWORD is None:
             raise ValueError("POSTGRES_PASSWORD is not set")
+        password = quote_plus(self.POSTGRES_PASSWORD.get_secret_value())
         return (
-            f"postgresql+asyncpg://{settings.POSTGRES_USER}:"
-            f"{settings.POSTGRES_PASSWORD.get_secret_value()}@"
-            f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/"
-            f"{settings.POSTGRES_DB}"
+            f"postgresql+asyncpg://{self.POSTGRES_USER}:"
+            f"{password}@"
+            f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/"
+            f"{self.POSTGRES_DB}"
         )
 
     @computed_field
     @property
     def POSTGRE_URL(self) -> str:
-        if settings.POSTGRES_PASSWORD is None:
+        """Build and return the synchronous PostgreSQL connection string."""
+        from urllib.parse import quote_plus
+
+        if self.POSTGRES_PASSWORD is None:
             raise ValueError("POSTGRES_PASSWORD is not set")
+        password = quote_plus(self.POSTGRES_PASSWORD.get_secret_value())
         return (
-            f"postgresql+psycopg://{settings.POSTGRES_USER}:"
-            f"{settings.POSTGRES_PASSWORD.get_secret_value()}@"
-            f"{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/"
-            f"{settings.POSTGRES_DB}"
+            f"postgresql+psycopg://{self.POSTGRES_USER}:"
+            f"{password}@"
+            f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/"
+            f"{self.POSTGRES_DB}"
         )
 
     @computed_field

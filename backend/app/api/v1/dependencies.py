@@ -7,11 +7,13 @@ Uses the factory's cached singleton to avoid connection pool leaks.
 
 from typing import AsyncGenerator
 
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.database.factory import get_database
 from app.database.interfaces import DatabaseInterface
 
 
-async def get_db() -> AsyncGenerator:
+async def get_db() -> AsyncGenerator[AsyncSession, None]:
     """
     Yield a database session for use in FastAPI dependency injection.
 

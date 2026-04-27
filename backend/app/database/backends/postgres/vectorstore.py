@@ -7,6 +7,7 @@ Collection is created lazily on first use if it doesn't exist.
 
 import logging
 from typing import Optional
+from uuid import uuid4
 
 from qdrant_client import AsyncQdrantClient
 
@@ -24,6 +25,7 @@ class QdrantVectorstore(VectorstoreInterface):
 
     def __init__(self) -> None:
         self._client: Optional[AsyncQdrantClient] = None
+        self._known_collections: set[str] = set()
 
     @property
     def client(self) -> AsyncQdrantClient:
@@ -49,7 +51,13 @@ class QdrantVectorstore(VectorstoreInterface):
     async def _ensure_collection(
         self, collection_name: str, vector_size: int = _DEFAULT_VECTOR_SIZE
     ) -> None:
-        """Create collection if it doesn't exist."""
+        """Create collection if it doesn't exist.
+
+        Uses in-memory cache to avoid redundant get_collections() calls
+        on every search/add operation.
+        """
+        if collection_name in self._known_collections:
+            return
         collections = await self.client.get_collections()
         existing = [c.name for c in collections.collections]
         if collection_name not in existing:
@@ -60,21 +68,7 @@ class QdrantVectorstore(VectorstoreInterface):
                 vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
             )
             logger.info(f"Created Qdrant collection: {collection_name}")
-
-    async def search(
-        self, collection_name: str, query_text: str, limit: int = 5
-    ) -> list[dict]:
-        """
-        Search the vector store by text query.
-
-        Note: This requires an embedding model to convert text to vectors.
-        Currently delegates to the QdrantVectorStore from langchain-qdrant
-        in the vectorstore_retriever tool for text-to-embedding conversion.
-        """
-        raise NotImplementedError(
-            "Text search requires embedding. Use search_with_embedding() instead, "
-            "or use the vectorstore_retriever tool which handles embedding."
-        )
+        self._known_collections.add(collection_name)
 
     async def search_with_embedding(
         self,
@@ -85,7 +79,7 @@ class QdrantVectorstore(VectorstoreInterface):
         """Search the vector store by pre-computed embedding vector."""
         await self._ensure_collection(collection_name, vector_size=len(embedding))
 
-        results = await self.client.search(
+        results = await self.client.search(  # type: ignore[union-attr]
             collection_name=collection_name,
             query_vector=embedding,
             limit=limit,
@@ -99,6 +93,33 @@ class QdrantVectorstore(VectorstoreInterface):
             }
             for result in results
         ]
+
+    async def add_documents(
+        self,
+        collection_name: str,
+        documents: list[dict],
+        embeddings: list[list[float]],
+    ) -> list[str]:
+        """Add documents with pre-computed embeddings to Qdrant."""
+        from qdrant_client.models import PointStruct
+
+        await self._ensure_collection(collection_name, vector_size=len(embeddings[0]))
+
+        points = []
+        ids = []
+        for doc, emb in zip(documents, embeddings):
+            point_id = uuid4().hex
+            points.append(PointStruct(id=point_id, vector=emb, payload=doc))
+            ids.append(point_id)
+
+        await self.client.upsert(
+            collection_name=collection_name,
+            points=points,
+        )
+        logger.info(
+            f"Added {len(points)} documents to Qdrant collection '{collection_name}'"
+        )
+        return ids
 
     async def dispose(self) -> None:
         """Close the async Qdrant client."""

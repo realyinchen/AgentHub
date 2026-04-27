@@ -2,7 +2,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -151,6 +151,51 @@ def messages_to_tool_info(messages: list[BaseMessage]) -> list[dict]:
 
     # Process AI messages to extract tool calls with their results
     for msg in messages:
+        if isinstance(msg, AIMessage) and msg.tool_calls:
+            for tool_call in msg.tool_calls:
+                tool_call_id = tool_call.get("id") or ""
+                tool_info = {
+                    "name": tool_call.get("name") or "unknown",
+                    "id": tool_call_id,
+                    "args": tool_call.get("args") or {},
+                    "output": tool_results.get(tool_call_id) if tool_call_id else None,
+                    "order": tool_call_order,
+                }
+                tool_info_list.append(tool_info)
+                tool_call_order += 1
+
+    return tool_info_list
+
+
+def collect_tool_calls_for_final_response(
+    messages: Sequence[BaseMessage], ai_message_index: int
+) -> list[dict]:
+    """
+    Collect tool call information for a final AI message at a given index.
+
+    This function extracts all tool calls from the conversation up to the specified
+    AI message index, pairing each tool call with its result for display in the final response.
+
+    Args:
+        messages: The complete list of messages in the conversation
+        ai_message_index: The index of the AI message in the messages list
+
+    Returns:
+        list[dict]: List of tool info dicts with keys: name, id, args, output, order
+    """
+    tool_info_list = []
+    tool_call_order = 0
+
+    # Build a map of tool_call_id -> ToolMessage content
+    tool_results: dict[str, str] = {}
+    for msg in messages:
+        if isinstance(msg, ToolMessage):
+            tool_results[msg.tool_call_id] = convert_message_content_to_string(
+                msg.content
+            )
+
+    # Collect all tool calls up to (but not including) the specified AI message
+    for i, msg in enumerate(list(messages)[:ai_message_index]):
         if isinstance(msg, AIMessage) and msg.tool_calls:
             for tool_call in msg.tool_calls:
                 tool_call_id = tool_call.get("id") or ""
@@ -360,7 +405,6 @@ async def streaming_message_generator(
                                 content="",  # No content yet, only thinking
                                 thinking=accumulated_thinking,
                             )
-                            await session.commit()
                             logger.debug(
                                 f"Saved AI thinking step {thinking_step_number} for thread {thread_id}, session {session_id}"
                             )
@@ -427,7 +471,6 @@ async def streaming_message_generator(
                             tool_args=tool_args,
                             tool_output=output_str,
                         )
-                        await session.commit()
                         logger.debug(
                             f"Saved tool step {tool_step_number}: {tool_name} for thread {thread_id}, session {session_id}"
                         )
@@ -537,7 +580,6 @@ async def streaming_message_generator(
                                         if accumulated_thinking
                                         else None,
                                     )
-                                    await session.commit()
                                     logger.debug(
                                         f"Saved AI step {ai_step_number} for thread {thread_id}, session {session_id}"
                                     )
@@ -568,7 +610,6 @@ async def streaming_message_generator(
                         reasoning=accumulated_tokens["reasoning"],
                         total_tokens=accumulated_tokens["total_tokens"],
                     )
-                    await session.commit()
                     if updated_conv:
                         logger.info(
                             f"Updated conversation tokens for thread {thread_id}: "

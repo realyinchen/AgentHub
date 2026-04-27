@@ -8,7 +8,7 @@ on concrete backend implementations.
 
 from abc import ABC, abstractmethod
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Any, Optional
+from typing import AsyncGenerator, Any, Callable, Awaitable, Optional
 
 
 class DatabaseInterface(ABC):
@@ -52,7 +52,25 @@ class VectorstoreInterface(ABC):
     Abstract interface for vector store backends.
 
     Implementations: QdrantVectorstore, SqliteVecVectorstore
+
+    Score Semantics:
+        All search methods return results with a "score" field representing
+        cosine similarity (0.0 to 1.0, where 1.0 = identical).
+        Backends that return cosine distance must convert: score = 1.0 - distance.
     """
+
+    # Embedding function injected by the factory layer.
+    # Vectorstore implementations should NOT import ModelManager directly.
+    _embed_fn: Optional[Callable[[str], Awaitable[list[float]]]] = None
+
+    def set_embed_fn(self, fn: Callable[[str], Awaitable[list[float]]]) -> None:
+        """
+        Inject an embedding function for text-to-vector conversion.
+
+        Called by the factory after creating the instance. Business code
+        should not call this directly.
+        """
+        self._embed_fn = fn
 
     @abstractmethod
     async def initialize(self) -> None:
@@ -64,12 +82,27 @@ class VectorstoreInterface(ABC):
         """Dispose of the vector store client and release resources."""
         ...
 
-    @abstractmethod
     async def search(
         self, collection_name: str, query_text: str, limit: int = 5
     ) -> list[dict]:
-        """Search the vector store by text query (auto-embed)."""
-        ...
+        """
+        Search the vector store by text query.
+
+        Uses the injected embedding function (_embed_fn) to convert text
+        to a vector, then delegates to search_with_embedding().
+
+        Raises ValueError if no embedding function has been injected.
+        """
+        if self._embed_fn is None:
+            raise ValueError(
+                "No embedding function configured. "
+                "The vectorstore search requires an embedding model. "
+                "Please configure at least one Embedding model in settings."
+            )
+        embedding = await self._embed_fn(query_text)
+        return await self.search_with_embedding(
+            collection_name=collection_name, embedding=embedding, limit=limit
+        )
 
     @abstractmethod
     async def search_with_embedding(
@@ -80,6 +113,27 @@ class VectorstoreInterface(ABC):
     ) -> list[dict]:
         """Search the vector store by pre-computed embedding vector."""
         ...
+
+    async def add_documents(
+        self,
+        collection_name: str,
+        documents: list[dict],
+        embeddings: list[list[float]],
+    ) -> list[str]:
+        """
+        Add documents with pre-computed embeddings to the vector store.
+
+        Args:
+            collection_name: Name of the collection to add documents to.
+            documents: List of document payloads (dicts with content/metadata).
+            embeddings: Pre-computed embedding vectors, one per document.
+
+        Returns:
+            List of document IDs assigned by the store.
+        """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement add_documents()"
+        )
 
 
 class CheckpointInterface(ABC):

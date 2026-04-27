@@ -28,11 +28,13 @@ class PostgresCheckpointer(CheckpointInterface):
             logger.warning("Checkpointer already initialized, skipping")
             return
 
+        from urllib.parse import quote_plus
+
         if settings.POSTGRES_PASSWORD is None:
             raise ValueError("POSTGRES_PASSWORD is not set")
 
         conn_string = (
-            f"postgresql://{settings.POSTGRES_USER}:{settings.POSTGRES_PASSWORD.get_secret_value()}"
+            f"postgresql://{settings.POSTGRES_USER}:{quote_plus(settings.POSTGRES_PASSWORD.get_secret_value())}"
             f"@{settings.POSTGRES_HOST}:{settings.POSTGRES_PORT}/{settings.POSTGRES_DB}"
         )
 

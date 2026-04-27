@@ -14,6 +14,7 @@ import {
 
 import {
   createConversation,
+  deleteConversation,
   generateTitle,
   getConversationTitle,
   getHistory,
@@ -622,11 +623,10 @@ function App() {
             return
           }
 
-          const updated = await setConversationTitle({
-            thread_id: targetThreadId,
-            title: generatedTitle,
-            is_deleted: false,
-          })
+          const updated = await setConversationTitle(
+            targetThreadId,
+            generatedTitle,
+          )
 
           setConversationTitleState(generatedTitle)
           setDraftTitle(generatedTitle)
@@ -1303,11 +1303,7 @@ function App() {
     try {
       await ensureConversationExists(targetThreadId, nextTitle)
 
-      const updated = await setConversationTitle({
-        thread_id: targetThreadId,
-        title: nextTitle,
-        is_deleted: false,
-      })
+      const updated = await setConversationTitle(targetThreadId, nextTitle)
 
       if (targetThreadId === threadId) {
         setConversationTitleState(nextTitle)
@@ -1354,11 +1350,7 @@ function App() {
     }
 
     try {
-      await setConversationTitle({
-        thread_id: deleteTarget.thread_id,
-        title: sanitizeTitle(deleteTarget.title) || t("conversation.untitled"),
-        is_deleted: true,
-      })
+      await deleteConversation(deleteTarget.thread_id)
 
       setConversations((previous) =>
         previous.filter((item) => item.thread_id !== deleteTarget.thread_id),

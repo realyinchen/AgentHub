@@ -243,82 +243,92 @@ python scripts/init_database.py
 
 ## 🐳 Docker Deployment
 
-AgentHub provides separate Docker deployment for backend and frontend. Each module has its own `docker-compose.yml` file.
+**⚡ Same Docker image supports both SQLite and PostgreSQL backends!** All configuration is managed in `.env` files.
 
-### Deploy Backend
+### Quick Start (Recommended - SQLite Mode)
 
-Only starts the backend service. You provide your own PostgreSQL and Qdrant instances.
+Zero external dependencies, uses embedded SQLite databases:
 
 ```bash
-# 1. Navigate to backend directory
-cd backend
+# 1. Copy config templates
+cd backend && cp .env.example .env
+cd ../frontend && cp .env.example .env
+cd ..
 
-# 2. Copy environment file
-cp .env.example .env
+# 2. Edit backend/.env to add your 3rd-party API keys (Tavily, Amap, etc.)
+#    Defaults are fine for SQLite mode - just fill in the API keys you need
 
-# 3. Edit .env with your configuration
-# Configure POSTGRES_HOST, QDRANT_HOST and other settings
-
-# 4. Start backend service
+# 3. Start
 docker-compose up -d
-
-# 5. View logs
-docker-compose logs -f
-
-# 6. Stop service
-docker-compose down
 ```
 
-Access the application:
+Open `http://localhost:5173` → Go to **Settings** → Configure your LLM API keys, and start chatting!
+
+> 💡 **How it works**: Uses embedded SQLite databases (file-based) stored in a Docker volume. No PostgreSQL or Qdrant required.
+
+### Production Deployment (PostgreSQL Mode)
+
+For production use with PostgreSQL + Qdrant:
+
+1. Edit `backend/.env`:
+   - Set `DATABASE_TYPE=postgres` and `VECTORSTORE_TYPE=qdrant`
+   - Set `POSTGRES_HOST=postgres` (Docker service name, NOT localhost)
+   - Set `QDRANT_HOST=qdrant` (Docker service name, NOT localhost)
+   - Adjust other PostgreSQL settings if needed
+
+2. Start with the postgres profile:
+
+```bash
+docker-compose --profile postgres up -d
+```
+
+**Access the application:**
+- Frontend: `http://localhost:5173`
 - Backend API: `http://localhost:8080/docs`
 
-### Deploy Frontend
+**Data Persistence:**
+- SQLite databases: `agenthub-backend-data` Docker volume
+- PostgreSQL data: `agenthub-postgres-data` Docker volume
+- Qdrant data: `agenthub-qdrant-data` Docker volume
 
-Only starts the frontend service. Requires a running backend.
-
+**Useful Commands:**
 ```bash
-# 1. Navigate to frontend directory
-cd frontend
-
-# 2. Copy environment file
-cp .env.example .env
-
-# 3. Edit .env with your configuration
-# Required: NGINX_BACKEND_HOST (your backend server address)
-# NGINX_BACKEND_HOST=your-backend-host
-# NGINX_BACKEND_PORT=8080
-
-# 4. Build and start frontend service
-docker-compose up -d --build
-
-# 5. View logs
+# View logs
 docker-compose logs -f
 
-# 6. Stop service
+# Stop services (SQLite mode)
 docker-compose down
+
+# Stop services (PostgreSQL mode)
+docker-compose --profile postgres down
+
+# Rebuild images after code changes
+docker-compose build --no-cache
 ```
 
-**Environment Variables:**
+### Standalone Deployments
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `NGINX_BACKEND_HOST` | Backend hostname for nginx to proxy to | `localhost` |
-| `NGINX_BACKEND_PORT` | Backend port | `8080` |
-| `FRONTEND_PORT` | Frontend exposed port | `5173` |
+Each module can also be deployed separately if you need more control:
 
-Access the application:
-- Frontend: `http://localhost:5173`
+#### Backend Only
+
+See `backend/docker-compose.yml` for standalone backend deployment.
+
+#### Frontend Only
+
+See `frontend/docker-compose.yml` for standalone frontend deployment.
 
 ### Docker Files Structure
 
 ```
 AgentHub/
+├── docker-compose.yml       # Full-stack deployment (with profiles) ← USE THIS
 ├── backend/
-│   ├── docker-compose.yml   # Backend deployment
-│   ├── Dockerfile           # Backend container
+│   ├── docker-compose.yml   # Backend standalone deployment
+│   ├── Dockerfile           # Backend container (supports both SQLite and PG)
 │   └── .env.example         # Environment template
 └── frontend/
-    ├── docker-compose.yml   # Frontend deployment
+    ├── docker-compose.yml   # Frontend standalone deployment
     ├── Dockerfile           # Frontend container (multi-stage build)
     ├── nginx.conf           # Nginx configuration with API proxy
     └── .env.example         # Environment template
@@ -327,6 +337,7 @@ AgentHub/
 ## 🚧 Known Limitations
 
 1. **Testing**: No unit/integration tests currently implemented
+2. **Vector Database**: The vector store functionality (both Qdrant and sqlite-vec backends) has not been tested yet. The `vectorstore_search` tool and document ingestion features require further validation
 
 ## 🚀 Future Enhancements
 - Additional agent types (SQL agent, code agent, multi-agent workflows)

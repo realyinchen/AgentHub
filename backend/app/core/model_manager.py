@@ -392,3 +392,11 @@ class ModelManager:
     def get_default_embedding_id(cls) -> Optional[str]:
         """Get default embedding model ID (from cache, no DB query)"""
         return cls._default_embedding_id
+
+    @classmethod
+    def get_models_count(cls) -> int:
+        """Get the total number of cached models.
+
+        Public method to access cached model count without accessing private _models_cache.
+        """
+        return len(cls._models_cache)

@@ -30,9 +30,7 @@ class Provider(Base):
         String(512), nullable=True
     )  # base URL for OpenAI-Compatible providers
     is_openai_compatible = Column(Boolean, nullable=False, default=False)
-    created_at = Column(
-        DateTime(timezone=True), nullable=False, default=utc_now
-    )
+    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
         DateTime(timezone=True),
         nullable=False,

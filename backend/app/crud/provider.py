@@ -23,15 +23,18 @@ async def get_all_providers(db: AsyncSession) -> list[Provider]:
 async def update_provider(
     db: AsyncSession, provider: str, provider_data: dict
 ) -> Optional[Provider]:
-    """Update a provider configuration"""
+    """Update a provider configuration
+
+    Note: provider_data should be generated using model_dump(exclude_unset=True)
+    to ensure only fields explicitly set by the caller are updated.
+    """
     provider_obj = await get_provider(db, provider)
     if not provider_obj:
         return None
 
     for key, value in provider_data.items():
-        if value is not None:
-            setattr(provider_obj, key, value)
+        setattr(provider_obj, key, value)
 
-    await db.commit()
+    await db.flush()
     await db.refresh(provider_obj)
     return provider_obj

@@ -1,1 +1,1 @@
-"""PostgreSQL 后端实现"""
+"""PostgreSQL backend implementation"""

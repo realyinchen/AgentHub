@@ -21,6 +21,7 @@ import {
 import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { SciFiLoader } from "@/components/ai/neural-network-loader"
 import { useI18n } from "@/i18n"
+import { cn } from "@/lib/utils"
 
 
 type ChatMainPanelProps = {
@@ -323,12 +324,17 @@ export function ChatMainPanel({
             ].join(" ")}
             onScroll={updateScrollButtonState}
           >
-            {isLoadingConversation ? (
-              <div className=" flex h-full w-full items-center justify-center">
+            {isLoadingConversation && messages.length === 0 ? (
+              <div className="flex h-full w-full items-center justify-center">
                 <SciFiLoader className="w-32 h-32" showText={false} />
               </div>
             ) : (
-              <div className="mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-8">
+              <div
+                className={cn(
+                  "mx-auto flex w-full flex-col gap-4 pb-3 px-3 pt-8 transition-opacity duration-200",
+                  isLoadingConversation && "opacity-50 pointer-events-none"
+                )}
+              >
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const isLastAIMessage = index === messages.length - 1 && message.type === "ai"

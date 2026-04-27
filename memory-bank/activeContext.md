@@ -3,6 +3,32 @@
 ## Current Work Focus
 Phase 2 code review and fix implementation for the database/vectorstore migration.
 
+## Recent Changes (2026-04-27)
+Code review identified and removed redundant manual commits:
+
+### P0 Fix (Best Practice Alignment)
+- **message_utils.py**: Removed 4 instances of `await session.commit()` in `streaming_message_generator()`:
+  - on_tool_start: AI thinking step save
+  - on_tool_end: Tool step save
+  - on_chain_end: Final AI message step save
+  - finally: Token usage update
+
+**Rationale**:
+- `postgres/db.py` `session()` context manager already handles auto-commit on successful exit
+- Manual commits are unnecessary and violate FastAPI + SQLAlchemy best practices
+- Unifies commit behavior across all database operations
+
+### Remaining Manual Commits in Codebase
+The following files still contain manual commits that need review:
+- `app/api/v1/chat.py` — update_conversation_title endpoint
+- `app/api/v1/knowledge.py` — 2 instances (knowledge_base update and document delete)
+- `app/services/chat_service.py` — create_message_and_update_history
+- `app/services/knowledge_service.py` — 3 instances (create_knowledge_base, update_knowledge_base, delete_knowledge_base)
+
+These should be evaluated and removed if they follow the same pattern as message_utils.py.
+
+---
+
 ## Recent Changes (2026-04-24)
 Code review identified and fixed the following issues across the migration codebase:
 

@@ -30,9 +30,7 @@ class MessageStepRecord(Base):
         ForeignKey("conversations.thread_id", ondelete="CASCADE"),
         nullable=False,
     )
-    session_id = Column(
-        Uuid, nullable=False
-    )  # Groups steps by conversation turn
+    session_id = Column(Uuid, nullable=False)  # Groups steps by conversation turn
     step_number = Column(Integer, nullable=False)
     message_type = Column(String(16), nullable=False)  # 'human', 'ai', 'tool'
 

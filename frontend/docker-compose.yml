@@ -1,16 +1,14 @@
-# AgentHub Frontend Docker Compose Configuration
-# Standalone frontend deployment (requires running backend)
-# Usage: cd frontend && docker-compose up -d
+# AgentHub Frontend Standalone Docker Compose
+#
+# NOTE: For full-stack deployment (frontend + backend + optional databases),
+# use the docker-compose.yml at the project root instead. This file is for
+# frontend-only deployments where you manage the backend separately.
+#
+# See ../docker-compose.yml for full-stack deployment with profile support.
 #
 # Prerequisites:
-# - Running backend service accessible at the specified host:port
-# - Configure NGINX_BACKEND_HOST, NGINX_BACKEND_PORT in .env
-#
-# How it works:
-# 1. Browser accesses frontend at http://localhost:5173
-# 2. Browser makes API requests to /api/v1 (relative path, same origin)
-# 3. Nginx proxies /api/ requests to the backend (NGINX_BACKEND_HOST:NGINX_BACKEND_PORT)
-# 4. This avoids CORS issues since browser sees same-origin requests
+# - Running AgentHub backend instance accessible on the network
+# - Configure NGINX_BACKEND_HOST and NGINX_BACKEND_PORT accordingly
 
 services:
   frontend:
@@ -19,17 +17,14 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        # Use relative path so browser sends API requests to same origin (nginx)
-        # Nginx will proxy these to the actual backend
         VITE_API_BASE_URL: /api/v1
-        # Backend address for nginx proxy (read from .env in this directory)
-        NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-host.docker.internal}
-        NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-8080}
+        NGINX_BACKEND_HOST: 127.0.0.1
+        NGINX_BACKEND_PORT: 8080
     container_name: agenthub-frontend
     restart: unless-stopped
     environment:
-      # Runtime environment variables for nginx config substitution
-      NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-host.docker.internal}
+      # Backend proxy configuration
+      NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-127.0.0.1}
       NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-8080}
     ports:
       - "${FRONTEND_PORT:-5173}:80"
