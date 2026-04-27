@@ -1,7 +1,7 @@
 # Active Context
 
 ## Current Work Focus
-Phase 2 code review and fix implementation for the database/vectorstore migration.
+Merged database abstraction architecture documentation from `memory-bank/database-abstraction.md` into bilingual READMEs (`README.md` English, `README.zh.md` Chinese). The standalone file has been removed — documentation is now centralized.
 
 ## Recent Changes (2026-04-27)
 Code review identified and removed redundant manual commits:

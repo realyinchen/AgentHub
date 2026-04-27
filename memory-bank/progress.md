@@ -19,6 +19,11 @@ Phase 3 and Phase 5 complete. SQLite backend fully implemented. `init_database.p
 - `vectorstore_search` tool calls `vectorstore.search()` which will fail for Qdrant backend — needs embedding model wiring
 - CRUD `message_step.py` uses `flush()` without `commit()` in save functions — relies on session auto-commit (safe with current auto-commit semantics)
 
+## Documentation Updates (2026-04-27)
+- Merged `memory-bank/database-abstraction.md` into `README.md` (English) and `README.zh.md` (Chinese)
+- Added 🗄️ Database Abstraction Architecture section to both READMEs
+- Removed standalone `memory-bank/database-abstraction.md` — documentation now centralized in bilingual READMEs
+
 ## Evolution of Project Decisions
 - 2026-04-24: Migrated from direct `db_manager`/`checkpointer`/`qdrant_manager` imports to factory pattern
 - 2026-04-24: Code review fixed critical singleton caching, connection pool leak, and async client issues

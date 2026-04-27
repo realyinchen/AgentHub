@@ -56,3 +56,7 @@ API routes / Tools
 - **Singleton**: Factory caches instances in module-level variables
 - **Context Manager**: `session()` yields session with auto-commit/rollback
 - **Strategy**: Backend implementations are interchangeable via config
+
+## Database Abstraction Documentation
+- Full database abstraction architecture documentation (design principles, three-layer architecture, interface definitions, factory pattern, backend comparison, score semantics, ORM compatibility, etc.) is now in `README.md` (English) and `README.zh.md` (Chinese)
+- The standalone `memory-bank/database-abstraction.md` has been removed — its content was merged into the README files to keep documentation centralized and bilingual
