@@ -65,44 +65,6 @@
 
 ### 整体架构
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     前端 (React)                          │
-│    Vite + React 19 + TypeScript + Tailwind + shadcn/ui   │
-│              TanStack Query · SSE 客户端 · i18n           │
-└────────────────────────┬─────────────────────────────────┘
-                         │ HTTP / SSE
-                         ▼
-┌──────────────────────────────────────────────────────────┐
-│                   后端 (FastAPI)                           │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────────┐  │
-│  │  智能体  │  │   API   │  │  工具   │  │   工具类   │  │
-│  │(LangGraph│  │ (REST)  │  │(LangChn)│  │ (LLM,Msg)  │  │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └─────┬──────┘  │
-│       │            │            │              │          │
-│       └────────────┴────────────┴──────────────┘          │
-│                         │                                  │
-│              ┌──────────▼──────────┐                      │
-│              │    工厂层           │                      │
-│              │ DatabaseFactory     │                      │
-│              │ VectorstoreFactory  │                      │
-│              └──────────┬──────────┘                      │
-│                         │                                  │
-│              ┌──────────▼──────────┐                      │
-│              │   接口层            │                      │
-│              │ DatabaseInterface   │                      │
-│              │ VectorstoreInterface│                      │
-│              │ CheckpointInterface │                      │
-│              └────┬──────────┬────┘                      │
-│                   │          │                             │
-│            ┌──────▼──┐  ┌───▼──────┐                     │
-│            │SQLite   │  │PostgreSQL│                      │
-│            │+sqlite- │  │+Qdrant  │                       │
-│            │  vec    │  │         │                       │
-│            └─────────┘  └─────────┘                       │
-└──────────────────────────────────────────────────────────┘
-```
-
 ### 后端技术栈
 
 | 组件 | 技术 | 用途 |
@@ -180,7 +142,7 @@ AgentHub/
 │   ├── .env.example             # 环境变量模板
 │   ├── requirements.txt         # Python 依赖
 │   └── run_backend.py           # 后端启动脚本
-├── docker-compose.yml           # 全栈部署（带 profiles）
+├── docker-compose.yml           # 全栈部署
 └── README.zh.md                 # 本文件
 ```
 
@@ -297,7 +259,7 @@ backend/app/database/
 | 工厂模式 + 接口抽象 | 业务层零感知，易扩展 | 间接调用开销可忽略不计（<1% 的 API 响应时间；瓶颈始终在后端实现本身） |
 | 嵌入函数依赖注入 | Vectorstore 不依赖 ModelManager | 增加一点复杂度 |
 | 统一评分语义 | 业务层无需处理两种评分 | sqlite-vec 实现多一步转换 |
-| Docker Profiles | 一个 compose 文件支持两种模式 | 学习成本（需要知道 `--profile`） |
+| Docker Profiles | 一个 compose 文件支持 dev、prod 和 postgres 模式 | 需要了解 `--profile` 用法 |
 
 ### 📊 性能分析
 
@@ -580,11 +542,11 @@ data: [DONE]
 
 ## 🐳 Docker 部署
 
-同一个 Docker 镜像同时支持 SQLite 和 PostgreSQL 后端。所有配置通过 `.env` 文件管理。
+同一个 Docker 镜像同时支持 SQLite 和 PostgreSQL 后端。所有配置通过 `.env` 文件管理。Docker Compose 使用 profiles 支持 dev、prod 和 PostgreSQL 模式。两种前端模式均使用 nginx 提供构建后的静态资源。
 
-### 快速开始 — SQLite 模式（推荐）
+### 快速开始 — Dev 模式（推荐）
 
-零外部依赖，使用嵌入式 SQLite 数据库：
+零外部依赖，使用嵌入式 SQLite 数据库，前端通过 nginx 提供服务并代理 API 请求：
 
 ```bash
 # 1. 复制配置模板
@@ -601,36 +563,49 @@ docker-compose up -d
 
 打开 `http://localhost:5173`，在设置中配置你的 LLM API 密钥。
 
-> SQLite 数据库存储在 Docker 卷（`agenthub-backend-data`）中。无需 PostgreSQL 或 Qdrant。
+> SQLite 数据库存储在 Docker 命名卷（`backend-data`）中。无需 PostgreSQL 或 Qdrant。
 
-### 生产环境 — PostgreSQL 模式
+### 生产模式
 
-使用 PostgreSQL + Qdrant 的生产部署：
+同样基于 nginx 部署，但在 `prod` profile 下启动（适用于明确的生产环境标识）：
 
-1. 编辑 `backend/.env`：
-   - 设置 `DATABASE_TYPE=postgres` 和 `VECTORSTORE_TYPE=qdrant`
-   - 设置 `POSTGRES_HOST=postgres`（Docker 服务名，不是 localhost）
-   - 设置 `QDRANT_HOST=qdrant`（Docker 服务名，不是 localhost）
+```bash
+docker-compose --profile prod up -d
+```
 
-2. 使用 postgres profile 启动：
-   ```bash
-   docker-compose --profile postgres up -d
-   ```
+### PostgreSQL 模式
+
+启动 PostgreSQL + Qdrant 服务，适合生产级数据库和向量存储：
+
+```bash
+docker-compose --profile postgres up -d
+```
+
+或与生产模式组合使用：
+
+```bash
+docker-compose --profile prod --profile postgres up -d
+```
+
+使用 PostgreSQL 时，编辑 `backend/.env` 设置：
+- `DATABASE_TYPE=postgres` 和 `VECTORSTORE_TYPE=qdrant`
+- `POSTGRES_HOST=postgres`（Docker 服务名，不是 localhost）
+- `QDRANT_HOST=qdrant`（Docker 服务名，不是 localhost）
 
 ### 访问地址
 
 | 服务 | URL |
 |------|-----|
-| 前端 | `http://localhost:5173` |
+| 前端 | `http://localhost:5173`（nginx 端口 80，映射到 5173） |
 | 后端 API 文档 | `http://localhost:8080/docs` |
 
 ### 数据持久化
 
 | 模式 | 卷 | 内容 |
 |------|-----|------|
-| SQLite | `agenthub-backend-data` | `data/` 中的数据库文件 |
-| PostgreSQL | `agenthub-postgres-data` | PostgreSQL 数据 |
-| Qdrant | `agenthub-qdrant-data` | 向量存储数据 |
+| SQLite | `backend-data` | `/app/data/` 中的数据库文件 |
+| PostgreSQL | `postgres-data` | PostgreSQL 数据 |
+| Qdrant | `qdrant-data` | 向量存储数据 |
 
 ### 常用命令
 
@@ -638,8 +613,11 @@ docker-compose up -d
 # 查看日志
 docker-compose logs -f
 
-# 停止服务（SQLite 模式）
+# 停止服务（dev 模式）
 docker-compose down
+
+# 停止服务（prod 模式）
+docker-compose --profile prod down
 
 # 停止服务（PostgreSQL 模式）
 docker-compose --profile postgres down
@@ -659,15 +637,17 @@ docker-compose build --no-cache
 
 ```
 AgentHub/
-├── docker-compose.yml       # 全栈部署（带 profiles）
+├── docker-compose.yml       # 全栈部署（含 profiles）
 ├── backend/
 │   ├── docker-compose.yml   # 后端独立部署
 │   ├── Dockerfile           # 后端容器（支持 SQLite 和 PG）
+│   ├── .dockerignore        # Docker 构建排除项
 │   └── .env.example         # 环境变量模板
 └── frontend/
     ├── docker-compose.yml   # 前端独立部署
     ├── Dockerfile           # 前端容器（多阶段构建）
-    ├── nginx.conf           # Nginx 配置，含 API 代理
+    ├── nginx.conf.template   # Nginx 配置模板（envsubst）
+    ├── .dockerignore        # Docker 构建排除项
     └── .env.example         # 环境变量模板
 ```
 
@@ -772,7 +752,7 @@ AgentHub/
 
 | 变量 | 默认值 | 描述 |
 |------|--------|------|
-| `NGINX_BACKEND_HOST` | `localhost` | Nginx 代理后端主机（前端 Docker） |
+| `NGINX_BACKEND_HOST` | `backend` | Nginx 代理后端主机（前端 Docker） |
 | `NGINX_BACKEND_PORT` | `8080` | Nginx 代理后端端口 |
 | `FRONTEND_PORT` | `5173` | 前端暴露端口 |
 

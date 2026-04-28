@@ -65,43 +65,6 @@ Students and developers who want to efficiently showcase their LangChain and Lan
 
 ### Overall Architecture
 
-```
-┌──────────────────────────────────────────────────────────┐
-│                     Frontend (React)                      │
-│    Vite + React 19 + TypeScript + Tailwind + shadcn/ui   │
-│              TanStack Query · SSE Client · i18n           │
-└────────────────────────┬─────────────────────────────────┘
-                         │ HTTP / SSE
-                         ▼
-┌──────────────────────────────────────────────────────────┐
-│                    Backend (FastAPI)                       │
-│  ┌─────────┐  ┌─────────┐  ┌─────────┐  ┌────────────┐  │
-│  │  Agents  │  │   API   │  │  Tools  │  │   Utils    │  │
-│  │(LangGraph│  │ (REST)  │  │(LangChn)│  │ (LLM,Msg)  │  │
-│  └────┬────┘  └────┬────┘  └────┬────┘  └─────┬──────┘  │
-│       │            │            │              │          │
-│       └────────────┴────────────┴──────────────┘          │
-│                         │                                  │
-│              ┌──────────▼──────────┐                      │
-│              │   Factory Layer     │                      │
-│              │ DatabaseFactory     │                      │
-│              │ VectorstoreFactory  │                      │
-│              └──────────┬──────────┘                      │
-│                         │                                  │
-│              ┌──────────▼──────────┐                      │
-│              │  Interface Layer    │                      │
-│              │ DatabaseInterface   │                      │
-│              │ VectorstoreInterface│                      │
-│              │ CheckpointInterface │                      │
-│              └────┬──────────┬────┘                      │
-│                   │          │                             │
-│            ┌──────▼──┐  ┌───▼──────┐                     │
-│            │SQLite   │  │PostgreSQL│                      │
-│            │+sqlite- │  │+Qdrant  │                       │
-│            │  vec    │  │         │                       │
-│            └─────────┘  └─────────┘                       │
-└──────────────────────────────────────────────────────────┘
-```
 
 ### Backend Tech Stack
 
@@ -297,7 +260,7 @@ backend/app/database/
 | Factory pattern + interface abstraction | Zero business awareness, easy to extend | Negligible indirection overhead (<1% of API response time; bottleneck is always in the backend implementation itself) |
 | Embedding function DI | Vectorstore doesn't depend on ModelManager | Slightly more complexity |
 | Unified score semantics | Business layer handles one format | sqlite-vec needs extra conversion step |
-| Docker Profiles | One compose file supports both modes | Learning curve (need to know `--profile`) |
+| Docker Profiles | One compose file supports dev, prod, and postgres modes | Learning curve (need to know `--profile`) |
 
 ### 📊 Performance Analysis
 
@@ -580,11 +543,11 @@ data: [DONE]
 
 ## 🐳 Docker Deployment
 
-The same Docker image supports both SQLite and PostgreSQL backends. All configuration is managed in `.env` files.
+The same Docker image supports both SQLite and PostgreSQL backends. All configuration is managed in `.env` files. Docker Compose uses profiles to support dev, prod, and PostgreSQL modes. Both frontend modes use nginx to serve built static assets.
 
-### Quick Start — SQLite Mode (Recommended)
+### Quick Start — Dev Mode (Recommended)
 
-Zero external dependencies, uses embedded SQLite databases:
+Zero external dependencies, uses embedded SQLite databases, frontend served via nginx with API proxy:
 
 ```bash
 # 1. Copy config templates
@@ -601,36 +564,49 @@ docker-compose up -d
 
 Open `http://localhost:5173` and configure your LLM API keys in Settings.
 
-> SQLite databases are stored in a Docker volume (`agenthub-backend-data`). No PostgreSQL or Qdrant required.
+> SQLite databases are stored in a Docker named volume (`backend-data`). No PostgreSQL or Qdrant required.
 
-### Production — PostgreSQL Mode
+### Production Mode
 
-For production use with PostgreSQL + Qdrant:
+Same nginx-based deployment, but starts under the `prod` profile (useful for explicit production targeting):
 
-1. Edit `backend/.env`:
-   - Set `DATABASE_TYPE=postgres` and `VECTORSTORE_TYPE=qdrant`
-   - Set `POSTGRES_HOST=postgres` (Docker service name, NOT localhost)
-   - Set `QDRANT_HOST=qdrant` (Docker service name, NOT localhost)
+```bash
+docker-compose --profile prod up -d
+```
 
-2. Start with the postgres profile:
-   ```bash
-   docker-compose --profile postgres up -d
-   ```
+### PostgreSQL Mode
+
+Starts PostgreSQL + Qdrant services for production-grade database and vector store:
+
+```bash
+docker-compose --profile postgres up -d
+```
+
+Or combine with production mode:
+
+```bash
+docker-compose --profile prod --profile postgres up -d
+```
+
+When using PostgreSQL, edit `backend/.env` to set:
+- `DATABASE_TYPE=postgres` and `VECTORSTORE_TYPE=qdrant`
+- `POSTGRES_HOST=postgres` (Docker service name, NOT localhost)
+- `QDRANT_HOST=qdrant` (Docker service name, NOT localhost)
 
 ### Access Points
 
 | Service | URL |
 |---------|-----|
-| Frontend | `http://localhost:5173` |
+| Frontend | `http://localhost:5173` (nginx on port 80, mapped to 5173) |
 | Backend API Docs | `http://localhost:8080/docs` |
 
 ### Data Persistence
 
 | Mode | Volume | Content |
 |------|--------|---------|
-| SQLite | `agenthub-backend-data` | Database files in `data/` |
-| PostgreSQL | `agenthub-postgres-data` | PostgreSQL data |
-| Qdrant | `agenthub-qdrant-data` | Vector store data |
+| SQLite | `backend-data` | Database files in `/app/data/` |
+| PostgreSQL | `postgres-data` | PostgreSQL data |
+| Qdrant | `qdrant-data` | Vector store data |
 
 ### Useful Commands
 
@@ -638,8 +614,11 @@ For production use with PostgreSQL + Qdrant:
 # View logs
 docker-compose logs -f
 
-# Stop services (SQLite mode)
+# Stop services (dev mode)
 docker-compose down
+
+# Stop services (prod mode)
+docker-compose --profile prod down
 
 # Stop services (PostgreSQL mode)
 docker-compose --profile postgres down
@@ -663,11 +642,13 @@ AgentHub/
 ├── backend/
 │   ├── docker-compose.yml   # Backend standalone deployment
 │   ├── Dockerfile           # Backend container (supports both SQLite and PG)
+│   ├── .dockerignore        # Docker build exclusions
 │   └── .env.example         # Environment template
 └── frontend/
     ├── docker-compose.yml   # Frontend standalone deployment
     ├── Dockerfile           # Frontend container (multi-stage build)
-    ├── nginx.conf           # Nginx configuration with API proxy
+    ├── nginx.conf.template   # Nginx configuration template (envsubst)
+    ├── .dockerignore        # Docker build exclusions
     └── .env.example         # Environment template
 ```
 
@@ -772,7 +753,7 @@ Automatic token usage tracking via `streaming_completion()` in `backend/app/util
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `NGINX_BACKEND_HOST` | `localhost` | Nginx proxy backend host (frontend Docker) |
+| `NGINX_BACKEND_HOST` | `backend` | Nginx proxy backend host (frontend Docker) |
 | `NGINX_BACKEND_PORT` | `8080` | Nginx proxy backend port |
 | `FRONTEND_PORT` | `5173` | Frontend exposed port |
 

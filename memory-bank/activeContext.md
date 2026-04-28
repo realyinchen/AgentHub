@@ -1,66 +1,46 @@
 # Active Context
 
 ## Current Work Focus
-Merged database abstraction architecture documentation from `memory-bank/database-abstraction.md` into bilingual READMEs (`README.md` English, `README.zh.md` Chinese). The standalone file has been removed — documentation is now centralized.
 
-## Recent Changes (2026-04-27)
-Code review identified and removed redundant manual commits:
+Docker Compose profiles-based optimization — restructured Docker deployment with dev/prod/postgres profiles for fast startup.
 
-### P0 Fix (Best Practice Alignment)
-- **message_utils.py**: Removed 4 instances of `await session.commit()` in `streaming_message_generator()`:
-  - on_tool_start: AI thinking step save
-  - on_tool_end: Tool step save
-  - on_chain_end: Final AI message step save
-  - finally: Token usage update
+## Recent Changes
 
-**Rationale**:
-- `postgres/db.py` `session()` context manager already handles auto-commit on successful exit
-- Manual commits are unnecessary and violate FastAPI + SQLAlchemy best practices
-- Unifies commit behavior across all database operations
+### Docker Compose Profiles Overhaul (2026-04-28 v3)
+- **Profiles-based `docker-compose.yml`**: Three modes — dev (default), prod (`--profile prod`), postgres (`--profile postgres`)
+- **Frontend dev & prod both use nginx**: `frontend` service (default) and `frontend-prod` (profile) both use the same multi-stage Dockerfile with nginx. The difference is `frontend-prod` is behind `profiles: ["prod"]` for explicit production targeting.
+- **Frontend Dockerfile**: Multi-stage build — Stage 1: `node:24` builds React app; Stage 2: `nginx:stable-alpine3.23-perl` serves static assets. Uses `nginx.conf.template` (envsubst pattern) for dynamic backend proxy config.
+- **Build args**: `VITE_API_BASE_URL` (default `/api/v1`), `NGINX_BACKEND_HOST` (default `backend`), `NGINX_BACKEND_PORT` (default `8080`).
+- **Named Docker volumes**: `backend-data`, `postgres-data`, `qdrant-data` instead of bind mounts.
+- **Non-blocking `depends_on`**: Removed `service_healthy` condition. Frontend just depends on backend starting, not passing health.
+- **Optimized healthchecks**: Backend `wget` (interval 10s, timeout 3s, retries 2, start_period 5s). Non-blocking.
+- **PostgreSQL + Qdrant**: Both under `profiles: ["postgres"]`. Only start when explicitly requested. PostgreSQL uses `postgres:latest`.
+- **Docker network**: `agenthub-network` (bridge) for inter-service communication.
+- **README updates**: Both English and Chinese READMEs updated — dev mode no longer described as Vite dev server; both modes described as nginx-based. `nginx.conf.template` documented. `NGINX_BACKEND_HOST` default corrected to `backend`.
 
-### Remaining Manual Commits in Codebase
-The following files still contain manual commits that need review:
-- `app/api/v1/chat.py` — update_conversation_title endpoint
-- `app/api/v1/knowledge.py` — 2 instances (knowledge_base update and document delete)
-- `app/services/chat_service.py` — create_message_and_update_history
-- `app/services/knowledge_service.py` — 3 instances (create_knowledge_base, update_knowledge_base, delete_knowledge_base)
-
-These should be evaluated and removed if they follow the same pattern as message_utils.py.
-
----
-
-## Recent Changes (2026-04-24)
-Code review identified and fixed the following issues across the migration codebase:
-
-### P0 Fixes (Critical)
-- **factory.py**: Fixed `get_database()`/`get_vectorstore()`/`get_checkpointer()` to cache singleton instances (was creating new instances on every call). Split `_BACKENDS` dict into `_DB_BACKENDS`/`_VS_BACKENDS`/`_CP_BACKENDS`. Changed to lazy import via `_import_class()` instead of string paths.
-- **dependencies.py**: Fixed `get_db()` to use factory's `get_database()` instead of creating new `PostgresDatabase()` instances (connection pool leak).
-- **postgres/db.py**: Restored auto-commit in `session()` — `await session.commit()` on successful exit, matching old `AsyncDatabaseManager` behavior. Provides safety net for CRUD operations.
-
-### P1 Fixes (Important)
-- **interfaces.py**: Changed `VectorstoreInterface.initialize()` and `dispose()` to `async def`. Added `dispose()` to `CheckpointInterface`.
-- **postgres/vectorstore.py**: Changed from sync `QdrantClient` to `AsyncQdrantClient` to avoid blocking the FastAPI event loop. Added `_ensure_collection()` for lazy collection creation.
-
-### P2 Fixes (Medium)
-- **config.py**: Fixed default values from `sqlite`/`sqlite_vec` to `postgres`/`qdrant` to match existing deployments.
-- **postgres/checkpointer.py**: Added `dispose()` method. Simplified `get_saver()` — removed pseudo-context-manager pattern.
-- **__init__.py**: Updated exports to match factory.py: `init_all`, `dispose_all`, `get_vectorstore`, `get_checkpointer`, `get_saver`.
-- **main.py**: Changed to use `init_all()` and `dispose_all()` instead of manual per-component initialization/cleanup. Removed `async with checkpointer.get_saver()` pattern.
-
-### P3 Fixes (Low)
-- **base.py**: Simplified to re-export from `interfaces.py` (removed duplicate interface definitions).
-- **test_phase1.py**: Updated to test singleton behavior and lifecycle.
-- **vectorstore_retriever.py**: Cleaned up to use `get_vectorstore()` factory function.
+### Key Design Decisions
+- Docker profiles for flexibility — dev (default, nginx), prod (nginx, explicit profile), postgres (optional DB)
+- No blocking healthcheck dependencies — faster startup, no cascading waits
+- Both frontend modes use nginx multi-stage build — same Dockerfile, `frontend-prod` just gated behind `profiles: ["prod"]`
+- Named volumes over bind mounts for data persistence in Docker
 
 ## Next Steps
-- Phase 3: Implement SQLite backend (db.py, checkpointer.py)
-- Phase 4: Implement sqlite-vec vectorstore backend
-- Phase 5: Smart database initialization
-- Phase 6: Configuration and documentation
 
-## Active Decisions
-- Auto-commit in session() is the default behavior (matches old codebase)
-- Factory functions return singleton instances (cached per process)
-- VectorstoreInterface uses async initialize/dispose (required for AsyncQdrantClient)
-- Qdrant uses AsyncQdrantClient instead of sync client (avoids event loop blocking)
-- main.py uses `init_all()`/`dispose_all()` for clean lifecycle management
+- Test the full `docker-compose up -d` flow end-to-end
+- Test `docker-compose --profile prod up -d` flow
+- Test `docker-compose --profile postgres up -d` flow
+- Verify backend healthcheck endpoint (`/health`) works correctly in container
+
+## Active Decisions and Considerations
+
+- SQLite mode is the default and recommended for development
+- PostgreSQL + Qdrant available via `--profile postgres`
+- Both dev and prod frontend use nginx (port 80 mapped to 5173); `frontend-prod` is just profile-gated
+- Backend uses `wget` for healthcheck (available in Python slim image)
+
+## Important Patterns and Preferences
+
+- Use `wget` for healthchecks in docker-compose (backend, qdrant); `pg_isready` for postgres
+- Environment variables in `.env` files, NOT hardcoded in docker-compose
+- Named volumes for data persistence in Docker
+- `--profile` flag for optional services (prod, postgres)

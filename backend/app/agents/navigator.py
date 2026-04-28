@@ -16,7 +16,7 @@ from langgraph.graph.message import MessagesState
 
 from app.utils.llm import get_chat_litellm
 from app.core.model_manager import ModelManager
-from app.prompt.navigator import get_navigator_prompt
+from app.prompts.navigator import get_navigator_prompt
 from app.tools.amap import AMAP_TOOLS
 from app.tools.time import get_current_time
 

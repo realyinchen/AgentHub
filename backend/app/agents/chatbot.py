@@ -14,7 +14,7 @@ from langgraph.graph.message import MessagesState
 
 from app.utils.llm import get_chat_litellm
 from app.core.model_manager import ModelManager
-from app.prompt.chatbot import get_prompt
+from app.prompts.chatbot import get_prompt
 from app.tools.time import get_current_time
 from app.tools.web import create_web_search
 

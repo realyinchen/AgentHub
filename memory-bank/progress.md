@@ -1,37 +1,44 @@
 # Progress
 
 ## What Works
-- Phase 1: Architecture foundation (interfaces, factory, config) ✅
-- Phase 2: PostgreSQL migration (all business code uses factory) ✅
-- Phase 3: SQLite backend (db.py, checkpointer.py, ORM model refactoring) ✅
-- Phase 5: Smart database initialization (dual-backend init_database.py, SQL scripts, ORM fixes) ✅
-- Code review fixes: singleton caching, connection pool leak, auto-commit, AsyncQdrantClient ✅
+
+- ✅ Backend FastAPI application with SQLite and PostgreSQL support
+- ✅ Frontend React + Vite application with hot reload
+- ✅ Docker Compose deployment (profiles-based — dev/prod/postgres modes)
+- ✅ Database abstraction layer (factory pattern, SQLite & PostgreSQL backends)
+- ✅ Chat streaming (SSE), agent execution visualization, thinking mode
+- ✅ Model/provider management via web UI
+- ✅ Multi-language support (EN/ZH), dark/light theme
+- ✅ Healthchecks for all Docker services
+- ✅ `.dockerignore` files for optimized builds
+- ✅ Named volume data persistence (backend-data, postgres-data, qdrant-data)
 
 ## What's Left to Build
-- Phase 4: sqlite-vec vectorstore backend
-- Phase 6: Configuration and documentation
+
+- Unit/integration tests
+- Vector store full validation (both sqlite-vec and Qdrant)
+- Additional agent types (SQL, code, multi-agent)
+- Agent graph visualization in React UI
+- Conversation search and filtering
+- Document upload UI for vector store
+- Production Docker Compose (nginx build via `--profile prod`) ✅ done
 
 ## Current Status
-Phase 3 and Phase 5 complete. SQLite backend fully implemented. `init_database.py` refactored to support both PostgreSQL and SQLite via SQL scripts in `sql/postgres/` and `sql/sqlite/` subdirectories. ORM model compatibility issues resolved (`server_default=func.now()` → `default=utc_now`, `description` primary_key fix). Ready for Phase 4 (vector store abstraction).
+
+**Stable** — Core functionality working. Docker deployment uses profiles (dev/prod/postgres); both frontend modes use nginx multi-stage build with nginx.conf.template.
 
 ## Known Issues
-- `VectorstoreInterface.search()` (text-based) raises `NotImplementedError` — needs embedding model integration
-- `vectorstore_search` tool calls `vectorstore.search()` which will fail for Qdrant backend — needs embedding model wiring
-- CRUD `message_step.py` uses `flush()` without `commit()` in save functions — relies on session auto-commit (safe with current auto-commit semantics)
 
-## Documentation Updates (2026-04-27)
-- Merged `memory-bank/database-abstraction.md` into `README.md` (English) and `README.zh.md` (Chinese)
-- Added 🗄️ Database Abstraction Architecture section to both READMEs
-- Removed standalone `memory-bank/database-abstraction.md` — documentation now centralized in bilingual READMEs
+- Vector store functionality not fully tested
+- No automated test suite
 
 ## Evolution of Project Decisions
-- 2026-04-24: Migrated from direct `db_manager`/`checkpointer`/`qdrant_manager` imports to factory pattern
-- 2026-04-24: Code review fixed critical singleton caching, connection pool leak, and async client issues
-- 2026-04-24: Restored auto-commit in session() to match old behavior and prevent silent data loss
-- 2026-04-24: Changed QdrantClient to AsyncQdrantClient to avoid blocking FastAPI event loop
-- 2026-04-24: Simplified main.py to use init_all()/dispose_all() for lifecycle management
-- 2026-04-25: Refactored ORM models from PostgreSQL dialect types (UUID, JSONB) to SQLAlchemy universal types (Uuid, JSON) for cross-backend compatibility
-- 2026-04-25: Implemented SQLite backend (SQLiteDatabase, SqliteCheckpointer) using aiosqlite + langgraph-checkpoint-sqlite
-- 2026-04-25: SQLite uses StaticPool for async compatibility, auto-creates data directory and tables via create_all()
-- 2026-04-25: Phase 5 complete — init_database.py supports both backends, SQL scripts reorganized into sql/postgres/ and sql/sqlite/ subdirectories
-- 2026-04-25: Fixed Agent model (description erroneously set as primary_key, is_active default), Provider/Model models (server_default=func.now() → default=utc_now for SQLite compat)
+
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| 2026-04-28 | Removed Docker profiles, simplified to backend+frontend only | Profiles added complexity; PostgreSQL users run their own instances externally |
+| 2026-04-28 | Frontend uses nginx multi-stage build in Docker | Both dev and prod modes use nginx; frontend-prod gated behind profiles: ["prod"]; nginx.conf.template for envsubst |
+| 2026-04-28 | Bind mounts over named volumes | Easier data inspection, no volume management overhead |
+| 2026-04-28 | Added `.dockerignore` files | Faster Docker builds by excluding node_modules, dist, .git |
+| 2026-04-28 | Re-introduced Docker profiles (dev/prod/postgres) | Better flexibility: dev for speed, prod for nginx, postgres for optional DB; non-blocking depends_on |
+| 2026-04-28 | Switched to named Docker volumes | Better for multi-container data sharing; consistent with Docker best practices |
