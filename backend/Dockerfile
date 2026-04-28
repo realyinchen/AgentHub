@@ -25,8 +25,13 @@ RUN pip install --no-cache-dir --retries 5 --timeout 120 \
 # Copy application code
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x entrypoint.sh
+
 # Expose port
 EXPOSE 8080
 
-# Run the application
-CMD ["python", "run_backend.py"]
+# Run the application via entrypoint script
+# - SQLite users: database auto-initializes on first start (idempotent)
+# - PostgreSQL users: run init script manually via `docker exec` or during CI/CD
+ENTRYPOINT ["./entrypoint.sh"]
