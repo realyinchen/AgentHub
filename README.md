@@ -143,7 +143,8 @@ AgentHub/
 │   ├── .env.example             # Environment variables template
 │   ├── requirements.txt         # Python dependencies
 │   └── run_backend.py           # Backend startup script
-├── docker-compose.yml           # Full-stack deployment (with profiles)
+├── docker-compose.yml           # Production deployment (backend + frontend + postgres + qdrant)
+├── docker-compose-sqlite.yml    # Quick start (backend + frontend + sqlite)
 └── README.md                    # This file
 ```
 
@@ -300,7 +301,65 @@ backend/app/database/
 
 ## 🚀 Quick Start
 
-### Recommended: SQLite Mode (Zero Dependencies)
+### Two Ways to Use
+
+| Scenario | Steps | Initialization |
+|----------|-------|----------------|
+| **Quick Evaluation** | `git clone` → `docker-compose -f docker-compose-sqlite.yml up -d` | **Automatic** inside container |
+| **Fork for Development** | `git clone` → `cp .env.example .env` → Edit config → **Run `python scripts/init_database.py`** | **Must run manually** before first start |
+
+---
+
+### Quick Evaluation (Docker) — Zero Setup
+
+Two Docker Compose files are provided:
+
+| File | Purpose | Services |
+|------|---------|----------|
+| `docker-compose.yml` | **Production deployment** | backend + frontend + postgres + qdrant |
+| `docker-compose-sqlite.yml` | **Quick start** | backend + frontend (SQLite mode) |
+
+**Quick start (SQLite mode, recommended):**
+```bash
+git clone https://github.com/realyinchen/AgentHub.git
+cd AgentHub
+./deploy_sqlite.sh
+```
+
+Or using docker compose directly:
+```bash
+# Create directories and copy .env files
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
+
+# Edit .env files with your API keys, then start services
+docker compose -f docker-compose-sqlite.yml up -d
+```
+
+Open `http://localhost` and configure your LLM API keys in Settings. That's it!
+
+**Production deployment (PostgreSQL + Qdrant):**
+```bash
+git clone https://github.com/realyinchen/AgentHub.git
+cd AgentHub
+./deploy.sh
+```
+
+Or using docker compose directly:
+```bash
+# Create directories and copy .env files
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
+
+# Edit .env files with your API keys, then start services
+docker-compose up -d
+```
+
+---
+
+### Recommended: SQLite Mode (Zero Dependencies) — For Developers
 
 The fastest way to get started — no PostgreSQL, no Qdrant, no Docker required.
 
@@ -543,70 +602,97 @@ data: [DONE]
 
 ## 🐳 Docker Deployment
 
-The same Docker image supports both SQLite and PostgreSQL backends. All configuration is managed in `.env` files. Docker Compose uses profiles to support dev, prod, and PostgreSQL modes. Both frontend modes use nginx to serve built static assets.
+The same Docker image supports both SQLite and PostgreSQL backends. All configuration is managed in `.env` files. The frontend is served via nginx with API proxy.
 
-### Quick Start — Dev Mode (Recommended)
+Two Docker Compose files are provided:
 
-Zero external dependencies, uses embedded SQLite databases, frontend served via nginx with API proxy:
+| File | Purpose | Services |
+|------|---------|----------|
+| `docker-compose.yml` | **Production deployment** | backend + frontend + postgres + qdrant |
+| `docker-compose-sqlite.yml` | **Quick start** | backend + frontend (SQLite mode) |
+
+### Deployment Scripts (Recommended)
+
+Deployment scripts are provided for easier server deployments:
+
+| Script | Purpose |
+|--------|---------|
+| `./deploy.sh` | Full-stack production deployment (PostgreSQL + Qdrant) |
+| `./deploy_sqlite.sh` | Full-stack quick start (SQLite mode) |
+| `backend/deploy.sh` | Backend-only standalone deployment |
+| `frontend/deploy.sh` | Frontend-only standalone deployment |
+
+**Using a deployment script (example):
+```bash
+git clone https://github.com/realyinchen/AgentHub.git
+cd AgentHub
+chmod +x deploy_sqlite.sh deploy.sh backend/deploy.sh frontend/deploy.sh
+
+# Quick start (SQLite mode, recommended)
+./deploy_sqlite.sh
+
+# Or production deployment
+# ./deploy.sh
+```
+
+The script will:
+1. Create required directories at `/app/agenthub/`
+2. Guide you to place `.env` files
+3. Start all services automatically
+
+### Quick Start — SQLite Mode (Recommended)
+
+Zero external dependencies, uses embedded SQLite databases:
 
 ```bash
-# 1. Copy config templates
-cd backend && cp .env.example .env
-cd ../frontend && cp .env.example .env
-cd ..
+# 1. Create directories and copy config templates
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
 
-# 2. Edit backend/.env to add your 3rd-party API keys (Tavily, Amap, etc.)
+# 2. Edit /app/agenthub/backend/.env to add your 3rd-party API keys
 #    Defaults are fine for SQLite mode - just fill in the API keys you need
 
 # 3. Start
-docker-compose up -d
+docker compose -f docker-compose-sqlite.yml up -d
 ```
 
-Open `http://localhost:5173` and configure your LLM API keys in Settings.
+Open `http://localhost` and configure your LLM API keys in Settings.
 
-> SQLite databases are stored in a Docker named volume (`backend-data`). No PostgreSQL or Qdrant required.
+> SQLite databases are stored on the host filesystem at `/app/agenthub/backend/data/`. No PostgreSQL or Qdrant required.
 
-### Production Mode
+### Production Deployment (PostgreSQL + Qdrant)
 
-Same nginx-based deployment, but starts under the `prod` profile (useful for explicit production targeting):
+For production-grade database and vector store:
 
 ```bash
-docker-compose --profile prod up -d
+# 1. Create directories and copy config templates
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
+
+# 2. Edit /app/agenthub/backend/.env to add your 3rd-party API keys
+
+# 3. Start
+docker compose up -d
 ```
-
-### PostgreSQL Mode
-
-Starts PostgreSQL + Qdrant services for production-grade database and vector store:
-
-```bash
-docker-compose --profile postgres up -d
-```
-
-Or combine with production mode:
-
-```bash
-docker-compose --profile prod --profile postgres up -d
-```
-
-When using PostgreSQL, edit `backend/.env` to set:
-- `DATABASE_TYPE=postgres` and `VECTORSTORE_TYPE=qdrant`
-- `POSTGRES_HOST=postgres` (Docker service name, NOT localhost)
-- `QDRANT_HOST=qdrant` (Docker service name, NOT localhost)
 
 ### Access Points
 
 | Service | URL |
 |---------|-----|
-| Frontend | `http://localhost:5173` (nginx on port 80, mapped to 5173) |
+| Frontend | `http://localhost` (nginx on port 80) |
 | Backend API Docs | `http://localhost:8080/docs` |
 
 ### Data Persistence
 
-| Mode | Volume | Content |
-|------|--------|---------|
-| SQLite | `backend-data` | Database files in `/app/data/` |
-| PostgreSQL | `postgres-data` | PostgreSQL data |
-| Qdrant | `qdrant-data` | Vector store data |
+All data is stored on the host filesystem:
+
+| Mode | Path | Content |
+|------|------|---------|
+| All modes | `/app/agenthub/backend/data/` | SQLite databases (SQLite mode) or mounted volume data |
+| PostgreSQL | Docker named volume `postgres-data` | PostgreSQL data |
+| Qdrant | Docker named volume `qdrant-data` | Vector store data |
 
 ### Useful Commands
 
@@ -614,14 +700,11 @@ When using PostgreSQL, edit `backend/.env` to set:
 # View logs
 docker-compose logs -f
 
-# Stop services (dev mode)
+# Stop services
 docker-compose down
 
-# Stop services (prod mode)
-docker-compose --profile prod down
-
-# Stop services (PostgreSQL mode)
-docker-compose --profile postgres down
+# Stop SQLite mode services
+docker-compose -f docker-compose-sqlite.yml down
 
 # Rebuild images after code changes
 docker-compose build --no-cache
@@ -638,7 +721,8 @@ Each module can also be deployed separately:
 
 ```
 AgentHub/
-├── docker-compose.yml       # Full-stack deployment (with profiles)
+├── docker-compose.yml       # Production deployment (PostgreSQL + Qdrant)
+├── docker-compose-sqlite.yml    # Quick start (SQLite mode)
 ├── backend/
 │   ├── docker-compose.yml   # Backend standalone deployment
 │   ├── Dockerfile           # Backend container (supports both SQLite and PG)

@@ -2,125 +2,39 @@ networks:
   agenthub-network:
     driver: bridge
 
-volumes:
-  backend-data:
-  postgres-data:
-  qdrant-data:
-
 services:
-  # ---------------------------------------------------------------------------
-  # 🧠 Backend (General)
-  # ---------------------------------------------------------------------------
   backend:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
     image: agenthub-backend
     container_name: agenthub-backend
     restart: unless-stopped
     networks:
       - agenthub-network
     volumes:
-      - backend-data:/app/data
+      - /app/agenthub/backend/data:/app/data
     env_file:
-      - ./backend/.env
+      - /app/agenthub/backend/.env  # Host machine absolute path
     environment:
       HOST: 0.0.0.0
       PORT: 8080
-      SQLITE_DATABASE_PATH: /app/data/agenthub.db
-      SQLITE_VEC_DATABASE_PATH: /app/data/agenthub_vec.db
-    ports:
-      - "8080:8080"
     healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:8080/health || exit 1" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
       interval: 10s
       timeout: 3s
       retries: 2
-      start_period: 5s
+      start_period: 10s
 
-  # ---------------------------------------------------------------------------
-  # ⚡ Frontend (DEV mode - instant startup)
-  # ---------------------------------------------------------------------------
   frontend:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: /api/v1
-        NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-backend}
-        NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-8080}
     image: agenthub-frontend
     container_name: agenthub-frontend
     restart: unless-stopped
     networks:
       - agenthub-network
-    ports:
-      - "${FRONTEND_PORT:-5173}:80"
-    depends_on:
-      - backend
-
-  # ---------------------------------------------------------------------------
-  # 🏭 Frontend (PROD mode - nginx)
-  # ---------------------------------------------------------------------------
-  frontend-prod:
-    profiles: [ "prod" ]
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        VITE_API_BASE_URL: /api/v1
-        NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-backend}
-        NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-8080}
-    image: agenthub-frontend-prod
-    container_name: agenthub-frontend-prod
-    restart: unless-stopped
-    networks:
-      - agenthub-network
-    ports:
-      - "${FRONTEND_PORT:-5173}:80"
-    depends_on:
-      - backend
-
-  # ---------------------------------------------------------------------------
-  # 🐘 PostgreSQL (Optional)
-  # ---------------------------------------------------------------------------
-  postgres:
-    image: postgres:latest
-    profiles: [ "postgres" ]
-    container_name: agenthub-postgres
-    restart: unless-stopped
-    networks:
-      - agenthub-network
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
+    env_file:
+      - /app/agenthub/frontend/.env  # Host machine absolute path
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-langchain}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langgraph}
-      POSTGRES_DB: ${POSTGRES_DB:-agentdb}
-    expose:
-      - "5432"
-    healthcheck:
-      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-langchain}" ]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
-  # ---------------------------------------------------------------------------
-  # 🔍 Qdrant (Optional)
-  # ---------------------------------------------------------------------------
-  qdrant:
-    image: qdrant/qdrant:latest
-    profiles: [ "postgres" ]
-    container_name: agenthub-qdrant
-    restart: unless-stopped
-    networks:
-      - agenthub-network
-    volumes:
-      - qdrant-data:/qdrant/storage
-    expose:
-      - "6333"
-    healthcheck:
-      test: [ "CMD-SHELL", "wget -qO- http://localhost:6333/readyz || exit 1" ]
-      interval: 10s
-      timeout: 3s
-      retries: 3
+      NGINX_BACKEND_HOST: backend
+      NGINX_BACKEND_PORT: 8080
+    ports:
+      - "80:80"
+    depends_on:
+      - backend

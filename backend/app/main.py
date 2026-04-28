@@ -54,6 +54,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(lifespan=lifespan, generate_unique_id_function=custom_generate_unique_id)
 
+
+@app.get("/health", tags=["Health"])
+async def health_check() -> dict[str, str]:
+    """Health check endpoint for Docker healthcheck."""
+    return {"status": "ok"}
+
+
 # Add rate limiter to app
 app.state.limiter = limiter
 

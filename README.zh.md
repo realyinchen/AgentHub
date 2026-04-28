@@ -142,7 +142,7 @@ AgentHub/
 │   ├── .env.example             # 环境变量模板
 │   ├── requirements.txt         # Python 依赖
 │   └── run_backend.py           # 后端启动脚本
-├── docker-compose.yml           # 全栈部署
+├── docker-compose.yml           # 全栈部署（后端 + 前端 + postgres + qdrant）
 └── README.zh.md                 # 本文件
 ```
 
@@ -299,7 +299,67 @@ backend/app/database/
 
 ## 🚀 快速开始
 
-### 推荐方式：SQLite 模式（零依赖）
+### 两种使用方式
+
+| 场景 | 步骤 | 数据库初始化 |
+|------|------|-------------|
+| **快速体验** | `git clone` → 配置 `.env` → `docker compose up -d` | **容器内自动完成** |
+| **Fork 开发** | `git clone` → `cp .env.example .env` → 编辑配置 → **执行 `python scripts/init_database.py`** | **首次运行前必须手动执行** |
+
+---
+
+### 快速体验（Docker）— 零配置
+
+单一 Docker Compose 文件支持两种模式，全部通过 `.env` 文件控制：
+
+| 模式 | 配置 | 适用场景 |
+|------|------|---------|
+| **SQLite 模式（默认）** | `DATABASE_TYPE=sqlite` + `VECTORSTORE_TYPE=sqlite_vec` | 快速体验、个人项目 |
+| **PostgreSQL 模式** | `DATABASE_TYPE=postgres` + `VECTORSTORE_TYPE=qdrant` | 生产部署、高并发 |
+
+**快速启动（SQLite 模式，推荐）：**
+```bash
+git clone https://github.com/realyinchen/AgentHub.git
+cd AgentHub
+
+# 1. 创建目录并复制配置
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
+
+# 2. 编辑 /app/agenthub/backend/.env 填入三方 API 密钥
+#    SQLite 模式使用默认配置即可
+
+# 3. 启动服务
+docker compose up -d
+```
+
+打开 `http://localhost`，在设置中配置你的 LLM API 密钥即可。就是这么简单！
+
+**生产部署（PostgreSQL + Qdrant）：**
+```bash
+git clone https://github.com/realyinchen/AgentHub.git
+cd AgentHub
+
+# 1. 创建目录并复制配置
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
+
+# 2. 编辑 /app/agenthub/backend/.env
+#    DATABASE_TYPE=postgres
+#    VECTORSTORE_TYPE=qdrant
+#    POSTGRES_HOST=postgres  （Docker 服务名）
+#    QDRANT_HOST=qdrant      （Docker 服务名）
+#    填入三方 API 密钥
+
+# 3. 启动服务（自动启动 PostgreSQL 和 Qdrant 容器）
+docker compose up -d
+```
+
+---
+
+### 推荐方式：SQLite 模式（零依赖）— 开发者模式
 
 最快速的入门方式 — 无需 PostgreSQL、无需 Qdrant、无需 Docker。
 
@@ -542,113 +602,103 @@ data: [DONE]
 
 ## 🐳 Docker 部署
 
-同一个 Docker 镜像同时支持 SQLite 和 PostgreSQL 后端。所有配置通过 `.env` 文件管理。Docker Compose 使用 profiles 支持 dev、prod 和 PostgreSQL 模式。两种前端模式均使用 nginx 提供构建后的静态资源。
+### 架构说明
 
-### 快速开始 — Dev 模式（推荐）
+- **Nginx 流量网关**：前端和后端 API 统一通过 80 端口访问。Nginx 自动将 `/api/` 开头的请求转发给后端容器
+- **后端不对外暴露端口**：后端服务仅在 Docker 内部网络运行，通过 Nginx 代理访问，更安全
+- **单一 Compose 文件**：通过 `.env` 配置文件控制数据库/向量存储类型，无需维护多个 Compose 文件
 
-零外部依赖，使用嵌入式 SQLite 数据库，前端通过 nginx 提供服务并代理 API 请求：
+### 部署步骤
 
-```bash
-# 1. 复制配置模板
-cd backend && cp .env.example .env
-cd ../frontend && cp .env.example .env
-cd ..
+#### 方式一：SQLite 模式（快速体验，推荐）
 
-# 2. 编辑 backend/.env 添加三方 API 密钥（Tavily、高德地图等）
-#    SQLite 模式下默认配置即可 - 只需填入你需要的 API 密钥
-
-# 3. 启动
-docker-compose up -d
-```
-
-打开 `http://localhost:5173`，在设置中配置你的 LLM API 密钥。
-
-> SQLite 数据库存储在 Docker 命名卷（`backend-data`）中。无需 PostgreSQL 或 Qdrant。
-
-### 生产模式
-
-同样基于 nginx 部署，但在 `prod` profile 下启动（适用于明确的生产环境标识）：
+零外部依赖，使用嵌入式 SQLite 数据库：
 
 ```bash
-docker-compose --profile prod up -d
+# 1. 创建目录并复制配置
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
+
+# 2. 编辑 /app/agenthub/backend/.env 填入三方 API 密钥
+#    SQLite 模式使用默认配置即可
+
+# 3. 启动服务
+docker compose up -d
 ```
 
-### PostgreSQL 模式
+#### 方式二：PostgreSQL + Qdrant（生产部署）
 
-启动 PostgreSQL + Qdrant 服务，适合生产级数据库和向量存储：
+使用生产级数据库和向量存储：
 
 ```bash
-docker-compose --profile postgres up -d
+# 1. 创建目录并复制配置
+mkdir -p /app/agenthub/frontend /app/agenthub/backend/data
+cp backend/.env.example /app/agenthub/backend/.env
+cp frontend/.env.example /app/agenthub/frontend/.env
+
+# 2. 编辑 /app/agenthub/backend/.env
+#    DATABASE_TYPE=postgres
+#    VECTORSTORE_TYPE=qdrant
+#    POSTGRES_HOST=postgres  （Docker 服务名）
+#    QDRANT_HOST=qdrant      （Docker 服务名）
+#    填入三方 API 密钥
+
+# 3. 启动服务（自动启动 PostgreSQL 和 Qdrant 容器）
+docker compose up -d
 ```
-
-或与生产模式组合使用：
-
-```bash
-docker-compose --profile prod --profile postgres up -d
-```
-
-使用 PostgreSQL 时，编辑 `backend/.env` 设置：
-- `DATABASE_TYPE=postgres` 和 `VECTORSTORE_TYPE=qdrant`
-- `POSTGRES_HOST=postgres`（Docker 服务名，不是 localhost）
-- `QDRANT_HOST=qdrant`（Docker 服务名，不是 localhost）
 
 ### 访问地址
 
-| 服务 | URL |
-|------|-----|
-| 前端 | `http://localhost:5173`（nginx 端口 80，映射到 5173） |
-| 后端 API 文档 | `http://localhost:8080/docs` |
+| 服务 | URL | 说明 |
+|------|-----|------|
+| 前端 | `http://localhost` | Nginx 80 端口 |
+| 后端 API 文档 | `http://localhost/api/docs` | 通过 Nginx 代理访问 |
 
 ### 数据持久化
 
-| 模式 | 卷 | 内容 |
-|------|-----|------|
-| SQLite | `backend-data` | `/app/data/` 中的数据库文件 |
-| PostgreSQL | `postgres-data` | PostgreSQL 数据 |
-| Qdrant | `qdrant-data` | 向量存储数据 |
+| 模式 | 路径 | 内容 |
+|------|------|------|
+| SQLite | `/app/agenthub/backend/data/` | SQLite 数据库文件 |
+| PostgreSQL | Docker 命名卷 `postgres-data` | PostgreSQL 数据 |
+| Qdrant | Docker 命名卷 `qdrant-data` | 向量存储数据 |
 
 ### 常用命令
 
 ```bash
 # 查看日志
-docker-compose logs -f
+docker compose logs -f
 
-# 停止服务（dev 模式）
-docker-compose down
-
-# 停止服务（prod 模式）
-docker-compose --profile prod down
-
-# 停止服务（PostgreSQL 模式）
-docker-compose --profile postgres down
+# 停止服务
+docker compose down
 
 # 代码变更后重新构建镜像
-docker-compose build --no-cache
+docker compose build --no-cache
 ```
 
 ### 独立部署
 
-各模块也可以单独部署：
+前后端也支持单独部署：
 
-- **仅后端**：参见 `backend/docker-compose.yml`
-- **仅前端**：参见 `frontend/docker-compose.yml`
+- **仅后端**：进入 `backend/` 目录，使用 `backend/docker-compose.yml` 独立启动（会暴露 8080 端口）
+- **仅前端**：进入 `frontend/` 目录，使用 `frontend/docker-compose.yml` 独立启动（需配置 `NGINX_BACKEND_HOST` 指向后端地址）
 
 ### Docker 文件结构
 
 ```
 AgentHub/
-├── docker-compose.yml       # 全栈部署（含 profiles）
+├── docker-compose.yml       # 全栈部署（后端 + 前端 + Postgres + Qdrant）
 ├── backend/
 │   ├── docker-compose.yml   # 后端独立部署
 │   ├── Dockerfile           # 后端容器（支持 SQLite 和 PG）
-│   ├── .dockerignore        # Docker 构建排除项
-│   └── .env.example         # 环境变量模板
+│   ├── .dockerignore
+│   └── .env.example
 └── frontend/
     ├── docker-compose.yml   # 前端独立部署
     ├── Dockerfile           # 前端容器（多阶段构建）
-    ├── nginx.conf.template   # Nginx 配置模板（envsubst）
-    ├── .dockerignore        # Docker 构建排除项
-    └── .env.example         # 环境变量模板
+    ├── nginx.conf.template  # Nginx 配置模板
+    ├── .dockerignore
+    └── .env.example
 ```
 
 ---

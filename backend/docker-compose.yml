@@ -19,9 +19,9 @@ services:
     restart: unless-stopped
     volumes:
       # SQLite database persistence (harmless in PostgreSQL mode)
-      - ./data:/app/data
+      - /app/agenthub/backend/data:/app/data
     env_file:
-      - .env
+      - /app/agenthub/backend/.env
     environment:
       # Override for container environment
       HOST: 0.0.0.0
@@ -37,5 +37,3 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
