@@ -2,12 +2,25 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Languages, Moon, Share2, Sun, Settings } from "lucide-react"
 
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+
+import {
   createConversation,
+  deleteConversation,
   generateTitle,
   getConversationTitle,
   getHistory,
   listAgents,
   listConversations,
+  loadMoreConversations,
   setConversationTitle,
   streamChat,
 } from "@/lib/api"
@@ -35,17 +48,10 @@ import {
   ShareDialog,
   TokenStatsPanel,
 } from "@/features/chat/components"
+import { AgentSidebar } from "@/components/agent"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
-import { ModelSelector } from "@/features/chat/components/model-selector"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
 import {
   getErrorMessage,
   isDefaultConversationTitle,
@@ -73,19 +79,20 @@ function App() {
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
+  // Pagination state for conversations
+  const [conversationsOffset, setConversationsOffset] = useState(0)
+  const [hasMoreConversations, setHasMoreConversations] = useState(false)
+  const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false)
 
   // Thinking mode state - persisted per conversation in localStorage
   const {
-    thinkingMode,
-    toggleThinkingMode,
+    thinkingMode
   } = useThinkingMode(threadId)
 
   // Model selection state - persisted per conversation in localStorage
   const {
     models,
-    selectedModel,
     setSelectedModel,
-    getSelectedModelInfo,
     getEffectiveModel,
     refreshModels,
   } = useModels(threadId)
@@ -94,8 +101,6 @@ function App() {
   const effectiveSelectedModel = getEffectiveModel()
 
   // Get current model info to check if it supports thinking
-  const currentModelInfo = getSelectedModelInfo()
-  const modelSupportsThinking = currentModelInfo?.thinking ?? false
   const [conversationTitle, setConversationTitleState] = useState(
     defaultConversationTitle,
   )
@@ -108,7 +113,6 @@ function App() {
   const [isLoadingConversation, setIsLoadingConversation] = useState(false)
   const [isSavingTitle, setIsSavingTitle] = useState(false)
   const [isStreaming, setIsStreaming] = useState(false)
-  const [isAwaitingAgentSelection, setIsAwaitingAgentSelection] = useState(false)
   const [isProcessing, setIsProcessing] = useState(false) // Processing, no content received yet
   const [isAgentThinking, setIsAgentThinking] = useState(false)
   const [, setActiveToolCall] = useState<ToolCallEvent | null>(null)
@@ -121,12 +125,17 @@ function App() {
   const [messageSequence, setMessageSequence] = useState<MessageStep[]>([])
   // Toggle for showing/hiding the sidebar process panel
   const [showSidebarProcess, setShowSidebarProcess] = useState(true)
+
+
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+
+
 
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [showProviderConfig, setShowProviderConfig] = useState(false)
+  const [showNoModelDialog, setShowNoModelDialog] = useState(false)
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
@@ -154,6 +163,24 @@ function App() {
     processSessionRef.current = processSession
   }, [processSession])
 
+  // Check if there are available models (active LLM/VLM)
+  const hasAvailableModels = useMemo(() => {
+    return models.some(m =>
+      (m.model_type === "llm" || m.model_type === "vlm") &&
+      m.is_active
+    )
+  }, [models])
+
+  // Show dialog when no models are available after initialization
+  useEffect(() => {
+    if (!isInitializing && !isLoadingConversation) {
+      // Show dialog when no models are configured (including when models array is empty)
+      if (!hasAvailableModels) {
+        setShowNoModelDialog(true)
+      }
+    }
+  }, [isInitializing, isLoadingConversation, hasAvailableModels])
+
   const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
     const url = new URL(window.location.href)
     if (nextThreadId) {
@@ -165,9 +192,46 @@ function App() {
   }, [])
 
   const refreshConversations = useCallback(async () => {
-    const latest = await listConversations(100)
+    const { conversations: latest, total } = await listConversations(10, 0)
     setConversations(sortConversationsByUpdatedAt(latest))
+    setConversationsOffset(latest.length)
+    setHasMoreConversations(latest.length < total)
   }, [])
+
+  const handleLoadMoreConversations = useCallback(async () => {
+    if (isLoadingMoreConversations || !hasMoreConversations) {
+      return
+    }
+
+    setIsLoadingMoreConversations(true)
+    try {
+      const { conversations: moreConversations, total } = await loadMoreConversations(
+        conversationsOffset,
+        10
+      )
+
+      if (moreConversations.length > 0) {
+        setConversations((prev) => {
+          // Remove duplicates based on thread_id
+          const existingIds = new Set(prev.map((c) => c.thread_id))
+          const uniqueNew = moreConversations.filter((c) => !existingIds.has(c.thread_id))
+          return sortConversationsByUpdatedAt([...prev, ...uniqueNew])
+        })
+        setConversationsOffset((prev) => {
+          const newOffset = prev + moreConversations.length
+          // Use functional update to ensure we have the latest offset
+          setHasMoreConversations(newOffset < total)
+          return newOffset
+        })
+      } else {
+        setHasMoreConversations(false)
+      }
+    } catch (error) {
+      console.error("Failed to load more conversations:", error)
+    } finally {
+      setIsLoadingMoreConversations(false)
+    }
+  }, [conversationsOffset, hasMoreConversations, isLoadingMoreConversations])
 
   const ensureConversationExists = useCallback(
     async (targetThreadId: string, title: string, agentId?: string) => {
@@ -208,7 +272,6 @@ function App() {
 
       abortControllerRef.current?.abort()
       setIsStreaming(false)
-      setIsAwaitingAgentSelection(false)
       setThreadId(targetThreadId)
       writeThreadIdToUrl(targetThreadId)
       setRenameTarget(null)
@@ -323,18 +386,25 @@ function App() {
     setConversationTitleState(defaultConversationTitle)
     setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
-    setIsAwaitingAgentSelection(true)
-    setSelectedAgentId("") // Clear selected agent, user must choose one
+    setSelectedAgentId(agents[0]?.agent_id ?? "chatbot") // Use first agent as default
     setAppError(null)
     // Clear process display when creating new conversation
     setProcessSession(null)
-  }, [writeThreadIdToUrl, defaultConversationTitle])
+  }, [writeThreadIdToUrl, defaultConversationTitle, agents])
 
   const pickAgentForCurrentConversation = useCallback((agentId: string) => {
     setSelectedAgentId(agentId)
-    setIsAwaitingAgentSelection(false)
     setAppError(null)
   }, [])
+
+  // Ensure chatbot is selected by default when no agent is selected
+  useEffect(() => {
+    if (!selectedAgentId && agents.length > 0) {
+      // Find chatbot agent, or use first agent as fallback
+      const chatbotAgent = agents.find(a => a.agent_id === 'chatbot')
+      setSelectedAgentId(chatbotAgent?.agent_id ?? agents[0]?.agent_id ?? "")
+    }
+  }, [selectedAgentId, agents])
 
   const createStreamingPlaceholder = useCallback(() => {
     const placeholderId = crypto.randomUUID()
@@ -553,11 +623,10 @@ function App() {
             return
           }
 
-          const updated = await setConversationTitle({
-            thread_id: targetThreadId,
-            title: generatedTitle,
-            is_deleted: false,
-          })
+          const updated = await setConversationTitle(
+            targetThreadId,
+            generatedTitle,
+          )
 
           setConversationTitleState(generatedTitle)
           setDraftTitle(generatedTitle)
@@ -586,8 +655,7 @@ function App() {
         !trimmed ||
         !threadId ||
         !selectedAgentId ||
-        isStreaming ||
-        isAwaitingAgentSelection
+        isStreaming
       ) {
         return
       }
@@ -1017,7 +1085,6 @@ function App() {
       conversationTitle,
       createStreamingPlaceholder,
       ensureConversationExists,
-      isAwaitingAgentSelection,
       isStreaming,
       maybeGenerateTitle,
       refreshConversations,
@@ -1236,11 +1303,7 @@ function App() {
     try {
       await ensureConversationExists(targetThreadId, nextTitle)
 
-      const updated = await setConversationTitle({
-        thread_id: targetThreadId,
-        title: nextTitle,
-        is_deleted: false,
-      })
+      const updated = await setConversationTitle(targetThreadId, nextTitle)
 
       if (targetThreadId === threadId) {
         setConversationTitleState(nextTitle)
@@ -1287,11 +1350,7 @@ function App() {
     }
 
     try {
-      await setConversationTitle({
-        thread_id: deleteTarget.thread_id,
-        title: sanitizeTitle(deleteTarget.title) || t("conversation.untitled"),
-        is_deleted: true,
-      })
+      await deleteConversation(deleteTarget.thread_id)
 
       setConversations((previous) =>
         previous.filter((item) => item.thread_id !== deleteTarget.thread_id),
@@ -1370,20 +1429,35 @@ function App() {
       setAppError(null)
 
       try {
-        const [agentList, conversationList] = await Promise.all([
+        const [agentResult, conversationResult] = await Promise.all([
           listAgents(),
-          listConversations(100),
+          listConversations(10, 0),
         ])
 
         if (cancelled) {
           return
         }
 
+        const agentList = agentResult.agents
         setAgents(agentList)
         const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
 
+        const conversationList = conversationResult.conversations
+        const total = conversationResult.total
         const sorted = sortConversationsByUpdatedAt(conversationList)
-        setConversations(sorted)
+        // Use functional update to avoid duplicates if bootstrap runs twice (React StrictMode)
+        setConversations((prev) => {
+          if (prev.length === 0) {
+            return sorted
+          }
+          // If we already have conversations, merge and deduplicate
+          const existingIds = new Set(prev.map((c) => c.thread_id))
+          const uniqueNew = sorted.filter((c) => !existingIds.has(c.thread_id))
+          return sortConversationsByUpdatedAt([...prev, ...uniqueNew])
+        })
+        // Update pagination state based on first load
+        setConversationsOffset(sorted.length)
+        setHasMoreConversations(sorted.length < total)
 
         const queryThreadId = readThreadIdFromUrl()
         const queryAgentId = readAgentIdFromUrl()
@@ -1397,11 +1471,9 @@ function App() {
             : ""
           setSelectedAgentId(validAgentId)
         }
-        // If no agent_id in URL, don't pre-select any agent
-        // User will need to select one from the agent grid
+        // If no agent_id in URL, use default agent
 
         if (queryThreadId) {
-          setIsAwaitingAgentSelection(false)
           setThreadId(queryThreadId)
           writeThreadIdToUrl(queryThreadId)
           setIsLoadingConversation(true)
@@ -1459,13 +1531,8 @@ function App() {
           setConversationTitleState(defaultConversationTitle)
           setDraftTitle(defaultConversationTitle)
           setMessages([])
-
-          // If URL has agent_id, enter chat directly without needing to select agent
-          if (queryAgentId) {
-            setIsAwaitingAgentSelection(false)
-          } else {
-            setIsAwaitingAgentSelection(true)
-          }
+          // Use default agent for new conversation
+          setSelectedAgentId(defaultAgentId)
           writeThreadIdToUrl(null)
         }
       } catch (error) {
@@ -1509,6 +1576,9 @@ function App() {
           }}
           onRenameConversation={startRenameConversation}
           onDeleteConversation={setDeleteTarget}
+          hasMore={hasMoreConversations}
+          isLoadingMore={isLoadingMoreConversations}
+          onLoadMore={handleLoadMoreConversations}
         />
 
         <SidebarInset className="min-h-0 overflow-hidden bg-background flex-1">
@@ -1517,7 +1587,6 @@ function App() {
             isStreaming={isStreaming}
             isInitializing={isInitializing}
             isLoadingConversation={isLoadingConversation}
-            isAwaitingAgentSelection={isAwaitingAgentSelection}
             isProcessing={isProcessing}
             isAgentThinking={isAgentThinking}
             calledTools={calledTools}
@@ -1530,9 +1599,6 @@ function App() {
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
             onSelectAgent={pickAgentForCurrentConversation}
-            thinkingMode={thinkingMode}
-            onToggleThinkingMode={toggleThinkingMode}
-            modelSupportsThinking={modelSupportsThinking}
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
@@ -1564,47 +1630,67 @@ function App() {
               return sessionIds
             }, [messageSequence, messages])}
             aiMessageHasSteps={useMemo(() => {
-              // For each AI message, determine if it has steps (more than just the AI step itself)
-              if (!messageSequence || messageSequence.length === 0) {
-                return []
+              // For each message, determine if it has steps based on its session_id
+              const hasSteps: boolean[] = []
+
+              // Pre-compute which sessions have steps
+              const sessionsWithSteps = new Set<string>()
+              if (messageSequence && messageSequence.length > 0) {
+                messageSequence.forEach(step => {
+                  if (step.message_type === "tool" || (step.message_type === "ai" && step.thinking?.trim())) {
+                    sessionsWithSteps.add(step.session_id)
+                  }
+                })
               }
 
-              // Group steps by session_id
-              const stepsBySession = new Map<string, MessageStep[]>()
-              messageSequence.forEach((step) => {
-                const sessionId = step.session_id
-                if (!stepsBySession.has(sessionId)) {
-                  stepsBySession.set(sessionId, [])
-                }
-                stepsBySession.get(sessionId)!.push(step)
-              })
+              // Get session IDs for each message (same logic as aiMessageSessionIds)
+              const getSessionId = (msgIndex: number): string | null => {
+                const msg = messages[msgIndex]
+                if (msg?.type !== "ai") return null
+                const aiSteps = messageSequence?.filter(s => s.message_type === "ai") || []
+                const aiIndex = messages.slice(0, msgIndex + 1).filter(m => m.type === "ai").length - 1
+                return aiSteps[aiIndex]?.session_id || null
+              }
 
-              // For each message, determine if it has steps
-              const hasSteps: boolean[] = []
               messages.forEach((msg, index) => {
-                if (msg.type === "ai") {
-                  // Find the corresponding session_id
-                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
-                  const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
-                  const sessionId = aiSteps[aiIndex]?.session_id
-
-                  if (sessionId) {
-                    // Check if this session has more than just the AI step
-                    // A session has "steps" if it has tool calls or thinking content
-                    const sessionSteps = stepsBySession.get(sessionId) || []
-                    const hasToolSteps = sessionSteps.some(s => s.message_type === "tool")
-                    const hasThinking = sessionSteps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
-                    hasSteps.push(hasToolSteps || hasThinking)
-                  } else {
-                    hasSteps.push(false)
-                  }
-                } else {
+                if (msg.type !== "ai") {
                   hasSteps.push(false)
+                  return
                 }
+
+                // Check 1: Does message have process_steps from streaming?
+                const processSteps = msg.custom_data?.process_steps
+                if (Array.isArray(processSteps) && processSteps.length > 0) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                // Check 2: Does message have tool calls?
+                if (msg.tool_calls && msg.tool_calls.length > 0) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                // Check 3: Does message have thinking content?
+                if (msg.custom_data?.thinking || msg.response_metadata?.thinking || msg.reasoning_content) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                // Check 4: Does the message's session have steps?
+                const sessionId = getSessionId(index)
+                if (sessionId && sessionsWithSteps.has(sessionId)) {
+                  hasSteps.push(true)
+                  return
+                }
+
+                hasSteps.push(false)
               })
 
               return hasSteps
             }, [messageSequence, messages])}
+
+
             onSelectSession={(sessionId: string) => {
               setSelectedSessionId(sessionId)
               // Ensure sidebar is visible when selecting a session
@@ -1612,6 +1698,13 @@ function App() {
                 setShowSidebarProcess(true)
               }
             }}
+            models={models}
+            selectedModel={effectiveSelectedModel}
+            onSelectModel={setSelectedModel}
+            onSelectAgentId={pickAgentForCurrentConversation}
+            onOpenModelConfig={() => setShowProviderConfig(true)}
+            hasAvailableModels={hasAvailableModels}
+            selectedSessionId={selectedSessionId}
           />
         </SidebarInset>
 
@@ -1625,8 +1718,8 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="size-8 flex-1"
-                disabled={isAwaitingAgentSelection || messages.length === 0}
+                className="size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
+                disabled={messages.length === 0}
                 onClick={() => {
                   navigator.clipboard.writeText(window.location.href)
                   setShowShareDialog(true)
@@ -1640,7 +1733,7 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="cursor-pointer size-8 flex-1"
+                className="cursor-pointer size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
                 onClick={toggleTheme}
                 aria-label={t("theme.switch")}
                 title={t("theme.switch")}
@@ -1655,7 +1748,7 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="cursor-pointer size-8 flex-1"
+                className="cursor-pointer size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
                 onClick={toggleLocale}
                 aria-label={t("language.switch")}
                 title={t("language.switch")}
@@ -1666,7 +1759,7 @@ function App() {
                 type="button"
                 size="icon"
                 variant="outline"
-                className="cursor-pointer size-8 flex-1"
+                className="cursor-pointer size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
                 onClick={() => setShowProviderConfig(true)}
                 aria-label={t("provider.configure")}
                 title={t("provider.configure")}
@@ -1675,63 +1768,34 @@ function App() {
               </Button>
             </div>
 
-            {/* Model selector - only show in conversation page (not on home/agent selection page) */}
-            {!isInitializing && !isAwaitingAgentSelection && (
-              <ModelSelector
-                models={models}
-                selectedModel={selectedModel}
-                onSelectModel={setSelectedModel}
-                disabled={isStreaming || isInitializing || isLoadingConversation}
-              />
-            )}
-
-            {/* Agent selector - only show when not in agent selection page */}
-            {!isInitializing && !isAwaitingAgentSelection && (
-              <Select
-                value={selectedAgentId}
-                onValueChange={(value) => {
-                  if (!isStreaming || !isInitializing || !isLoadingConversation) {
-                    pickAgentForCurrentConversation(value)
-                  }
-                }}
-                disabled={isStreaming || isInitializing || isLoadingConversation}
-              >
-                <SelectTrigger size="sm" className="h-8 px-3 text-sm w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {(() => {
-                    // Sort agents to always show current selected agent first
-                    const sortedAgents = [...agents].sort((a, b) => {
-                      if (a.agent_id === selectedAgentId) return -1
-                      if (b.agent_id === selectedAgentId) return 1
-                      return 0
-                    })
-                    return sortedAgents.map((agent) => (
-                      <SelectItem key={agent.agent_id} value={agent.agent_id}>
-                        {agent.agent_id}
-                      </SelectItem>
-                    ))
-                  })()}
-                </SelectContent>
-              </Select>
-            )}
           </div>
 
-          {/* Middle Section: Agent Process Panel */}
+          {/* Middle Section: Agent Process Panel (chat mode) or Agent Sidebar (home mode) */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {!isInitializing && !isAwaitingAgentSelection && showSidebarProcess && (
-              <AgentProcessPanel
-                session={processSession}
-                messageSequence={messageSequence}
-                isStreaming={isStreaming}
-                selectedSessionId={selectedSessionId}
-              />
+            {!isInitializing && (
+              messages.length === 0 ? (
+                // Home mode: Show available agents in sidebar
+                <AgentSidebar
+                  agents={agents}
+                  selectedAgentId={selectedAgentId}
+                  onSelectAgent={pickAgentForCurrentConversation}
+                />
+              ) : (
+                // Chat mode: Show agent process panel
+                showSidebarProcess && (messageSequence.length > 0 || (processSession && processSession.steps && processSession.steps.length > 0)) && (
+                  <AgentProcessPanel
+                    session={processSession}
+                    messageSequence={messageSequence}
+                    isStreaming={isStreaming}
+                    selectedSessionId={selectedSessionId}
+                  />
+                )
+              )
             )}
           </div>
 
-          {/* Bottom Section: Token Stats */}
-          {!isInitializing && !isAwaitingAgentSelection && (
+          {/* Bottom Section: Token Stats - only show in chat mode */}
+          {!isInitializing && messages.length > 0 && (
             <TokenStatsPanel
               currentConversation={conversations.find(c => c.thread_id === threadId) ?? null}
             />
@@ -1775,6 +1839,29 @@ function App() {
           }
         }}
       />
+
+      {/* No Model Dialog */}
+      <AlertDialog open={showNoModelDialog} onOpenChange={setShowNoModelDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t("model.noModelDialogTitle")}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("model.noModelDialogDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("model.noModelDialogCancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setShowNoModelDialog(false)
+                setShowProviderConfig(true)
+              }}
+            >
+              {t("model.noModelDialogConfirm")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Toast notifications */}
       <Toaster />

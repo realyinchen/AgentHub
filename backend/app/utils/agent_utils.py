@@ -3,7 +3,7 @@ from typing import List
 from sqlalchemy import select
 from langgraph.graph.state import CompiledStateGraph
 
-from app.database import adb_manager
+from app.database import get_database
 from app.models.agent import Agent
 from app.agents.chatbot import chatbot
 from app.agents.navigator import navigator
@@ -22,8 +22,9 @@ class AgentNotFound(Exception):
 
 async def get_available_agent_ids() -> List[str]:
     """Return all active agent IDs from the database."""
-    async with adb_manager.session() as db:
-        result = await db.execute(
+    db = get_database()
+    async with db.session() as db_session:
+        result = await db_session.execute(
             select(Agent.agent_id).where(Agent.is_active.is_(True))
         )
         agent_ids = [row[0] for row in result.all()]

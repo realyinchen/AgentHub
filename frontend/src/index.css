@@ -5,108 +5,215 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.75rem;
-  /* Light Mode - Grok-inspired Clean Theme */
-  --background: oklch(0.99 0 0);
-  /* #FAFAFA - Near white */
-  --foreground: oklch(0.14 0.01 250);
-  /* #18181B - Zinc 900 */
+  --radius: 1rem;
+  /* Light Mode - Modern Tech Console Theme */
+
+  /* Background layers */
+  --background: oklch(0.98 0.005 250);
+  /* #F8FAFC - Soft blue-white */
+  --background-elevated: oklch(0.96 0.008 250);
+  /* #F1F5F9 - Elevated surface */
+
+  --foreground: oklch(0.13 0.02 250);
+  /* #0F172A - Deep slate */
   --card: oklch(1 0 0);
-  /* #FFFFFF */
-  --card-foreground: oklch(0.14 0.01 250);
+  /* #FFFFFF - Pure white cards */
+  --card-foreground: oklch(0.13 0.02 250);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.14 0.01 250);
-  --primary: oklch(0.14 0.01 250);
-  /* #18181B - Black */
+  --popover-foreground: oklch(0.13 0.02 250);
+
+  /* Primary - Tech Blue */
+  --primary: oklch(0.55 0.22 250);
+  /* #2563EB - Vibrant blue */
   --primary-foreground: oklch(0.99 0 0);
-  --secondary: oklch(0.96 0.005 250);
-  /* #F4F4F5 - Zinc 100 */
-  --secondary-foreground: oklch(0.14 0.01 250);
-  --muted: oklch(0.96 0.005 250);
-  /* #F4F4F5 - AI bubble background */
-  --muted-foreground: oklch(0.45 0.01 250);
-  /* #71717A - Zinc 500 */
-  --accent: oklch(0.96 0.005 250);
-  --accent-foreground: oklch(0.14 0.01 250);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.92 0.005 250);
-  /* #E4E4E7 - Zinc 200 */
-  --input: oklch(0.92 0.005 250);
-  --ring: oklch(0.14 0.01 250);
-  --sidebar: oklch(0.99 0 0);
-  /* Light sidebar */
-  --sidebar-foreground: oklch(0.14 0.01 250);
-  --sidebar-primary: oklch(0.14 0.01 250);
+
+  /* Accent - Cyan glow */
+  --accent: oklch(0.72 0.15 200);
+  /* #38BDF8 - Sky blue */
+  --accent-foreground: oklch(0.13 0.02 250);
+
+  /* Warm colors - For CTA and highlights only */
+  --warm: oklch(0.72 0.18 50);
+  /* #FF9F45 - Warm orange */
+  --warm-soft: oklch(0.85 0.15 75);
+  /* #FFD166 - Soft gold */
+  --warm-foreground: oklch(0.13 0.02 250);
+
+  --secondary: oklch(0.96 0.008 250);
+  --secondary-foreground: oklch(0.13 0.02 250);
+  --muted: oklch(0.96 0.008 250);
+  --muted-foreground: oklch(0.48 0.01 250);
+  /* #64748B - Slate 500 */
+
+  --destructive: oklch(0.58 0.22 25);
+  --border: oklch(0.90 0.01 250);
+  /* Soft border */
+  --input: oklch(0.90 0.01 250);
+  --ring: oklch(0.55 0.22 250);
+
+  /* Sidebar */
+  --sidebar: oklch(0.98 0.005 250);
+  --sidebar-foreground: oklch(0.13 0.02 250);
+  --sidebar-primary: oklch(0.55 0.22 250);
   --sidebar-primary-foreground: oklch(0.99 0 0);
-  --sidebar-accent: oklch(0.96 0.005 250);
-  --sidebar-accent-foreground: oklch(0.14 0.01 250);
-  --sidebar-border: oklch(0.92 0.005 250);
-  --sidebar-ring: oklch(0.14 0.01 250);
+  --sidebar-accent: oklch(0.94 0.02 250);
+  --sidebar-accent-foreground: oklch(0.13 0.02 250);
+  --sidebar-border: oklch(0.90 0.01 250);
+  --sidebar-ring: oklch(0.55 0.22 250);
+
   /* Chat bubble colors */
-  --ai-bubble: oklch(0.96 0.005 250);
-  /* #F4F4F5 - AI message bubble */
-  --user-bubble: oklch(0.14 0.01 250);
-  /* #18181B - User message bubble (black) */
+  --ai-bubble: oklch(0.96 0.008 250);
+  /* Soft AI bubble */
+  --user-bubble: oklch(0.55 0.22 250);
+  /* Blue user bubble */
   --user-bubble-foreground: oklch(0.99 0 0);
-  /* User message text (white) */
+
   /* Brand accent */
-  --brand-accent: oklch(0.75 0.15 55);
-  /* #FFB800 - Golden yellow for AH logo */
-  /* Switch checked color */
-  --switch-checked: oklch(0.65 0.18 145);
-  /* Green for switch on state */
+  --brand-accent: oklch(0.72 0.18 50);
+  /* Warm orange for brand */
+
+  /* Text dim - for placeholder and secondary text */
+  --text-dim: oklch(0.55 0.01 250);
+  /* Gray placeholder text */
+  --text-main: oklch(0.25 0.02 250);
+  /* Main text color */
+
+  /* Switch checked - Warm accent */
+  --switch-checked: oklch(0.72 0.18 50);
+
+  /* Glow effects */
+  --glow-primary: 0 0 20px oklch(0.55 0.22 250 / 0.3);
+  --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.4);
+  --glow-accent: 0 0 15px oklch(0.72 0.15 200 / 0.3);
+
+  /* Token stats - Light theme (clean, high readability) */
+  --token-input: #2563EB;
+  --token-input-bg: rgba(37, 99, 235, 0.12);
+  --token-input-glow: 0 0 8px rgba(37, 99, 235, 0.35);
+
+  --token-output: #059669;
+  --token-output-bg: rgba(5, 150, 105, 0.12);
+  --token-output-glow: 0 0 8px rgba(5, 150, 105, 0.35);
+
+  --token-cache: #7C3AED;
+  --token-cache-bg: rgba(124, 58, 237, 0.12);
+  --token-cache-glow: 0 0 8px rgba(124, 58, 237, 0.35);
+
+  --token-reasoning: #D97706;
+  --token-reasoning-bg: rgba(217, 119, 6, 0.12);
+  --token-reasoning-glow: 0 0 8px rgba(217, 119, 6, 0.35);
+
+  --token-total: #4F46E5;
+  --token-total-bg: rgba(79, 70, 229, 0.12);
+  --token-total-glow: 0 0 10px rgba(79, 70, 229, 0.4);
+
+  --token-track: #E5E7EB;
 }
 
 .dark {
-  /* Dark Mode - Grok-inspired Deep Dark Theme */
-  --background: oklch(0.10 0.01 250);
-  /* #0A0A0A - Near black */
-  --foreground: oklch(0.95 0.005 250);
-  /* #FAFAFA - Near white text */
-  --card: oklch(0.15 0.01 250);
-  /* #18181B - Zinc 900 */
-  --card-foreground: oklch(0.95 0.005 250);
-  --popover: oklch(0.15 0.01 250);
-  --popover-foreground: oklch(0.95 0.005 250);
-  --primary: oklch(0.99 0 0);
-  /* #FFFFFF - White */
-  --primary-foreground: oklch(0.10 0.01 250);
-  --secondary: oklch(0.20 0.01 250);
-  /* #27272A - Zinc 800 */
-  --secondary-foreground: oklch(0.95 0.005 250);
-  --muted: oklch(0.20 0.01 250);
-  /* #27272A - AI message bubble */
-  --muted-foreground: oklch(0.60 0.01 250);
-  /* #A1A1AA - Zinc 400 */
-  --accent: oklch(0.20 0.01 250);
-  --accent-foreground: oklch(0.95 0.005 250);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(0.25 0.01 250);
-  /* #3F3F46 - Zinc 700 */
-  --input: oklch(0.25 0.01 250);
-  --ring: oklch(0.99 0 0);
-  --sidebar: oklch(0.08 0.01 250);
-  /* #09090B - Zinc 950 */
-  --sidebar-foreground: oklch(0.95 0.005 250);
-  --sidebar-primary: oklch(0.99 0 0);
-  --sidebar-primary-foreground: oklch(0.10 0.01 250);
-  --sidebar-accent: oklch(0.20 0.01 250);
-  --sidebar-accent-foreground: oklch(0.95 0.005 250);
-  --sidebar-border: oklch(0.25 0.01 250);
-  --sidebar-ring: oklch(0.99 0 0);
+  /* Dark Mode - Modern Tech Console Theme */
+
+  /* Background layers */
+  --background: oklch(0.12 0.02 260);
+  /* #0B0F1A - Deep tech blue-black */
+  --background-elevated: oklch(0.15 0.02 260);
+  /* #111827 - Elevated surface */
+
+  --foreground: oklch(0.92 0.01 260);
+  /* #E6F1FF - Soft blue-white text */
+  --card: oklch(0.18 0.02 260);
+  /* #1A2238 - Card surface */
+  --card-foreground: oklch(0.92 0.01 260);
+  --popover: oklch(0.16 0.02 260);
+  --popover-foreground: oklch(0.92 0.01 260);
+
+  /* Primary - Tech Cyan */
+  --primary: oklch(0.75 0.15 195);
+  /* #00D1FF - Tech blue */
+  --primary-foreground: oklch(0.12 0.02 260);
+
+  /* Accent - Neon Cyan */
+  --accent: oklch(0.85 0.15 165);
+  /* #00FFC6 - Bright cyan */
+  --accent-foreground: oklch(0.12 0.02 260);
+
+  /* Warm colors - For CTA and highlights only */
+  --warm: oklch(0.72 0.18 50);
+  /* #FF9F45 - Warm orange */
+  --warm-soft: oklch(0.85 0.15 75);
+  /* #FFD166 - Soft gold */
+  --warm-foreground: oklch(0.12 0.02 260);
+
+  --secondary: oklch(0.22 0.02 260);
+  --secondary-foreground: oklch(0.92 0.01 260);
+  --muted: oklch(0.22 0.02 260);
+  --muted-foreground: oklch(0.65 0.02 260);
+  /* #94A3B8 - Slate 400 */
+
+  --destructive: oklch(0.65 0.20 25);
+  --border: oklch(0.30 0.03 260);
+  /* Semi-transparent tech border */
+  --input: oklch(0.25 0.02 260);
+  --ring: oklch(0.75 0.15 195);
+
+  /* Sidebar */
+  --sidebar: oklch(0.10 0.02 260);
+  /* #0B0F1A - Same as main bg */
+  --sidebar-foreground: oklch(0.92 0.01 260);
+  --sidebar-primary: oklch(0.75 0.15 195);
+  --sidebar-primary-foreground: oklch(0.12 0.02 260);
+  --sidebar-accent: oklch(0.20 0.02 260);
+  --sidebar-accent-foreground: oklch(0.92 0.01 260);
+  --sidebar-border: oklch(0.25 0.03 260);
+  --sidebar-ring: oklch(0.75 0.15 195);
+
   /* Chat bubble colors */
-  --ai-bubble: oklch(0.20 0.01 250);
-  /* #27272A - AI message bubble */
-  --user-bubble: oklch(0.99 0 0);
-  /* #FFFFFF - User message bubble (white) */
-  --user-bubble-foreground: oklch(0.10 0.01 250);
-  /* User message text (black) */
+  --ai-bubble: oklch(0.20 0.02 260);
+  /* Semi-transparent AI bubble */
+  --user-bubble: oklch(0.75 0.15 195);
+  /* Tech blue user bubble */
+  --user-bubble-foreground: oklch(0.12 0.02 260);
+
   /* Brand accent */
-  --brand-accent: oklch(0.75 0.15 55);
-  /* #FFB800 - Golden yellow for AH logo */
-  /* Switch checked color */
-  --switch-checked: oklch(0.55 0.16 145);
-  /* Green for switch on state - darker for dark mode */
+  --brand-accent: oklch(0.72 0.18 50);
+  /* Warm orange for brand */
+
+  /* Text dim - for placeholder and secondary text (dark mode) */
+  --text-dim: oklch(0.55 0.02 260);
+  /* Gray placeholder text */
+  --text-main: oklch(0.92 0.01 260);
+  /* Main text color */
+
+  /* Switch checked - Warm accent */
+  --switch-checked: oklch(0.72 0.18 50);
+
+  /* Glow effects */
+  --glow-primary: 0 0 20px oklch(0.75 0.15 195 / 0.4);
+  --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.5);
+  --glow-accent: 0 0 15px oklch(0.85 0.15 165 / 0.4);
+
+  /* Token stats - Dark theme (cool tech, unified palette) */
+  --token-input: #60A5FA;
+  --token-input-bg: rgba(96, 165, 250, 0.15);
+  --token-input-glow: 0 0 10px rgba(96, 165, 250, 0.4);
+
+  --token-output: #34D399;
+  --token-output-bg: rgba(52, 211, 153, 0.15);
+  --token-output-glow: 0 0 10px rgba(52, 211, 153, 0.4);
+
+  --token-cache: #A78BFA;
+  --token-cache-bg: rgba(167, 139, 250, 0.15);
+  --token-cache-glow: 0 0 10px rgba(167, 139, 250, 0.4);
+
+  --token-reasoning: #FB923C;
+  --token-reasoning-bg: rgba(251, 146, 60, 0.15);
+  --token-reasoning-glow: 0 0 10px rgba(251, 146, 60, 0.4);
+
+  --token-total: #818CF8;
+  --token-total-bg: rgba(129, 140, 248, 0.15);
+  --token-total-glow: 0 0 12px rgba(129, 140, 248, 0.5);
+
+  --token-track: rgba(255, 255, 255, 0.08);
 }
 
 @theme inline {
@@ -167,6 +274,32 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Smooth theme transition - applied to color-related properties only */
+  html.theme-transition,
+  html.theme-transition *,
+  html.theme-transition *::before,
+  html.theme-transition *::after {
+    transition: background-color 0.3s ease-out,
+      color 0.3s ease-out,
+      border-color 0.3s ease-out,
+      fill 0.3s ease-out,
+      stroke 0.3s ease-out,
+      box-shadow 0.3s ease-out !important;
+  }
+
+  /* Critical: Animate html root background immediately */
+  html {
+    transition: background-color 0.3s ease-out, color 0.3s ease-out;
+  }
+
+  /* Prevent FOUC - ensure smooth initial render */
+  html.no-transitions,
+  html.no-transitions *,
+  html.no-transitions *::before,
+  html.no-transitions *::after {
+    transition: none !important;
   }
 }
 
@@ -569,4 +702,19 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+/* ==================== Token Bar Shimmer Animation ==================== */
+@keyframes shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite;
 }

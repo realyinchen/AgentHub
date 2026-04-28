@@ -1,21 +1,31 @@
-from contextlib import AbstractAsyncContextManager
-from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from .db_manager import adb_manager, db_manager
-from .checkpointer import get_postgres_saver
-from .qdrant_manager import qdrant_manager
+"""
+Database Package
 
+Provides factory functions for obtaining database, vectorstore,
+and checkpointer instances. Business code should use these factory
+functions rather than importing backend classes directly.
+"""
 
-def get_checkpointer() -> AbstractAsyncContextManager[AsyncPostgresSaver]:
-    """
-    Initialize the postgres database checkpointer based on configuration.
-    Returns an initialized AsyncCheckpointer instance.
-    """
-    return get_postgres_saver()
-
+from app.database.factory import (
+    get_database,
+    get_vectorstore,
+    get_checkpointer,
+    get_saver,
+    init_database,
+    init_vectorstore,
+    init_checkpointer,
+    init_all,
+    dispose_all,
+)
 
 __all__ = [
-    "adb_manager",
-    "db_manager",
+    "get_database",
+    "get_vectorstore",
     "get_checkpointer",
-    "qdrant_manager",
+    "get_saver",
+    "init_database",
+    "init_vectorstore",
+    "init_checkpointer",
+    "init_all",
+    "dispose_all",
 ]

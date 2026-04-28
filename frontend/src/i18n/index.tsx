@@ -7,10 +7,10 @@ import {
   type TranslationParams,
 } from "./useI18n"
 
-export { useI18n } from "./useI18n"
 export type { Locale, TranslationKey, TranslationDictionary, I18nContextValue, TranslationParams } from "./useI18n"
 
-export function I18nProvider({ children }: PropsWithChildren) {
+// Named component function for Fast Refresh compatibility
+function I18nProvider({ children }: PropsWithChildren) {
   const [locale, setLocale] = useState<Locale>(resolveInitialLocale)
 
   const t = useCallback(
@@ -40,3 +40,8 @@ export function I18nProvider({ children }: PropsWithChildren) {
 
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>
 }
+
+export { I18nProvider }
+
+// Re-export useI18n hook separately for Fast Refresh compatibility
+export { useI18n } from "./useI18n"

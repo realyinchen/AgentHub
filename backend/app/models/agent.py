@@ -12,8 +12,8 @@ class Agent(Base):
     __tablename__ = "agents"
 
     agent_id = Column(String(64), primary_key=True)
-    description = Column(String(1024), primary_key=True)
-    is_active = Column(Boolean, nullable=False, default=False)
+    description = Column(String(1024), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
     created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
     updated_at = Column(
         DateTime(timezone=True),

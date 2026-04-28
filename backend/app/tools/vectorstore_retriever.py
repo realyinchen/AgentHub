@@ -1,57 +1,73 @@
-from typing import List
-from langchain_core.documents import Document
+"""
+Vectorstore Retriever Tool
+
+Provides a LangGraph tool for searching the vector store.
+Uses the abstract VectorstoreInterface so the tool is backend-agnostic.
+"""
+
+import logging
+from typing import Optional
+
 from langchain_core.tools import tool
-from langchain_qdrant import QdrantVectorStore
-from langchain_litellm import LiteLLMEmbeddings
+from pydantic import BaseModel, Field
 
-from app.core.config import settings
-from app.database import qdrant_manager
+from app.database.factory import get_vectorstore
+
+logger = logging.getLogger(__name__)
 
 
-def _get_vectorstore(collection_name: str) -> QdrantVectorStore:
-    client = qdrant_manager.get_client()
-    # Get embedding model configuration from environment variables
-    model_name = settings.EMBEDDING_MODEL_NAME
-    if not model_name:
-        raise ValueError("EMBEDDING_MODEL_NAME is not configured in .env")
-    api_key = (
-        settings.EMBEDDING_API_KEY.get_secret_value()
-        if settings.EMBEDDING_API_KEY
-        else None
+class VectorStoreSearchInput(BaseModel):
+    """Input schema for vector store search tool."""
+
+    query: str = Field(description="The search query text")
+    collection_name: str = Field(
+        default="documents",
+        description="The name of the collection to search in",
     )
-    embeddings = LiteLLMEmbeddings(model=model_name, api_key=api_key)
-    return QdrantVectorStore(
-        client=client,
-        collection_name=collection_name,
-        embedding=embeddings,
+    limit: int = Field(
+        default=5,
+        description="Maximum number of results to return",
     )
 
 
-@tool
-def retrieve_from_vectorstore(
-    collection_name: str, query: str
-) -> tuple[str, List[Document]]:
-    """Retrieve information to help answer a query.
-
-    This tool searches a vector store collection for documents similar to the query.
-    Use this when you need to retrieve relevant information from a knowledge base.
-
-    Args:
-        collection_name: Name of the vector store collection to search.
-        query: The search query to find relevant documents.
-
-    Returns:
-        A tuple containing:
-        - serialized_content: Formatted string with retrieved documents
-        - documents: List of retrieved Document objects
-
-    Examples:
-        >>> retrieve_from_vectorstore.invoke({"collection_name": "docs", "query": "What is AI?"})
+@tool(args_schema=VectorStoreSearchInput)
+async def vectorstore_search(
+    query: str,
+    collection_name: str = "documents",
+    limit: int = 5,
+) -> str:
     """
-    vectorstore = _get_vectorstore(collection_name)
-    retrieved_docs = vectorstore.similarity_search(query, k=2)
-    serialized = "\n\n".join(
-        (f"Source: {doc.metadata}\nContent: {doc.page_content}")
-        for doc in retrieved_docs
-    )
-    return serialized, retrieved_docs
+    Search the vector store for relevant documents.
+
+    This tool searches the configured vector store backend (Qdrant/sqlite-vec)
+    for documents similar to the query text.
+    """
+    try:
+        vectorstore = get_vectorstore()
+
+        # Use the vectorstore's text search which handles embedding internally
+        results = await vectorstore.search(
+            collection_name=collection_name,
+            query_text=query,
+            limit=limit,
+        )
+
+        if not results:
+            return "No relevant documents found."
+
+        # Format results
+        formatted = []
+        for i, result in enumerate(results, 1):
+            score = result.get("score", 0)
+            payload = result.get("payload", {})
+            content = payload.get("content", payload.get("text", str(payload)))
+            source = payload.get(
+                "source", payload.get("metadata", {}).get("source", "unknown")
+            )
+            formatted.append(f"[{i}] (Score: {score:.4f}, Source: {source})\n{content}")
+
+        return "\n\n---\n\n".join(formatted)
+
+    except Exception as e:
+        logger.error(f"Vectorstore search error: {e}")
+        return f"Error searching vector store: {str(e)}"

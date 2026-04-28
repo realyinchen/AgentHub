@@ -1,21 +1,22 @@
 from pydantic import BaseModel, Field
 from datetime import datetime, timezone
+from typing import Optional
 
 
 class Agent(BaseModel):
     agent_id: str = Field(
-        description="The thread ID of the conversation.",
-        examples=["chatbot"],
+        description="The unique identifier of the agent",
+        examples=["chatbot", "research-assistant"],
     )
     description: str = Field(
-        description="The thread ID of the conversation.",
-        examples=["A simple chatbot"],
+        description="A description of what the agent does",
+        examples=["A simple chatbot for general conversations"],
         min_length=0,
         max_length=1024,
     )
-    is_active: bool | None = Field(
-        description="The thread ID of the conversation.",
-        default=False,
+    is_active: Optional[bool] = Field(
+        description="Whether the agent is active and available for use",
+        default=True,
         examples=[True],
     )
 
@@ -24,16 +25,34 @@ class AgentCreate(Agent):
     pass
 
 
-class AgentUpdate(Agent):
-    pass
+class AgentUpdate(BaseModel):
+    agent_id: Optional[str] = Field(
+        None,
+        description="The unique identifier of the agent",
+        examples=["chatbot"],
+    )
+    description: Optional[str] = Field(
+        None,
+        description="A description of what the agent does",
+        examples=["A simple chatbot for general conversations"],
+        min_length=0,
+        max_length=1024,
+    )
+    is_active: Optional[bool] = Field(
+        None,
+        description="Whether the agent is active and available for use",
+        examples=[True],
+    )
 
 
 class AgentInDB(Agent):
     created_at: datetime = Field(
-        description="The create time of the agent", default=datetime.now(timezone.utc)
+        description="Timestamp when the agent was created",
+        default_factory=lambda: datetime.now(timezone.utc),
     )
     updated_at: datetime = Field(
-        description="The update time of the agent", default=datetime.now(timezone.utc)
+        description="Timestamp when the agent was last updated",
+        default_factory=lambda: datetime.now(timezone.utc),
     )
 
     class Config:

@@ -16,10 +16,35 @@ def _get_encryption_key() -> bytes:
 
     AES-GCM requires a 16, 24, or 32 byte key.
     We use SHA-256 to derive a 32-byte key from the secret.
+
+    Raises:
+        RuntimeError: In production mode, if API_KEY_ENCRYPTION_KEY is not set.
     """
     import hashlib
 
-    encryption_key = os.getenv("API_KEY_ENCRYPTION_KEY", "AgentHub2026SecureKey!@#$%")
+    encryption_key = os.getenv("API_KEY_ENCRYPTION_KEY")
+
+    if encryption_key is None:
+        # Check if we're in production mode
+        env = os.getenv("ENVIRONMENT", os.getenv("PYTHON_ENV", "development")).lower()
+        is_production = env in {"prod", "production"}
+
+        if is_production:
+            raise RuntimeError(
+                "API_KEY_ENCRYPTION_KEY must be set in production mode. "
+                "Please set this environment variable to a secure random string."
+            )
+
+        # Development mode: use a default key and issue a warning
+        import logging
+
+        logger = logging.getLogger(__name__)
+        logger.warning(
+            "Using default API_KEY_ENCRYPTION_KEY in development mode. "
+            "This is NOT secure for production!"
+        )
+        encryption_key = "AgentHub2026SecureKey!@#$%"
+
     # Derive a 32-byte key using SHA-256
     return hashlib.sha256(encryption_key.encode("utf-8")).digest()
 

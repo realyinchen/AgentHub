@@ -192,29 +192,29 @@ class Conversation(BaseModel):
 
 
 class ConversationCreate(Conversation):
-    created_at: datetime = Field(
-        description="The create time of the conversation",
-        default=datetime.now(timezone.utc),
-    )
-    updated_at: datetime = Field(
-        description="The update time of the conversation",
-        default=datetime.now(timezone.utc),
-    )
-    is_deleted: bool | None = Field(
-        description="Whether the conversation is been deleted.",
-        default=False,
-        examples=[True],
-    )
+    """Schema for creating a conversation. Server-side fields are set automatically."""
+
+    pass
 
 
-class ConversationUpdate(Conversation):
-    updated_at: datetime = Field(
-        description="The update time of the conversation",
-        default=datetime.now(timezone.utc),
+class ConversationUpdate(BaseModel):
+    """Schema for updating a conversation. All fields are optional for partial updates."""
+
+    title: str | None = Field(
+        default=None,
+        description="The title of the conversation",
+        examples=["Hello"],
+        min_length=1,
+        max_length=64,
+    )
+    agent_id: str | None = Field(
+        default=None,
+        description="The agent ID used in this conversation.",
+        examples=["chatbot", "navigator"],
     )
     is_deleted: bool | None = Field(
-        description="Whether the conversation is been deleted.",
-        default=False,
+        default=None,
+        description="Whether the conversation has been deleted.",
         examples=[True],
     )
 
@@ -222,14 +222,14 @@ class ConversationUpdate(Conversation):
 class ConversationInDB(Conversation):
     created_at: datetime = Field(
         description="The create time of the conversation",
-        default=datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc),
     )
     updated_at: datetime = Field(
         description="The update time of the conversation",
-        default=datetime.now(timezone.utc),
+        default_factory=lambda: datetime.now(timezone.utc),
     )
     is_deleted: bool | None = Field(
-        description="Whether the conversation is been deleted.",
+        description="Whether the conversation has been deleted.",
         default=False,
         examples=[True],
     )

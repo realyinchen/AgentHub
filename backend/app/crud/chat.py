@@ -1,5 +1,4 @@
 from uuid import UUID
-from typing import List
 
 from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,13 +7,12 @@ from app.models.chat import Conversation
 from app.schemas.chat import (
     ConversationCreate,
     ConversationUpdate,
-    ConversationInDB,
 )
 
 
 async def read_conversation_by_thread_id(
     db: AsyncSession, thread_id: UUID
-) -> ConversationInDB | None:
+) -> Conversation | None:
     stmt = select(Conversation).where(
         Conversation.thread_id == thread_id, Conversation.is_deleted.is_(False)
     )
@@ -22,24 +20,9 @@ async def read_conversation_by_thread_id(
     return result.scalar_one_or_none()
 
 
-async def read_conversation(
-    db: AsyncSession, thread_id: UUID
-) -> ConversationInDB | None:
-    stmt = select(Conversation).where(
-        Conversation.thread_id == thread_id, Conversation.is_deleted.is_(False)
-    )
-    result = await db.execute(stmt)
-    conv = result.scalar_one_or_none()
-
-    if not conv:
-        return None
-
-    return ConversationInDB.model_validate(conv)
-
-
 async def create_conversation(
     db: AsyncSession, conversation_in: ConversationCreate
-) -> ConversationInDB:
+) -> Conversation:
     create_data = conversation_in.model_dump(exclude_unset=True)
 
     db_obj = Conversation(
@@ -55,22 +38,24 @@ async def create_conversation(
 
 
 async def update_conversation_by_thread_id(
-    db: AsyncSession, update_data: ConversationUpdate
-) -> ConversationInDB | None:
-    if update_data.model_dump(exclude_unset=True) == {}:
+    db: AsyncSession, thread_id: UUID, update_data: ConversationUpdate
+) -> Conversation | None:
+    update_values = update_data.model_dump(exclude_unset=True)
+    if not update_values:
         raise ValueError("No fields provided to update")
 
     stmt = (
         update(Conversation)
         .where(
-            Conversation.thread_id == update_data.thread_id,
+            Conversation.thread_id == thread_id,
             Conversation.is_deleted.is_(False),
         )
-        .values(**update_data.model_dump(exclude_unset=True))
+        .values(**update_values)
         .returning(Conversation)
     )
 
     result = await db.execute(stmt)
+    await db.flush()
     updated = result.scalar_one_or_none()
 
     if not updated:
@@ -93,6 +78,7 @@ async def soft_delete_conversation_by_thread_id(
     )
 
     result = await db.execute(stmt)
+    await db.flush()
     deleted = result.scalar_one_or_none()
 
     return bool(deleted)
@@ -100,7 +86,7 @@ async def soft_delete_conversation_by_thread_id(
 
 async def list_conversations(
     db: AsyncSession, limit: int = 20, offset: int = 0
-) -> tuple[List[ConversationInDB], int]:
+) -> tuple[list[Conversation], int]:
     stmt = (
         select(Conversation)
         .where(Conversation.is_deleted.is_(False))
@@ -121,7 +107,7 @@ async def list_conversations(
     total_result = await db.execute(count_stmt)
     total = total_result.scalar_one()
 
-    return [ConversationInDB.model_validate(c) for c in convs], total
+    return list(convs), total
 
 
 async def update_conversation_tokens(
@@ -132,7 +118,7 @@ async def update_conversation_tokens(
     output_tokens: int = 0,
     reasoning: int = 0,
     total_tokens: int = 0,
-) -> ConversationInDB | None:
+) -> Conversation | None:
     """Update conversation token usage by accumulating the new values.
 
     Args:
@@ -164,9 +150,10 @@ async def update_conversation_tokens(
     )
 
     result = await db.execute(stmt)
+    await db.flush()
     updated = result.scalar_one_or_none()
 
     if not updated:
         return None
 
-    return ConversationInDB.model_validate(updated)
+    return updated

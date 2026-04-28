@@ -9,7 +9,9 @@ import type {
   ModelUpdate,
   StreamEvent,
   UserInput,
+  ProviderInfo,
   ProvidersResponse,
+  ProviderUpdate,
 } from "@/types"
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
@@ -38,14 +40,46 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function listAgents(): Promise<AgentInDB[]> {
-  return requestJson<AgentInDB[]>("/agents/?active_only=true&limit=100&offset=0")
+export async function listAgents(
+  limit = 10,
+  offset = 0,
+): Promise<{ agents: AgentInDB[]; total: number }> {
+  const agents = await requestJson<AgentInDB[]>(
+    `/agents/?active_only=true&limit=${limit}&offset=${offset}`,
+  )
+  // Note: Backend doesn't return total for agents, we use hasMore pattern
+  return { agents, total: agents.length }
 }
 
-export async function listConversations(limit = 100): Promise<ConversationInDB[]> {
-  return requestJson<ConversationInDB[]>(
-    `/chat/conversations?limit=${limit}&offset=0`,
+export async function listConversations(
+  limit = 10,
+  offset = 0,
+): Promise<{ conversations: ConversationInDB[]; total: number }> {
+  const response = await fetch(
+    `${apiBaseUrl}/chat/conversations?limit=${limit}&offset=${offset}`,
   )
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`)
+  }
+  const conversations = (await response.json()) as ConversationInDB[]
+  // Get total from X-Total-Count header if available, otherwise estimate
+  const totalHeader = response.headers.get("X-Total-Count")
+  const total = totalHeader ? parseInt(totalHeader, 10) : conversations.length
+  return { conversations, total }
+}
+
+export async function loadMoreAgents(
+  offset: number,
+  limit = 10,
+): Promise<{ agents: AgentInDB[]; total: number }> {
+  return listAgents(limit, offset)
+}
+
+export async function loadMoreConversations(
+  offset: number,
+  limit = 10,
+): Promise<{ conversations: ConversationInDB[]; total: number }> {
+  return listConversations(limit, offset)
 }
 
 export async function createConversation(input: {
@@ -65,14 +99,21 @@ export async function getConversationTitle(
   return requestJson<ConversationInDB | null>(`/chat/title/${threadId}`)
 }
 
-export async function setConversationTitle(input: {
-  thread_id: string
-  title: string
-  is_deleted?: boolean
-}): Promise<ConversationInDB | null> {
-  return requestJson<ConversationInDB | null>("/chat/title", {
+export async function setConversationTitle(
+  threadId: string,
+  title: string,
+): Promise<ConversationInDB | null> {
+  return requestJson<ConversationInDB | null>(`/chat/title?thread_id=${encodeURIComponent(threadId)}`, {
     method: "POST",
-    body: JSON.stringify(input),
+    body: JSON.stringify({ title }),
+  })
+}
+
+export async function deleteConversation(
+  threadId: string,
+): Promise<void> {
+  await fetch(`${apiBaseUrl}/chat/conversations/${encodeURIComponent(threadId)}`, {
+    method: "DELETE",
   })
 }
 
@@ -193,22 +234,22 @@ export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
 // ==================== Model API ====================
 
 /**
- * 获取可用模型列表（前端下拉框使用）
- * 只返回已配置 API Key 的模型
+ * Get available models (for frontend dropdown)
+ * Only returns models with API key configured
  */
 export async function getAvailableModels(): Promise<ModelsResponse> {
   return requestJson<ModelsResponse>("/models/")
 }
 
 /**
- * 获取所有模型（配置页面使用）
+ * Get all models (for configuration page)
  */
 export async function getAllModels(): Promise<ModelsResponse> {
   return requestJson<ModelsResponse>("/models/all")
 }
 
 /**
- * 创建新模型
+ * Create a new model
  */
 export async function createModel(data: ModelCreate): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/", {
@@ -218,37 +259,37 @@ export async function createModel(data: ModelCreate): Promise<ModelInfo> {
 }
 
 /**
- * 更新模型配置
+ * Update model configuration
  */
-export async function updateModel(modelId: string, data: ModelUpdate): Promise<ModelInfo> {
+export async function updateModel(id: string, data: ModelUpdate): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/update", {
     method: "POST",
-    body: JSON.stringify({ model_id: modelId, ...data }),
+    body: JSON.stringify({ id, ...data }),
   })
 }
 
 /**
- * 删除模型
+ * Delete a model
  */
-export async function deleteModel(modelId: string): Promise<void> {
+export async function deleteModel(id: string): Promise<void> {
   await requestJson<void>("/models/delete", {
     method: "POST",
-    body: JSON.stringify({ model_id: modelId }),
+    body: JSON.stringify({ id }),
   })
 }
 
 /**
- * 设置默认模型
+ * Set default model
  */
-export async function setDefaultModel(modelId: string): Promise<ModelInfo> {
+export async function setDefaultModel(id: string): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/set-default", {
     method: "POST",
-    body: JSON.stringify({ model_id: modelId }),
+    body: JSON.stringify({ id }),
   })
 }
 
 /**
- * 设置默认思考模型
+ * Set default thinking model
  */
 export async function setDefaultThinkingModel(modelId: string): Promise<ModelInfo> {
   return requestJson<ModelInfo>("/models/set-default-thinking", {
@@ -258,7 +299,7 @@ export async function setDefaultThinkingModel(modelId: string): Promise<ModelInf
 }
 
 /**
- * 手动刷新模型缓存
+ * Manually refresh model cache
  */
 export async function refreshModelsCache(): Promise<{ success: boolean; message: string; models_count: number }> {
   return requestJson<{ success: boolean; message: string; models_count: number }>("/models/refresh", {
@@ -267,8 +308,18 @@ export async function refreshModelsCache(): Promise<{ success: boolean; message:
 }
 
 /**
- * 获取可用的模型提供商列表
+ * Get all providers with their configuration
  */
 export async function getProviders(): Promise<ProvidersResponse> {
-  return requestJson<ProvidersResponse>("/models/providers")
+  return requestJson<ProvidersResponse>("/providers/")
+}
+
+/**
+ * Update provider configuration (API key and/or base URL)
+ */
+export async function updateProvider(data: ProviderUpdate): Promise<ProviderInfo> {
+  return requestJson<ProviderInfo>("/providers/update", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
 }

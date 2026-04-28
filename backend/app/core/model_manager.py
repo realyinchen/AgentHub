@@ -8,8 +8,9 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage
 import litellm
 
-from app.database import adb_manager
+from app.database import get_database
 from app.crud import model as crud
+from app.crud import provider as provider_crud
 from app.utils.crypto import decrypt_api_key
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ class ModelManager:
 
     _router: Optional[Router] = None
     _models_cache: dict = {}
+    _providers_cache: dict = {}  # provider_name -> Provider
     _llm_cache: dict[str, Runnable[LanguageModelInput, AIMessage]] = {}
     _default_llm_id: Optional[str] = None
     _default_vlm_id: Optional[str] = None
@@ -137,9 +139,14 @@ class ModelManager:
         """Internal refresh method (must be called with lock held)"""
         logger.info("Refreshing model configuration from database...")
 
-        async with adb_manager.session() as db:
-            # Load all active models with API key configured
-            models = await crud.get_models_with_api_key(db)
+        db = get_database()
+        async with db.session() as db_session:
+            # Load all providers into cache
+            providers = await provider_crud.get_all_providers(db_session)
+            cls._providers_cache = {p.provider: p for p in providers}
+
+            # Load all active models with provider API key configured
+            models = await crud.get_models_with_provider_config(db_session)
             cls._models_cache = {m.model_id: m for m in models}
 
             # Cache default model IDs by type
@@ -158,7 +165,6 @@ class ModelManager:
                         cls._default_embedding_id = str(m.model_id)
 
             # Build LiteLLM Router model_list
-            # Note: extra_body is built dynamically when getting LLM, not here
             model_list = cls._build_litellm_model_list(models)
 
             if model_list:
@@ -187,43 +193,29 @@ class ModelManager:
             # Build default extra_body (thinking disabled)
             extra_body = build_extra_body(m.provider, False)
 
-            # Build litellm model name for Router
-            # LiteLLM expects format: provider/model_name (e.g., "dashscope/qwen3.5-flash")
-            # If model_id doesn't have provider prefix, add it
-            if "/" in m.model_id:
-                litellm_model = m.model_id
-            else:
-                # Add provider prefix based on provider field
-                provider_prefix = m.provider.lower()
-                # Map common provider names to litellm provider prefixes
-                provider_mapping = {
-                    "dashscope": "dashscope",
-                    "alibaba": "dashscope",
-                    "zhipu": "zhipu",
-                    "zai": "zhipu",
-                    "openai": "openai",
-                    "deepseek": "deepseek",
-                    "anthropic": "anthropic",
-                    "google": "gemini",
-                    "gemini": "gemini",
-                }
-                litellm_provider = provider_mapping.get(
-                    provider_prefix, provider_prefix
-                )
-                litellm_model = f"{litellm_provider}/{m.model_id}"
+            # Get API key from provider cache
+            provider_config = cls._providers_cache.get(m.provider)
+            decrypted_api_key = ""
+            base_url = None
+            if provider_config and provider_config.api_key:
+                decrypted_api_key = decrypt_api_key(provider_config.api_key)
+            if provider_config and provider_config.base_url:
+                base_url = provider_config.base_url
 
-            # Decrypt API key before passing to litellm
-            decrypted_api_key = decrypt_api_key(m.api_key) if m.api_key else ""
+            # Use model_id as model_name for Router (identifier)
+            # model is the litellm format (same as model_id now)
+            litellm_params = {
+                "model": m.model_id,  # model_id already has provider prefix
+                "api_key": decrypted_api_key,
+                "extra_body": extra_body,
+            }
+            # Add base_url for OpenAI-Compatible providers
+            if base_url:
+                litellm_params["api_base"] = base_url
 
-            # Use litellm_model as model_name for Router
-            # model_name is the internal identifier, model is the litellm format
             model_config = {
-                "model_name": m.model_id,  # Keep original model_id as identifier
-                "litellm_params": {
-                    "model": litellm_model,  # Use provider-prefixed format for litellm
-                    "api_key": decrypted_api_key,
-                    "extra_body": extra_body,
-                },
+                "model_name": m.model_id,  # Use model_id as identifier
+                "litellm_params": litellm_params,
             }
 
             result.append(model_config)
@@ -332,6 +324,33 @@ class ModelManager:
         raise ValueError("No embedding models available.")
 
     @classmethod
+    async def get_embedding_model_instance(cls, model_id: Optional[str] = None):
+        """
+        Get embedding model instance for vector store.
+
+        Args:
+            model_id: Specify model ID, use default if not provided
+
+        Returns:
+            Tuple of (model_name, api_key) for LiteLLMEmbeddings
+        """
+        # Get model ID (either specified or default)
+        actual_model_id = await cls.get_embedding_model(model_id)
+        model = cls._models_cache.get(actual_model_id)
+
+        if not model:
+            raise ValueError(f"Embedding model '{actual_model_id}' not found in cache.")
+
+        # model_id is already in provider/model_id format
+        # Get API key from provider cache
+        provider_config = cls._providers_cache.get(model.provider)
+        decrypted_api_key = ""
+        if provider_config and provider_config.api_key:
+            decrypted_api_key = decrypt_api_key(provider_config.api_key)
+
+        return model.model_id, decrypted_api_key
+
+    @classmethod
     def get_model(cls, model_id: str):
         """Get model from cache"""
         return cls._models_cache.get(model_id)
@@ -350,7 +369,6 @@ class ModelManager:
         return [
             {
                 "model_id": m.model_id,
-                "model_name": m.model_name,
                 "model_type": m.model_type,
                 "provider": m.provider,
                 "thinking": m.thinking,
@@ -374,3 +392,11 @@ class ModelManager:
     def get_default_embedding_id(cls) -> Optional[str]:
         """Get default embedding model ID (from cache, no DB query)"""
         return cls._default_embedding_id
+
+    @classmethod
+    def get_models_count(cls) -> int:
+        """Get the total number of cached models.
+
+        Public method to access cached model count without accessing private _models_cache.
+        """
+        return len(cls._models_cache)

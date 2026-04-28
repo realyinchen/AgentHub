@@ -700,7 +700,7 @@ async def amap_driving_route(
     result["segment_navigation_urls"] = segment_urls
 
     # Generate marker labels for display
-    # Format: [{"label": "A", "name": "起点名称", "color": "green"}, ...]
+    # Format: [{"label": "A", "name": "Start point name", "color": "green"}, ...]
     marker_labels = []
 
     # Origin (A - green)

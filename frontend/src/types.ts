@@ -83,14 +83,36 @@ export type UserInput = {
 
 // ==================== Model Types ====================
 
+// ==================== Provider Types ====================
+
+export type ProviderInfo = {
+  provider: string  // e.g. "dashscope", "zai", "openai-compatible"
+  has_api_key: boolean
+  base_url: string | null
+  is_openai_compatible: boolean
+  created_at: string
+  updated_at: string
+}
+
+export type ProvidersResponse = {
+  providers: ProviderInfo[]
+}
+
+export type ProviderUpdate = {
+  provider: string
+  api_key?: string | null
+  base_url?: string | null
+}
+
+// ==================== Model Types ====================
+
 export type ModelType = "llm" | "vlm" | "embedding"
 
 export type ModelInfo = {
+  id: string  // UUID primary key
   provider: string  // e.g. "dashscope", "zai"
   model_type: ModelType
   model_id: string  // e.g. "dashscope/qwen3.5-27b"
-  model_name: string  // e.g. "qwen3.5-27b"
-  has_api_key: boolean
   thinking: boolean  // whether supports thinking mode
   is_default: boolean
   is_active: boolean
@@ -101,9 +123,7 @@ export type ModelInfo = {
 export type ModelCreate = {
   provider: string
   model_type: ModelType
-  model_id: string
-  model_name: string
-  api_key?: string | null
+  model_id: string  // format: "provider/model_name", e.g. "dashscope/qwen3.5-27b"
   thinking?: boolean
   is_default?: boolean
   is_active?: boolean
@@ -112,8 +132,7 @@ export type ModelCreate = {
 export type ModelUpdate = {
   provider?: string
   model_type?: ModelType
-  model_name?: string
-  api_key?: string | null
+  model_id?: string  // Allow updating model_id (will create new record, delete old one)
   thinking?: boolean
   is_default?: boolean
   is_active?: boolean
@@ -126,7 +145,8 @@ export type ModelsResponse = {
   default_embedding: string | null
 }
 
-export type ProvidersResponse = {
+// Legacy providers response (list of strings)
+export type ProviderListResponse = {
   providers: string[]
 }
 

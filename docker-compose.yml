@@ -1,0 +1,177 @@
+# AgentHub Full-Stack Docker Compose Configuration
+#
+# =============================================================================
+# 📝 PRE-REQUISITE: COPY .env FILES
+# =============================================================================
+#
+#   cd backend && cp .env.example .env
+#   cd ../frontend && cp .env.example .env
+#   cd ..
+#
+# All configuration is managed in backend/.env and frontend/.env files.
+# Edit those files to customize your deployment.
+#
+# =============================================================================
+# 🚀 QUICK START (SQLite Mode - Zero External Dependencies)
+# =============================================================================
+#
+#   1. Copy .env.example to .env (as above)
+#   2. Edit backend/.env to add your 3rd-party API keys (Tavily, Amap, etc.)
+#   3. Start:
+#
+#   docker-compose up -d
+#
+#   Open http://localhost:5173 → Configure LLM API keys in Web UI
+#
+# =============================================================================
+# 🐘 PRODUCTION DEPLOYMENT (PostgreSQL Mode)
+# =============================================================================
+#
+#   1. Edit backend/.env:
+#      - DATABASE_TYPE=postgres
+#      - VECTORSTORE_TYPE=qdrant
+#      - POSTGRES_HOST=postgres     (Docker service name, not localhost)
+#      - QDRANT_HOST=qdrant         (Docker service name, not localhost)
+#   2. Start with postgres profile:
+#
+#   docker-compose --profile postgres up -d
+#
+# =============================================================================
+# DEFAULT VALUES (in .env.example):
+#   - DATABASE_TYPE: sqlite
+#   - VECTORSTORE_TYPE: sqlite_vec
+#   - NGINX_BACKEND_HOST: backend   (same server, Docker service name)
+#
+
+networks:
+  agenthub-network:
+    driver: bridge
+    name: agenthub-network
+
+volumes:
+  # SQLite database files persist here (mounted to backend /app/data)
+  # Also used in PostgreSQL mode for any other persistent files - harmless
+  backend-data:
+    name: agenthub-backend-data
+
+  # PostgreSQL data volume (only used in postgres profile)
+  postgres-data:
+    name: agenthub-postgres-data
+
+  # Qdrant vector database volume (only used in postgres profile)
+  qdrant-data:
+    name: agenthub-qdrant-data
+
+services:
+  # ---------------------------------------------------------------------------
+  # Backend Service (always runs)
+  # ---------------------------------------------------------------------------
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: agenthub-backend
+    container_name: agenthub-backend
+    restart: unless-stopped
+    networks:
+      - agenthub-network
+    volumes:
+      # Mount persistent volume for SQLite databases
+      - backend-data:/app/data
+    env_file:
+      # All backend configuration comes from backend/.env
+      - ./backend/.env
+    environment:
+      # Override for Docker container: listen on all interfaces
+      HOST: 0.0.0.0
+      PORT: 8080
+      # Override for Docker container: SQLite path inside volume
+      SQLITE_DATABASE_PATH: /app/data/agenthub.db
+      SQLITE_VEC_DATABASE_PATH: /app/data/agenthub_vec.db
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ---------------------------------------------------------------------------
+  # Frontend Service (always runs)
+  # ---------------------------------------------------------------------------
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Fixed: nginx proxies /api/ to backend service via relative path
+        VITE_API_BASE_URL: /api/v1
+        # Read from frontend/.env (passed via shell/env to build args)
+        NGINX_BACKEND_HOST: ${NGINX_BACKEND_HOST:-backend}
+        NGINX_BACKEND_PORT: ${NGINX_BACKEND_PORT:-8080}
+    image: agenthub-frontend
+    container_name: agenthub-frontend
+    restart: unless-stopped
+    networks:
+      - agenthub-network
+    env_file:
+      # All frontend configuration comes from frontend/.env
+      - ./frontend/.env
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Service (postgres profile only)
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["postgres"]
+    container_name: agenthub-postgres
+    restart: unless-stopped
+    networks:
+      - agenthub-network
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-langchain}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-langgraph}
+      POSTGRES_DB: ${POSTGRES_DB:-agentdb}
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-langchain} -d ${POSTGRES_DB:-agentdb}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ---------------------------------------------------------------------------
+  # Qdrant Vector Database (postgres profile only)
+  # ---------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:latest
+    profiles: ["postgres"]
+    container_name: agenthub-qdrant
+    restart: unless-stopped
+    networks:
+      - agenthub-network
+    volumes:
+      - qdrant-data:/qdrant/storage
+    expose:
+      - "6333"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6333/readyz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s

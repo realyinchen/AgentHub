@@ -7,12 +7,8 @@ from fastapi.routing import APIRoute
 from app.utils.agent_utils import get_available_agents
 from app.core.config import settings
 from app.core.model_manager import ModelManager
-from app.database import (
-    adb_manager,
-    db_manager,
-    get_checkpointer,
-    qdrant_manager,
-)
+from app.core.rate_limiter import limiter
+from app.database import init_all, dispose_all, get_saver
 from app.api.v1.router import api_router
 
 
@@ -27,33 +23,38 @@ def custom_generate_unique_id(route: APIRoute) -> str:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
-    Configurable lifespan that initializes the appropriate database checkpointer and vectorstore
+    Application lifespan: initialize all database components on startup,
+    dispose them on shutdown.
     """
     try:
-        await adb_manager.initialize()
-        db_manager.initialize()
-        qdrant_manager.initialize()
+        # Initialize all database components (database + vectorstore + checkpointer)
+        await init_all()
+        logger.info("All database components initialized successfully")
 
         # Initialize model manager (preload model configurations)
         await ModelManager.refresh()
 
-        # Initialize checkpointer (for short-term memory)
-        async with get_checkpointer() as checkpointer:
-            if hasattr(checkpointer, "setup"):
-                await checkpointer.setup()
-            # Configure agents with both memory components and async loading
-            available_agents = await get_available_agents()
-            for agent in available_agents:
-                # Set checkpointer for thread-scoped memory (conversation history)
-                agent.checkpointer = checkpointer
-            yield
-            qdrant_manager.dispose()
-            db_manager.dispose()
-            await adb_manager.dispose()
+        # Get the checkpointer saver for agent configuration
+        saver = get_saver()
+
+        # Configure agents with checkpointer for thread-scoped memory
+        available_agents = await get_available_agents()
+        for agent in available_agents:
+            agent.checkpointer = saver
+
+        yield
+
+        # Cleanup all database components
+        await dispose_all()
+        logger.info("All database components disposed successfully")
     except Exception as e:
-        logger.error(f"Error during database and vectorstore initialization: {e}")
+        logger.error(f"Error during database initialization: {e}")
         raise
 
 
 app = FastAPI(lifespan=lifespan, generate_unique_id_function=custom_generate_unique_id)
+
+# Add rate limiter to app
+app.state.limiter = limiter
+
 app.include_router(api_router, prefix=settings.API_V1_STR)
