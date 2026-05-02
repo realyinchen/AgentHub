@@ -1,4 +1,5 @@
-from sqlalchemy import Column, String, Boolean, DateTime, Text
+from sqlalchemy import String, Boolean, DateTime, Text
+from sqlalchemy.orm import Mapped, mapped_column
 from datetime import datetime, timezone
 
 from app.database.base import Base
@@ -22,16 +23,22 @@ class Provider(Base):
 
     __tablename__ = "providers"
 
-    provider = Column(
+    provider: Mapped[str] = mapped_column(
         String(64), primary_key=True
     )  # e.g. "dashscope", "zai", "openai-compatible"
-    api_key = Column(Text, nullable=False, default="")  # encrypted API key
-    base_url = Column(
+    api_key: Mapped[str] = mapped_column(
+        Text, nullable=False, default=""
+    )  # encrypted API key
+    base_url: Mapped[str | None] = mapped_column(
         String(512), nullable=True
     )  # base URL for OpenAI-Compatible providers
-    is_openai_compatible = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(
+    is_openai_compatible: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=utc_now,

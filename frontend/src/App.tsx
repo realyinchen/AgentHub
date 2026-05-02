@@ -378,8 +378,8 @@ function App() {
     abortControllerRef.current?.abort()
     setIsStreaming(false)
 
-    const newThreadId = crypto.randomUUID()
-    setThreadId(newThreadId)
+    // Delay thread_id creation until first message is sent
+    setThreadId("")
     writeThreadIdToUrl(null)
     setMessages([])
     setMessageSequence([]) // Clear message sequence for new conversation
@@ -653,11 +653,17 @@ function App() {
       const trimmed = rawInput.trim()
       if (
         !trimmed ||
-        !threadId ||
         !selectedAgentId ||
         isStreaming
       ) {
         return
+      }
+
+      // Lazy create thread_id if this is a brand new conversation
+      let targetThreadId = threadId
+      if (!targetThreadId) {
+        targetThreadId = crypto.randomUUID()
+        setThreadId(targetThreadId)
       }
 
       setAppError(null)
@@ -674,7 +680,6 @@ function App() {
         ),
       ])
 
-      const targetThreadId = threadId
       const currentTitle = conversationTitle
 
       try {
@@ -735,12 +740,6 @@ function App() {
             } : undefined,
           },
           (event: StreamEvent) => {
-            // Received any content, stop showing "processing..."
-            if (isProcessingRef.current) {
-              setIsProcessing(false)
-              isProcessingRef.current = false
-            }
-
             if (event.type === "llm") {
               // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
               setIsAgentThinking(true)
@@ -782,6 +781,11 @@ function App() {
 
             if (event.type === "token") {
               // When we start receiving tokens, agent is no longer "thinking"
+              // Also stop showing "processing..." loader since content is now arriving
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               setIsAgentThinking(false)
               setActiveToolCall(null)
               addStreamToken(event.content)
@@ -1162,11 +1166,6 @@ function App() {
             thinking_mode: currentThinkingMode,
           },
           (event: StreamEvent) => {
-            if (isProcessingRef.current) {
-              setIsProcessing(false)
-              isProcessingRef.current = false
-            }
-
             if (event.type === "llm") {
               setIsAgentThinking(true)
               setActiveToolCall(null)
@@ -1175,6 +1174,11 @@ function App() {
             }
 
             if (event.type === "token") {
+              // Stop showing "processing..." loader when actual content arrives
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               setIsAgentThinking(false)
               setActiveToolCall(null)
               addStreamToken(event.content)
@@ -1526,8 +1530,8 @@ function App() {
 
           setIsLoadingConversation(false)
         } else {
-          const newThreadId = crypto.randomUUID()
-          setThreadId(newThreadId)
+          // New conversation: delay thread_id creation until first message is sent
+          setThreadId("")
           setConversationTitleState(defaultConversationTitle)
           setDraftTitle(defaultConversationTitle)
           setMessages([])

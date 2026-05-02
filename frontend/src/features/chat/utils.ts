@@ -75,7 +75,9 @@ export function getErrorMessage(error: unknown, fallback = "Unexpected error"): 
 }
 
 export function formatUpdatedAt(isoString: string, locale: Locale): string {
-  const date = new Date(isoString)
+  // Ensure ISO string is treated as UTC (add Z suffix if missing)
+  const utcString = isoString.endsWith("Z") ? isoString : isoString + "Z"
+  const date = new Date(utcString)
   if (Number.isNaN(date.getTime())) {
     return ""
   }

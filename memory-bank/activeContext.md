@@ -6,6 +6,16 @@ Docker Compose profiles-based optimization — restructured Docker deployment wi
 
 ## Recent Changes
 
+### Model Configuration API Key Validation (2026-04-30)
+- **Strong validation rule**: Can only add/edit models AFTER provider API key is successfully saved
+- **Disabled buttons when no API key saved**:
+  - "Add Model" button (initial state)
+  - "Continue Add" button (when new model forms exist)
+  - Model edit (pencil) button on each model card
+- **Tooltip hints**: Hovering disabled buttons shows "Please save the API Key first before adding/editing models"
+- **Empty list message**: Shows different messages based on API key status — guides user to save API key first
+- **Validation logic**: Uses `provider.has_api_key` (backend state), NOT frontend input value — ensures key is actually saved before allowing model operations
+
 ### Docker Compose Profiles Overhaul (2026-04-28 v3)
 - **Profiles-based `docker-compose.yml`**: Three modes — dev (default), prod (`--profile prod`), postgres (`--profile postgres`)
 - **Frontend dev & prod both use nginx**: `frontend` service (default) and `frontend-prod` (profile) both use the same multi-stage Dockerfile with nginx. The difference is `frontend-prod` is behind `profiles: ["prod"]` for explicit production targeting.

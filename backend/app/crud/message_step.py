@@ -1,3 +1,4 @@
+import json
 import logging
 from uuid import UUID
 from typing import List
@@ -19,11 +20,20 @@ async def save_tool_step(
     tool_name: str,
     tool_args: dict | None = None,
     tool_output: str | None = None,
+    tool_call_id: str | None = None,
+    run_id: str | None = None,
+    parent_run_id: str | None = None,
+    latency_ms: int | None = None,
 ) -> MessageStepRecord:
     """Save a tool execution step to the database.
 
     This combines tool call and result into a single step.
+    
+    Note: tool_args is stored as JSON with ensure_ascii=False to preserve
+    Chinese characters in their original form (not as \\uXXXX escapes).
     """
+    # Convert tool_args to JSON string with ensure_ascii=False for proper Chinese display
+    # SQLAlchemy JSON column will handle the serialization
     record = MessageStepRecord(
         thread_id=thread_id,
         session_id=session_id,
@@ -32,6 +42,10 @@ async def save_tool_step(
         tool_name=tool_name,
         tool_args=tool_args or {},
         tool_output=tool_output,
+        tool_call_id=tool_call_id,
+        run_id=run_id,
+        parent_run_id=parent_run_id,
+        latency_ms=latency_ms,
     )
     db.add(record)
     await db.flush()
@@ -49,10 +63,18 @@ async def save_ai_step(
     step_number: int,
     content: str | None = None,
     thinking: str | None = None,
+    tool_calls: list | None = None,
+    run_id: str | None = None,
+    parent_run_id: str | None = None,
+    latency_ms: int | None = None,
+    model_name: str | None = None,
 ) -> MessageStepRecord:
     """Save an AI response step to the database.
 
     This is called when the agent completes its response.
+    
+    Note: tool_calls is stored as JSON with ensure_ascii=False to preserve
+    Chinese characters in their original form (not as \\uXXXX escapes).
     """
     record = MessageStepRecord(
         thread_id=thread_id,
@@ -61,12 +83,44 @@ async def save_ai_step(
         message_type="ai",
         content=content,
         thinking=thinking,
+        tool_calls=tool_calls,
+        run_id=run_id,
+        parent_run_id=parent_run_id,
+        latency_ms=latency_ms,
+        model_name=model_name,
     )
     db.add(record)
     await db.flush()
     await db.refresh(record)
     logger.debug(
         f"Saved ai step {step_number} for thread {thread_id}, session {session_id}"
+    )
+    return record
+
+
+async def save_human_step(
+    db: AsyncSession,
+    thread_id: UUID,
+    session_id: UUID,
+    step_number: int,
+    content: str,
+) -> MessageStepRecord:
+    """Save a user message step to the database.
+
+    This is called when the agent starts processing a user message.
+    """
+    record = MessageStepRecord(
+        thread_id=thread_id,
+        session_id=session_id,
+        step_number=step_number,
+        message_type="human",
+        content=content,
+    )
+    db.add(record)
+    await db.flush()
+    await db.refresh(record)
+    logger.debug(
+        f"Saved human step {step_number} for thread {thread_id}, session {session_id}"
     )
     return record
 
@@ -93,14 +147,14 @@ async def get_message_steps_by_thread(
     steps = []
     for record in records:
         step = MessageStep(
-            session_id=record.session_id,  # type: ignore[arg-type]
-            step_number=record.step_number,  # type: ignore[arg-type]
-            message_type=record.message_type,  # type: ignore[arg-type]
-            content=record.content,  # type: ignore[arg-type]
-            thinking=record.thinking,  # type: ignore[arg-type]
-            tool_name=record.tool_name,  # type: ignore[arg-type]
-            tool_args=record.tool_args,  # type: ignore[arg-type]
-            tool_output=record.tool_output,  # type: ignore[arg-type]
+            session_id=record.session_id,
+            step_number=record.step_number,
+            message_type=record.message_type,
+            content=record.content,
+            thinking=record.thinking,
+            tool_name=record.tool_name,
+            tool_args=record.tool_args,
+            tool_output=record.tool_output,
         )
         steps.append(step)
 
@@ -145,6 +199,38 @@ async def get_max_step_number(
     max_step = result.scalar_one_or_none()
 
     return max_step or 0
+
+
+async def get_raw_steps_by_thread(
+    db: AsyncSession,
+    thread_id: UUID,
+) -> List[MessageStepRecord]:
+    """Get all raw MessageStepRecord objects for a thread, ordered by session_id and step_number.
+
+    Used by the trace builder to construct AgentTrace objects.
+    """
+    stmt = (
+        select(MessageStepRecord)
+        .where(MessageStepRecord.thread_id == thread_id)
+        .order_by(
+            MessageStepRecord.session_id.asc(),
+            MessageStepRecord.step_number.asc(),
+        )
+    )
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_steps_by_thread_id(
+    db: AsyncSession,
+    thread_id: UUID,
+) -> List[MessageStepRecord]:
+    """Get all MessageStepRecord objects for a thread, ordered by step_number.
+
+    Used by the trace builder to construct AgentTrace objects.
+    Alias for get_raw_steps_by_thread for API consistency.
+    """
+    return await get_raw_steps_by_thread(db, thread_id)
 
 
 async def get_max_step_number_for_session(

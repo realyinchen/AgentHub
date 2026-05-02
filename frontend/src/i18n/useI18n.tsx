@@ -110,6 +110,8 @@ const en = {
   "model.continueAdd": "Continue adding",
   "model.title": "Model Configuration",
   "model.addModel": "Add Model",
+  "model.needApiKeyFirst": "Please configure and save the provider API key first",
+  "model.needApiKeyFirstThenAdd": "Please configure and save the provider API key first, then add models",
   "model.embeddingWarning": "⚠️ Once an embedding model is selected, it should not be changed lightly. Changing the embedding model will invalidate all existing vector data and semantic search will stop working!",
   "provider.configure": "Configure Models",
   "provider.configTitle": "Configure Model Providers",
@@ -164,7 +166,7 @@ const en = {
   "process.reasoning": "Reasoning",
   "process.content": "Content",
   // Token stats
-  "token.title": "Token 消耗",
+  "token.title": "Token Usage",
   "token.input": "Input",
   "token.inputTooltip": "Includes system prompts and conversation history",
   "token.cacheRead": "Cache",
@@ -172,6 +174,22 @@ const en = {
   "token.output": "Output",
   "token.reasoning": "Reasoning",
   "token.total": "Total",
+  // Kanban
+  "kanban.title": "Kanban",
+  "kanban.subtitle": "Explore agent execution traces",
+  "kanban.backToOverview": "Back to Overview",
+  "kanban.loading": "Loading stats...",
+  "kanban.noData": "No stats available",
+  "kanban.total": "Total",
+  "kanban.avg": "Daily Avg",
+  "kanban.max": "Peak",
+  "kanban.latest": "Latest",
+  "kanban.dailyStats": "Daily stats for past 30 days",
+  "kanban.chart.count": "Conversations",
+  "kanban.chart.tokens": "Total Tokens",
+  "kanban.chart.input": "Input Tokens",
+  "kanban.chart.output": "Output Tokens",
+  "kanban.chart.reasoning": "Reasoning Tokens",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -283,6 +301,8 @@ const zh: TranslationDictionary = {
   "model.continueAdd": "继续添加",
   "model.title": "模型配置",
   "model.addModel": "添加模型",
+  "model.needApiKeyFirst": "请先配置并保存供应商的 API Key",
+  "model.needApiKeyFirstThenAdd": "请先配置并保存供应商的 API Key，然后添加模型",
   "model.embeddingWarning": "⚠️ 一旦选定嵌入模型，则不建议轻易更换，更换会导致已有向量数据失效，所有语义检索功能将不可用！",
   "provider.configure": "配置模型",
   "provider.configTitle": "配置模型供应商",
@@ -344,6 +364,22 @@ const zh: TranslationDictionary = {
   "token.output": "输出",
   "token.reasoning": "推理",
   "token.total": "总计",
+  // Kanban
+  "kanban.title": "看板",
+  "kanban.subtitle": "探索智能体执行过程",
+  "kanban.backToOverview": "返回概览",
+  "kanban.loading": "加载统计数据中...",
+  "kanban.noData": "暂无统计数据",
+  "kanban.total": "总计",
+  "kanban.avg": "日均",
+  "kanban.max": "峰值",
+  "kanban.latest": "最新",
+  "kanban.dailyStats": "过去 30 天每日数据",
+  "kanban.chart.count": "会话数",
+  "kanban.chart.tokens": "总 Token",
+  "kanban.chart.input": "输入 Token",
+  "kanban.chart.output": "输出 Token",
+  "kanban.chart.reasoning": "思考 Token",
 }
 
 const dictionaries = {

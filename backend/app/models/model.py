@@ -1,6 +1,7 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Boolean, DateTime, ForeignKey, Uuid
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Uuid
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
 
@@ -30,23 +31,27 @@ class Model(Base):
 
     __tablename__ = "models"
 
-    id = Column(Uuid, primary_key=True, default=uuid.uuid4)  # UUID primary key
-    provider = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, primary_key=True, default=uuid.uuid4
+    )  # UUID primary key
+    provider: Mapped[str] = mapped_column(
         String(64), ForeignKey("providers.provider"), nullable=False
     )  # e.g. "dashscope", "zai" - FK to providers table
-    model_type = Column(
+    model_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="llm"
     )  # llm, vlm, embedding
-    model_id = Column(
+    model_id: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
     )  # e.g. "dashscope/qwen3.5-27b" (with provider prefix)
-    thinking = Column(
+    thinking: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )  # whether supports thinking mode
-    is_default = Column(Boolean, nullable=False, default=False)
-    is_active = Column(Boolean, nullable=False, default=True)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(
+    is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=utc_now,

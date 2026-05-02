@@ -4,6 +4,7 @@ PostgreSQL Database Backend
 Implements DatabaseInterface using SQLAlchemy async engine + async session.
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -17,6 +18,11 @@ from sqlalchemy.ext.asyncio import (
 
 from app.core.config import settings
 from app.database.interfaces import DatabaseInterface
+
+
+def _json_serializer(obj):
+    """Custom JSON serializer that preserves Unicode characters (ensure_ascii=False)."""
+    return json.dumps(obj, ensure_ascii=False, default=str)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,8 @@ class PostgresDatabase(DatabaseInterface):
             pool_timeout=30,
             pool_recycle=3600,
             pool_pre_ping=True,
+            # Use custom JSON serializer to preserve Chinese characters
+            json_serializer=_json_serializer,
         )
 
     async def initialize(self) -> None:

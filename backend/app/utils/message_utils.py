@@ -16,6 +16,7 @@ from typing import Any
 
 from app.database import get_database
 from app.schemas.chat import ChatMessage, ToolCall, UserInput
+from app.core.errors import format_sse_error
 from app.crud import message_step as message_step_crud
 from app.crud import chat as chat_crud
 
@@ -240,6 +241,159 @@ def augment_ai_message_with_tool_info(messages: list[BaseMessage]) -> list[BaseM
     return messages
 
 
+async def save_messages_to_steps(
+    thread_id: uuid.UUID,
+    session_id: uuid.UUID,
+    messages: list[BaseMessage],
+    user_input_content: str | None = None,
+    model_name: str | None = None,
+) -> None:
+    """
+    Save messages from output.messages to message_steps table.
+
+    Since on_chain_end output.messages contains ALL messages (including history),
+    we use user_input_content to find the start of the current turn's messages.
+    Only messages from the current turn are saved.
+
+    Args:
+        thread_id: The thread/conversation ID
+        session_id: The session ID for this turn
+        messages: Full message list from on_chain_end output
+        user_input_content: The user's input content to find current turn start
+        model_name: The model name used for AI messages
+    """
+    # Find the start index of current turn's messages
+    start_index = 0
+    if user_input_content:
+        # Find the LAST occurrence of a HumanMessage with matching content
+        # This identifies the current turn's input in the full message list
+        for i in range(len(messages) - 1, -1, -1):
+            msg = messages[i]
+            if isinstance(msg, HumanMessage):
+                content = convert_message_content_to_string(msg.content)
+                if content == user_input_content:
+                    start_index = i
+                    break
+
+    # Only process messages from the current turn
+    current_turn_messages = messages[start_index:]
+    logger.debug(
+        f"[SAVE] Current turn: {len(current_turn_messages)} messages "
+        f"(starting from index {start_index} of {len(messages)} total)"
+    )
+
+    step_number = 0
+    # Map tool_call_id to tool name for ToolMessages
+    tool_call_id_to_name: dict[str, str] = {}
+    # Map tool_call_id to tool args for ToolMessages
+    tool_call_id_to_args: dict[str, dict] = {}
+
+    db = get_database()
+    async with db.session() as session:
+        for msg in current_turn_messages:
+            if isinstance(msg, HumanMessage):
+                step_number += 1
+                content = convert_message_content_to_string(msg.content)
+                await message_step_crud.save_human_step(
+                    db=session,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    step_number=step_number,
+                    content=content,
+                )
+                logger.debug(
+                    f"[SAVE] Human step {step_number}: {content[:50]}..."
+                )
+
+            elif isinstance(msg, AIMessage):
+                content = convert_message_content_to_string(msg.content)
+                thinking = _extract_thinking_content(msg)
+
+                # Store tool_calls mapping for subsequent ToolMessages
+                # (always do this, even if we don't save the AI step)
+                if msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_call_id = tc.get("id", "")
+                        if tool_call_id:
+                            tool_call_id_to_name[tool_call_id] = tc.get("name", "")
+                            tool_call_id_to_args[tool_call_id] = tc.get("args", {})
+
+                # Only save AI step if it has content or thinking
+                # Skip AI messages that only have tool_calls (no content/thinking)
+                has_content = bool(content.strip())
+                has_thinking = bool(thinking.strip())
+
+                if has_content or has_thinking:
+                    step_number += 1
+
+                    # Convert tool_calls to list format for database
+                    tool_calls_list = None
+                    if msg.tool_calls:
+                        tool_calls_list = [
+                            {
+                                "name": tc.get("name", ""),
+                                "id": tc.get("id", ""),
+                                "args": tc.get("args", {}),
+                            }
+                            for tc in msg.tool_calls
+                        ]
+
+                    await message_step_crud.save_ai_step(
+                        db=session,
+                        thread_id=thread_id,
+                        session_id=session_id,
+                        step_number=step_number,
+                        content=content if content else None,
+                        thinking=thinking if thinking else None,
+                        tool_calls=tool_calls_list,
+                        model_name=model_name,
+                    )
+                    logger.debug(
+                        f"[SAVE] AI step {step_number}: "
+                        f"content_len={len(content)}, "
+                        f"thinking_len={len(thinking) if thinking else 0}, "
+                        f"tool_calls={len(tool_calls_list) if tool_calls_list else 0}"
+                    )
+                else:
+                    # Skip saving this AI message (only has tool_calls, no content/thinking)
+                    logger.debug(
+                        f"[SAVE] Skipping AI message (no content/thinking, only tool_calls: {len(msg.tool_calls) if msg.tool_calls else 0})"
+                    )
+
+            elif isinstance(msg, ToolMessage):
+                step_number += 1
+                # Get tool name from mapping (by tool_call_id)
+                tool_call_id = msg.tool_call_id
+                tool_name = tool_call_id_to_name.get(tool_call_id, "")
+                tool_args = tool_call_id_to_args.get(tool_call_id, {})
+
+                # Get complete output (no truncation)
+                tool_output = convert_message_content_to_string(msg.content)
+
+                await message_step_crud.save_tool_step(
+                    db=session,
+                    thread_id=thread_id,
+                    session_id=session_id,
+                    step_number=step_number,
+                    tool_name=tool_name,
+                    tool_args=tool_args,
+                    tool_output=tool_output,
+                    tool_call_id=tool_call_id,
+                )
+                logger.debug(
+                    f"[SAVE] Tool step {step_number}: "
+                    f"name={tool_name}, "
+                    f"tool_call_id={tool_call_id}, "
+                    f"output_len={len(tool_output)}"
+                )
+
+        await session.commit()
+        logger.info(
+            f"[SAVE] Completed saving {step_number} steps for "
+            f"thread={thread_id}, session={session_id}"
+        )
+
+
 async def streaming_message_generator(
     user_input: UserInput, agent: CompiledStateGraph
 ) -> AsyncGenerator[str, None]:
@@ -247,12 +401,12 @@ async def streaming_message_generator(
     Generate a stream of messages from the agent using astream_events.
 
     Uses LangGraph's astream_events (v2) for fine-grained event streaming:
-    - on_chat_model_stream: token-by-token streaming
-    - on_tool_start: tool call initiation
-    - on_tool_end: tool execution result
-    - on_chain_end: final message
+    - on_chat_model_stream: token-by-token streaming (for final response only)
+    - on_tool_start: emit step status event (tool calling)
+    - on_chain_end: final message and complete persistence
 
-    Also saves message steps to database for persistence.
+    SSE events are simplified to only show step status.
+    Complete data is saved to database in on_chain_end.
 
     Args:
         user_input: User input containing content, agent_id, thread_id, and thinking_mode
@@ -262,20 +416,13 @@ async def streaming_message_generator(
     started_at = time.perf_counter()
     first_chunk_sent = False
 
-    # Track tool calls for mapping tool_call_id to name and args
-    pending_tool_calls: dict[str, dict] = {}  # run_id -> {name, args}
-
-    # Track step counter for unique step IDs
+    # Track step counter for SSE events (just for display)
     step_counter = 0
-    current_llm_step_id: str | None = None
 
     # Generate session_id for this conversation turn
     session_id = uuid.uuid4()
 
-    # Track accumulated thinking content
-    accumulated_thinking = ""
-
-    # Track accumulated content
+    # Track accumulated content for final response streaming
     accumulated_content = ""
 
     # Track accumulated token usage for this conversation turn
@@ -311,12 +458,21 @@ async def streaming_message_generator(
             logger.debug(f"Event: kind={kind}, name={name}, node={node}")
 
             # === LLM Call Start (on_chat_model_start) ===
-            # Pre-allocate a new step ID for this LLM call to ensure uniqueness
             if kind == "on_chat_model_start":
-                step_counter += 1
-                current_llm_step_id = f"step-{step_counter}"
+                run_id = event.get("run_id", "")
+
+                # Emit human step on first LLM call
+                if step_counter == 0:
+                    step_counter += 1
+                    yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'human', 'content': user_input.content})}\n\n"
+                    first_chunk_sent = True
+                    logger.debug(f"[SSE] Step {step_counter}: human")
+
+                # Note: ai_thinking step is deferred to on_chat_model_end
+                # where we can check if the AI has actual content
 
             # === Token Streaming (on_chat_model_stream) ===
+            # Only stream tokens for final response display
             elif kind == "on_chat_model_stream":
                 chunk = data.get("chunk")
 
@@ -325,10 +481,8 @@ async def streaming_message_generator(
                     if not first_chunk_sent:
                         first_chunk_sent = True
                         logger.info(
-                            "stream first chunk (token) in %.1f ms (agent_id=%s, thread_id=%s)",
+                            "stream first chunk (token) in %.1f ms",
                             (time.perf_counter() - started_at) * 1000,
-                            user_input.agent_id,
-                            user_input.thread_id,
                         )
 
                     # Handle structured content (DashScope thinking models)
@@ -336,167 +490,52 @@ async def streaming_message_generator(
                         for block in chunk.content:
                             if isinstance(block, dict):
                                 block_type = block.get("type")
-                                if block_type == "thinking":
-                                    thinking_content = block.get("thinking", "")
-                                    if thinking_content:
-                                        accumulated_thinking += thinking_content
-                                        # Create new LLM step if not exists
-                                        if current_llm_step_id is None:
-                                            step_counter += 1
-                                            current_llm_step_id = f"step-{step_counter}"
-                                        yield f"data: {json.dumps({'type': 'llm', 'id': current_llm_step_id, 'step': step_counter, 'content': thinking_content})}\n\n"
-                                elif block_type == "text":
+                                if block_type == "text":
                                     text_content = block.get("text", "")
                                     if text_content:
                                         accumulated_content += text_content
+                                        # Only stream text tokens for final response
                                         yield f"data: {json.dumps({'type': 'token', 'content': text_content})}\n\n"
                     # Handle string content (normal streaming)
                     elif isinstance(chunk.content, str):
                         accumulated_content += chunk.content
                         yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
 
-                # Handle reasoning_content attribute (DeepSeek-R1 style)
-                if (
-                    chunk
-                    and hasattr(chunk, "reasoning_content")
-                    and chunk.reasoning_content
-                ):
-                    reasoning = chunk.reasoning_content
-                    # Create new LLM step if not exists
-                    if current_llm_step_id is None:
-                        step_counter += 1
-                        current_llm_step_id = f"step-{step_counter}"
-                    if isinstance(reasoning, str):
-                        accumulated_thinking += reasoning
-                        yield f"data: {json.dumps({'type': 'llm', 'id': current_llm_step_id, 'step': step_counter, 'content': reasoning})}\n\n"
-                    elif isinstance(reasoning, list):
-                        reasoning_str = convert_message_content_to_string(reasoning)
-                        accumulated_thinking += reasoning_str
-                        yield f"data: {json.dumps({'type': 'llm', 'id': current_llm_step_id, 'step': step_counter, 'content': reasoning_str})}\n\n"
-
             # === Tool Call Start (on_tool_start) ===
             elif kind == "on_tool_start":
-                tool_name = name  # The tool name (e.g., "get_current_time")
-                tool_args = data.get("args", {})
-                run_id = event.get(
-                    "run_id", ""
-                )  # LangGraph run_id for this tool invocation
-
-                # Store mapping: run_id -> {name, args} for matching with tool_result
-                pending_tool_calls[run_id] = {"name": tool_name, "args": tool_args}
-
-                # If there's accumulated thinking, save it as a separate AI thinking step
-                # This happens when LLM thinks before deciding to call a tool
-                if accumulated_thinking.strip():
-                    try:
-                        db = get_database()
-                        async with db.session() as session:
-                            max_step = (
-                                await message_step_crud.get_max_step_number_for_session(
-                                    session, thread_id, session_id
-                                )
-                            )
-                            thinking_step_number = max_step + 1
-                            await message_step_crud.save_ai_step(
-                                db=session,
-                                thread_id=thread_id,
-                                session_id=session_id,
-                                step_number=thinking_step_number,
-                                content="",  # No content yet, only thinking
-                                thinking=accumulated_thinking,
-                            )
-                            logger.debug(
-                                f"Saved AI thinking step {thinking_step_number} for thread {thread_id}, session {session_id}"
-                            )
-                    except Exception as e:
-                        logger.error(
-                            f"Error saving AI thinking step to database: {e}",
-                            exc_info=True,
-                        )
-
-                    # Clear accumulated thinking for next LLM call
-                    accumulated_thinking = ""
-
-                # Also clear accumulated content for next LLM call
-                accumulated_content = ""
-
-                # Reset LLM step ID so next LLM call creates a new step
-                current_llm_step_id = None
+                tool_name = name
 
                 if not first_chunk_sent:
                     first_chunk_sent = True
                     logger.info(
-                        "stream first chunk (tool_call) in %.1f ms (agent_id=%s, thread_id=%s)",
+                        "stream first chunk (tool_call) in %.1f ms",
                         (time.perf_counter() - started_at) * 1000,
-                        user_input.agent_id,
-                        user_input.thread_id,
                     )
 
-                # Increment step counter for tool
+                # Emit tool_call step status
                 step_counter += 1
-                tool_step_id = f"step-{step_counter}"
-
-                # Emit tool_call event with id and step
-                yield f"data: {json.dumps({'type': 'tool', 'id': tool_step_id, 'step': step_counter, 'content': {'name': tool_name, 'tool_id': run_id, 'args': tool_args, 'status': 'calling'}})}\n\n"
+                yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'tool_call', 'name': tool_name, 'status': 'calling'})}\n\n"
+                logger.debug(f"[SSE] Step {step_counter}: tool_call, name={tool_name}")
 
             # === Tool Call End (on_tool_end) ===
             elif kind == "on_tool_end":
-                tool_output = data.get("output", "")
-                run_id = event.get("run_id", "")  # Same run_id as in on_tool_start
-                tool_info = pending_tool_calls.pop(run_id, {"name": name, "args": {}})
-                tool_name = tool_info["name"]
-                tool_args = tool_info["args"]
-
-                # Truncate very long outputs for SSE and database
-                output_str = str(tool_output)
-                if len(output_str) > 2000:
-                    output_str = output_str[:2000] + "..."
-
-                # Get current step number from database (for consistent ordering within session)
-                try:
-                    db = get_database()
-                    async with db.session() as session:
-                        max_step = (
-                            await message_step_crud.get_max_step_number_for_session(
-                                session, thread_id, session_id
-                            )
-                        )
-                        tool_step_number = max_step + 1
-                        await message_step_crud.save_tool_step(
-                            db=session,
-                            thread_id=thread_id,
-                            session_id=session_id,
-                            step_number=tool_step_number,
-                            tool_name=tool_name,
-                            tool_args=tool_args,
-                            tool_output=output_str,
-                        )
-                        logger.debug(
-                            f"Saved tool step {tool_step_number}: {tool_name} for thread {thread_id}, session {session_id}"
-                        )
-                except Exception as e:
-                    logger.error(
-                        f"Error saving tool step to database: {e}", exc_info=True
-                    )
-
-                # Emit tool_result event
-                yield f"data: {json.dumps({'type': 'tool_result', 'content': {'name': tool_name, 'id': run_id, 'output': output_str}})}\n\n"
+                # Emit tool_result step status (just indicate completion)
+                yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'tool_result', 'status': 'completed'})}\n\n"
+                logger.debug(f"[SSE] Step {step_counter}: tool_result completed")
 
             # === LLM Call End (on_chat_model_end) ===
-            # This is the most reliable place to capture usage_metadata
             elif kind == "on_chat_model_end":
                 output = data.get("output")
                 node_name = metadata.get("langgraph_node", "unknown")
 
+                # Capture token usage
                 if output and hasattr(output, "usage_metadata"):
                     usage = output.usage_metadata
                     if usage:
-                        # Extract token details
                         input_tokens = usage.get("input_tokens", 0)
                         output_tokens = usage.get("output_tokens", 0)
                         total_tokens = usage.get("total_tokens", 0)
 
-                        # Extract cache_read from input_token_details
                         input_token_details = usage.get("input_token_details", {})
                         cache_read = (
                             input_token_details.get("cache_read", 0)
@@ -504,7 +543,6 @@ async def streaming_message_generator(
                             else 0
                         )
 
-                        # Extract reasoning from output_token_details
                         output_token_details = usage.get("output_token_details", {})
                         reasoning = (
                             output_token_details.get("reasoning", 0)
@@ -512,7 +550,6 @@ async def streaming_message_generator(
                             else 0
                         )
 
-                        # Accumulate tokens
                         accumulated_tokens["input_tokens"] += input_tokens
                         accumulated_tokens["cache_read"] += cache_read
                         accumulated_tokens["output_tokens"] += output_tokens
@@ -524,10 +561,9 @@ async def streaming_message_generator(
                             f"input={input_tokens}, output={output_tokens}, "
                             f"total={total_tokens}, cache_read={cache_read}, reasoning={reasoning}"
                         )
-                        # Emit usage event to frontend
                         yield f"data: {json.dumps({'type': 'usage', 'content': {'node': node_name, 'usage': usage}})}\n\n"
+
                 elif output and hasattr(output, "response_metadata"):
-                    # Fallback: try response_metadata for token usage
                     resp_meta = output.response_metadata
                     if "token_usage" in resp_meta:
                         token_usage = resp_meta["token_usage"]
@@ -535,7 +571,6 @@ async def streaming_message_generator(
                         output_tokens = token_usage.get("completion_tokens", 0)
                         total_tokens = token_usage.get("total_tokens", 0)
 
-                        # Accumulate tokens (no cache_read or reasoning in fallback)
                         accumulated_tokens["input_tokens"] += input_tokens
                         accumulated_tokens["output_tokens"] += output_tokens
                         accumulated_tokens["total_tokens"] += total_tokens
@@ -550,50 +585,69 @@ async def streaming_message_generator(
                         )
                         yield f"data: {json.dumps({'type': 'usage', 'content': {'node': node_name, 'usage': usage}})}\n\n"
 
+                # Emit ai_thinking step only if AI has actual text content
+                # (skip if AI only has tool_calls with no content)
+                has_content = False
+                if output:
+                    content = getattr(output, "content", "")
+                    if isinstance(content, str) and content.strip():
+                        has_content = True
+                    elif isinstance(content, list):
+                        # Check for text blocks in structured content
+                        for block in content:
+                            if isinstance(block, dict) and block.get("type") == "text":
+                                if block.get("text", "").strip():
+                                    has_content = True
+                                    break
+
+                if has_content:
+                    step_counter += 1
+                    yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'ai_thinking', 'status': 'thinking...'})}\n\n"
+                    logger.debug(f"[SSE] Step {step_counter}: ai_thinking (has content)")
+
+                if output and hasattr(output, "tool_calls") and output.tool_calls:
+                    logger.debug(f"[SSE] AI has tool_calls: {len(output.tool_calls)}")
+
             # === Chain End (Final Message) ===
             elif kind == "on_chain_end" and node == "":
                 output = data.get("output", {})
                 messages = output.get("messages", [])
+                run_id = event.get("run_id", "")
+
+                logger.debug(
+                    f"[TRACE] on_chain_end: run_id={run_id}, messages_count={len(messages)}"
+                )
 
                 if messages:
                     last_message = messages[-1]
                     if hasattr(last_message, "content") and last_message.content:
                         try:
                             chat_message = langchain_to_chat_message(last_message)
+
+                            # Emit final message event
                             yield f"data: {json.dumps({'type': 'message', 'content': chat_message.model_dump()})}\n\n"
 
-                            # Save AI response step to database immediately
+                            # Save current turn's messages to database with complete data
                             try:
-                                db = get_database()
-                                async with db.session() as session:
-                                    max_step = await message_step_crud.get_max_step_number_for_session(
-                                        session, thread_id, session_id
-                                    )
-                                    ai_step_number = max_step + 1
-                                    await message_step_crud.save_ai_step(
-                                        db=session,
-                                        thread_id=thread_id,
-                                        session_id=session_id,
-                                        step_number=ai_step_number,
-                                        content=accumulated_content,
-                                        thinking=accumulated_thinking
-                                        if accumulated_thinking
-                                        else None,
-                                    )
-                                    logger.debug(
-                                        f"Saved AI step {ai_step_number} for thread {thread_id}, session {session_id}"
-                                    )
+                                await save_messages_to_steps(
+                                    thread_id=thread_id,
+                                    session_id=session_id,
+                                    messages=messages,
+                                    user_input_content=user_input.content,
+                                    model_name=user_input.model_name,
+                                )
                             except Exception as e:
                                 logger.error(
-                                    f"Error saving AI step to database: {e}",
+                                    f"[TRACE] Failed to save messages to steps: {e}",
                                     exc_info=True,
                                 )
                         except Exception as e:
                             logger.error(f"Error parsing final message: {e}")
 
     except Exception as e:
-        logger.error(f"Error in message generator: {e}", exc_info=True)
-        yield f"data: {json.dumps({'type': 'error', 'content': str(e)})}\n\n"
+        # Use format_sse_error to ensure user-friendly messages are returned
+        error_data = format_sse_error(e)
+        yield f"data: {json.dumps(error_data)}\n\n"
 
     finally:
         # Update conversation token usage in database

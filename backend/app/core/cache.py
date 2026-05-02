@@ -9,7 +9,8 @@ import hashlib
 import json
 import logging
 from functools import wraps
-from typing import Any, Callable, TypeVar, Optional, Union
+from typing import Any, Callable, TypeVar, Optional, cast
+from typing import Coroutine
 from cachetools import TTLCache
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,7 @@ def cached(
                 logger.debug(f"Cache hit for {func.__name__}: {cache_key}")
                 return cache[cache_key]
 
-            result = await func(*args, **kwargs)
+            result = await cast(Coroutine[Any, Any, Any], func(*args, **kwargs))
             cache[cache_key] = result
             logger.debug(f"Cache set for {func.__name__}: {cache_key}")
             return result

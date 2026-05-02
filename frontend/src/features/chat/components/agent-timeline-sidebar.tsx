@@ -284,11 +284,16 @@ export function AgentTimelineSidebar({
           timestamp: Date.now(),
         })
       } else if (msg.message_type === "ai") {
-        // AI response step (with or without thinking)
+        // AI response step - only show if it has content or thinking
         const thinkingContent = msg.thinking || ""
         const hasThinking = thinkingContent.trim().length > 0
         const contentStr = msg.content || ""
         const hasContent = contentStr.trim().length > 0
+
+        // Skip intermediate AI messages that have neither content nor thinking (e.g. pure tool_call messages)
+        if (!hasContent && !hasThinking) {
+          return
+        }
 
         steps.push({
           id: `step-${msg.step_number}-ai-final`,
@@ -344,11 +349,16 @@ export function AgentTimelineSidebar({
           timestamp: step.timestamp,
         })
       } else if (step.type === "ai_response") {
-        // AI final response
+        // AI response - only show if it has content or thinking
         const thinkingContent = step.thinking || ""
         const hasThinking = thinkingContent.trim().length > 0
         const contentStr = step.content as string || ""
         const hasContent = contentStr.trim().length > 0
+
+        // Skip AI messages that have neither content nor thinking
+        if (!hasContent && !hasThinking) {
+          return
+        }
 
         steps.push({
           id: step.id,

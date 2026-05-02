@@ -718,3 +718,35 @@
 .animate-shimmer {
   animation: shimmer 2s infinite;
 }
+
+/* ==================== Kanban DAG Animations ==================== */
+
+/* Node appear: opacity 0→1, scale 0.95→1 */
+@keyframes nodeAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Edge data-flow animation via stroke-dashoffset */
+@keyframes edgeFlow {
+  from {
+    stroke-dashoffset: 20;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ==================== Kanban Font ==================== */
+
+.kanban-page {
+  font-family: Inter, "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}

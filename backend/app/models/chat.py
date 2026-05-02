@@ -1,6 +1,8 @@
-from sqlalchemy import Column, Boolean, String, DateTime, BigInteger, Uuid
-from uuid import uuid4
+from uuid import UUID, uuid4
 from datetime import datetime, timezone
+
+from sqlalchemy import Boolean, String, DateTime, BigInteger, Uuid
+from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database.base import Base
 
@@ -12,12 +14,16 @@ def utc_now():
 class Conversation(Base):
     __tablename__ = "conversations"
 
-    thread_id = Column(Uuid, primary_key=True, default=uuid4)
-    title = Column(String(64), nullable=False)
-    agent_id = Column(String(64), nullable=True, default="chatbot")
-    is_deleted = Column(Boolean, nullable=False, default=False)
-    created_at = Column(DateTime(timezone=True), nullable=False, default=utc_now)
-    updated_at = Column(
+    thread_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    title: Mapped[str] = mapped_column(String(64), nullable=False)
+    agent_id: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, default="chatbot"
+    )
+    is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
         default=utc_now,
@@ -25,8 +31,9 @@ class Conversation(Base):
     )
 
     # Token usage fields (cumulative for the conversation)
-    input_tokens = Column(BigInteger, nullable=False, default=0)
-    cache_read = Column(BigInteger, nullable=False, default=0)
-    output_tokens = Column(BigInteger, nullable=False, default=0)
-    reasoning = Column(BigInteger, nullable=False, default=0)
-    total_tokens = Column(BigInteger, nullable=False, default=0)
+    input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    cache_read: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    reasoning: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    total_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+

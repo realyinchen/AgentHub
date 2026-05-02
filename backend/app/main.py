@@ -7,7 +7,8 @@ from fastapi.routing import APIRoute
 from app.utils.agent_utils import get_available_agents
 from app.core.config import settings
 from app.core.model_manager import ModelManager
-from app.core.rate_limiter import limiter
+from app.core.middleware import limiter
+from app.core.errors import register_exception_handlers
 from app.database import init_all, dispose_all, get_saver
 from app.api.v1.router import api_router
 
@@ -53,6 +54,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 
 app = FastAPI(lifespan=lifespan, generate_unique_id_function=custom_generate_unique_id)
+
+# Register exception handlers for centralized error handling
+register_exception_handlers(app)
 
 
 @app.get("/health", tags=["Health"])

@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 
 from app.schemas.agent import AgentCreate, AgentUpdate, AgentInDB
-from app.core.rate_limiter import limiter, RateLimits
+from app.core.middleware import limiter, RateLimits
 from app.api.v1.dependencies import get_db
 from app.crud import agent as agent_crud
 

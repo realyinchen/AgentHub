@@ -24,8 +24,9 @@ def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> Res
     Returns a JSON response with 429 status code and helpful message.
     """
     retry_after = 60
-    if hasattr(exc, "description") and isinstance(exc.description, dict):
-        retry_after = exc.description.get("retry_after", 60)
+    description = getattr(exc, "description", None)
+    if isinstance(description, dict):
+        retry_after = description.get("retry_after", 60)
 
     return JSONResponse(
         status_code=429,

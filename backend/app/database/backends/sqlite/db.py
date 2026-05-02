@@ -5,6 +5,7 @@ Implements DatabaseInterface using SQLAlchemy async engine + aiosqlite.
 Mirrors the PostgresDatabase structure for consistency.
 """
 
+import json
 import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -20,6 +21,11 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.config import settings
 from app.database.interfaces import DatabaseInterface
+
+
+def _json_serializer(obj):
+    """Custom JSON serializer that preserves Unicode characters (ensure_ascii=False)."""
+    return json.dumps(obj, ensure_ascii=False, default=str)
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +64,8 @@ class SQLiteDatabase(DatabaseInterface):
             # to avoid "database is locked" errors under concurrent access
             connect_args={"check_same_thread": False},
             poolclass=StaticPool,
+            # Use custom JSON serializer to preserve Chinese characters
+            json_serializer=_json_serializer,
         )
 
     async def initialize(self) -> None:

@@ -72,6 +72,17 @@ class MessageStep(BaseModel):
         description="Tool call ID for matching (for tool type)",
         default=None,
     )
+    # Additional fields for DAG visualization
+    model_name: str | None = Field(
+        description="Model name used for AI response (for ai type)",
+        default=None,
+        examples=["qwen-plus", "glm-4"],
+    )
+    latency_ms: int | None = Field(
+        description="Step execution latency in milliseconds",
+        default=None,
+        examples=[450, 1200],
+    )
 
 
 class UserInput(BaseModel):

@@ -126,6 +126,12 @@ CREATE TABLE IF NOT EXISTS public.message_steps (
     thinking        TEXT,                  -- Thinking/reasoning content (for AI messages)
     tool_calls      JSONB,                 -- Tool calls from AI (for AI messages with tool calls)
     
+    -- Trace fields (for Agent Trace Kanban Viewer)
+    run_id          VARCHAR(128),          -- LangGraph run_id
+    parent_run_id   VARCHAR(128),          -- Parent run_id (for subagent identification)
+    latency_ms      INTEGER,               -- Step latency in milliseconds
+    model_name      VARCHAR(128),          -- LLM model name used
+    
     created_at      TIMESTAMPTZ DEFAULT NOW(),
     
     CONSTRAINT unique_thread_session_step UNIQUE (thread_id, session_id, step_number)
@@ -164,6 +170,15 @@ WHERE is_deleted = FALSE;
 CREATE INDEX IF NOT EXISTS idx_message_steps_tool_name 
 ON public.message_steps (tool_name) 
 WHERE tool_name IS NOT NULL;
+
+-- Indexes for trace fields (Agent Trace Kanban Viewer)
+CREATE INDEX IF NOT EXISTS idx_message_steps_run_id 
+ON public.message_steps (run_id) 
+WHERE run_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_message_steps_parent_run_id 
+ON public.message_steps (parent_run_id) 
+WHERE parent_run_id IS NOT NULL;
 
 -- Index for AI message content search (full-text search preparation)
 -- Note: For production, consider using PostgreSQL full-text search with GIN index

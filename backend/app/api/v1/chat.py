@@ -6,7 +6,7 @@ from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Any, List
+from typing import Any
 
 from app.api.v1.dependencies import get_db
 from app.schemas.chat import (
@@ -34,6 +34,7 @@ from app.crud.chat import (
     list_conversations,
     create_conversation,
     soft_delete_conversation_by_thread_id,
+    get_daily_conversation_stats,
 )
 from app.crud import message_step as message_step_crud
 
@@ -99,25 +100,21 @@ async def invoke(user_input: UserInput) -> ChatMessage:
     agent: CompiledStateGraph = await get_agent(agent_id)
     kwargs = await handle_input(user_input, agent)
 
-    try:
-        response_events: list[tuple[str, Any]] = await agent.ainvoke(
-            **kwargs,
-            stream_mode=["updates", "values"],  # type: ignore
+    response_events: list[tuple[str, Any]] = await agent.ainvoke(
+        **kwargs,
+        stream_mode=["updates", "values"],  # type: ignore
+    )
+    response_type, response = response_events[-1]
+    if response_type == "values":
+        output = langchain_to_chat_message(response["messages"][-1])
+    elif response_type == "updates" and "__interrupt__" in response:
+        output = langchain_to_chat_message(
+            AIMessage(content=response["__interrupt__"][0].value)
         )
-        response_type, response = response_events[-1]
-        if response_type == "values":
-            output = langchain_to_chat_message(response["messages"][-1])
-        elif response_type == "updates" and "__interrupt__" in response:
-            output = langchain_to_chat_message(
-                AIMessage(content=response["__interrupt__"][0].value)
-            )
-        else:
-            raise ValueError(f"Unexpected response type: {response_type}")
+    else:
+        raise ValueError(f"Unexpected response type: {response_type}")
 
-        return output
-    except Exception as e:
-        logger.error("An exception occurred: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Unexpected error")
+    return output
 
 
 @api_router.get("/history/{agent_id}/{thread_id}")
@@ -135,48 +132,43 @@ async def history(
     if not thread_id:
         return ChatHistory(messages=[], message_sequence=[])
 
-    try:
-        # Get message steps from database for sidebar
-        message_sequence = await message_step_crud.get_message_steps_by_thread(
-            db=db, thread_id=thread_id
-        )
+    # Get message steps from database for sidebar
+    message_sequence = await message_step_crud.get_message_steps_by_thread(
+        db=db, thread_id=thread_id
+    )
 
-        # Get messages from checkpointer for main chat UI
-        agent: CompiledStateGraph = await get_agent(agent_id)
-        config = RunnableConfig({"configurable": {"thread_id": thread_id}})
-        state_snapshot = await agent.aget_state(config=config)
-        messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
+    # Get messages from checkpointer for main chat UI
+    agent: CompiledStateGraph = await get_agent(agent_id)
+    config = RunnableConfig({"configurable": {"thread_id": thread_id}})
+    state_snapshot = await agent.aget_state(config=config)
+    messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
 
-        # Build messages for main chat UI: only human and final AI messages
-        chat_messages: list[ChatMessage] = []
+    # Build messages for main chat UI: only human and final AI messages
+    chat_messages: list[ChatMessage] = []
 
-        for i, msg in enumerate(messages):
-            # Skip ToolMessage - not shown in main chat
-            if isinstance(msg, ToolMessage):
+    for i, msg in enumerate(messages):
+        # Skip ToolMessage - not shown in main chat
+        if isinstance(msg, ToolMessage):
+            continue
+
+        # For AIMessage: only include if it has content and no tool_calls
+        if isinstance(msg, AIMessage):
+            if msg.tool_calls:
+                continue
+            if not msg.content or not str(msg.content).strip():
                 continue
 
-            # For AIMessage: only include if it has content and no tool_calls
-            if isinstance(msg, AIMessage):
-                if msg.tool_calls:
-                    continue
-                if not msg.content or not str(msg.content).strip():
-                    continue
+        chat_message = langchain_to_chat_message(msg)
 
-            chat_message = langchain_to_chat_message(msg)
+        # For final AI messages, collect tool info from preceding messages
+        if isinstance(msg, AIMessage) and msg.content and str(msg.content).strip():
+            tool_info = collect_tool_calls_for_final_response(messages, i)
+            if tool_info:
+                chat_message.custom_data["tool_info"] = tool_info
 
-            # For final AI messages, collect tool info from preceding messages
-            if isinstance(msg, AIMessage) and msg.content and str(msg.content).strip():
-                tool_info = collect_tool_calls_for_final_response(messages, i)
-                if tool_info:
-                    chat_message.custom_data["tool_info"] = tool_info
+        chat_messages.append(chat_message)
 
-            chat_messages.append(chat_message)
-
-        return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
-
-    except Exception as e:
-        logger.error("Error retrieving chat history: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail="Unexpected error")
+    return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
 
 
 @api_router.get("/title/{thread_id}")
@@ -383,3 +375,24 @@ async def get_available_models() -> dict[str, Any]:
     models = settings.get_model_info_list()
     default_model = settings.LLM_DEFAULT_MODEL
     return {"models": models, "default_model": default_model}
+
+
+@api_router.get("/stats/daily")
+async def get_daily_stats(
+    days: int = Query(
+        30,
+        ge=1,
+        le=365,
+        description="Number of days to retrieve statistics for (1-365)",
+    ),
+    db: AsyncSession = Depends(get_db),
+) -> list[dict[str, int | str]]:
+    """Get daily conversation count and token usage statistics."""
+    try:
+        stats = await get_daily_conversation_stats(db=db, days=days)
+        return stats
+    except Exception as e:
+        logger.error("Error retrieving daily statistics: %s", e)
+        raise HTTPException(
+            status_code=500, detail="Error retrieving daily statistics"
+        )

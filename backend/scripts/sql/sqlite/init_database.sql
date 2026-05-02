@@ -111,6 +111,12 @@ CREATE TABLE IF NOT EXISTS message_steps (
     thinking        TEXT,
     tool_calls      TEXT,           -- JSON stored as TEXT
     
+    -- Trace fields (for Agent Trace Kanban Viewer)
+    run_id          VARCHAR(128),   -- LangGraph run_id
+    parent_run_id   VARCHAR(128),   -- Parent run_id (for subagent identification)
+    latency_ms      INTEGER,        -- Step latency in milliseconds
+    model_name      VARCHAR(128),   -- LLM model name used
+    
     created_at      TEXT DEFAULT (datetime('now')),
     
     CONSTRAINT unique_thread_session_step UNIQUE (thread_id, session_id, step_number)
@@ -131,3 +137,10 @@ ON message_steps (created_at DESC);
 -- Index for tool_name lookups
 CREATE INDEX IF NOT EXISTS idx_message_steps_tool_name 
 ON message_steps (tool_name);
+
+-- Indexes for trace fields (Agent Trace Kanban Viewer)
+CREATE INDEX IF NOT EXISTS idx_message_steps_run_id 
+ON message_steps (run_id);
+
+CREATE INDEX IF NOT EXISTS idx_message_steps_parent_run_id 
+ON message_steps (parent_run_id);

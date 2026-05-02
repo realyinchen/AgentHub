@@ -42,3 +42,5 @@
 | 2026-04-28 | Added `.dockerignore` files | Faster Docker builds by excluding node_modules, dist, .git |
 | 2026-04-28 | Re-introduced Docker profiles (dev/prod/postgres) | Better flexibility: dev for speed, prod for nginx, postgres for optional DB; non-blocking depends_on |
 | 2026-04-28 | Switched to named Docker volumes | Better for multi-container data sharing; consistent with Docker best practices |
+| 2026-04-29 | Complete README refactoring | Modern professional design with Mermaid architecture, feature tables, comparison sections; created 6 comprehensive documentation files |
+| 2026-04-30 | Kanban page redesign with sci-fi light theme | Added chat-style sidebar, 30-day stats dashboard with area charts (count/tokens/input/output/reasoning), modern sci-fi aesthetic with glow effects, gradients, and glassmorphism; consistent layout between KanbanPage and KanbanTracePage |
