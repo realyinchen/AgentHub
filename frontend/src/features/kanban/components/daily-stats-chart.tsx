@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react"
+import { useI18n } from "@/i18n"
 import {
   BarChart,
   Bar,
@@ -18,9 +19,11 @@ import {
   Activity,
 } from "lucide-react"
 
-import { DARK_THEME } from "../styles/theme"
+import { DARK_THEME, LIGHT_THEME } from "../styles/theme"
 
 type ChartType = "count" | "tokens" | "input" | "output" | "reasoning"
+
+type ThemeValue = "light" | "dark"
 
 type DailyStat = {
   date: string
@@ -35,39 +38,12 @@ type DailyStat = {
 type DailyStatsChartProps = {
   data: DailyStat[]
   isLoading?: boolean
+  theme?: ThemeValue
 }
 
-// Unified chart config
-const chartTypeConfigs: Record<ChartType, {
-  color: string
-  icon: React.ElementType
-  label: string
-}> = {
-  count: {
-    color: DARK_THEME.nodeAI,
-    icon: MessageSquare,
-    label: "Conversations",
-  },
-  tokens: {
-    color: DARK_THEME.textSecondary,
-    icon: Coins,
-    label: "Total Tokens",
-  },
-  input: {
-    color: DARK_THEME.success,
-    icon: ArrowDownToLine,
-    label: "Input Tokens",
-  },
-  output: {
-    color: DARK_THEME.warning,
-    icon: ArrowUpFromLine,
-    label: "Output Tokens",
-  },
-  reasoning: {
-    color: DARK_THEME.textDim,
-    icon: BrainCircuit,
-    label: "Reasoning",
-  },
+// Get theme object by name, default to dark
+function getTheme(theme?: ThemeValue) {
+  return theme === "light" ? LIGHT_THEME : DARK_THEME
 }
 
 const formatNumber = (num: number): string => {
@@ -88,6 +64,44 @@ const getField = (d: DailyStat, type: ChartType): number => {
     case "input": return d.input_tokens
     case "output": return d.output_tokens
     case "reasoning": return d.reasoning
+  }
+}
+
+// Get chart type configs for a given theme
+function getChartTypeConfigs(
+  theme: ReturnType<typeof getTheme>,
+  t: (key: string) => string
+): Record<ChartType, {
+  color: string
+  icon: React.ElementType
+  label: string
+}> {
+  return {
+    count: {
+      color: theme.nodeAI,
+      icon: MessageSquare,
+      label: t("kanban.chart.count"),
+    },
+    tokens: {
+      color: theme.textSecondary,
+      icon: Coins,
+      label: t("kanban.chart.tokens"),
+    },
+    input: {
+      color: theme.success,
+      icon: ArrowDownToLine,
+      label: t("kanban.chart.input"),
+    },
+    output: {
+      color: theme.warning,
+      icon: ArrowUpFromLine,
+      label: t("kanban.chart.output"),
+    },
+    reasoning: {
+      color: theme.textDim,
+      icon: BrainCircuit,
+      label: t("kanban.chart.reasoning"),
+    },
   }
 }
 
@@ -117,18 +131,18 @@ function Sparkline({ data, color, type }: { data: DailyStat[]; color: string; ty
   )
 }
 
-function CustomTooltip({ active, payload, label }: any) {
+function CustomTooltip({ active, payload, label, theme }: { active?: boolean; payload?: any; label?: string; theme: ReturnType<typeof getTheme> }) {
   if (active && payload && payload.length) {
     return (
       <div
         className="rounded-lg px-4 py-3"
         style={{
-          background: DARK_THEME.bgPanel,
-          border: `1px solid ${DARK_THEME.border}`,
+          background: theme.bgPanel,
+          border: `1px solid ${theme.border}`,
         }}
       >
-        <p className="text-xs mb-1" style={{ color: DARK_THEME.textSecondary }}>{label}</p>
-        <p className="text-lg font-bold" style={{ color: DARK_THEME.textPrimary }}>
+        <p className="text-xs mb-1" style={{ color: theme.textSecondary }}>{label}</p>
+        <p className="text-lg font-bold" style={{ color: theme.textPrimary }}>
           {formatNumber(payload[0].value)}
         </p>
       </div>
@@ -142,13 +156,18 @@ function MetricCard({
   data,
   isActive,
   onClick,
+  theme,
+  t,
 }: {
   type: ChartType
   data: DailyStat[]
   isActive: boolean
   onClick: () => void
+  theme: ReturnType<typeof getTheme>
+  t: (key: string) => string
 }) {
-  const config = chartTypeConfigs[type]
+  const configs = getChartTypeConfigs(theme, t)
+  const config = configs[type]
   const Icon = config.icon
 
   const total = useMemo(() =>
@@ -163,33 +182,33 @@ function MetricCard({
     return ((last7 - prev7) / prev7) * 100
   }, [data, type])
 
-  const activeBg = DARK_THEME.nodeAILight
-  const activeBorder = DARK_THEME.nodeAIBorder
+  const activeBg = theme.nodeAILight
+  const activeBorder = theme.nodeAIBorder
 
   return (
     <button
       onClick={onClick}
       className="w-full p-4 rounded-xl text-left transition-all cursor-pointer"
       style={{
-        background: isActive ? activeBg : DARK_THEME.bgPanel,
-        border: `1px solid ${isActive ? activeBorder : DARK_THEME.border}`,
+        background: isActive ? activeBg : theme.bgPanel,
+        border: `1px solid ${isActive ? activeBorder : theme.border}`,
         transform: isActive ? 'translateY(-1px)' : 'none',
       }}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
-          <div className="text-2xl font-bold tabular-nums" style={{ color: DARK_THEME.textPrimary }}>
+          <div className="text-2xl font-bold tabular-nums" style={{ color: theme.textPrimary }}>
             {formatNumber(total)}
           </div>
-          <div className="text-xs mt-1" style={{ color: DARK_THEME.textSecondary }}>
+          <div className="text-xs mt-1" style={{ color: theme.textSecondary }}>
             {config.label}
           </div>
         </div>
         <div
           className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
           style={{
-            background: isActive ? activeBg : 'rgba(255,255,255,0.04)',
-            border: `1px solid ${isActive ? activeBorder : DARK_THEME.border}`,
+            background: isActive ? activeBg : (theme === DARK_THEME ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.04)'),
+            border: `1px solid ${isActive ? activeBorder : theme.border}`,
           }}
         >
           <Icon className="w-4 h-4" style={{ color: config.color }} />
@@ -201,13 +220,13 @@ function MetricCard({
           <span
             className="text-xs font-medium"
             style={{
-              color: changePercent >= 0 ? DARK_THEME.success : DARK_THEME.error,
+              color: changePercent >= 0 ? theme.success : theme.error,
             }}
           >
             {changePercent >= 0 ? "+" : ""}{changePercent.toFixed(1)}%
           </span>
-          <span className="text-xs" style={{ color: DARK_THEME.textDim }}>
-            vs last 7 days
+          <span className="text-xs" style={{ color: theme.textDim }}>
+            {t("kanban.vsLast7Days")}
           </span>
         </div>
       )}
@@ -219,19 +238,22 @@ function MetricCard({
   )
 }
 
-export function DailyStatsChart({ data, isLoading }: DailyStatsChartProps) {
+export function DailyStatsChart({ data, isLoading, theme: themeProp }: DailyStatsChartProps) {
+  const { t } = useI18n()
   const [activeType, setActiveType] = useState<ChartType>("count")
+  const theme = getTheme(themeProp)
+  const chartTypeConfigs = getChartTypeConfigs(theme, t)
   const config = chartTypeConfigs[activeType]
 
   if (isLoading) {
     return (
       <div
-        className="w-full h-[400px] flex items-center justify-center rounded-xl"
-        style={{ background: DARK_THEME.bgPanel, border: `1px solid ${DARK_THEME.border}` }}
+        className="w-full min-h-[300px] flex-1 flex items-center justify-center rounded-xl"
+        style={{ background: theme.bgPanel, border: `1px solid ${theme.border}` }}
       >
         <div className="flex flex-col items-center gap-3">
-          <Activity className="w-8 h-8 animate-pulse" style={{ color: DARK_THEME.nodeAI }} />
-          <span style={{ color: DARK_THEME.textSecondary }}>Loading stats...</span>
+          <Activity className="w-8 h-8 animate-pulse" style={{ color: theme.nodeAI }} />
+          <span style={{ color: theme.textSecondary }}>{t("kanban.loading")}</span>
         </div>
       </div>
     )
@@ -240,10 +262,10 @@ export function DailyStatsChart({ data, isLoading }: DailyStatsChartProps) {
   if (!data || data.length === 0) {
     return (
       <div
-        className="w-full h-[300px] flex items-center justify-center rounded-xl"
-        style={{ background: DARK_THEME.bgPanel, border: `1px solid ${DARK_THEME.border}` }}
+        className="w-full min-h-[250px] flex-1 flex items-center justify-center rounded-xl"
+        style={{ background: theme.bgPanel, border: `1px solid ${theme.border}` }}
       >
-        <span style={{ color: DARK_THEME.textDim }}>No data available</span>
+        <span style={{ color: theme.textDim }}>{t("kanban.noData")}</span>
       </div>
     )
   }
@@ -255,13 +277,13 @@ export function DailyStatsChart({ data, isLoading }: DailyStatsChartProps) {
 
   return (
     <div
-      className="w-full rounded-xl overflow-hidden"
-      style={{ background: DARK_THEME.bgPanel, border: `1px solid ${DARK_THEME.border}` }}
+      className="w-full rounded-xl overflow-hidden flex flex-col"
+      style={{ background: theme.bgPanel, border: `1px solid ${theme.border}` }}
     >
-      {/* Metrics Row */}
+      {/* Metrics Row - always 5 columns in one row */}
       <div
-        className="grid grid-cols-5 gap-3 p-4"
-        style={{ borderBottom: `1px solid ${DARK_THEME.border}` }}
+        className="grid grid-cols-5 gap-3 p-4 flex-shrink-0"
+        style={{ borderBottom: `1px solid ${theme.border}` }}
       >
         {(Object.keys(chartTypeConfigs) as ChartType[]).map(type => (
           <MetricCard
@@ -270,32 +292,34 @@ export function DailyStatsChart({ data, isLoading }: DailyStatsChartProps) {
             data={data}
             isActive={activeType === type}
             onClick={() => setActiveType(type)}
+            theme={theme}
+            t={t}
           />
         ))}
       </div>
 
-      {/* Chart Area */}
-      <div className="p-4 h-[300px]">
+      {/* Chart Area - fixed height to prevent collapse */}
+      <div className="p-4 h-[300px] flex-shrink-0">
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
             <CartesianGrid
               strokeDasharray="3 3"
-              stroke={DARK_THEME.chartGrid}
+              stroke={theme.chartGrid}
               vertical={false}
             />
             <XAxis
               dataKey="date"
-              tick={{ fill: DARK_THEME.textDim, fontSize: 11 }}
-              axisLine={{ stroke: DARK_THEME.border }}
+              tick={{ fill: theme.textDim, fontSize: 11 }}
+              axisLine={{ stroke: theme.border }}
               tickLine={false}
             />
             <YAxis
-              tick={{ fill: DARK_THEME.textDim, fontSize: 11 }}
+              tick={{ fill: theme.textDim, fontSize: 11 }}
               axisLine={false}
               tickLine={false}
               tickFormatter={formatNumber}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip theme={theme} />} />
             <Bar
               dataKey="value"
               radius={[4, 4, 0, 0]}

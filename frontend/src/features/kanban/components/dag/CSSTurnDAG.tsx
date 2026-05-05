@@ -3,20 +3,22 @@
  * No third-party graph library — uses absolute positioning + SVG edges.
  */
 
-import { useMemo, useState, useCallback, useRef } from 'react';
+import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
 import { ZoomIn, ZoomOut, Maximize2, Minimize2 } from 'lucide-react';
 
 import type { MessageStepRaw, LayoutNode, DAGNodeData } from '../../types/dag';
 import { buildDAGFromSteps, calculateBoundingBox } from '../../utils/dagBuilder';
-import { DARK_THEME } from '../../styles/theme';
 import NodeDetailSheet from './NodeDetailSheet';
+import { useI18n } from '@/i18n';
 
 interface CSSTurnDAGProps {
   steps: MessageStepRaw[];
   className?: string;
+  compact?: boolean; // 紧凑模式：隐藏控件，自适应缩放
 }
 
-function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
+function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps) {
+  const { t } = useI18n();
   const [selectedNode, setSelectedNode] = useState<DAGNodeData | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [scale, setScale] = useState(1);
@@ -49,6 +51,34 @@ function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
   const zoomOut = useCallback(() => setScale(s => Math.max(s - 0.15, 0.3)), []);
   const resetZoom = useCallback(() => setScale(1), []);
 
+  // Auto-scale for compact mode: calculate scale to fit container both width AND height
+  const [autoScale, setAutoScale] = useState(1);
+  useEffect(() => {
+    if (compact && containerRef.current) {
+      const calculateAutoScale = () => {
+        const containerWidth = containerRef.current?.clientWidth || 256;
+        const containerHeight = containerRef.current?.clientHeight || 200;
+        const dagWidth = bbox.width || 400;
+        const dagHeight = bbox.height || 300;
+        // Leave some padding and ensure scale fits both dimensions
+        const scaleX = Math.min(1, (containerWidth - 20) / dagWidth);
+        const scaleY = Math.min(1, (containerHeight - 20) / dagHeight);
+        const calculatedScale = Math.min(scaleX, scaleY);
+        setAutoScale(Math.max(0.2, calculatedScale));
+      };
+      
+      calculateAutoScale();
+      
+      // Recalculate on resize
+      const handleResize = () => calculateAutoScale();
+      window.addEventListener('resize', handleResize);
+      return () => window.removeEventListener('resize', handleResize);
+    }
+  }, [compact, bbox.width, bbox.height]);
+
+  // Use auto-scale when in compact mode, otherwise use manual scale
+  const effectiveScale = compact ? autoScale : scale;
+
   const toggleFullscreen = useCallback(() => {
     if (!isFullscreen && containerRef.current?.requestFullscreen) {
       containerRef.current.requestFullscreen();
@@ -62,10 +92,9 @@ function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
   if (nodes.length === 0) {
     return (
       <div
-        className="flex items-center justify-center h-[200px]"
-        style={{ color: DARK_THEME.textDim }}
+        className="flex items-center justify-center h-[200px] text-muted-foreground"
       >
-        No steps to display
+        {t('dag.noSteps')}
       </div>
     );
   }
@@ -81,72 +110,61 @@ function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
         ref={containerRef}
         className={`relative ${className}`}
         style={{
-          height: isFullscreen ? '100vh' : Math.max(280, Math.min(500, bbox.height * scale + 80)),
-          background: DARK_THEME.bgMain,
+          height: compact ? '100%' : (isFullscreen ? '100vh' : Math.max(280, Math.min(500, bbox.height * effectiveScale + 80))),
+          background: 'var(--dag-bg-main)',
           borderRadius: '12px',
-          border: `1px solid ${DARK_THEME.border}`,
-          overflow: 'auto',
+          border: '1px solid var(--dag-border)',
+          overflow: compact ? 'hidden' : 'auto',
         }}
       >
-        {/* Zoom controls */}
+        {/* Zoom controls - hidden in compact mode */}
+        {!compact && (
         <div
           className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-lg z-10"
           style={{
-            background: DARK_THEME.bgPanel,
-            border: `1px solid ${DARK_THEME.border}`,
+            background: 'var(--dag-bg-panel)',
+            border: '1px solid var(--dag-border)',
           }}
         >
           <button
             onClick={zoomOut}
-            className="p-1.5 rounded-md transition-colors cursor-pointer"
-            style={{ color: DARK_THEME.textSecondary }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
           >
             <ZoomOut className="w-3.5 h-3.5" />
           </button>
           <button
             onClick={resetZoom}
-            className="px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer"
+            className="px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
             style={{
-              color: DARK_THEME.textSecondary,
               fontVariantNumeric: 'tabular-nums',
               minWidth: '40px',
               textAlign: 'center',
             }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
           >
             {Math.round(scale * 100)}%
           </button>
           <button
             onClick={zoomIn}
-            className="p-1.5 rounded-md transition-colors cursor-pointer"
-            style={{ color: DARK_THEME.textSecondary }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
           >
             <ZoomIn className="w-3.5 h-3.5" />
           </button>
-          <div style={{ width: 1, height: 16, background: DARK_THEME.border, margin: '0 4px' }} />
+          <div style={{ width: 1, height: 16, background: 'var(--dag-border)', margin: '0 4px' }} />
           <button
             onClick={toggleFullscreen}
-            className="p-1.5 rounded-md transition-colors cursor-pointer"
-            style={{ color: DARK_THEME.textSecondary }}
-            onMouseEnter={e => e.currentTarget.style.background = 'rgba(255,255,255,0.06)'}
-            onMouseLeave={e => e.currentTarget.style.background = 'transparent'}
+            className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
           >
             {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
           </button>
         </div>
+        )}
 
-        {/* Scrollable canvas area */}
+        {/* Canvas area - centered in compact mode, scrollable otherwise */}
         <div
-          className="w-full overflow-auto"
+          className={compact ? 'w-full h-full' : 'w-full overflow-auto'}
           style={{
             height: '100%',
-            paddingTop: '40px',
-            scrollbarColor: `${DARK_THEME.border} transparent`,
+            ...(compact ? { display: 'flex', alignItems: 'center', justifyContent: 'center' } : { paddingTop: '40px' }),
           }}
         >
           <div
@@ -154,10 +172,11 @@ function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
               width: bbox.width,
               height: bbox.height,
               position: 'relative',
-              transform: `scale(${scale})`,
-              transformOrigin: 'top center',
+              transform: `scale(${effectiveScale})`,
+              transformOrigin: compact ? 'center center' : 'top center',
               transition: 'transform 0.15s ease',
               margin: '0 auto',
+              flexShrink: 0,
             }}
           >
             {/* SVG Edges layer */}
@@ -184,7 +203,7 @@ function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
                 >
                   <polygon
                     points="0 0, 10 3.5, 0 7"
-                    fill={DARK_THEME.edgeColor}
+                    fill="var(--dag-edge)"
                   />
                 </marker>
               </defs>
@@ -205,7 +224,7 @@ function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
                     y1={sy}
                     x2={tx}
                     y2={ty}
-                    stroke={DARK_THEME.edgeColor}
+                    stroke="var(--dag-edge)"
                     strokeWidth={2}
                     markerEnd="url(#dag-arrow)"
                     strokeDasharray="5 5"
@@ -249,38 +268,40 @@ function CSSTurnDAG({ steps, className = '' }: CSSTurnDAGProps) {
           </div>
         </div>
 
-        {/* Summary footer */}
+        {/* Summary footer - hidden in compact mode */}
+        {!compact && (
         <div
-          className="absolute bottom-2 left-2 flex items-center gap-2 text-xs px-3 py-1.5 rounded-md z-10"
+          className="absolute bottom-2 left-2 flex items-center gap-2 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
           style={{
-            background: DARK_THEME.bgPanel,
-            border: `1px solid ${DARK_THEME.border}`,
-            color: DARK_THEME.textSecondary,
+            background: 'var(--dag-bg-panel)',
+            border: '1px solid var(--dag-border)',
             fontVariantNumeric: 'tabular-nums',
           }}
         >
-          <span>{summary.totalSteps} steps</span>
-          <span style={{ color: DARK_THEME.textDim }}>·</span>
-          <span>{summary.totalToolCalls} tool calls</span>
+          <span>{summary.totalSteps} {t('dag.steps')}</span>
+          <span style={{ color: 'var(--dag-text-dim)' }}>·</span>
+          <span>{summary.totalToolCalls} {t('dag.toolCalls')}</span>
           {summary.hasThinking && (
             <>
-              <span style={{ color: DARK_THEME.textDim }}>·</span>
-              <span>thinking</span>
+              <span style={{ color: 'var(--dag-text-dim)' }}>·</span>
+              <span>{t('dag.thinking')}</span>
             </>
           )}
         </div>
+        )}
 
-        {/* Hint */}
+        {/* Hint - hidden in compact mode */}
+        {!compact && (
         <div
-          className="absolute top-3 left-3 text-xs px-3 py-1.5 rounded-md z-10"
+          className="absolute top-3 left-3 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
           style={{
-            background: DARK_THEME.bgPanel,
-            border: `1px solid ${DARK_THEME.border}`,
-            color: DARK_THEME.textDim,
+            background: 'var(--dag-bg-panel)',
+            border: '1px solid var(--dag-border)',
           }}
         >
-          Click nodes to view details
+          {t('dag.clickToView')}
         </div>
+        )}
       </div>
 
       <NodeDetailSheet
@@ -312,15 +333,16 @@ function DAGNodeCard({ data }: { data: DAGNodeData }) {
 }
 
 // ============================================================================
-// Human Node — Purple (#A78BFA)
+// Human Node — Gray
 // ============================================================================
 
 function HumanCard({ data: _data }: { data: { type: 'human'; content: string; stepNumber: number } }) {
+  const { t } = useI18n();
   return (
     <div
       style={{
-        background: DARK_THEME.bgPanel,
-        border: `1px solid ${DARK_THEME.nodeUserBorder}`,
+        background: 'var(--dag-bg-panel)',
+        border: '1px solid var(--dag-node-user-border)',
         borderRadius: '10px',
         padding: '12px 16px',
       }}
@@ -329,14 +351,14 @@ function HumanCard({ data: _data }: { data: { type: 'human'; content: string; st
         <div
           className="flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0"
           style={{
-            background: DARK_THEME.nodeUserLight,
-            border: `1px solid ${DARK_THEME.nodeUserBorder}`,
+            background: 'var(--dag-node-user-light)',
+            border: '1px solid var(--dag-node-user-border)',
           }}
         >
-          <span className="text-xs" style={{ color: DARK_THEME.nodeUser }}>👤</span>
+          <span className="text-xs" style={{ color: 'var(--dag-node-user)' }}>👤</span>
         </div>
-        <span className="text-sm font-medium truncate" style={{ color: DARK_THEME.nodeUser }}>
-          User
+        <span className="text-sm font-medium truncate" style={{ color: 'var(--dag-node-user)' }}>
+          {t('dag.user')}
         </span>
       </div>
     </div>
@@ -344,19 +366,20 @@ function HumanCard({ data: _data }: { data: { type: 'human'; content: string; st
 }
 
 // ============================================================================
-// AI Node — Blue (#5B8CFF)
+// AI Node — Blue
 // ============================================================================
 
 function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFinal: boolean; toolCalls?: { name: string }[] | null; thinking?: string | null } }) {
-  const borderColor = data.isFinal ? DARK_THEME.successBorder : DARK_THEME.nodeAIBorder;
-  const iconBg = data.isFinal ? DARK_THEME.successLight : DARK_THEME.nodeAILight;
-  const iconColor = data.isFinal ? DARK_THEME.success : DARK_THEME.nodeAI;
+  const { t } = useI18n();
+  const borderColor = data.isFinal ? 'var(--dag-success-border)' : 'var(--dag-node-ai-border)';
+  const iconBg = data.isFinal ? 'var(--dag-success-light)' : 'var(--dag-node-ai-light)';
+  const iconColor = data.isFinal ? 'var(--dag-success)' : 'var(--dag-node-ai)';
   const icon = data.isFinal ? '✅' : '🤖';
 
   return (
     <div
       style={{
-        background: DARK_THEME.bgPanel,
+        background: 'var(--dag-bg-panel)',
         border: `1px solid ${borderColor}`,
         borderRadius: '10px',
         padding: '12px 16px',
@@ -374,26 +397,26 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
             <span className="text-xs">{icon}</span>
           </div>
           <span className="text-sm font-medium truncate" style={{ color: iconColor }}>
-            {data.modelName || 'AI'}
+            {data.modelName || t('dag.ai')}
           </span>
         </div>
         {data.isFinal && (
           <span
             className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
-            style={{ background: DARK_THEME.successLight, color: DARK_THEME.success }}
+            style={{ background: 'var(--dag-success-light)', color: 'var(--dag-success)' }}
           >
-            Final
+            {t('dag.final')}
           </span>
         )}
       </div>
       {(data.toolCalls && data.toolCalls.length > 0) && (
-        <div className="text-xs mt-1.5" style={{ color: DARK_THEME.textDim }}>
-          🔧 {data.toolCalls.length} tool calls
+        <div className="text-xs mt-1.5 text-muted-foreground">
+          🔧 {data.toolCalls.length} {t('dag.toolCalls')}
         </div>
       )}
       {data.thinking && !data.toolCalls?.length && (
-        <div className="text-xs mt-1.5" style={{ color: DARK_THEME.nodeAI }}>
-          🧠 thinking...
+        <div className="text-xs mt-1.5" style={{ color: 'var(--dag-node-ai)' }}>
+          🧠 {t('dag.thinking')}
         </div>
       )}
     </div>
@@ -401,10 +424,11 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
 }
 
 // ============================================================================
-// Tool Node — Yellow (#F59E0B)
+// Tool Node — Purple
 // ============================================================================
 
 function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput: string | null } }) {
+  const { t } = useI18n();
   const status = !data.toolOutput
     ? 'pending'
     : data.toolOutput === '...'
@@ -414,10 +438,10 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
         : 'success';
 
   const statusText = {
-    pending: 'Waiting...',
-    running: 'Executing...',
-    success: 'Completed',
-    error: 'Failed',
+    pending: t('dag.toolStatus.pending'),
+    running: t('dag.toolStatus.running'),
+    success: t('dag.toolStatus.success'),
+    error: t('dag.toolStatus.error'),
   }[status];
 
   const statusIcon = {
@@ -428,17 +452,17 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
   }[status];
 
   const statusColor = {
-    pending: DARK_THEME.textDim,
-    running: DARK_THEME.nodeTool,
-    success: DARK_THEME.success,
-    error: DARK_THEME.error,
+    pending: 'var(--dag-text-dim)',
+    running: 'var(--dag-node-tool)',
+    success: 'var(--dag-success)',
+    error: 'var(--dag-error)',
   }[status];
 
   return (
     <div
       style={{
-        background: DARK_THEME.bgPanel,
-        border: `1px solid ${DARK_THEME.nodeToolBorder}`,
+        background: 'var(--dag-bg-panel)',
+        border: '1px solid var(--dag-node-tool-border)',
         borderRadius: '10px',
         padding: '12px 16px',
       }}
@@ -447,35 +471,35 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
         <div
           className="flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0"
           style={{
-            background: DARK_THEME.nodeToolLight,
-            border: `1px solid ${DARK_THEME.nodeToolBorder}`,
+            background: 'var(--dag-node-tool-light)',
+            border: '1px solid var(--dag-node-tool-border)',
           }}
         >
           <span className="text-xs">🔧</span>
         </div>
-        <span className="text-sm font-medium truncate" style={{ color: DARK_THEME.textPrimary }}>
+        <span className="text-sm font-medium truncate" style={{ color: 'var(--dag-text-primary)' }}>
           {data.toolName}
         </span>
       </div>
       <div className="flex items-center gap-1.5 mt-1.5">
         <span className="text-xs" style={{ color: statusColor }}>{statusIcon}</span>
-        <span className="text-xs" style={{ color: DARK_THEME.textDim }}>{statusText}</span>
+        <span className="text-xs text-muted-foreground">{statusText}</span>
       </div>
     </div>
   );
 }
 
 // ============================================================================
-// SubAgent Node — Blue Gradient (#5B8CFF → #06B6D4)
+// SubAgent Node — Blue Gradient
 // ============================================================================
 
 function SubAgentCard({ data }: { data: { type: 'subagent'; agentName: string; modelName?: string | null } }) {
   return (
     <div
       style={{
-        background: DARK_THEME.bgPanel,
-        border: `2px solid transparent`,
-        borderImage: `linear-gradient(135deg, ${DARK_THEME.nodeSubagentFrom}, ${DARK_THEME.nodeSubagentTo}) 1`,
+        background: 'var(--dag-bg-panel)',
+        border: '2px solid transparent',
+        borderImage: 'linear-gradient(135deg, var(--dag-node-subagent-from), var(--dag-node-subagent-to)) 1',
         borderRadius: '10px',
         padding: '12px 16px',
       }}
@@ -484,13 +508,13 @@ function SubAgentCard({ data }: { data: { type: 'subagent'; agentName: string; m
         <div
           className="flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0"
           style={{
-            background: DARK_THEME.nodeAILight,
-            border: `1px solid ${DARK_THEME.nodeAIBorder}`,
+            background: 'var(--dag-node-ai-light)',
+            border: '1px solid var(--dag-node-ai-border)',
           }}
         >
           <span className="text-xs">🔄</span>
         </div>
-        <span className="text-sm font-medium truncate" style={{ color: DARK_THEME.nodeAI }}>
+        <span className="text-sm font-medium truncate" style={{ color: 'var(--dag-node-ai)' }}>
           {data.agentName}
         </span>
       </div>

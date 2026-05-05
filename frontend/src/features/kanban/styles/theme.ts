@@ -1,5 +1,5 @@
 /**
- * Kanban Dark Theme — Clean Dashboard Style
+ * Kanban Theme System — Light & Dark Themes
  *
  * Design principles:
  * - Single accent color per node type (no gradients, no glow)
@@ -84,6 +84,87 @@ export const DARK_THEME = {
   // ============================================================================
   shadow: '0 1px 3px rgba(0, 0, 0, 0.3)',
   shadowLg: '0 4px 12px rgba(0, 0, 0, 0.4)',
+} as const;
+
+// ============================================================================
+// Light Theme — Clean Dashboard Style
+// ============================================================================
+export const LIGHT_THEME = {
+  // ============================================================================
+  // Background Hierarchy (light theme)
+  // ============================================================================
+  bgMain: '#FFFFFF',       // main background (white)
+  bgSidebar: '#F8FAFC',    // sidebar background (light gray)
+  bgPanel: '#F1F5F9',      // panels / cards (slate-100)
+  bgHover: '#E2E8F0',      // hover state (slate-200)
+
+  // ============================================================================
+  // Borders
+  // ============================================================================
+  border: 'rgba(0,0,0,0.08)',
+  borderHover: 'rgba(0,0,0,0.12)',
+  borderActive: 'rgba(37,99,235,0.3)',
+
+  // ============================================================================
+  // Text Hierarchy
+  // ============================================================================
+  textPrimary: '#1E293B',    // slate-800
+  textSecondary: '#475569',  // slate-600
+  textDim: '#64748B',        // slate-500
+
+  // ============================================================================
+  // Node Colors (clean, distinct per type)
+  // ============================================================================
+  nodeUser: '#475569',       // User — Gray (neutral, not decorative)
+  nodeUserLight: 'rgba(71,85,105,0.10)',
+  nodeUserBorder: 'rgba(71,85,105,0.3)',
+
+  nodeAI: '#2563EB',         // AI — Blue (slate-600 blue)
+  nodeAILight: 'rgba(37,99,235,0.12)',
+  nodeAIBorder: 'rgba(37,99,235,0.4)',
+
+  nodeTool: '#7C3AED',       // Tool — Purple (violet-600)
+  nodeToolLight: 'rgba(124,58,237,0.08)',
+  nodeToolBorder: 'rgba(124,58,237,0.25)',
+
+  // SubAgent gradient (blue to cyan)
+  nodeSubagentFrom: '#2563EB',
+  nodeSubagentTo: '#0891B2',
+  nodeSubagentLight: 'rgba(37,99,235,0.12)',
+
+  // ============================================================================
+  // Edge Color (gray for all connections in light mode)
+  // ============================================================================
+  edgeColor: 'rgba(0,0,0,0.15)',
+  edgeColorMuted: 'rgba(0,0,0,0.08)',
+
+  // ============================================================================
+  // Status Colors (semantic, not decorative)
+  // ============================================================================
+  success: '#16A34A',       // green-600
+  successLight: 'rgba(22,163,74,0.12)',
+  successBorder: 'rgba(22,163,74,0.4)',
+
+  warning: '#D97706',       // amber-600
+  warningLight: 'rgba(217,119,6,0.12)',
+  warningBorder: 'rgba(217,119,6,0.4)',
+
+  error: '#DC2626',         // red-600
+  errorLight: 'rgba(220,38,38,0.12)',
+  errorBorder: 'rgba(220,38,38,0.5)',
+
+  // ============================================================================
+  // Chart
+  // ============================================================================
+  chartPrimary: '#2563EB',  // blue-600
+  chartSecondary: '#475569', // slate-600
+  chartGrid: 'rgba(0,0,0,0.06)',
+
+  // ============================================================================
+  // Shadows (flat, no glow)
+  // ============================================================================
+  shadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+  shadowLg: '0 4px 12px rgba(0, 0, 0, 0.12)',
 } as const;
 
 // ============================================================================

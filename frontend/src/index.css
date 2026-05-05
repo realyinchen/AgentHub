@@ -108,6 +108,39 @@
   --token-total-glow: 0 0 10px rgba(79, 70, 229, 0.4);
 
   --token-track: #E5E7EB;
+
+  /* DAG Node Colors - Light Theme */
+  --dag-bg-main: #FAFAFA;
+  --dag-bg-panel: #FFFFFF;
+  --dag-border: rgba(0, 0, 0, 0.08);
+  --dag-text-primary: #1A1A1A;
+  --dag-text-secondary: #666666;
+  --dag-text-dim: #999999;
+  
+  --dag-node-user: #6B7280;
+  --dag-node-user-light: rgba(107, 114, 128, 0.1);
+  --dag-node-user-border: rgba(107, 114, 128, 0.3);
+  
+  --dag-node-ai: #3B82F6;
+  --dag-node-ai-light: rgba(59, 130, 246, 0.1);
+  --dag-node-ai-border: rgba(59, 130, 246, 0.4);
+  
+  --dag-node-tool: #A78BFA;
+  --dag-node-tool-light: rgba(167, 139, 250, 0.08);
+  --dag-node-tool-border: rgba(167, 139, 250, 0.25);
+  
+  --dag-node-subagent-from: #3B82F6;
+  --dag-node-subagent-to: #06B6D4;
+  
+  --dag-success: #22C55E;
+  --dag-success-light: rgba(34, 197, 94, 0.1);
+  --dag-success-border: rgba(34, 197, 94, 0.4);
+  
+  --dag-error: #EF4444;
+  --dag-error-light: rgba(239, 68, 68, 0.1);
+  --dag-error-border: rgba(239, 68, 68, 0.5);
+  
+  --dag-edge: rgba(0, 0, 0, 0.15);
 }
 
 .dark {
@@ -214,6 +247,39 @@
   --token-total-glow: 0 0 12px rgba(129, 140, 248, 0.5);
 
   --token-track: rgba(255, 255, 255, 0.08);
+
+  /* DAG Node Colors - Dark Theme */
+  --dag-bg-main: #0B0F17;
+  --dag-bg-panel: #111826;
+  --dag-border: rgba(255, 255, 255, 0.06);
+  --dag-text-primary: #E6EDF3;
+  --dag-text-secondary: #9FB0C3;
+  --dag-text-dim: #6B7A90;
+  
+  --dag-node-user: #9FB0C3;
+  --dag-node-user-light: rgba(159, 176, 195, 0.1);
+  --dag-node-user-border: rgba(159, 176, 195, 0.3);
+  
+  --dag-node-ai: #5B8CFF;
+  --dag-node-ai-light: rgba(91, 140, 255, 0.12);
+  --dag-node-ai-border: rgba(91, 140, 255, 0.4);
+  
+  --dag-node-tool: #A78BFA;
+  --dag-node-tool-light: rgba(167, 139, 250, 0.08);
+  --dag-node-tool-border: rgba(167, 139, 250, 0.25);
+  
+  --dag-node-subagent-from: #5B8CFF;
+  --dag-node-subagent-to: #06B6D4;
+  
+  --dag-success: #22C55E;
+  --dag-success-light: rgba(34, 197, 94, 0.12);
+  --dag-success-border: rgba(34, 197, 94, 0.4);
+  
+  --dag-error: #EF4444;
+  --dag-error-light: rgba(239, 68, 68, 0.12);
+  --dag-error-border: rgba(239, 68, 68, 0.5);
+  
+  --dag-edge: rgba(255, 255, 255, 0.15);
 }
 
 @theme inline {
@@ -749,4 +815,111 @@
 
 .kanban-page {
   font-family: Inter, "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ==================== Pure CSS Icons ==================== */
+
+/* Token/Money icon - $¥ offset stacked coin */
+.icon-money-dual {
+  width: 24px;
+  height: 24px;
+  position: relative;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #f6d365, #fda085);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Foreground: $ */
+.icon-money-dual::before {
+  content: "$";
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* Background: ¥ (slightly offset + transparent) */
+.icon-money-dual::after {
+  content: "¥";
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* Steps icon - Numbered list 1 2 3 */
+.icon-steps {
+  width: 16px;
+  height: 18px;
+  position: relative;
+  display: inline-block;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Left column numbers 1 2 3 */
+.icon-steps::before {
+  content: "1 2 3";
+  white-space: pre;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 5.5px;
+  font-weight: 900;
+  line-height: 1.35;
+  color: currentColor;
+  letter-spacing: 0;
+}
+
+/* Right side three short horizontal lines (list item content) */
+.icon-steps::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 2px;
+  width: 7px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: 1px;
+  opacity: 0.7;
+  box-shadow:
+    0 5px 0 currentColor,
+    0 10px 0 currentColor;
+}
+
+/* Arrow left icon - Simple left arrow */
+.icon-arrow-left {
+  width: 16px;
+  height: 16px;
+  position: relative;
+  display: inline-block;
+}
+
+.icon-arrow-left::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 8px;
+  height: 2px;
+  background: currentColor;
+  transform: translateY(-50%);
+  border-radius: 1px;
+}
+
+.icon-arrow-left::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 6px;
+  height: 6px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-50%) rotate(45deg);
 }

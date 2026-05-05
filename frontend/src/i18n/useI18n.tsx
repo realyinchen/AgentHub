@@ -160,6 +160,7 @@ const en = {
   "process.showProcess": "Show agent process",
   "process.toolCalls": "Tool Calls",
   "process.executionSteps": "Execution Steps",
+  "process.viewFullGraph": "View full graph",
   "process.toolCall": "Tool Call",
   "process.llmResponse": "LLM Response",
   "process.modelResponse": "Model Response",
@@ -174,6 +175,10 @@ const en = {
   "token.output": "Output",
   "token.reasoning": "Reasoning",
   "token.total": "Total",
+  // Token stats panel
+  "token.statsLoading": "Loading execution steps...",
+  "token.flipToStats": "Click to view 7-day stats",
+  "token.flipBack": "Click to flip back",
   // Kanban
   "kanban.title": "Kanban",
   "kanban.subtitle": "Explore agent execution traces",
@@ -190,6 +195,22 @@ const en = {
   "kanban.chart.input": "Input Tokens",
   "kanban.chart.output": "Output Tokens",
   "kanban.chart.reasoning": "Reasoning Tokens",
+  "kanban.vsLast7Days": "vs last 7 days",
+  // DAG
+  "dag.noSteps": "No steps to display",
+  "dag.clickToView": "Click nodes to view details",
+  "dag.steps": "steps",
+  "dag.toolCalls": "tool calls",
+  "dag.thinking": "thinking",
+  "dag.user": "User",
+  "dag.ai": "AI",
+  "dag.final": "Final",
+  "dag.toolStatus.pending": "Waiting...",
+  "dag.toolStatus.running": "Executing...",
+  "dag.toolStatus.success": "Completed",
+  "dag.toolStatus.error": "Failed",
+  "dag.noStepsHint": "This session has no recorded steps",
+  "dag.input": "Message",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -350,6 +371,7 @@ const zh: TranslationDictionary = {
   "process.showProcess": "展示智能体处理过程",
   "process.toolCalls": "工具调用",
   "process.executionSteps": "执行步骤",
+  "process.viewFullGraph": "查看完整执行图",
   "process.toolCall": "工具调用",
   "process.llmResponse": "LLM 响应",
   "process.modelResponse": "模型回复",
@@ -364,6 +386,10 @@ const zh: TranslationDictionary = {
   "token.output": "输出",
   "token.reasoning": "推理",
   "token.total": "总计",
+  // Token stats panel
+  "token.statsLoading": "执行步骤加载中...",
+  "token.flipToStats": "点击查看7天统计",
+  "token.flipBack": "点击返回",
   // Kanban
   "kanban.title": "看板",
   "kanban.subtitle": "探索智能体执行过程",
@@ -380,6 +406,22 @@ const zh: TranslationDictionary = {
   "kanban.chart.input": "输入 Token",
   "kanban.chart.output": "输出 Token",
   "kanban.chart.reasoning": "思考 Token",
+  "kanban.vsLast7Days": "对比前 7 天",
+  // DAG
+  "dag.noSteps": "无步骤可展示",
+  "dag.clickToView": "点击节点查看详情",
+  "dag.steps": "步",
+  "dag.toolCalls": "工具调用",
+  "dag.thinking": "思考中",
+  "dag.user": "用户",
+  "dag.ai": "AI",
+  "dag.final": "最终",
+  "dag.toolStatus.pending": "等待中...",
+  "dag.toolStatus.running": "执行中...",
+  "dag.toolStatus.success": "已完成",
+  "dag.toolStatus.error": "失败",
+  "dag.noStepsHint": "该会话没有记录的步骤",
+  "dag.input": "对话输入",
 }
 
 const dictionaries = {

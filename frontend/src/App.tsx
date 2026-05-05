@@ -40,13 +40,13 @@ import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import { useTheme } from "@/hooks/use-theme"
 import { useModels } from "@/hooks/use-models"
 import {
-  AgentProcessPanel,
   ChatMainPanel,
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
   ShareDialog,
   TokenStatsPanel,
+  TurnDAGSidebar,
 } from "@/features/chat/components"
 import { AgentSidebar } from "@/components/agent"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
@@ -309,31 +309,13 @@ function App() {
           const sequence = historyResult.value.message_sequence || []
           setMessageSequence(sequence)
 
-          // Auto-select the latest session that has steps
+          // Auto-select the latest session (last session_id in sequence)
           if (sequence && sequence.length > 0) {
-            // Group steps by session_id
-            const stepsBySession = new Map<string, MessageStep[]>()
-            sequence.forEach((step) => {
-              const sid = step.session_id
-              if (!stepsBySession.has(sid)) {
-                stepsBySession.set(sid, [])
-              }
-              stepsBySession.get(sid)!.push(step)
-            })
-
-            // Find sessions that have steps (tool calls or thinking)
-            const sessionsWithSteps: string[] = []
-            stepsBySession.forEach((steps, sid) => {
-              const hasToolSteps = steps.some(s => s.message_type === "tool")
-              const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
-              if (hasToolSteps || hasThinking) {
-                sessionsWithSteps.push(sid)
-              }
-            })
-
-            // Select the latest session with steps
-            if (sessionsWithSteps.length > 0) {
-              setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
+            // Get all unique session_ids in order they appear
+            const sessionIds = [...new Set(sequence.map(step => step.session_id))]
+            // Select the last session (most recent turn)
+            if (sessionIds.length > 0) {
+              setSelectedSessionId(sessionIds[sessionIds.length - 1])
             } else {
               setSelectedSessionId(null)
             }
@@ -1047,34 +1029,14 @@ function App() {
         try {
           const historyResult = await getHistory(selectedAgentId, targetThreadId)
           if (historyResult.message_sequence) {
-            setMessageSequence(historyResult.message_sequence)
-
-            // Auto-select the latest session that has steps
             const sequence = historyResult.message_sequence
+            setMessageSequence(sequence)
+
+            // Auto-select the latest session (last session_id in sequence)
             if (sequence && sequence.length > 0) {
-              // Group steps by session_id
-              const stepsBySession = new Map<string, MessageStep[]>()
-              sequence.forEach((step) => {
-                const sid = step.session_id
-                if (!stepsBySession.has(sid)) {
-                  stepsBySession.set(sid, [])
-                }
-                stepsBySession.get(sid)!.push(step)
-              })
-
-              // Find sessions that have steps (tool calls or thinking)
-              const sessionsWithSteps: string[] = []
-              stepsBySession.forEach((steps, sid) => {
-                const hasToolSteps = steps.some(s => s.message_type === "tool")
-                const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
-                if (hasToolSteps || hasThinking) {
-                  sessionsWithSteps.push(sid)
-                }
-              })
-
-              // Select the latest session with steps
-              if (sessionsWithSteps.length > 0) {
-                setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
+              const sessionIds = [...new Set(sequence.map(step => step.session_id))]
+              if (sessionIds.length > 0) {
+                setSelectedSessionId(sessionIds[sessionIds.length - 1])
               }
             }
           }
@@ -1509,10 +1471,20 @@ function App() {
               historyResult.value.messages.map((message) => toLocalMessage(message)),
             )
             // Set message sequence for sidebar
-            setMessageSequence(historyResult.value.message_sequence || [])
+            const sequence = historyResult.value.message_sequence || []
+            setMessageSequence(sequence)
+
+            // Auto-select the latest session (last session_id in sequence)
+            if (sequence && sequence.length > 0) {
+              const sessionIds = [...new Set(sequence.map(step => step.session_id))]
+              if (sessionIds.length > 0) {
+                setSelectedSessionId(sessionIds[sessionIds.length - 1])
+              }
+            }
           } else {
             setMessages([])
             setMessageSequence([])
+            setSelectedSessionId(null)
           }
 
           if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -1774,7 +1746,7 @@ function App() {
 
           </div>
 
-          {/* Middle Section: Agent Process Panel (chat mode) or Agent Sidebar (home mode) */}
+          {/* Middle Section: Turn DAG Sidebar (chat mode) or Agent Sidebar (home mode) */}
           <div className="flex-1 min-h-0 overflow-hidden">
             {!isInitializing && (
               messages.length === 0 ? (
@@ -1785,15 +1757,13 @@ function App() {
                   onSelectAgent={pickAgentForCurrentConversation}
                 />
               ) : (
-                // Chat mode: Show agent process panel
-                showSidebarProcess && (messageSequence.length > 0 || (processSession && processSession.steps && processSession.steps.length > 0)) && (
-                  <AgentProcessPanel
-                    session={processSession}
-                    messageSequence={messageSequence}
-                    isStreaming={isStreaming}
-                    selectedSessionId={selectedSessionId}
-                  />
-                )
+                // Chat mode: Show Turn DAG sidebar
+                <TurnDAGSidebar
+                  threadId={threadId || null}
+                  sessionId={selectedSessionId}
+                  isStreaming={isStreaming}
+                  messageSequence={messageSequence}
+                />
               )
             )}
           </div>

@@ -2,10 +2,11 @@
  * NodeDetailSheet - Side panel showing node input/output details.
  * Larger panel (520px), copy buttons on input/output sections.
  * Flat log-style panel, no glow.
+ * Uses CSS variables for theming.
  */
 
 import { useState, useCallback } from 'react';
-import { User, Wrench, Brain, Bot, CheckCircle, Copy, Check, X } from 'lucide-react';
+import { User, Wrench, Brain, Bot, Copy, Check, X } from 'lucide-react';
 import {
   Sheet,
   SheetContent,
@@ -15,7 +16,7 @@ import {
 } from '@/components/ui/sheet';
 import type { DAGNodeData } from '../../types/dag';
 import { formatToolOutput } from '../../utils/dagBuilder';
-import { DARK_THEME } from '../../styles/theme';
+import { useI18n } from '@/i18n';
 
 interface NodeDetailSheetProps {
   nodeData: DAGNodeData | null;
@@ -24,6 +25,7 @@ interface NodeDetailSheetProps {
 }
 
 function CopyButton({ text }: { text: string }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
 
   const handleCopy = useCallback(async () => {
@@ -51,30 +53,20 @@ function CopyButton({ text }: { text: string }) {
       onClick={handleCopy}
       className="flex items-center gap-1 px-2 py-1 rounded-md transition-colors cursor-pointer text-xs"
       style={{
-        background: copied ? DARK_THEME.successLight : 'rgba(255,255,255,0.06)',
-        border: `1px solid ${copied ? DARK_THEME.successBorder : DARK_THEME.border}`,
-        color: copied ? DARK_THEME.success : DARK_THEME.textDim,
-      }}
-      onMouseEnter={e => {
-        if (!copied) {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.10)';
-          e.currentTarget.style.color = DARK_THEME.textSecondary;
-        }
-      }}
-      onMouseLeave={e => {
-        if (!copied) {
-          e.currentTarget.style.background = 'rgba(255,255,255,0.06)';
-          e.currentTarget.style.color = DARK_THEME.textDim;
-        }
+        background: copied ? 'var(--dag-success-light)' : 'rgba(255,255,255,0.06)',
+        border: `1px solid ${copied ? 'var(--dag-success-border)' : 'var(--dag-border)'}`,
+        color: copied ? 'var(--dag-success)' : 'var(--dag-text-dim)',
       }}
     >
       {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-      {copied ? 'Copied' : 'Copy'}
+      {copied ? t('common.copied') : t('common.copy')}
     </button>
   );
 }
 
 function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps) {
+  const { t } = useI18n();
+  
   if (!nodeData) return null;
 
   const getNodeHeader = (): {
@@ -89,40 +81,40 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
       case 'human':
         return {
           icon: <User className="w-5 h-5" />,
-          title: 'User Message',
+          title: t('dag.user') || 'User Message',
           description: `Step #${nodeData.stepNumber}`,
-          accentColor: DARK_THEME.nodeUser,
-          accentLight: DARK_THEME.nodeUserLight,
-          accentBorder: DARK_THEME.nodeUserBorder,
+          accentColor: 'var(--dag-node-user)',
+          accentLight: 'var(--dag-node-user-light)',
+          accentBorder: 'var(--dag-node-user-border)',
         };
       case 'ai':
         return {
           icon: nodeData.thinking ? <Brain className="w-5 h-5" /> : <Bot className="w-5 h-5" />,
-          title: nodeData.isFinal ? 'AI Response' : 'AI Processing',
+          title: nodeData.isFinal ? (t('dag.ai') || 'AI Response') : (t('dag.ai') || 'AI Processing'),
           description: nodeData.modelName
             ? `${nodeData.modelName} · Step #${nodeData.stepNumber}`
             : `Step #${nodeData.stepNumber}`,
-          accentColor: nodeData.isFinal ? DARK_THEME.success : DARK_THEME.nodeAI,
-          accentLight: nodeData.isFinal ? DARK_THEME.successLight : DARK_THEME.nodeAILight,
-          accentBorder: nodeData.isFinal ? DARK_THEME.successBorder : DARK_THEME.nodeAIBorder,
+          accentColor: nodeData.isFinal ? 'var(--dag-success)' : 'var(--dag-node-ai)',
+          accentLight: nodeData.isFinal ? 'var(--dag-success-light)' : 'var(--dag-node-ai-light)',
+          accentBorder: nodeData.isFinal ? 'var(--dag-success-border)' : 'var(--dag-node-ai-border)',
         };
       case 'tool':
         return {
           icon: <Wrench className="w-5 h-5" />,
           title: nodeData.toolName,
           description: `Step #${nodeData.stepNumber}`,
-          accentColor: DARK_THEME.nodeTool,
-          accentLight: DARK_THEME.nodeToolLight,
-          accentBorder: DARK_THEME.nodeToolBorder,
+          accentColor: 'var(--dag-node-tool)',
+          accentLight: 'var(--dag-node-tool-light)',
+          accentBorder: 'var(--dag-node-tool-border)',
         };
       case 'subagent':
         return {
           icon: <Bot className="w-5 h-5" />,
           title: nodeData.agentName,
           description: `SubAgent · Step #${nodeData.stepNumber}`,
-          accentColor: DARK_THEME.nodeAI,
-          accentLight: DARK_THEME.nodeAILight,
-          accentBorder: DARK_THEME.nodeAIBorder,
+          accentColor: 'var(--dag-node-ai)',
+          accentLight: 'var(--dag-node-ai-light)',
+          accentBorder: 'var(--dag-node-ai-border)',
         };
       default:
         return null;
@@ -132,12 +124,12 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
   const getInput = (): { label: string; content: string } | null => {
     switch (nodeData.type) {
       case 'human':
-        return nodeData.content ? { label: 'Message', content: nodeData.content } : null;
+        return nodeData.content ? { label: t('dag.input') || 'Message', content: nodeData.content } : null;
       case 'ai':
-        return nodeData.thinking ? { label: 'Thinking', content: nodeData.thinking } : null;
+        return nodeData.thinking ? { label: t('dag.thinking') || 'Thinking', content: nodeData.thinking } : null;
       case 'tool':
         if (nodeData.toolArgs && Object.keys(nodeData.toolArgs).length > 0) {
-          return { label: 'Arguments', content: JSON.stringify(nodeData.toolArgs, null, 2) };
+          return { label: t('process.arguments') || 'Arguments', content: JSON.stringify(nodeData.toolArgs, null, 2) };
         }
         return null;
       case 'subagent':
@@ -150,10 +142,10 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
       case 'human':
         return null;
       case 'ai':
-        return nodeData.content ? { label: 'Response', content: nodeData.content } : null;
+        return nodeData.content ? { label: t('process.content') || 'Response', content: nodeData.content } : null;
       case 'tool':
         return nodeData.toolOutput
-          ? { label: 'Result', content: formatToolOutput(nodeData.toolOutput, 5000) }
+          ? { label: t('process.content') || 'Result', content: formatToolOutput(nodeData.toolOutput, 5000) }
           : null;
       case 'subagent':
         return null;
@@ -174,28 +166,22 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
         style={{
           width: '520px',
           maxWidth: '520px',
-          background: '#0F172A',
-          borderLeft: `1px solid ${DARK_THEME.border}`,
+          background: 'var(--dag-bg-panel)',
+          borderLeft: '1px solid var(--dag-border)',
           borderRadius: '16px 0 0 16px',
-          boxShadow: DARK_THEME.shadowLg,
+          boxShadow: '0 4px 12px rgba(0, 0, 0, 0.4)',
         }}
       >
         {/* Custom close button */}
         <button
           onClick={() => onOpenChange(false)}
-          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg transition-all cursor-pointer"
+          className="absolute top-4 right-4 w-8 h-8 flex items-center justify-center rounded-lg transition-colors hover:bg-white/10"
           style={{
             background: 'rgba(255,255,255,0.04)',
-            border: `1px solid ${DARK_THEME.border}`,
-            color: DARK_THEME.textDim,
-          }}
-          onMouseEnter={e => {
-            e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
-            e.currentTarget.style.color = DARK_THEME.textSecondary;
-          }}
-          onMouseLeave={e => {
-            e.currentTarget.style.background = 'rgba(255,255,255,0.04)';
-            e.currentTarget.style.color = DARK_THEME.textDim;
+            border: '1px solid var(--dag-border)',
+            color: 'var(--dag-text-dim)',
+            zIndex: 10,
+            cursor: 'pointer',
           }}
         >
           <X className="w-4 h-4" />
@@ -203,7 +189,7 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
         {/* Header */}
         <SheetHeader
           className="pb-4"
-          style={{ borderBottom: `1px solid ${DARK_THEME.border}` }}
+          style={{ borderBottom: '1px solid var(--dag-border)' }}
         >
           <div className="flex items-center gap-3">
             <div
@@ -218,13 +204,13 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
             <div className="flex-1 min-w-0">
               <SheetTitle
                 className="text-lg font-semibold"
-                style={{ color: DARK_THEME.textPrimary }}
+                style={{ color: 'var(--dag-text-primary)' }}
               >
                 {headerInfo.title}
               </SheetTitle>
               <SheetDescription
                 className="text-sm mt-0.5"
-                style={{ color: DARK_THEME.textDim }}
+                style={{ color: 'var(--dag-text-dim)' }}
               >
                 {headerInfo.description}
               </SheetDescription>
@@ -234,38 +220,34 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
 
         <div
           className="mt-4 space-y-4 overflow-y-auto max-h-[calc(100vh-10rem)] px-1 pb-4"
-          style={{ scrollbarColor: `${DARK_THEME.border} transparent` }}
         >
           {/* Input Section */}
           {input && (
             <div
               className="rounded-lg p-4"
               style={{
-                background: DARK_THEME.bgMain,
-                border: `1px solid ${DARK_THEME.border}`,
+                background: 'var(--dag-bg-main)',
+                border: '1px solid var(--dag-border)',
               }}
             >
               <div className="flex items-center justify-between mb-2">
                 <span
                   className="text-xs font-medium"
-                  style={{ color: DARK_THEME.textDim }}
+                  style={{ color: 'var(--dag-text-secondary)' }}
                 >
                   {input.label}
                 </span>
                 <CopyButton text={input.content} />
               </div>
-              <div
-                className="rounded-md p-3 text-sm font-mono whitespace-pre-wrap overflow-auto"
+              <pre
+                className="text-sm whitespace-pre-wrap break-words font-mono overflow-auto max-h-[200px] p-3 rounded-md"
                 style={{
                   background: 'rgba(255,255,255,0.02)',
-                  border: `1px solid ${DARK_THEME.border}`,
-                  color: DARK_THEME.textPrimary,
-                  maxHeight: '400px',
-                  lineHeight: '1.6',
+                  color: 'var(--dag-text-primary)',
                 }}
               >
                 {input.content}
-              </div>
+              </pre>
             </div>
           )}
 
@@ -274,98 +256,59 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
             <div
               className="rounded-lg p-4"
               style={{
-                background: DARK_THEME.bgMain,
-                border: `1px solid ${DARK_THEME.border}`,
+                background: 'var(--dag-bg-main)',
+                border: '1px solid var(--dag-border)',
               }}
             >
               <div className="flex items-center justify-between mb-2">
-                <div className="flex items-center gap-2">
-                  <span
-                    className="text-xs font-medium"
-                    style={{ color: DARK_THEME.textDim }}
-                  >
-                    {output.label}
-                  </span>
-                  {nodeData.type === 'tool' && (
-                    <CheckCircle className="w-3.5 h-3.5" style={{ color: DARK_THEME.success }} />
-                  )}
-                </div>
+                <span
+                  className="text-xs font-medium"
+                  style={{ color: 'var(--dag-text-secondary)' }}
+                >
+                  {output.label}
+                </span>
                 <CopyButton text={output.content} />
               </div>
-              <div
-                className="rounded-md p-3 text-sm font-mono whitespace-pre-wrap overflow-auto"
+              <pre
+                className="text-sm whitespace-pre-wrap break-words font-mono overflow-auto max-h-[200px] p-3 rounded-md"
                 style={{
                   background: 'rgba(255,255,255,0.02)',
-                  border: `1px solid ${DARK_THEME.border}`,
-                  color: DARK_THEME.textPrimary,
-                  maxHeight: '400px',
-                  lineHeight: '1.6',
+                  color: 'var(--dag-text-primary)',
                 }}
               >
                 {output.content}
-              </div>
+              </pre>
             </div>
           )}
 
-          {/* Tool Calls list for AI node */}
+          {/* Tool Calls Section for AI nodes */}
           {nodeData.type === 'ai' && nodeData.toolCalls && nodeData.toolCalls.length > 0 && (
             <div
               className="rounded-lg p-4"
               style={{
-                background: DARK_THEME.bgMain,
-                border: `1px solid ${DARK_THEME.border}`,
+                background: 'var(--dag-bg-main)',
+                border: '1px solid var(--dag-border)',
               }}
             >
-              <div className="flex items-center gap-2 mb-3">
-                <Wrench className="w-4 h-4" style={{ color: DARK_THEME.nodeTool }} />
-                <span
-                  className="text-sm font-medium"
-                  style={{ color: DARK_THEME.textSecondary }}
-                >
-                  Tool Calls ({nodeData.toolCalls.length})
-                </span>
-              </div>
-              <div className="space-y-2">
+              <span
+                className="text-xs font-medium"
+                style={{ color: 'var(--dag-text-secondary)' }}
+              >
+                {t('process.toolCalls') || 'Tool Calls'} ({nodeData.toolCalls.length})
+              </span>
+              <div className="mt-2 space-y-2">
                 {nodeData.toolCalls.map((tc, idx) => (
                   <div
                     key={idx}
-                    className="rounded-md p-3"
-                    style={{
-                      background: 'rgba(255,255,255,0.02)',
-                      border: `1px solid ${DARK_THEME.border}`,
-                    }}
+                    className="text-sm p-2 rounded-md cursor-pointer"
+                    style={{ background: 'var(--dag-node-tool-light)' }}
                   >
-                    <div
-                      className="font-medium mb-1.5 text-sm"
-                      style={{ color: DARK_THEME.textPrimary }}
-                    >
+                    <span className="font-medium" style={{ color: 'var(--dag-node-tool)' }}>
                       {tc.name}
-                    </div>
-                    {tc.args && Object.keys(tc.args).length > 0 && (
-                      <div
-                        className="text-xs font-mono whitespace-pre-wrap overflow-auto rounded p-2"
-                        style={{
-                          background: DARK_THEME.bgPanel,
-                          color: DARK_THEME.textSecondary,
-                          maxHeight: '120px',
-                        }}
-                      >
-                        {JSON.stringify(tc.args, null, 2)}
-                      </div>
-                    )}
+                    </span>
                   </div>
                 ))}
               </div>
-            </div>
-          )}
-
-          {/* Empty state */}
-          {!input && !output && nodeData.type !== 'ai' && (
-            <div
-              className="text-center py-8"
-              style={{ color: DARK_THEME.textDim }}
-            >
-              No content available
             </div>
           )}
         </div>
