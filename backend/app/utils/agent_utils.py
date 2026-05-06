@@ -5,8 +5,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.database import get_database
 from app.models.agent import Agent
-from app.agents.chatbot import chatbot
-from app.agents.navigator import navigator
+from app.agents.base import AgentRegistry
 
 
 logger = logging.getLogger(__name__)
@@ -56,16 +55,15 @@ async def get_agent(agent_id: str) -> CompiledStateGraph:
             f"Agent '{agent_id}' not found. Available agents: {available_agent_ids}",
         )
 
-    # Agent ID to agent instance mapping
-    agent_map = {
-        "chatbot": chatbot,
-        "navigator": navigator,
-    }
+    # Get agent from registry
+    agent = AgentRegistry.get(agent_id)
+    if agent is None:
+        raise AgentNotFound(
+            f"Agent '{agent_id}' is in database but not registered. "
+            f"Registered agents: {AgentRegistry.get_all_ids()}",
+        )
 
-    # Return the appropriate agent
-    # Note: thinking_mode is passed via config at invocation time
-    agent = agent_map.get(agent_id, chatbot)
-    logger.info(f"Returning agent: {agent_id} -> {agent.__class__.__name__}")
+    logger.info(f"Returning agent: {agent_id}")
     return agent
 
 
@@ -75,17 +73,18 @@ async def get_available_agents() -> List[CompiledStateGraph]:
     """
     available_agent_ids = await get_available_agent_ids()
     if not available_agent_ids:
-        return [chatbot]
-
-    # Agent ID to agent instance mapping
-    agent_map = {
-        "chatbot": chatbot,
-        "navigator": navigator,
-    }
+        default_agent = AgentRegistry.get(DEFAULT_AGENT_ID)
+        return [default_agent] if default_agent else []
 
     agents = []
     for agent_id in available_agent_ids:
-        agent = agent_map.get(agent_id, chatbot)
-        agents.append(agent)
+        agent = AgentRegistry.get(agent_id)
+        if agent is not None:
+            agents.append(agent)
+        else:
+            logger.warning(
+                f"Agent '{agent_id}' is in database but not registered. "
+                f"Registered agents: {AgentRegistry.get_all_ids()}"
+            )
 
     return agents

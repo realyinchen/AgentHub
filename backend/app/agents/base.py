@@ -6,10 +6,12 @@ This module provides reusable components for building standard ReAct agents:
 - Tool execution node (with optional parallel execution)
 - Conditional edge router
 - Graph builder factory function
+- AgentRegistry for self-registration via decorators
 
 All new agents should use build_standard_agent_graph() to minimize code duplication.
 """
 
+import logging
 from typing import Any, Callable, Literal
 
 from langchain_core.messages import AIMessage, BaseMessage, SystemMessage, ToolMessage
@@ -17,9 +19,13 @@ from langchain_core.tools import BaseTool
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import MessagesState
+from langgraph.graph.state import CompiledStateGraph
 
 from app.utils.llm import get_chat_litellm
 from app.core.model_manager import ModelManager
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentState(MessagesState):
@@ -344,6 +350,59 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
 
     # Otherwise, we stop (reply to the user)
     return "__end__"
+
+
+class AgentRegistry:
+    """Registry for all compiled agent graphs.
+    
+    Agents self-register via the @register_agent decorator.
+    This eliminates the need to manually maintain agent_map in agent_utils.py.
+    
+    Example:
+        @register_agent("chatbot")
+        chatbot = workflow.compile()
+    """
+    _agents: dict[str, CompiledStateGraph] = {}
+
+    @classmethod
+    def register(cls, agent_id: str, agent: CompiledStateGraph) -> None:
+        """Register a compiled agent graph."""
+        cls._agents[agent_id] = agent
+        logger.info(f"Agent registered: {agent_id}")
+
+    @classmethod
+    def get(cls, agent_id: str) -> CompiledStateGraph | None:
+        """Get an agent by ID."""
+        return cls._agents.get(agent_id)
+
+    @classmethod
+    def get_all_ids(cls) -> list[str]:
+        """Get all registered agent IDs."""
+        return list(cls._agents.keys())
+
+    @classmethod
+    def get_all(cls) -> dict[str, CompiledStateGraph]:
+        """Get all registered agents."""
+        return dict(cls._agents)
+
+
+def register_agent(agent_id: str) -> Callable[[CompiledStateGraph], CompiledStateGraph]:
+    """Decorator to register a compiled agent graph.
+    
+    Args:
+        agent_id: Unique identifier for the agent (e.g., "chatbot", "navigator")
+        
+    Returns:
+        Decorator that registers the agent and returns it unchanged
+        
+    Example:
+        @register_agent("chatbot")
+        chatbot = workflow.compile()
+    """
+    def decorator(agent: CompiledStateGraph) -> CompiledStateGraph:
+        AgentRegistry.register(agent_id, agent)
+        return agent
+    return decorator
 
 
 def build_standard_agent_graph(

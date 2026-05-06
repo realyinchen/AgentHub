@@ -2,9 +2,24 @@
 
 ## Current Work Focus
 
-Docker Compose profiles-based optimization — restructured Docker deployment with dev/prod/postgres profiles for fast startup.
+TODO.md 审查报告更新 — 对比当前实现与优化蓝图，标注已完成项和新增待办。
 
 ## Recent Changes
+
+### TODO.md V8 审查更新 (2026-05-05)
+- **审查范围**：全面对比 TODO.md V7 与当前后端代码实现
+- **已完成项标注**：
+  - ✅ Agent Registry 装饰器模式（`app/agents/base.py`）
+  - ✅ 标准图构建工厂（`build_standard_agent_graph()`）
+  - ✅ 流式基础架构（`astream_events` v2）
+- **新增待办项**：
+  - ❌ Agent 元数据系统（display_name, description, keywords）
+  - ❌ Hybrid Router（关键词 + LLM 兜底路由）
+  - ❌ AsyncWriteQueue 异步写入队列
+  - ❌ ModelManager.acompletion() 统一调用入口
+  - ❌ LiteLLM Router Fallback + 重试机制
+- **版本评分调整**：99/100 → 85/100（反映实际进度）
+- **实施里程碑**：保留 3 天开发计划，明确任务优先级
 
 ### Model Configuration API Key Validation (2026-04-30)
 - **Strong validation rule**: Can only add/edit models AFTER provider API key is successfully saved
@@ -36,21 +51,23 @@ Docker Compose profiles-based optimization — restructured Docker deployment wi
 
 ## Next Steps
 
-- Test the full `docker-compose up -d` flow end-to-end
-- Test `docker-compose --profile prod up -d` flow
-- Test `docker-compose --profile postgres up -d` flow
-- Verify backend healthcheck endpoint (`/health`) works correctly in container
+根据 TODO.md V8 里程碑，按优先级实施：
+1. Agent 元数据扩展（前置依赖，0.3 天）
+2. Hybrid Router 实现（0.5 天）
+3. AsyncWriteQueue 异步写入（0.5 天）
+4. ModelManager.acompletion()（0.2 天）
+5. LiteLLM Router Fallback + 重试（0.5 天）
 
 ## Active Decisions and Considerations
 
-- SQLite mode is the default and recommended for development
-- PostgreSQL + Qdrant available via `--profile postgres`
-- Both dev and prod frontend use nginx (port 80 mapped to 5173); `frontend-prod` is just profile-gated
-- Backend uses `wget` for healthcheck (available in Python slim image)
+- Agent Registry 已实现，但缺少元数据系统（keywords 用于路由匹配）
+- Hybrid Router 采用关键词优先 + LLM 兜底策略
+- AsyncWriteQueue 使用 Context Manager 模式确保异常安全
+- ModelManager.acompletion() 作为统一非流式调用入口
 
 ## Important Patterns and Preferences
 
-- Use `wget` for healthchecks in docker-compose (backend, qdrant); `pg_isready` for postgres
-- Environment variables in `.env` files, NOT hardcoded in docker-compose
-- Named volumes for data persistence in Docker
-- `--profile` flag for optional services (prod, postgres)
+- Agent 注册使用装饰器模式（`@register_agent(agent_id)`）
+- 标准图构建使用工厂函数（`build_standard_agent_graph()`）
+- 流式输出使用 `astream_events` v2 版本
+- 路由决策优先关键词匹配（0 延迟），LLM 仅复杂查询时调用

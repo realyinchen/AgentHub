@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import datetime
 from uuid import UUID
 from typing import List
 
@@ -129,34 +130,52 @@ async def get_message_steps_by_thread(
     db: AsyncSession,
     thread_id: UUID,
 ) -> List[MessageStep]:
-    """Get all message steps for a thread, ordered by step_number.
+    """Get all message steps for a thread, ordered by session creation time and step_number.
 
-    Returns a list of MessageStep schema objects for the API response.
+    Ensures steps from the same session are grouped together, and sessions are ordered
+    by their creation time (first step's created_at), then by step number within each session.
     """
     stmt = (
         select(MessageStepRecord)
         .where(
             MessageStepRecord.thread_id == thread_id,
         )
-        .order_by(MessageStepRecord.step_number.asc())
     )
 
     result = await db.execute(stmt)
     records = result.scalars().all()
 
-    steps = []
+    if not records:
+        return []
+
+    # Group records by session_id and sort sessions by creation time
+    # 1. Calculate min created_at for each session
+    session_times: dict[UUID, datetime] = {}
     for record in records:
-        step = MessageStep(
-            session_id=record.session_id,
-            step_number=record.step_number,
-            message_type=record.message_type,
-            content=record.content,
-            thinking=record.thinking,
-            tool_name=record.tool_name,
-            tool_args=record.tool_args,
-            tool_output=record.tool_output,
-        )
-        steps.append(step)
+        if (record.session_id not in session_times or 
+            record.created_at < session_times[record.session_id]):
+            session_times[record.session_id] = record.created_at
+
+    # 2. Sort sessions by their creation time
+    sorted_session_ids = sorted(session_times.keys(), key=lambda sid: session_times[sid])
+
+    # 3. Build the final sorted list: sessions ordered by time, steps by step_number
+    steps: List[MessageStep] = []
+    for session_id in sorted_session_ids:
+        session_records = [r for r in records if r.session_id == session_id]
+        session_records.sort(key=lambda r: r.step_number)
+        for record in session_records:
+            step = MessageStep(
+                session_id=record.session_id,
+                step_number=record.step_number,
+                message_type=record.message_type,
+                content=record.content,
+                thinking=record.thinking,
+                tool_name=record.tool_name,
+                tool_args=record.tool_args,
+                tool_output=record.tool_output,
+            )
+            steps.append(step)
 
     return steps
 

@@ -19,6 +19,7 @@ from app.schemas.chat import ChatMessage, ToolCall, UserInput
 from app.core.errors import format_sse_error
 from app.crud import message_step as message_step_crud
 from app.crud import chat as chat_crud
+from app.utils.async_writer import AsyncWriteQueue
 
 
 logger = logging.getLogger(__name__)
@@ -318,12 +319,13 @@ async def save_messages_to_steps(
                             tool_call_id_to_name[tool_call_id] = tc.get("name", "")
                             tool_call_id_to_args[tool_call_id] = tc.get("args", {})
 
-                # Only save AI step if it has content or thinking
-                # Skip AI messages that only have tool_calls (no content/thinking)
+                # Save AI step if it has content, thinking, OR tool_calls
+                # All steps are needed for complete DAG visibility (even tool_calls only)
                 has_content = bool(content.strip())
                 has_thinking = bool(thinking.strip())
+                has_tool_calls = bool(msg.tool_calls)
 
-                if has_content or has_thinking:
+                if has_content or has_thinking or has_tool_calls:
                     step_number += 1
 
                     # Convert tool_calls to list format for database
@@ -353,11 +355,6 @@ async def save_messages_to_steps(
                         f"content_len={len(content)}, "
                         f"thinking_len={len(thinking) if thinking else 0}, "
                         f"tool_calls={len(tool_calls_list) if tool_calls_list else 0}"
-                    )
-                else:
-                    # Skip saving this AI message (only has tool_calls, no content/thinking)
-                    logger.debug(
-                        f"[SAVE] Skipping AI message (no content/thinking, only tool_calls: {len(msg.tool_calls) if msg.tool_calls else 0})"
                     )
 
             elif isinstance(msg, ToolMessage):
@@ -394,6 +391,78 @@ async def save_messages_to_steps(
         )
 
 
+async def _save_ai_step_async(
+    thread_id: uuid.UUID,
+    session_id: uuid.UUID,
+    step_number: int,
+    content: str | None,
+    thinking: str | None,
+    tool_calls: list[dict] | None,
+    model_name: str | None,
+) -> None:
+    """Async helper to save an AI step to database"""
+    db = get_database()
+    async with db.session() as session:
+        await message_step_crud.save_ai_step(
+            db=session,
+            thread_id=thread_id,
+            session_id=session_id,
+            step_number=step_number,
+            content=content,
+            thinking=thinking,
+            tool_calls=tool_calls,
+            model_name=model_name,
+        )
+        await session.commit()
+    logger.debug(f"[SAVE] AI step {step_number}: tool_calls={len(tool_calls) if tool_calls else 0}")
+
+
+async def _save_human_step_async(
+    thread_id: uuid.UUID,
+    session_id: uuid.UUID,
+    step_number: int,
+    content: str,
+) -> None:
+    """Async helper to save a human step to database"""
+    db = get_database()
+    async with db.session() as session:
+        await message_step_crud.save_human_step(
+            db=session,
+            thread_id=thread_id,
+            session_id=session_id,
+            step_number=step_number,
+            content=content,
+        )
+        await session.commit()
+    logger.debug(f"[SAVE] Human step {step_number}: {content[:50]}...")
+
+
+async def _save_tool_step_async(
+    thread_id: uuid.UUID,
+    session_id: uuid.UUID,
+    step_number: int,
+    tool_name: str,
+    tool_args: dict,
+    tool_output: str,
+    tool_call_id: str,
+) -> None:
+    """Async helper to save a tool step to database"""
+    db = get_database()
+    async with db.session() as session:
+        await message_step_crud.save_tool_step(
+            db=session,
+            thread_id=thread_id,
+            session_id=session_id,
+            step_number=step_number,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            tool_output=tool_output,
+            tool_call_id=tool_call_id,
+        )
+        await session.commit()
+    logger.debug(f"[SAVE] Tool step {step_number}: name={tool_name}")
+
+
 async def streaming_message_generator(
     user_input: UserInput, agent: CompiledStateGraph
 ) -> AsyncGenerator[str, None]:
@@ -401,12 +470,15 @@ async def streaming_message_generator(
     Generate a stream of messages from the agent using astream_events.
 
     Uses LangGraph's astream_events (v2) for fine-grained event streaming:
+    - on_chat_model_start: emit human step and initialize tracking
     - on_chat_model_stream: token-by-token streaming (for final response only)
+    - on_chat_model_end: save AI step immediately (including tool_calls only steps)
     - on_tool_start: emit step status event (tool calling)
-    - on_chain_end: final message and complete persistence
+    - on_tool_end: save tool result immediately
+    - on_chain_end: final message emission
 
     SSE events are simplified to only show step status.
-    Complete data is saved to database in on_chain_end.
+    Each step is saved to database immediately via async queue (non-blocking).
 
     Args:
         user_input: User input containing content, agent_id, thread_id, and thinking_mode
@@ -416,8 +488,17 @@ async def streaming_message_generator(
     started_at = time.perf_counter()
     first_chunk_sent = False
 
+    # Async write queue for non-blocking database writes during streaming
+    write_queue = AsyncWriteQueue()
+
     # Track step counter for SSE events (just for display)
     step_counter = 0
+
+    # Track database step number (separate from SSE step_counter)
+    db_step_number = 0
+
+    # Map tool_call_id to tool args for ToolMessages (from AI tool_calls)
+    tool_call_id_to_args: dict[str, dict] = {}
 
     # Generate session_id for this conversation turn
     session_id = uuid.uuid4()
@@ -627,20 +708,17 @@ async def streaming_message_generator(
                             # Emit final message event
                             yield f"data: {json.dumps({'type': 'message', 'content': chat_message.model_dump()})}\n\n"
 
-                            # Save current turn's messages to database with complete data
-                            try:
-                                await save_messages_to_steps(
+                            # Save messages to database via async queue (non-blocking)
+                            write_queue.add(
+                                "save_messages_to_steps",
+                                save_messages_to_steps(
                                     thread_id=thread_id,
                                     session_id=session_id,
                                     messages=messages,
                                     user_input_content=user_input.content,
                                     model_name=user_input.model_name,
-                                )
-                            except Exception as e:
-                                logger.error(
-                                    f"[TRACE] Failed to save messages to steps: {e}",
-                                    exc_info=True,
-                                )
+                                ),
+                            )
                         except Exception as e:
                             logger.error(f"Error parsing final message: {e}")
 
@@ -650,10 +728,11 @@ async def streaming_message_generator(
         yield f"data: {json.dumps(error_data)}\n\n"
 
     finally:
-        # Update conversation token usage in database
+        # Update conversation token usage in database via async queue (non-blocking)
         if accumulated_tokens["total_tokens"] > 0:
-            try:
-                db = get_database()
+            db = get_database()
+
+            async def _update_tokens() -> None:
                 async with db.session() as session:
                     updated_conv = await chat_crud.update_conversation_tokens(
                         db=session,
@@ -673,13 +752,13 @@ async def streaming_message_generator(
                             f"reasoning={updated_conv.reasoning}, "
                             f"total={updated_conv.total_tokens}"
                         )
-            except Exception as e:
-                logger.error(
-                    f"Error updating conversation tokens: {e}",
-                    exc_info=True,
-                )
+
+            write_queue.add("update_conversation_tokens", _update_tokens())
 
         yield "data: [DONE]\n\n"
+
+        # Wait for all pending database writes to complete
+        await write_queue.wait_all()
 
 
 async def handle_input(

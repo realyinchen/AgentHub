@@ -372,6 +372,7 @@ function App() {
     setAppError(null)
     // Clear process display when creating new conversation
     setProcessSession(null)
+    setSelectedSessionId(null)
   }, [writeThreadIdToUrl, defaultConversationTitle, agents])
 
   const pickAgentForCurrentConversation = useCallback((agentId: string) => {
@@ -649,6 +650,7 @@ function App() {
       }
 
       setAppError(null)
+      setSelectedSessionId(null) // Reset to show latest session after streaming ends
       setMessages((previous) => [
         ...previous,
         toLocalMessage(
@@ -1102,6 +1104,7 @@ function App() {
       setMessages([...previousMessages, editedUserMessage, aiPlaceholder])
 
       setAppError(null)
+      setSelectedSessionId(null) // Reset to show latest session after streaming ends
       setIsStreaming(true)
 
       const controller = new AbortController()
@@ -1237,6 +1240,25 @@ function App() {
         setIsStreaming(false)
         streamingPlaceholderIdRef.current = null
         abortControllerRef.current = null
+
+        // Fetch updated message sequence from backend for sidebar persistence
+        try {
+          const historyResult = await getHistory(selectedAgentId, threadId)
+          if (historyResult.message_sequence) {
+            const sequence = historyResult.message_sequence
+            setMessageSequence(sequence)
+
+            // Auto-select the latest session (last session_id in sequence)
+            if (sequence && sequence.length > 0) {
+              const sessionIds = [...new Set(sequence.map(step => step.session_id))]
+              if (sessionIds.length > 0) {
+                setSelectedSessionId(sessionIds[sessionIds.length - 1])
+              }
+            }
+          }
+        } catch {
+          // Ignore errors when fetching message sequence
+        }
       }
     },
     [
@@ -1585,19 +1607,20 @@ function App() {
                 return []
               }
 
-              // Get all AI steps from messageSequence, grouped by session_id
-              const sessionIds: (string | null)[] = []
+              // Get all unique session_ids from messageSequence in order
+              // Each session represents one round of conversation (one AI message)
+              const sessionIdsFromSequence = [...new Set(messageSequence.map(s => s.session_id))]
 
               // For each message in messages array, determine its session_id
               // AI messages have session_id from messageSequence
               // User messages have null
+              const sessionIds: (string | null)[] = []
               messages.forEach((msg, index) => {
                 if (msg.type === "ai") {
                   // Find the corresponding session_id from messageSequence
-                  // The AI steps in messageSequence are in order
-                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
+                  // The sessions in messageSequence are in order, matching the AI messages
                   const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
-                  sessionIds.push(aiSteps[aiIndex]?.session_id || null)
+                  sessionIds.push(sessionIdsFromSequence[aiIndex] || null)
                 } else {
                   sessionIds.push(null)
                 }
@@ -1623,9 +1646,15 @@ function App() {
               const getSessionId = (msgIndex: number): string | null => {
                 const msg = messages[msgIndex]
                 if (msg?.type !== "ai") return null
-                const aiSteps = messageSequence?.filter(s => s.message_type === "ai") || []
+                
+                // Get all unique session_ids from messageSequence in order
+                // Each session represents one round of conversation (one AI message)
+                const sessionIdsFromSequence = messageSequence 
+                  ? [...new Set(messageSequence.map(s => s.session_id))]
+                  : []
+                
                 const aiIndex = messages.slice(0, msgIndex + 1).filter(m => m.type === "ai").length - 1
-                return aiSteps[aiIndex]?.session_id || null
+                return sessionIdsFromSequence[aiIndex] || null
               }
 
               messages.forEach((msg, index) => {

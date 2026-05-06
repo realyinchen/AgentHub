@@ -58,7 +58,7 @@ export function TurnDAGSidebar({
     s.message_type === 'ai' && s.thinking && s.thinking.trim().length > 0
   )
 
-  // Streaming state - show loading animation
+  // Loading state - simple loading animation
   if (isLoading) {
     return (
       <div
@@ -68,10 +68,7 @@ export function TurnDAGSidebar({
         <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
           <div className="flex items-center gap-2">
             <div className="size-6 rounded-lg bg-accent/15 flex items-center justify-center">
-              <div className="relative">
-                <div className="size-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                <div className="absolute inset-0 size-3 rounded-full bg-primary/20 animate-ping" />
-              </div>
+              <div className="size-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
             </div>
             <span className="text-sm font-semibold text-foreground">
               {t("process.agentWorking") || "Agent working..."}
@@ -79,17 +76,9 @@ export function TurnDAGSidebar({
           </div>
         </div>
 
-        {/* Loading content */}
-        <div className="p-8 flex flex-col items-center justify-center">
-          <div
-            className="w-12 h-12 rounded-full flex items-center justify-center mb-3"
-            style={{ background: 'var(--dag-node-ai-light)' }}
-          >
-            <Activity className="w-6 h-6 animate-pulse" style={{ color: 'var(--dag-node-ai)' }} />
-          </div>
-          <p className="text-sm text-muted-foreground">
-            {t("kanban.loading") || "Loading execution graph..."}
-          </p>
+        {/* Simple loading */}
+        <div className="p-8 flex justify-center">
+          <div className="size-6 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
         </div>
       </div>
     )

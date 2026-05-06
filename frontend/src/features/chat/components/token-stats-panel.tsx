@@ -137,7 +137,7 @@ function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: 
           </div>
           <div className="flex items-center gap-2">
             <div className="size-2 rounded-sm" style={{ backgroundColor: 'var(--token-cache)' }} />
-            <span className="text-muted-foreground">{t("token.cacheRead") || "缓存"}:</span>
+            <span className="text-muted-foreground">{t("token.cacheRead") || "Cache"}:</span>
             <span className="font-medium text-foreground">{data.cache_read?.toLocaleString() ?? 0}</span>
           </div>
           <div className="flex items-center gap-2">
@@ -288,7 +288,7 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
 
             {/* Cache Read */}
             <TokenBar
-              label={t("token.cacheRead") || "缓存"}
+              label={t("token.cacheRead") || "Cache"}
               value={tokens.cache_read}
               colorVar="--token-cache"
               bgVar="--token-track"
@@ -399,16 +399,11 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
                     tickFormatter={formatNumber}
                   />
                   <RechartsTooltip content={<ChartTooltip />} />
+                  {/* Stack order (bottom to top): input → output → reasoning → cache (top layer) */}
                   <Bar 
                     dataKey="input_tokens" 
                     stackId="a" 
                     fill="var(--token-input)" 
-                    radius={[0, 0, 0, 0]}
-                  />
-                  <Bar 
-                    dataKey="cache_read" 
-                    stackId="a" 
-                    fill="var(--token-cache)" 
                     radius={[0, 0, 0, 0]}
                   />
                   <Bar 
@@ -421,6 +416,13 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
                     dataKey="reasoning" 
                     stackId="a" 
                     fill="var(--token-reasoning)" 
+                    radius={[0, 0, 0, 0]}
+                  />
+                  {/* Cache on top layer, visually highlights savings */}
+                  <Bar 
+                    dataKey="cache_read" 
+                    stackId="a" 
+                    fill="var(--token-cache)" 
                     radius={[4, 4, 0, 0]}
                   />
                 </BarChart>

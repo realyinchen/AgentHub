@@ -248,17 +248,20 @@ export function AgentTimelineSidebar({
     }
 
     // Get all unique session_ids, sorted by first occurrence (which represents chronological order)
-    const sessionIds = [...new Set(messageSequence.map(m => m.session_id))]
+    // Filter out null/undefined session_ids to ensure we only get valid sessions
+    const sessionIds = [...new Set(messageSequence.map(m => m.session_id).filter(id => id != null))]
 
-    // If no sessions, return empty
+    // If no valid sessions, return empty
     if (sessionIds.length === 0) {
       return []
     }
 
     // Determine which session to show:
-    // 1. If selectedSessionId is provided, use that
-    // 2. Otherwise, use the latest session (last in the array)
-    const targetSessionId = selectedSessionId || sessionIds[sessionIds.length - 1]
+    // 1. If selectedSessionId is provided AND exists in sessionIds, use that
+    // 2. Otherwise, use the latest session (last in the array - most recent turn)
+    const targetSessionId = (selectedSessionId && sessionIds.includes(selectedSessionId))
+      ? selectedSessionId
+      : sessionIds[sessionIds.length - 1]
 
     // Filter steps by target session
     const filteredSequence = messageSequence.filter(m => m.session_id === targetSessionId)

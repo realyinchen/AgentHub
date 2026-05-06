@@ -7,7 +7,7 @@ Tools are executed in parallel using asyncio.gather for optimal performance.
 from app.prompts.navigator import get_navigator_prompt
 from app.tools.time import get_current_time
 from app.tools.amap import AMAP_TOOLS
-from app.agents.base import build_standard_agent_graph
+from app.agents.base import build_standard_agent_graph, register_agent
 
 
 def _get_tools():
@@ -36,5 +36,5 @@ workflow = build_standard_agent_graph(
     get_tools_fn=_get_tools,
 )
 
-# Compile the agent
-navigator = workflow.compile()
+# Compile the agent and register it
+navigator = register_agent("navigator")(workflow.compile())

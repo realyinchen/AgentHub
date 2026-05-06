@@ -6,7 +6,7 @@ This agent uses the reusable base infrastructure to minimize code duplication.
 from app.prompts.chatbot import get_prompt
 from app.tools.time import get_current_time
 from app.tools.web import create_web_search
-from app.agents.base import build_standard_agent_graph
+from app.agents.base import build_standard_agent_graph, register_agent
 
 
 def _get_tools():
@@ -29,5 +29,5 @@ workflow = build_standard_agent_graph(
     get_tools_fn=_get_tools,
 )
 
-# Compile the agent
-chatbot = workflow.compile()
+# Compile the agent and register it
+chatbot = register_agent("chatbot")(workflow.compile())
