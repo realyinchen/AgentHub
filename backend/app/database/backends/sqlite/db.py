@@ -27,6 +27,7 @@ def _json_serializer(obj):
     """Custom JSON serializer that preserves Unicode characters (ensure_ascii=False)."""
     return json.dumps(obj, ensure_ascii=False, default=str)
 
+
 logger = logging.getLogger(__name__)
 
 

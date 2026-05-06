@@ -14,7 +14,7 @@ import { useI18n } from '@/i18n';
 interface CSSTurnDAGProps {
   steps: MessageStepRaw[];
   className?: string;
-  compact?: boolean; // 紧凑模式：隐藏控件，自适应缩放
+  compact?: boolean; // Compact mode: hide controls, auto-scale to fit
 }
 
 function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps) {
@@ -66,9 +66,9 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
         const calculatedScale = Math.min(scaleX, scaleY);
         setAutoScale(Math.max(0.2, calculatedScale));
       };
-      
+
       calculateAutoScale();
-      
+
       // Recalculate on resize
       const handleResize = () => calculateAutoScale();
       window.addEventListener('resize', handleResize);
@@ -94,7 +94,7 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
       <div
         className="flex items-center justify-center h-[200px] text-muted-foreground"
       >
-        {t('dag.noSteps')}
+        {t('process.noSteps')}
       </div>
     );
   }
@@ -119,44 +119,44 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
       >
         {/* Zoom controls - hidden in compact mode */}
         {!compact && (
-        <div
-          className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-lg z-10"
-          style={{
-            background: 'var(--dag-bg-panel)',
-            border: '1px solid var(--dag-border)',
-          }}
-        >
-          <button
-            onClick={zoomOut}
-            className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
-          >
-            <ZoomOut className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={resetZoom}
-            className="px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
+          <div
+            className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-lg z-10"
             style={{
-              fontVariantNumeric: 'tabular-nums',
-              minWidth: '40px',
-              textAlign: 'center',
+              background: 'var(--dag-bg-panel)',
+              border: '1px solid var(--dag-border)',
             }}
           >
-            {Math.round(scale * 100)}%
-          </button>
-          <button
-            onClick={zoomIn}
-            className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
-          >
-            <ZoomIn className="w-3.5 h-3.5" />
-          </button>
-          <div style={{ width: 1, height: 16, background: 'var(--dag-border)', margin: '0 4px' }} />
-          <button
-            onClick={toggleFullscreen}
-            className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
-          >
-            {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
-          </button>
-        </div>
+            <button
+              onClick={zoomOut}
+              className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            >
+              <ZoomOut className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={resetZoom}
+              className="px-2 py-0.5 text-xs rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
+              style={{
+                fontVariantNumeric: 'tabular-nums',
+                minWidth: '40px',
+                textAlign: 'center',
+              }}
+            >
+              {Math.round(scale * 100)}%
+            </button>
+            <button
+              onClick={zoomIn}
+              className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            >
+              <ZoomIn className="w-3.5 h-3.5" />
+            </button>
+            <div style={{ width: 1, height: 16, background: 'var(--dag-border)', margin: '0 4px' }} />
+            <button
+              onClick={toggleFullscreen}
+              className="p-1.5 rounded-md transition-colors cursor-pointer text-muted-foreground hover:text-foreground hover:bg-muted/50"
+            >
+              {isFullscreen ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </button>
+          </div>
         )}
 
         {/* Canvas area - centered in compact mode, scrollable otherwise */}
@@ -270,37 +270,37 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
 
         {/* Summary footer - hidden in compact mode */}
         {!compact && (
-        <div
-          className="absolute bottom-2 left-2 flex items-center gap-2 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
-          style={{
-            background: 'var(--dag-bg-panel)',
-            border: '1px solid var(--dag-border)',
-            fontVariantNumeric: 'tabular-nums',
-          }}
-        >
-          <span>{summary.totalSteps} {t('dag.steps')}</span>
-          <span style={{ color: 'var(--dag-text-dim)' }}>·</span>
-          <span>{summary.totalToolCalls} {t('dag.toolCalls')}</span>
-          {summary.hasThinking && (
-            <>
-              <span style={{ color: 'var(--dag-text-dim)' }}>·</span>
-              <span>{t('dag.thinking')}</span>
-            </>
-          )}
-        </div>
+          <div
+            className="absolute bottom-2 left-2 flex items-center gap-2 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
+            style={{
+              background: 'var(--dag-bg-panel)',
+              border: '1px solid var(--dag-border)',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            <span>{summary.totalSteps} {t('process.steps')}</span>
+            <span style={{ color: 'var(--dag-text-dim)' }}>·</span>
+            <span>{summary.totalToolCalls} {t('process.toolCalls')}</span>
+            {summary.hasThinking && (
+              <>
+                <span style={{ color: 'var(--dag-text-dim)' }}>·</span>
+                <span>{t('process.thinking')}</span>
+              </>
+            )}
+          </div>
         )}
 
         {/* Hint - hidden in compact mode */}
         {!compact && (
-        <div
-          className="absolute top-3 left-3 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
-          style={{
-            background: 'var(--dag-bg-panel)',
-            border: '1px solid var(--dag-border)',
-          }}
-        >
-          {t('dag.clickToView')}
-        </div>
+          <div
+            className="absolute top-3 left-3 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
+            style={{
+              background: 'var(--dag-bg-panel)',
+              border: '1px solid var(--dag-border)',
+            }}
+          >
+            {t('process.clickToView')}
+          </div>
         )}
       </div>
 
@@ -358,7 +358,7 @@ function HumanCard({ data: _data }: { data: { type: 'human'; content: string; st
           <span className="text-xs" style={{ color: 'var(--dag-node-user)' }}>👤</span>
         </div>
         <span className="text-sm font-medium truncate" style={{ color: 'var(--dag-node-user)' }}>
-          {t('dag.user')}
+          {t('process.user')}
         </span>
       </div>
     </div>
@@ -397,7 +397,7 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
             <span className="text-xs">{icon}</span>
           </div>
           <span className="text-sm font-medium truncate" style={{ color: iconColor }}>
-            {data.modelName || t('dag.ai')}
+            {data.modelName || t('process.ai')}
           </span>
         </div>
         {data.isFinal && (
@@ -405,18 +405,13 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
             className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
             style={{ background: 'var(--dag-success-light)', color: 'var(--dag-success)' }}
           >
-            {t('dag.final')}
+            {t('process.final')}
           </span>
         )}
       </div>
       {(data.toolCalls && data.toolCalls.length > 0) && (
         <div className="text-xs mt-1.5 text-muted-foreground">
-          🔧 {data.toolCalls.length} {t('dag.toolCalls')}
-        </div>
-      )}
-      {data.thinking && !data.toolCalls?.length && (
-        <div className="text-xs mt-1.5" style={{ color: 'var(--dag-node-ai)' }}>
-          🧠 {t('dag.thinking')}
+          🔧 {data.toolCalls.length} {t('process.toolCalls')}
         </div>
       )}
     </div>
@@ -438,10 +433,10 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
         : 'success';
 
   const statusText = {
-    pending: t('dag.toolStatus.pending'),
-    running: t('dag.toolStatus.running'),
-    success: t('dag.toolStatus.success'),
-    error: t('dag.toolStatus.error'),
+    pending: t('process.toolStatus.pending'),
+    running: t('process.toolStatus.running'),
+    success: t('process.toolStatus.success'),
+    error: t('process.toolStatus.error'),
   }[status];
 
   const statusIcon = {

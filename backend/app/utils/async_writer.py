@@ -22,15 +22,15 @@ logger = logging.getLogger(__name__)
 
 class AsyncWriteQueue:
     """Safe async write queue - dedicated for SSE streaming scenarios.
-    
+
     Recommended usage: Context Manager approach (exception-safe, preferred)
-    
+
     async with AsyncWriteQueue(max_concurrent=8, timeout=20) as q:
         q.add("task1", coro1())
         q.add("task2", coro2())
         # ... streaming yield ...
     # Auto wait_all on exit, executes even if exception thrown
-    
+
     Features:
     - Concurrency control (Semaphore limitation)
     - Retry mechanism (exponential backoff, default 3 times)
@@ -40,7 +40,7 @@ class AsyncWriteQueue:
 
     def __init__(self, max_concurrent: int = 8, timeout: Optional[float] = None):
         """Initialize async write queue.
-        
+
         Args:
             max_concurrent: Maximum concurrent writes, default 8
             timeout: Default timeout in seconds, None means no timeout
@@ -51,12 +51,13 @@ class AsyncWriteQueue:
 
     def add(self, name: str, coro: Awaitable[Any], max_retries: int = 3) -> None:
         """Add write task (returns immediately, does not block streaming).
-        
+
         Args:
             name: Task name (for logging)
             coro: Async coroutine
             max_retries: Maximum retry attempts, default 3
         """
+
         async def _task() -> Any:
             async with self._semaphore:
                 for attempt in range(max_retries):
@@ -64,7 +65,9 @@ class AsyncWriteQueue:
                         return await coro
                     except Exception as e:
                         if attempt < max_retries - 1:
-                            backoff = 0.1 * (2 ** attempt)  # Exponential backoff: 0.1s, 0.2s, 0.4s
+                            backoff = 0.1 * (
+                                2**attempt
+                            )  # Exponential backoff: 0.1s, 0.2s, 0.4s
                             logger.warning(
                                 f"[AsyncWriteQueue] Retry [{name}] {attempt + 1}/{max_retries}: {e}"
                             )
@@ -80,7 +83,7 @@ class AsyncWriteQueue:
 
     async def wait_all(self, timeout: Optional[float] = None) -> None:
         """Wait for all writes to complete (with timeout protection).
-        
+
         Args:
             timeout: Timeout in seconds, None uses instance default timeout
         """
@@ -92,7 +95,7 @@ class AsyncWriteQueue:
             if actual_timeout:
                 await asyncio.wait_for(
                     asyncio.gather(*self._tasks, return_exceptions=True),
-                    timeout=actual_timeout
+                    timeout=actual_timeout,
                 )
             else:
                 await asyncio.gather(*self._tasks, return_exceptions=True)

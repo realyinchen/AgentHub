@@ -54,7 +54,7 @@ export function TurnDAGSidebar({
   // Calculate step count for header
   const stepCount = steps.length
   const toolCallCount = steps.filter(s => s.message_type === 'tool').length
-  const hasThinking = steps.some(s => 
+  const hasThinking = steps.some(s =>
     s.message_type === 'ai' && s.thinking && s.thinking.trim().length > 0
   )
 

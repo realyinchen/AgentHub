@@ -12,6 +12,8 @@ import type {
   ProviderInfo,
   ProvidersResponse,
   ProviderUpdate,
+  ModelHealth,
+  AllModelsHealthResponse,
 } from "@/types"
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
@@ -305,6 +307,20 @@ export async function refreshModelsCache(): Promise<{ success: boolean; message:
   return requestJson<{ success: boolean; message: string; models_count: number }>("/models/refresh", {
     method: "POST",
   })
+}
+
+/**
+ * Get health status for a specific model
+ */
+export async function getModelHealth(modelId: string): Promise<ModelHealth> {
+  return requestJson<ModelHealth>(`/models/health/${encodeURIComponent(modelId)}`)
+}
+
+/**
+ * Get health status for all configured models
+ */
+export async function getAllModelsHealth(): Promise<AllModelsHealthResponse> {
+  return requestJson<AllModelsHealthResponse>("/models/health")
 }
 
 /**

@@ -36,4 +36,3 @@ class Conversation(Base):
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     reasoning: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-

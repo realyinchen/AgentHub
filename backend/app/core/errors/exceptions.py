@@ -305,7 +305,9 @@ def get_user_friendly_error_message(exception: Exception) -> str:
         case "llm_connection":
             return "Unable to connect to the AI service. Please check your network and try again."
         case "llm_rate_limit":
-            return "The AI service is busy right now. Please try again in a few moments."
+            return (
+                "The AI service is busy right now. Please try again in a few moments."
+            )
         case "llm_invalid_request" | "llm_permission":
             return "The AI service is temporarily unavailable. Please try again later."
         case _:

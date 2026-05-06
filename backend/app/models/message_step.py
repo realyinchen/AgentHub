@@ -23,16 +23,16 @@ from app.database.base import Base
 
 class UnicodeJSON(TypeDecorator):
     """Custom JSON type that preserves Unicode characters (doesn't escape to \\uXXXX)."""
-    
+
     impl = JSON
     cache_ok = True
-    
+
     def process_bind_param(self, value, dialect):
         if value is not None:
             # The JSON impl will handle the serialization
             return value
         return value
-    
+
     def process_result_value(self, value, dialect):
         return value
 

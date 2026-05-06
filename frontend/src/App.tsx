@@ -86,7 +86,8 @@ function App() {
 
   // Thinking mode state - persisted per conversation in localStorage
   const {
-    thinkingMode
+    thinkingMode,
+    setThinkingMode,
   } = useThinkingMode(threadId)
 
   // Model selection state - persisted per conversation in localStorage
@@ -94,11 +95,21 @@ function App() {
     models,
     setSelectedModel,
     getEffectiveModel,
+    getSelectedModelInfo,
     refreshModels,
   } = useModels(threadId)
 
   // Get the effective model ID (selected or default)
   const effectiveSelectedModel = getEffectiveModel()
+
+  // Auto-sync thinking mode when model changes
+  // If the selected model has thinking enabled, automatically turn on thinking mode
+  useEffect(() => {
+    const selectedModelInfo = getSelectedModelInfo()
+    if (selectedModelInfo?.thinking) {
+      setThinkingMode(true)
+    }
+  }, [effectiveSelectedModel, getSelectedModelInfo, setThinkingMode])
 
   // Get current model info to check if it supports thinking
   const [conversationTitle, setConversationTitleState] = useState(
@@ -900,13 +911,13 @@ function App() {
             // model_fallback event - switch to fallback model and update UI
             if (event.type === "model_fallback") {
               console.log(`[Model Fallback] Switching from ${event.old_model} to ${event.new_model}`)
-              
+
               // Update the selected model in the dropdown to the fallback model
               setSelectedModel(event.new_model)
-              
+
               // Refresh models list to get updated active state
               refreshModels()
-              
+
               // Show a status message to the user (could use a toast in the future)
               console.log(`Fallback: ${event.content}`)
               return
@@ -1230,13 +1241,13 @@ function App() {
             // model_fallback event - switch to fallback model and update UI
             if (event.type === "model_fallback") {
               console.log(`[Model Fallback] Switching from ${event.old_model} to ${event.new_model}`)
-              
+
               // Update the selected model in the dropdown to the fallback model
               setSelectedModel(event.new_model)
-              
+
               // Refresh models list to get updated active state
               refreshModels()
-              
+
               // Show a status message to the user
               console.log(`Fallback: ${event.content}`)
               return
@@ -1676,13 +1687,13 @@ function App() {
               const getSessionId = (msgIndex: number): string | null => {
                 const msg = messages[msgIndex]
                 if (msg?.type !== "ai") return null
-                
+
                 // Get all unique session_ids from messageSequence in order
                 // Each session represents one round of conversation (one AI message)
-                const sessionIdsFromSequence = messageSequence 
+                const sessionIdsFromSequence = messageSequence
                   ? [...new Set(messageSequence.map(s => s.session_id))]
                   : []
-                
+
                 const aiIndex = messages.slice(0, msgIndex + 1).filter(m => m.type === "ai").length - 1
                 return sessionIdsFromSequence[aiIndex] || null
               }

@@ -82,7 +82,9 @@ class AgentTurn(BaseModel):
     """
 
     turn_id: str = Field(..., description="Turn ID, e.g. 'turn-1'")
-    session_id: Optional[str] = Field(None, description="Session UUID for fetching raw steps")
+    session_id: Optional[str] = Field(
+        None, description="Session UUID for fetching raw steps"
+    )
     humanMsg: str = Field(..., description="User input message")
     aiMsg: AIMessageInfo = Field(
         default_factory=lambda: AIMessageInfo(

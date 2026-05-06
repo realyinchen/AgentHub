@@ -834,9 +834,13 @@ async def streaming_message_generator(
             # If we got here without exception but no DONE event,
             # the stream ended unexpectedly
             if has_content:
-                logger.warning(f"[Fallback] Stream ended without DONE event for model: {current_model}")
+                logger.warning(
+                    f"[Fallback] Stream ended without DONE event for model: {current_model}"
+                )
             else:
-                logger.warning(f"[Fallback] Stream produced no content for model: {current_model}")
+                logger.warning(
+                    f"[Fallback] Stream produced no content for model: {current_model}"
+                )
 
         except Exception as e:
             # Check if this is an LLM-related error that should trigger fallback

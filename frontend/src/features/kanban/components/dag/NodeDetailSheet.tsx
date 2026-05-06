@@ -66,7 +66,7 @@ function CopyButton({ text }: { text: string }) {
 
 function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps) {
   const { t } = useI18n();
-  
+
   if (!nodeData) return null;
 
   const getNodeHeader = (): {
@@ -81,7 +81,7 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
       case 'human':
         return {
           icon: <User className="w-5 h-5" />,
-          title: t('dag.user') || 'User Message',
+          title: t('process.user') || 'User Message',
           description: `Step #${nodeData.stepNumber}`,
           accentColor: 'var(--dag-node-user)',
           accentLight: 'var(--dag-node-user-light)',
@@ -90,7 +90,7 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
       case 'ai':
         return {
           icon: nodeData.thinking ? <Brain className="w-5 h-5" /> : <Bot className="w-5 h-5" />,
-          title: nodeData.isFinal ? (t('dag.ai') || 'AI Response') : (t('dag.ai') || 'AI Processing'),
+          title: nodeData.isFinal ? (t('process.ai') || 'AI Response') : (t('process.ai') || 'AI Processing'),
           description: nodeData.modelName
             ? `${nodeData.modelName} · Step #${nodeData.stepNumber}`
             : `Step #${nodeData.stepNumber}`,
@@ -124,9 +124,9 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
   const getInput = (): { label: string; content: string } | null => {
     switch (nodeData.type) {
       case 'human':
-        return nodeData.content ? { label: t('dag.input') || 'Message', content: nodeData.content } : null;
+        return nodeData.content ? { label: t('process.input') || 'Message', content: nodeData.content } : null;
       case 'ai':
-        return nodeData.thinking ? { label: t('dag.thinking') || 'Thinking', content: nodeData.thinking } : null;
+        return nodeData.thinking ? { label: t('process.thinking') || 'Thinking', content: nodeData.thinking } : null;
       case 'tool':
         if (nodeData.toolArgs && Object.keys(nodeData.toolArgs).length > 0) {
           return { label: t('process.arguments') || 'Arguments', content: JSON.stringify(nodeData.toolArgs, null, 2) };

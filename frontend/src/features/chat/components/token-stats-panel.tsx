@@ -123,7 +123,7 @@ const formatDate = (dateStr: string): string => {
 // Custom tooltip for stacked bar chart
 function ChartTooltip({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) {
   const { t } = useI18n()
-  
+
   if (active && payload && payload.length) {
     const data = payload[0].payload
     return (
@@ -238,7 +238,7 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
         }}
       >
         {/* Front Side */}
-        <div 
+        <div
           className={cn(
             "rounded-2xl bg-gradient-to-br from-muted/30 to-muted/50",
             "border border-border/50 overflow-hidden",
@@ -255,9 +255,9 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
                 className="flex items-center justify-center cursor-pointer hover:opacity-80 transition-opacity"
                 title={t("token.flipToStats")}
               >
-              <div
-                className="icon-money-dual"
-              />
+                <div
+                  className="icon-money-dual"
+                />
               </button>
               <span className="text-sm font-semibold text-foreground">
                 {t("token.title")}
@@ -334,14 +334,14 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
         </div>
 
         {/* Back Side */}
-        <div 
+        <div
           className={cn(
             "absolute inset-0",
             "rounded-2xl bg-gradient-to-br from-muted/30 to-muted/50",
             "border border-border/50 overflow-hidden",
             "backdrop-blur-sm shadow-lg"
           )}
-          style={{ 
+          style={{
             backfaceVisibility: 'hidden',
             transform: 'rotateY(180deg)',
           }}
@@ -377,8 +377,8 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
               </div>
             ) : (
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart 
-                  data={chartData} 
+                <BarChart
+                  data={chartData}
                   margin={{ top: 10, right: 10, left: -15, bottom: 0 }}
                 >
                   <CartesianGrid
@@ -400,29 +400,29 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
                   />
                   <RechartsTooltip content={<ChartTooltip />} />
                   {/* Stack order (bottom to top): input → output → reasoning → cache (top layer) */}
-                  <Bar 
-                    dataKey="input_tokens" 
-                    stackId="a" 
-                    fill="var(--token-input)" 
+                  <Bar
+                    dataKey="input_tokens"
+                    stackId="a"
+                    fill="var(--token-input)"
                     radius={[0, 0, 0, 0]}
                   />
-                  <Bar 
-                    dataKey="output_tokens" 
-                    stackId="a" 
-                    fill="var(--token-output)" 
+                  <Bar
+                    dataKey="output_tokens"
+                    stackId="a"
+                    fill="var(--token-output)"
                     radius={[0, 0, 0, 0]}
                   />
-                  <Bar 
-                    dataKey="reasoning" 
-                    stackId="a" 
-                    fill="var(--token-reasoning)" 
+                  <Bar
+                    dataKey="reasoning"
+                    stackId="a"
+                    fill="var(--token-reasoning)"
                     radius={[0, 0, 0, 0]}
                   />
                   {/* Cache on top layer, visually highlights savings */}
-                  <Bar 
-                    dataKey="cache_read" 
-                    stackId="a" 
-                    fill="var(--token-cache)" 
+                  <Bar
+                    dataKey="cache_read"
+                    stackId="a"
+                    fill="var(--token-cache)"
                     radius={[4, 4, 0, 0]}
                   />
                 </BarChart>

@@ -168,9 +168,19 @@ class ModelManager:
             # Build LiteLLM Router model_list
             model_list = cls._build_litellm_model_list(models)
 
+            # Build fallbacks configuration for LiteLLM Router native support
+            fallbacks = cls._build_fallbacks(models)
+
             if model_list:
-                cls._router = Router(model_list=model_list)
-                logger.info(f"ModelManager initialized with {len(model_list)} models")
+                cls._router = Router(
+                    model_list=model_list,
+                    fallbacks=fallbacks if fallbacks else [],
+                    num_retries=2,
+                    retry_after=1,
+                )
+                logger.info(
+                    f"ModelManager initialized with {len(model_list)} models, {len(fallbacks)} fallback rules"
+                )
             else:
                 cls._router = None
                 logger.warning(
@@ -221,6 +231,43 @@ class ModelManager:
 
             result.append(model_config)
         return result
+
+    @classmethod
+    def _build_fallbacks(cls, models: list) -> list[dict]:
+        """
+        Build fallbacks configuration for LiteLLM Router native support.
+
+        Fallback strategy:
+        - Models of the same type (llm/vlm)互为 fallback
+        - Each active model gets a list of other active models of the same type as fallbacks
+
+        Returns:
+            List of fallback rules in LiteLLM Router format:
+            [{"model_name_a": ["model_name_b", "model_name_c"]}, ...]
+        """
+        if len(models) < 2:
+            return []
+
+        # Group active models by type
+        models_by_type: dict[str, list[str]] = {}
+        for m in models:
+            if m.is_active:
+                if m.model_type not in models_by_type:
+                    models_by_type[m.model_type] = []
+                models_by_type[m.model_type].append(m.model_id)
+
+        fallbacks: list[dict] = []
+
+        # Build fallback rules for each model
+        for model_type, model_ids in models_by_type.items():
+            if len(model_ids) > 1:
+                for model_id in model_ids:
+                    # All other active models of the same type are fallbacks
+                    fallback_candidates = [m for m in model_ids if m != model_id]
+                    if fallback_candidates:
+                        fallbacks.append({model_id: fallback_candidates})
+
+        return fallbacks
 
     @classmethod
     async def get_llm(
@@ -413,7 +460,8 @@ class ModelManager:
             Model ID string if available, None otherwise
         """
         active_models = [
-            m for m in cls._models_cache.values()
+            m
+            for m in cls._models_cache.values()
             if m.model_type == model_type and m.is_active
         ]
 
@@ -424,7 +472,9 @@ class ModelManager:
         return selected.model_id
 
     @classmethod
-    def get_fallback_model(cls, current_model_id: str, model_type: str = "llm") -> Optional[str]:
+    def get_fallback_model(
+        cls, current_model_id: str, model_type: str = "llm"
+    ) -> Optional[str]:
         """Get a fallback model when the current model fails.
 
         Fallback strategy:
@@ -440,13 +490,16 @@ class ModelManager:
         """
         current_model = cls._models_cache.get(current_model_id)
         if not current_model:
-            current_provider = current_model_id.split("/")[0] if "/" in current_model_id else None
+            current_provider = (
+                current_model_id.split("/")[0] if "/" in current_model_id else None
+            )
         else:
             current_provider = current_model.provider
 
         # Get all active models of the specified type, excluding the failed model
         active_models = [
-            m for m in cls._models_cache.values()
+            m
+            for m in cls._models_cache.values()
             if m.model_type == model_type
             and m.is_active
             and m.model_id != current_model_id
@@ -456,7 +509,9 @@ class ModelManager:
             return None
 
         # First priority: models within the same provider
-        same_provider_models = [m for m in active_models if m.provider == current_provider]
+        same_provider_models = [
+            m for m in active_models if m.provider == current_provider
+        ]
         if same_provider_models:
             selected = random.choice(same_provider_models)
             logger.info(
@@ -474,7 +529,7 @@ class ModelManager:
         return selected.model_id
 
 
-def get_model_manager() -> type[ModelManager]:
+def get_model_manager():
     """Get the ModelManager singleton instance."""
     # Return the class itself - all methods are classmethods
     return ModelManager

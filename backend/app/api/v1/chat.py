@@ -393,6 +393,4 @@ async def get_daily_stats(
         return stats
     except Exception as e:
         logger.error("Error retrieving daily statistics: %s", e)
-        raise HTTPException(
-            status_code=500, detail="Error retrieving daily statistics"
-        )
+        raise HTTPException(status_code=500, detail="Error retrieving daily statistics")

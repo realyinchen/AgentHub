@@ -181,12 +181,14 @@ async def get_trace(thread_id: UUID):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.get("/{thread_id}/turns/{session_id}/steps", response_model=list[MessageStep])
+@api_router.get(
+    "/{thread_id}/turns/{session_id}/steps", response_model=list[MessageStep]
+)
 async def get_turn_steps(thread_id: UUID, session_id: UUID):
     """Get raw message steps for a specific turn (session).
 
     Returns the original message_steps records for DAG visualization.
-    Each step includes: step_number, message_type, content, thinking, tool_calls, 
+    Each step includes: step_number, message_type, content, thinking, tool_calls,
     tool_name, tool_args, tool_output, tool_call_id.
     """
     try:
@@ -198,7 +200,9 @@ async def get_turn_steps(thread_id: UUID, session_id: UUID):
                 raise HTTPException(status_code=404, detail="Thread not found")
 
             # Get all steps for this thread
-            all_steps = await message_step_crud.get_raw_steps_by_thread(db_session, thread_id)
+            all_steps = await message_step_crud.get_raw_steps_by_thread(
+                db_session, thread_id
+            )
 
             # Filter by session_id
             turn_steps = [step for step in all_steps if step.session_id == session_id]
@@ -230,5 +234,8 @@ async def get_turn_steps(thread_id: UUID, session_id: UUID):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error getting turn steps for thread {thread_id}, session {session_id}: {e}", exc_info=True)
+        logger.error(
+            f"Error getting turn steps for thread {thread_id}, session {session_id}: {e}",
+            exc_info=True,
+        )
         raise HTTPException(status_code=500, detail=str(e))

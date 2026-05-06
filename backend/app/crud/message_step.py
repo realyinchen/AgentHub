@@ -29,7 +29,7 @@ async def save_tool_step(
     """Save a tool execution step to the database.
 
     This combines tool call and result into a single step.
-    
+
     Note: tool_args is stored as JSON with ensure_ascii=False to preserve
     Chinese characters in their original form (not as \\uXXXX escapes).
     """
@@ -73,7 +73,7 @@ async def save_ai_step(
     """Save an AI response step to the database.
 
     This is called when the agent completes its response.
-    
+
     Note: tool_calls is stored as JSON with ensure_ascii=False to preserve
     Chinese characters in their original form (not as \\uXXXX escapes).
     """
@@ -135,11 +135,8 @@ async def get_message_steps_by_thread(
     Ensures steps from the same session are grouped together, and sessions are ordered
     by their creation time (first step's created_at), then by step number within each session.
     """
-    stmt = (
-        select(MessageStepRecord)
-        .where(
-            MessageStepRecord.thread_id == thread_id,
-        )
+    stmt = select(MessageStepRecord).where(
+        MessageStepRecord.thread_id == thread_id,
     )
 
     result = await db.execute(stmt)
@@ -152,12 +149,16 @@ async def get_message_steps_by_thread(
     # 1. Calculate min created_at for each session
     session_times: dict[UUID, datetime] = {}
     for record in records:
-        if (record.session_id not in session_times or 
-            record.created_at < session_times[record.session_id]):
+        if (
+            record.session_id not in session_times
+            or record.created_at < session_times[record.session_id]
+        ):
             session_times[record.session_id] = record.created_at
 
     # 2. Sort sessions by their creation time
-    sorted_session_ids = sorted(session_times.keys(), key=lambda sid: session_times[sid])
+    sorted_session_ids = sorted(
+        session_times.keys(), key=lambda sid: session_times[sid]
+    )
 
     # 3. Build the final sorted list: sessions ordered by time, steps by step_number
     steps: List[MessageStep] = []

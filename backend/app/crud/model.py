@@ -214,7 +214,7 @@ async def set_default_model_by_model_id(
 
 async def deactivate_model(db: AsyncSession, model_id: str) -> Optional[Model]:
     """Deactivate a model by model_id string
-    
+
     Mark a model as inactive when it fails (e.g., rate limit exceeded, quota exhausted, permission errors).
     This prevents it from being selected in future requests until manually reactivated.
     """

@@ -71,18 +71,18 @@ async def get_daily_conversation_stats(
 ) -> list[dict]:
     """
     Get daily conversation count and token usage statistics for the last N days.
-    
+
     Args:
         db: Database session
         days: Number of days to look back (default: 30)
-        
+
     Returns:
-        List of dicts with date, count, input_tokens, cache_read, 
+        List of dicts with date, count, input_tokens, cache_read,
         output_tokens, reasoning, total_tokens
     """
     # Calculate start date (days ago)
     start_date = datetime.now(timezone.utc) - timedelta(days=days)
-    
+
     stmt = (
         select(
             func.date(Conversation.created_at).label("date"),
@@ -100,10 +100,10 @@ async def get_daily_conversation_stats(
         .group_by(func.date(Conversation.created_at))
         .order_by("date")
     )
-    
+
     result = await db.execute(stmt)
     rows = result.all()
-    
+
     return [
         {
             "date": str(row.date),

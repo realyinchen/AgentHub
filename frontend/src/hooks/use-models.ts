@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { getAvailableModels } from "@/lib/api"
-import type { ModelInfo } from "@/types"
+import { getAvailableModels, getModelHealth, getAllModelsHealth } from "@/lib/api"
+import type { ModelInfo, ModelHealth, AllModelsHealthResponse } from "@/types"
 
 /**
  * Hook to manage model selection per conversation.
@@ -22,6 +22,11 @@ export function useModels(threadId: string | null) {
   const [selectedModel, setSelectedModelState] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+
+  // Model health states
+  const [modelHealthMap, setModelHealthMap] = useState<Map<string, ModelHealth>>(new Map())
+  const [isCheckingHealth, setIsCheckingHealth] = useState(false)
+  const [healthError, setHealthError] = useState<string | null>(null)
 
   // Track if component is mounted to prevent state updates after unmount
   const mountedRef = useRef(true)
@@ -100,6 +105,55 @@ export function useModels(threadId: string | null) {
     return selectedModel || defaultModel
   }, [selectedModel, defaultModel])
 
+  // Check health for a specific model
+  const checkModelHealth = useCallback(async (modelId: string): Promise<ModelHealth | null> => {
+    try {
+      const health = await getModelHealth(modelId)
+      setModelHealthMap(prev => new Map(prev).set(modelId, health))
+      setHealthError(null)
+      return health
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to check model health"
+      setHealthError(errorMsg)
+      console.error(`Failed to check health for model ${modelId}:`, err)
+      return null
+    }
+  }, [])
+
+  // Check health for all models
+  const checkAllModelsHealth = useCallback(async (): Promise<AllModelsHealthResponse | null> => {
+    setIsCheckingHealth(true)
+    try {
+      const response = await getAllModelsHealth()
+      // Update health map
+      const newHealthMap = new Map<string, ModelHealth>()
+      response.models.forEach(health => {
+        newHealthMap.set(health.model_id, health)
+      })
+      setModelHealthMap(newHealthMap)
+      setHealthError(null)
+      return response
+    } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : "Failed to check models health"
+      setHealthError(errorMsg)
+      console.error("Failed to check health for all models:", err)
+      return null
+    } finally {
+      setIsCheckingHealth(false)
+    }
+  }, [])
+
+  // Get health status for a specific model
+  const getModelHealthStatus = useCallback((modelId: string): ModelHealth | undefined => {
+    return modelHealthMap.get(modelId)
+  }, [modelHealthMap])
+
+  // Clear health cache
+  const clearHealthCache = useCallback(() => {
+    setModelHealthMap(new Map())
+    setHealthError(null)
+  }, [])
+
   return {
     models,
     selectedModel,
@@ -110,5 +164,13 @@ export function useModels(threadId: string | null) {
     refreshModels: fetchModels,
     isLoading,
     error,
+    // Health check API
+    checkModelHealth,
+    checkAllModelsHealth,
+    getModelHealthStatus,
+    clearHealthCache,
+    isCheckingHealth,
+    healthError,
+    modelHealthMap,
   }
 }

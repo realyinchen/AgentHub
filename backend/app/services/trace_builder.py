@@ -36,8 +36,12 @@ class _TurnBuilder:
         self.session_id = session_id
         self.started_at = started_at
         self.human_msg: Optional[str] = None
-        self.ai_msgs: List[AIMessageInfo] = []  # All AI messages (with or without tool_calls)
-        self.all_tool_calls: List[ToolCall] = []  # Accumulated tool_calls from all AI steps
+        self.ai_msgs: List[
+            AIMessageInfo
+        ] = []  # All AI messages (with or without tool_calls)
+        self.all_tool_calls: List[
+            ToolCall
+        ] = []  # Accumulated tool_calls from all AI steps
         self.tools: List[ToolResultInfo] = []
         self.subagents: List[SubagentRun] = []
         self.final_response: Optional[AIMessageInfo] = None
@@ -49,7 +53,7 @@ class _TurnBuilder:
 
     def add_ai_msg(self, ai_msg: AIMessageInfo) -> None:
         """Add AI message. If it has tool_calls, accumulate them.
-        
+
         If this AI has no tool_calls and comes after some tools,
         it's likely the final response.
         """
@@ -88,8 +92,14 @@ class _TurnBuilder:
         # If no AI messages but has final_response, use that
         ai_msg = self.ai_msgs[0] if self.ai_msgs else self.final_response
         if ai_msg is None:
-            ai_msg = AIMessageInfo(content=None, thinking=None, tool_calls=[], model_name=None, latency_ms=None)
-        
+            ai_msg = AIMessageInfo(
+                content=None,
+                thinking=None,
+                tool_calls=[],
+                model_name=None,
+                latency_ms=None,
+            )
+
         # Override tool_calls with accumulated list (for multi-round tool calls)
         ai_msg = AIMessageInfo(
             content=ai_msg.content,
@@ -126,7 +136,7 @@ def build_trace_from_steps(
     """Build structured AgentTrace from raw message_steps.
 
     Core algorithm: Group by session_id (1 session_id = 1 turn)
-    
+
     Processing within each session_id group:
     1. First human message -> humanMsg
     2. AI with tool_calls -> accumulate tool_calls, add to aiMsgs
@@ -174,8 +184,10 @@ def build_trace_from_steps(
     for session_id_str, group_steps in session_groups.items():
         # Sort group by step_number (should already be sorted, but ensure)
         group_steps = sorted(group_steps, key=lambda s: s.step_number)
-        
-        logger.debug(f"Processing session {session_id_str} with {len(group_steps)} steps")
+
+        logger.debug(
+            f"Processing session {session_id_str} with {len(group_steps)} steps"
+        )
 
         # Create TurnBuilder
         first_step = group_steps[0]
@@ -200,7 +212,9 @@ def build_trace_from_steps(
             # -----------------------------------------------------------------
             if step.message_type == "human":
                 turn_builder.set_human_msg(step.content or "")
-                logger.debug(f"  -> Human msg: {step.content[:50] if step.content else ''}...")
+                logger.debug(
+                    f"  -> Human msg: {step.content[:50] if step.content else ''}..."
+                )
                 i += 1
                 continue
 
@@ -232,7 +246,9 @@ def build_trace_from_steps(
                 ai_msg = AIMessageInfo(
                     content=step.content,
                     thinking=step.thinking,
-                    tool_calls=_parse_tool_calls(step.tool_calls) if step.tool_calls else [],
+                    tool_calls=_parse_tool_calls(step.tool_calls)
+                    if step.tool_calls
+                    else [],
                     model_name=step.model_name,
                     latency_ms=step.latency_ms,
                 )
@@ -240,14 +256,15 @@ def build_trace_from_steps(
                 if step.tool_calls:
                     # AI with tool_calls -> add to ai_msgs, accumulate tool_calls
                     turn_builder.add_ai_msg(ai_msg)
-                    logger.debug(
-                        f"  -> AI with {len(ai_msg.tool_calls)} tool_calls"
-                    )
+                    logger.debug(f"  -> AI with {len(ai_msg.tool_calls)} tool_calls")
                 else:
                     # AI without tool_calls
                     # If there are already some tools processed, this is final response
                     # Otherwise, it's a simple AI response (add to ai_msgs)
-                    if len(turn_builder.tools) > 0 or len(turn_builder.all_tool_calls) > 0:
+                    if (
+                        len(turn_builder.tools) > 0
+                        or len(turn_builder.all_tool_calls) > 0
+                    ):
                         # This is final response after tool calls
                         last_ai_no_tools = ai_msg
                         logger.debug(f"  -> Final AI response (no tool_calls)")
@@ -256,7 +273,7 @@ def build_trace_from_steps(
                         # Could be the first/only AI message
                         turn_builder.add_ai_msg(ai_msg)
                         logger.debug(f"  -> AI message (no tool_calls, simple)")
-                
+
                 i += 1
                 continue
 
@@ -565,7 +582,7 @@ def mock_scenario_single_tool() -> List[MessageStepRecord]:
 
 def mock_scenario_multi_round_tools() -> List[MessageStepRecord]:
     """Scenario 3: Multi-round tool calls (like the Hefei example).
-    
+
     User asks -> AI calls 2 tools -> AI calls 1 more tool -> Final response.
     All within same session_id.
     """
@@ -582,8 +599,16 @@ def mock_scenario_multi_round_tools() -> List[MessageStepRecord]:
             session_id=session_id,
             message_type="ai",
             tool_calls=[
-                {"name": "get_current_time", "args": {"timezone_name": "Asia/Shanghai"}, "id": "call_8ce6"},
-                {"name": "web_search", "args": {"query": "合肥 明天 活动"}, "id": "call_5894"},
+                {
+                    "name": "get_current_time",
+                    "args": {"timezone_name": "Asia/Shanghai"},
+                    "id": "call_8ce6",
+                },
+                {
+                    "name": "web_search",
+                    "args": {"query": "合肥 明天 活动"},
+                    "id": "call_5894",
+                },
             ],
             model_name="qwen-plus",
             latency_ms=620,
@@ -612,7 +637,11 @@ def mock_scenario_multi_round_tools() -> List[MessageStepRecord]:
             session_id=session_id,
             message_type="ai",
             tool_calls=[
-                {"name": "web_search", "args": {"query": "合肥 2026年5月2日 活动"}, "id": "call_77c9"},
+                {
+                    "name": "web_search",
+                    "args": {"query": "合肥 2026年5月2日 活动"},
+                    "id": "call_77c9",
+                },
             ],
             model_name="qwen-plus",
             latency_ms=400,
@@ -731,7 +760,10 @@ def run_tests() -> None:
     scenarios = [
         ("Scenario 1: Simple conversation", mock_scenario_simple),
         ("Scenario 2: Single tool call", mock_scenario_single_tool),
-        ("Scenario 3: Multi-round tools (Hefei style)", mock_scenario_multi_round_tools),
+        (
+            "Scenario 3: Multi-round tools (Hefei style)",
+            mock_scenario_multi_round_tools,
+        ),
         ("Scenario 4: Parallel + Subagent", mock_scenario_parallel_subagent),
     ]
 
@@ -754,7 +786,9 @@ def run_tests() -> None:
             if turn.aiMsg.content:
                 print(f"    AI msg: {turn.aiMsg.content[:60]}...")
             print(f"    Tool calls in aiMsg: {len(turn.aiMsg.tool_calls)}")
-            print(f"    Tool results (toolMsgs): {len(turn.toolMsgs)} (parallel={turn.isParallelTools})")
+            print(
+                f"    Tool results (toolMsgs): {len(turn.toolMsgs)} (parallel={turn.isParallelTools})"
+            )
             print(f"    Subagents: {len(turn.subagentRuns)}")
             if turn.aiFinalResponse and turn.aiFinalResponse.content:
                 print(f"    Final AI: {turn.aiFinalResponse.content[:60]}...")

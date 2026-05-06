@@ -268,3 +268,176 @@ async def refresh_models_cache() -> RefreshResponse:
         message="Model cache refreshed successfully",
         models_count=ModelManager.get_models_count(),
     )
+
+
+@api_router.get("/health/{model_id}")
+async def check_model_health(model_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Check connectivity and health status for a specific model.
+
+    Performs a lightweight test request to verify:
+    1. API key is valid
+    2. Model is accessible
+    3. Provider endpoint is reachable
+
+    Returns health status with latency and error details if applicable.
+    """
+    import time
+    import logging
+    from litellm import acompletion
+
+    logger = logging.getLogger(__name__)
+
+    # Get model from database
+    model = await crud.get_model(db, model_id)
+    if not model:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model '{model_id}' not found",
+        )
+
+    # Get provider configuration (API key and base URL)
+    from app.crud import provider as provider_crud
+
+    provider_config = await provider_crud.get_provider(db, model.provider)
+
+    if not provider_config or not provider_config.api_key:
+        return {
+            "model_id": model_id,
+            "provider": model.provider,
+            "status": "unconfigured",
+            "latency_ms": None,
+            "error": "No API key configured for provider",
+        }
+
+    # Build LiteLLM parameters
+    litellm_params = {
+        "model": model_id,
+        "api_key": provider_config.api_key,
+        "max_tokens": 5,  # Minimal token count for health check
+        "timeout": 10,  # 10 second timeout
+    }
+
+    if provider_config.base_url:
+        litellm_params["api_base"] = provider_config.base_url
+
+    start_time = time.perf_counter()
+
+    try:
+        # Perform a minimal completion request
+        response = await acompletion(
+            messages=[{"role": "user", "content": "Hi"}],
+            **litellm_params,
+        )
+
+        latency_ms = (time.perf_counter() - start_time) * 1000
+
+        # Extract token usage if available
+        usage = None
+        # Access usage attribute safely - LiteLLM response has usage attribute
+        usage_obj = getattr(response, "usage", None)
+        if usage_obj:
+            usage = {
+                "input_tokens": getattr(usage_obj, "prompt_tokens", 0),
+                "output_tokens": getattr(usage_obj, "completion_tokens", 0),
+                "total_tokens": getattr(usage_obj, "total_tokens", 0),
+            }
+
+        return {
+            "model_id": model_id,
+            "provider": model.provider,
+            "status": "healthy",
+            "latency_ms": round(latency_ms, 2),
+            "usage": usage,
+        }
+
+    except Exception as e:
+        latency_ms = (time.perf_counter() - start_time) * 1000
+        error_str = str(e)
+
+        # Classify error type
+        error_type = "unknown"
+        error_lower = error_str.lower()
+        if "rate limit" in error_lower or "429" in error_lower:
+            error_type = "rate_limit_exceeded"
+        elif (
+            "forbidden" in error_lower
+            or "403" in error_lower
+            or "unauthorized" in error_lower
+        ):
+            error_type = "invalid_credentials"
+        elif "timeout" in error_lower:
+            error_type = "timeout"
+        elif "not found" in error_lower or "404" in error_lower:
+            error_type = "model_not_found"
+        elif "quota" in error_lower or "exhausted" in error_lower:
+            error_type = "quota_exhausted"
+
+        logger.warning(
+            f"Health check failed for {model_id}: {error_type} - {error_str[:200]}"
+        )
+
+        return {
+            "model_id": model_id,
+            "provider": model.provider,
+            "status": "unhealthy",
+            "latency_ms": round(latency_ms, 2),
+            "error": error_str[:500],
+            "error_type": error_type,
+        }
+
+
+@api_router.get("/health")
+async def check_all_models_health(db: AsyncSession = Depends(get_db)):
+    """
+    Check health status for all configured models.
+
+    Returns health status, latency, and token usage for each active model.
+    This may take a few seconds depending on the number of models.
+    """
+    import asyncio
+
+    models = await crud.get_models_with_provider_config(db)
+
+    # Only check active models
+    active_models = [m for m in models if m.is_active]
+
+    # Run health checks concurrently for all models
+    tasks = []
+    for model in active_models:
+        tasks.append(check_model_health(model.model_id, db))
+
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Process results
+    health_results = []
+    for i, result in enumerate(results):
+        model_id = active_models[i].model_id
+        if isinstance(result, Exception):
+            health_results.append(
+                {
+                    "model_id": model_id,
+                    "provider": active_models[i].provider,
+                    "status": "error",
+                    "latency_ms": None,
+                    "error": str(result)[:200],
+                }
+            )
+        else:
+            health_results.append(result)
+
+    # Calculate summary stats
+    total = len(health_results)
+    healthy = sum(1 for r in health_results if r["status"] == "healthy")
+    unhealthy = sum(1 for r in health_results if r["status"] == "unhealthy")
+    unconfigured = sum(1 for r in health_results if r["status"] == "unconfigured")
+
+    return {
+        "summary": {
+            "total": total,
+            "healthy": healthy,
+            "unhealthy": unhealthy,
+            "unconfigured": unconfigured,
+        },
+        "models": health_results,
+    }

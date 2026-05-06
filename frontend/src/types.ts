@@ -145,6 +145,42 @@ export type ModelsResponse = {
   default_embedding: string | null
 }
 
+// ==================== Model Health Types ====================
+
+export type ModelHealthStatus = "healthy" | "unhealthy" | "unconfigured" | "error"
+
+export type ModelHealthErrorType =
+  | "unknown"
+  | "rate_limit_exceeded"
+  | "invalid_credentials"
+  | "timeout"
+  | "model_not_found"
+  | "quota_exhausted"
+
+export type ModelHealth = {
+  model_id: string
+  provider: string
+  status: ModelHealthStatus
+  latency_ms: number | null
+  usage?: {
+    input_tokens: number
+    output_tokens: number
+    total_tokens: number
+  } | null
+  error?: string
+  error_type?: ModelHealthErrorType
+}
+
+export type AllModelsHealthResponse = {
+  summary: {
+    total: number
+    healthy: number
+    unhealthy: number
+    unconfigured: number
+  }
+  models: ModelHealth[]
+}
+
 // Legacy providers response (list of strings)
 export type ProviderListResponse = {
   providers: string[]

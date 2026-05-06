@@ -354,14 +354,15 @@ def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
 
 class AgentRegistry:
     """Registry for all compiled agent graphs.
-    
+
     Agents self-register via the @register_agent decorator.
     This eliminates the need to manually maintain agent_map in agent_utils.py.
-    
+
     Example:
         @register_agent("chatbot")
         chatbot = workflow.compile()
     """
+
     _agents: dict[str, CompiledStateGraph] = {}
 
     @classmethod
@@ -388,20 +389,22 @@ class AgentRegistry:
 
 def register_agent(agent_id: str) -> Callable[[CompiledStateGraph], CompiledStateGraph]:
     """Decorator to register a compiled agent graph.
-    
+
     Args:
         agent_id: Unique identifier for the agent (e.g., "chatbot", "navigator")
-        
+
     Returns:
         Decorator that registers the agent and returns it unchanged
-        
+
     Example:
         @register_agent("chatbot")
         chatbot = workflow.compile()
     """
+
     def decorator(agent: CompiledStateGraph) -> CompiledStateGraph:
         AgentRegistry.register(agent_id, agent)
         return agent
+
     return decorator
 
 
