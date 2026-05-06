@@ -120,30 +120,30 @@
   --dag-text-primary: #1A1A1A;
   --dag-text-secondary: #666666;
   --dag-text-dim: #999999;
-  
+
   --dag-node-user: #6B7280;
   --dag-node-user-light: rgba(107, 114, 128, 0.1);
   --dag-node-user-border: rgba(107, 114, 128, 0.3);
-  
+
   --dag-node-ai: #3B82F6;
   --dag-node-ai-light: rgba(59, 130, 246, 0.1);
   --dag-node-ai-border: rgba(59, 130, 246, 0.4);
-  
+
   --dag-node-tool: #A78BFA;
   --dag-node-tool-light: rgba(167, 139, 250, 0.08);
   --dag-node-tool-border: rgba(167, 139, 250, 0.25);
-  
+
   --dag-node-subagent-from: #3B82F6;
   --dag-node-subagent-to: #06B6D4;
-  
+
   --dag-success: #22C55E;
   --dag-success-light: rgba(34, 197, 94, 0.1);
   --dag-success-border: rgba(34, 197, 94, 0.4);
-  
+
   --dag-error: #EF4444;
   --dag-error-light: rgba(239, 68, 68, 0.1);
   --dag-error-border: rgba(239, 68, 68, 0.5);
-  
+
   --dag-edge: rgba(0, 0, 0, 0.15);
 }
 
@@ -263,30 +263,30 @@
   --dag-text-primary: #E6EDF3;
   --dag-text-secondary: #9FB0C3;
   --dag-text-dim: #6B7A90;
-  
+
   --dag-node-user: #9FB0C3;
   --dag-node-user-light: rgba(159, 176, 195, 0.1);
   --dag-node-user-border: rgba(159, 176, 195, 0.3);
-  
+
   --dag-node-ai: #5B8CFF;
   --dag-node-ai-light: rgba(91, 140, 255, 0.12);
   --dag-node-ai-border: rgba(91, 140, 255, 0.4);
-  
+
   --dag-node-tool: #A78BFA;
   --dag-node-tool-light: rgba(167, 139, 250, 0.08);
   --dag-node-tool-border: rgba(167, 139, 250, 0.25);
-  
+
   --dag-node-subagent-from: #5B8CFF;
   --dag-node-subagent-to: #06B6D4;
-  
+
   --dag-success: #22C55E;
   --dag-success-light: rgba(34, 197, 94, 0.12);
   --dag-success-border: rgba(34, 197, 94, 0.4);
-  
+
   --dag-error: #EF4444;
   --dag-error-light: rgba(239, 68, 68, 0.12);
   --dag-error-border: rgba(239, 68, 68, 0.5);
-  
+
   --dag-edge: rgba(255, 255, 255, 0.15);
 }
 
