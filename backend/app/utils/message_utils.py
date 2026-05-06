@@ -302,9 +302,7 @@ async def save_messages_to_steps(
                     step_number=step_number,
                     content=content,
                 )
-                logger.debug(
-                    f"[SAVE] Human step {step_number}: {content[:50]}..."
-                )
+                logger.debug(f"[SAVE] Human step {step_number}: {content[:50]}...")
 
             elif isinstance(msg, AIMessage):
                 content = convert_message_content_to_string(msg.content)
@@ -414,7 +412,9 @@ async def _save_ai_step_async(
             model_name=model_name,
         )
         await session.commit()
-    logger.debug(f"[SAVE] AI step {step_number}: tool_calls={len(tool_calls) if tool_calls else 0}")
+    logger.debug(
+        f"[SAVE] AI step {step_number}: tool_calls={len(tool_calls) if tool_calls else 0}"
+    )
 
 
 async def _save_human_step_async(
@@ -493,12 +493,6 @@ async def streaming_message_generator(
 
     # Track step counter for SSE events (just for display)
     step_counter = 0
-
-    # Track database step number (separate from SSE step_counter)
-    db_step_number = 0
-
-    # Map tool_call_id to tool args for ToolMessages (from AI tool_calls)
-    tool_call_id_to_args: dict[str, dict] = {}
 
     # Generate session_id for this conversation turn
     session_id = uuid.uuid4()
@@ -684,7 +678,9 @@ async def streaming_message_generator(
                 if has_content:
                     step_counter += 1
                     yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'ai_thinking', 'status': 'thinking...'})}\n\n"
-                    logger.debug(f"[SSE] Step {step_counter}: ai_thinking (has content)")
+                    logger.debug(
+                        f"[SSE] Step {step_counter}: ai_thinking (has content)"
+                    )
 
                 if output and hasattr(output, "tool_calls") and output.tool_calls:
                     logger.debug(f"[SSE] AI has tool_calls: {len(output.tool_calls)}")

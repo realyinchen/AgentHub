@@ -25,6 +25,8 @@ export function useModels(threadId: string | null) {
 
   // Track if component is mounted to prevent state updates after unmount
   const mountedRef = useRef(true)
+  // Track previous threadId to detect real conversation switch vs new conversation
+  const prevThreadIdRef = useRef<string | null>(null)
 
   // Unified fetch function with mounted check
   const fetchModels = useCallback(async () => {
@@ -58,10 +60,28 @@ export function useModels(threadId: string | null) {
     }
   }, [fetchModels])
 
-  // Reset selection when threadId changes, but use default model if available
+  // Reset selection when switching to a different conversation (threadId changes from one non-empty to another)
+  // BUT: do NOT reset when a new conversation creates its threadId ("" -> non-empty)
+  // This preserves the user's model selection when sending the first message in a new conversation
   useEffect(() => {
-    // Set to default model if available, otherwise null
-    setSelectedModelState(defaultModel)
+    const prevThreadId = prevThreadIdRef.current
+    prevThreadIdRef.current = threadId
+
+    // Helper: treat both null and empty string as "no active conversation"
+    const hasPrevThreadId = prevThreadId !== null && prevThreadId !== ""
+    const hasCurrentThreadId = threadId !== null && threadId !== ""
+
+    // Only reset to default model when:
+    // 1. Switching from one existing conversation to another (both non-empty and different)
+    // 2. NOT when a new conversation creates its first threadId ("" -> non-empty)
+    if (hasPrevThreadId && hasCurrentThreadId && prevThreadId !== threadId) {
+      setSelectedModelState(defaultModel)
+    }
+    // When going from non-empty to empty (e.g. new conversation button), 
+    // also reset to default model for the fresh new conversation
+    if (hasPrevThreadId && !hasCurrentThreadId) {
+      setSelectedModelState(defaultModel)
+    }
   }, [threadId, defaultModel])
 
   // Update selected model
