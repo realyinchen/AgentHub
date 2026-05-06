@@ -230,6 +230,12 @@ export type StreamEvent =
     type: "error"
     content: string
   }
+  | {
+    type: "model_fallback"
+    old_model: string
+    new_model: string
+    content: string
+  }
 
 // ==================== Agent Process Types ====================
 

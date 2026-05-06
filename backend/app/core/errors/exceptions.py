@@ -294,22 +294,22 @@ def get_user_friendly_error_message(exception: Exception) -> str:
     """
     Get a user-friendly error message for the given exception.
 
-    For LLM authentication/connection/unknown_provider errors, returns a message
-    prompting the user to check their API key. For other errors, returns a
-    generic internal error message.
+    Provides context-specific messages for different LLM error types,
+    all phrased to be helpful without exposing technical details.
     """
     error_category = classify_llm_error(exception)
 
-    # All LLM-related errors that could be API key issues show the same message
-    if error_category in [
-        "llm_authentication",
-        "llm_connection",
-        "llm_unknown_provider",
-    ]:
-        return "Please check if your model API key is valid"
-    else:
-        # All other errors show generic internal error message
-        return "An internal error occurred"
+    match error_category:
+        case "llm_authentication" | "llm_unknown_provider":
+            return "The AI service is temporarily unavailable. Please try again later."
+        case "llm_connection":
+            return "Unable to connect to the AI service. Please check your network and try again."
+        case "llm_rate_limit":
+            return "The AI service is busy right now. Please try again in a few moments."
+        case "llm_invalid_request" | "llm_permission":
+            return "The AI service is temporarily unavailable. Please try again later."
+        case _:
+            return "Something went wrong. Please try again or contact support if the issue persists."
 
 
 def should_show_detailed_error(exception: Exception) -> bool:

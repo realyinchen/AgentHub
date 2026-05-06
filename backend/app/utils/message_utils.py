@@ -2,6 +2,7 @@ import json
 import logging
 import time
 import uuid
+import copy
 from collections.abc import AsyncGenerator, Sequence
 from langchain_core.messages import (
     AIMessage,
@@ -16,10 +17,11 @@ from typing import Any
 
 from app.database import get_database
 from app.schemas.chat import ChatMessage, ToolCall, UserInput
-from app.core.errors import format_sse_error
 from app.crud import message_step as message_step_crud
 from app.crud import chat as chat_crud
+from app.crud import model as model_crud
 from app.utils.async_writer import AsyncWriteQueue
+from app.core.model_manager import get_model_manager
 
 
 logger = logging.getLogger(__name__)
@@ -80,6 +82,29 @@ def _extract_thinking_content(message: AIMessage) -> str:
             thinking = reasoning_from_kwargs
 
     return thinking.strip()
+
+
+def _yield_model_fallback_event(
+    old_model: str,
+    new_model: str,
+) -> str:
+    """
+    Generate an SSE event for model fallback.
+
+    Args:
+        old_model: The model that failed
+        new_model: The model we're falling back to
+
+    Returns:
+        str: Formatted SSE event string
+    """
+    event_data = {
+        "type": "model_fallback",
+        "old_model": old_model,
+        "new_model": new_model,
+        "content": f"Switching to {new_model}...",
+    }
+    return f"data: {json.dumps(event_data)}\n\n"
 
 
 def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
@@ -463,28 +488,30 @@ async def _save_tool_step_async(
     logger.debug(f"[SAVE] Tool step {step_number}: name={tool_name}")
 
 
-async def streaming_message_generator(
-    user_input: UserInput, agent: CompiledStateGraph
+async def _stream_with_model(
+    user_input: UserInput,
+    agent: CompiledStateGraph,
+    model_name: str,
 ) -> AsyncGenerator[str, None]:
     """
-    Generate a stream of messages from the agent using astream_events.
+    Internal helper to stream messages using a specific model.
 
-    Uses LangGraph's astream_events (v2) for fine-grained event streaming:
-    - on_chat_model_start: emit human step and initialize tracking
-    - on_chat_model_stream: token-by-token streaming (for final response only)
-    - on_chat_model_end: save AI step immediately (including tool_calls only steps)
-    - on_tool_start: emit step status event (tool calling)
-    - on_tool_end: save tool result immediately
-    - on_chain_end: final message emission
-
-    SSE events are simplified to only show step status.
-    Each step is saved to database immediately via async queue (non-blocking).
+    This is the core streaming logic that gets called with potentially
+    different models during fallback.
 
     Args:
-        user_input: User input containing content, agent_id, thread_id, and thinking_mode
+        user_input: User input (model_name will be overridden)
         agent: The compiled state graph agent to use
+        model_name: The model to use for this streaming attempt
+
+    Yields:
+        SSE-formatted event strings
     """
-    kwargs = await handle_input(user_input, agent)
+    # Create a copy of user_input with the specified model
+    modified_input = copy.copy(user_input)
+    modified_input.model_name = model_name
+
+    kwargs = await handle_input(modified_input)
     started_at = time.perf_counter()
     first_chunk_sent = False
 
@@ -534,17 +561,12 @@ async def streaming_message_generator(
 
             # === LLM Call Start (on_chat_model_start) ===
             if kind == "on_chat_model_start":
-                run_id = event.get("run_id", "")
-
                 # Emit human step on first LLM call
                 if step_counter == 0:
                     step_counter += 1
-                    yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'human', 'content': user_input.content})}\n\n"
+                    yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'human', 'content': modified_input.content})}\n\n"
                     first_chunk_sent = True
                     logger.debug(f"[SSE] Step {step_counter}: human")
-
-                # Note: ai_thinking step is deferred to on_chat_model_end
-                # where we can check if the AI has actual content
 
             # === Token Streaming (on_chat_model_stream) ===
             # Only stream tokens for final response display
@@ -689,11 +711,6 @@ async def streaming_message_generator(
             elif kind == "on_chain_end" and node == "":
                 output = data.get("output", {})
                 messages = output.get("messages", [])
-                run_id = event.get("run_id", "")
-
-                logger.debug(
-                    f"[TRACE] on_chain_end: run_id={run_id}, messages_count={len(messages)}"
-                )
 
                 if messages:
                     last_message = messages[-1]
@@ -711,17 +728,12 @@ async def streaming_message_generator(
                                     thread_id=thread_id,
                                     session_id=session_id,
                                     messages=messages,
-                                    user_input_content=user_input.content,
-                                    model_name=user_input.model_name,
+                                    user_input_content=modified_input.content,
+                                    model_name=model_name,
                                 ),
                             )
                         except Exception as e:
                             logger.error(f"Error parsing final message: {e}")
-
-    except Exception as e:
-        # Use format_sse_error to ensure user-friendly messages are returned
-        error_data = format_sse_error(e)
-        yield f"data: {json.dumps(error_data)}\n\n"
 
     finally:
         # Update conversation token usage in database via async queue (non-blocking)
@@ -757,9 +769,138 @@ async def streaming_message_generator(
         await write_queue.wait_all()
 
 
-async def handle_input(
+async def streaming_message_generator(
     user_input: UserInput, agent: CompiledStateGraph
-) -> dict[str, Any]:
+) -> AsyncGenerator[str, None]:
+    """
+    Generate a stream of messages from the agent using astream_events with model fallback.
+
+    If the current model fails due to rate limits, quota exhaustion, or permission issues,
+    the system will:
+    1. Deactivate the failed model in the database
+    2. Attempt to fallback to another model (same provider first, then any)
+    3. Send a model_fallback SSE event to notify the frontend
+    4. Continue streaming with the fallback model
+    5. After 3 failed attempts, return a friendly error
+
+    Uses LangGraph's astream_events (v2) for fine-grained event streaming.
+    Each step is saved to database immediately via async queue (non-blocking).
+
+    Args:
+        user_input: User input containing content, agent_id, thread_id, and thinking_mode
+        agent: The compiled state graph agent to use
+    """
+    # Ensure we have a valid model name
+    current_model = user_input.model_name
+    if not current_model:
+        model_manager = get_model_manager()
+        current_model = model_manager.get_random_active_model()
+        if not current_model:
+            logger.error("[Fallback] No models available at all")
+            error_data = {
+                "type": "error",
+                "content": "No AI models are currently available. Please check your configuration.",
+                "error_type": "no_models_available",
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+            return
+
+    fallback_count = 0
+    max_fallbacks = 3
+
+    while fallback_count < max_fallbacks:
+        logger.info(
+            f"[Fallback] Attempting stream with model: {current_model} (attempt {fallback_count + 1}/{max_fallbacks})"
+        )
+
+        try:
+            # Stream using the current model - collect all events first
+            events = []
+            async for event in _stream_with_model(user_input, agent, current_model):
+                events.append(event)
+
+            # If we got here without exception, yield all events and return
+            logger.info(
+                f"[Fallback] Stream completed successfully with model: {current_model}"
+            )
+            for event in events:
+                yield event
+            return
+
+        except Exception as e:
+            # Check if this is an LLM-related error that should trigger fallback
+            error_str = str(e).lower()
+            is_fallback_error = (
+                "rate limit" in error_str
+                or "quota" in error_str
+                or "forbidden" in error_str
+                or "403" in error_str
+                or "429" in error_str
+                or "permission" in error_str
+                or "exhausted" in error_str
+                or "rate_limit" in error_str
+            )
+
+            if not is_fallback_error:
+                # Not a fallback-eligible error - re-raise
+                logger.warning(
+                    f"[Fallback] Error not eligible for fallback: {type(e).__name__}: {str(e)[:100]}"
+                )
+                raise
+
+            logger.warning(
+                f"[Fallback] Model {current_model} failed with: {type(e).__name__}: {str(e)[:100]}"
+            )
+
+            # Deactivate the failed model
+            try:
+                db = get_database()
+                async with db.session() as session:
+                    await model_crud.deactivate_model(session, current_model)
+                    await session.commit()
+                logger.info(f"[Fallback] Deactivated model: {current_model}")
+            except Exception as deactivate_error:
+                logger.error(
+                    f"[Fallback] Failed to deactivate model {current_model}: {deactivate_error}"
+                )
+
+            # Get fallback model from ModelManager
+            try:
+                model_manager = get_model_manager()
+                fallback_model = model_manager.get_fallback_model(current_model)
+
+                if not fallback_model:
+                    logger.error("[Fallback] No more models available for fallback")
+                    break
+
+                logger.info(
+                    f"[Fallback] Falling back from {current_model} to {fallback_model}"
+                )
+
+                # Send fallback event to frontend
+                yield _yield_model_fallback_event(current_model, fallback_model)
+
+                # Update current model for next attempt
+                current_model = fallback_model
+                fallback_count += 1
+
+            except Exception as fallback_error:
+                logger.error(
+                    f"[Fallback] Failed to get fallback model: {fallback_error}"
+                )
+                break
+
+    # If we exhausted all fallbacks, return friendly error
+    logger.error(f"[Fallback] Exhausted all {max_fallbacks} fallback attempts")
+    error_data = {
+        "type": "error",
+        "content": "The AI service is currently unavailable. Please try again later.",
+        "error_type": "service_unavailable",
+    }
+    yield f"data: {json.dumps(error_data)}\n\n"
+
+
+async def handle_input(user_input: UserInput) -> dict[str, Any]:
     """
     Parse user input and returns kwargs for agent invocation.
 

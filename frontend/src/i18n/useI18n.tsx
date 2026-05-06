@@ -48,7 +48,7 @@ const en = {
   "error.deleteConversation": "Failed to delete conversation: {{details}}",
   "error.initApp": "Failed to initialize app: {{details}}",
   "error.titleEmpty": "Title cannot be empty",
-  "error.streamPrefix": "Error: {{details}}",
+  "error.streamPrefix": "{{details}}",
   "error.modelIdExists": "Model ID already exists, please use another ID",
   "error.saveFailed": "Failed to save: {{details}}",
   "error.createFailed": "Failed to create model: {{details}}",
@@ -197,6 +197,8 @@ const en = {
   "kanban.chart.reasoning": "Reasoning Tokens",
   "kanban.vsLast7Days": "vs last 7 days",
   // DAG
+  "process.noSteps": "No steps to display",
+  "process.noStepsHint": "This session has no recorded steps",
   "dag.noSteps": "No steps to display",
   "dag.clickToView": "Click nodes to view details",
   "dag.steps": "steps",
@@ -408,6 +410,8 @@ const zh: TranslationDictionary = {
   "kanban.chart.reasoning": "思考 Token",
   "kanban.vsLast7Days": "对比前 7 天",
   // DAG
+  "process.noSteps": "无步骤可展示",
+  "process.noStepsHint": "该会话没有记录的步骤",
   "dag.noSteps": "无步骤可展示",
   "dag.clickToView": "点击节点查看详情",
   "dag.steps": "步",

@@ -897,6 +897,21 @@ function App() {
               return
             }
 
+            // model_fallback event - switch to fallback model and update UI
+            if (event.type === "model_fallback") {
+              console.log(`[Model Fallback] Switching from ${event.old_model} to ${event.new_model}`)
+              
+              // Update the selected model in the dropdown to the fallback model
+              setSelectedModel(event.new_model)
+              
+              // Refresh models list to get updated active state
+              refreshModels()
+              
+              // Show a status message to the user (could use a toast in the future)
+              console.log(`Fallback: ${event.content}`)
+              return
+            }
+
             // error event - TypeScript knows this must be { type: "error"; content: string }
             if (event.type === "error") {
               setAppError(event.content)
@@ -1209,6 +1224,21 @@ function App() {
                 `output=${event.content.usage.output_tokens ?? 'N/A'},`,
                 `total=${event.content.usage.total_tokens ?? 'N/A'}`
               )
+              return
+            }
+
+            // model_fallback event - switch to fallback model and update UI
+            if (event.type === "model_fallback") {
+              console.log(`[Model Fallback] Switching from ${event.old_model} to ${event.new_model}`)
+              
+              // Update the selected model in the dropdown to the fallback model
+              setSelectedModel(event.new_model)
+              
+              // Refresh models list to get updated active state
+              refreshModels()
+              
+              // Show a status message to the user
+              console.log(`Fallback: ${event.content}`)
               return
             }
 

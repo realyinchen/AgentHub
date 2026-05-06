@@ -210,3 +210,19 @@ async def set_default_model_by_model_id(
     await db.flush()
     await db.refresh(model)
     return model
+
+
+async def deactivate_model(db: AsyncSession, model_id: str) -> Optional[Model]:
+    """Deactivate a model by model_id string
+    
+    Mark a model as inactive when it fails (e.g., rate limit exceeded, quota exhausted, permission errors).
+    This prevents it from being selected in future requests until manually reactivated.
+    """
+    model = await get_model(db, model_id)
+    if not model:
+        return None
+
+    model.is_active = False
+    await db.flush()
+    await db.refresh(model)
+    return model

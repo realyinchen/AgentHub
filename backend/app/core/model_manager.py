@@ -1,5 +1,6 @@
 import logging
 import asyncio
+import random
 from typing import Optional
 from litellm.router import Router
 from langchain_litellm import ChatLiteLLMRouter
@@ -400,3 +401,80 @@ class ModelManager:
         Public method to access cached model count without accessing private _models_cache.
         """
         return len(cls._models_cache)
+
+    @classmethod
+    def get_random_active_model(cls, model_type: str = "llm") -> Optional[str]:
+        """Get a random active model of the specified type.
+
+        Args:
+            model_type: Model type (llm or vlm)
+
+        Returns:
+            Model ID string if available, None otherwise
+        """
+        active_models = [
+            m for m in cls._models_cache.values()
+            if m.model_type == model_type and m.is_active
+        ]
+
+        if not active_models:
+            return None
+
+        selected = random.choice(active_models)
+        return selected.model_id
+
+    @classmethod
+    def get_fallback_model(cls, current_model_id: str, model_type: str = "llm") -> Optional[str]:
+        """Get a fallback model when the current model fails.
+
+        Fallback strategy:
+        1. First try to find another active model within the SAME provider (random selection)
+        2. If none available, try to find any active model from other providers (random selection)
+
+        Args:
+            current_model_id: The model that failed (e.g., "dashscope/qwen3.5-27b")
+            model_type: Model type to fallback to (llm or vlm)
+
+        Returns:
+            Model ID string if fallback available, None otherwise
+        """
+        current_model = cls._models_cache.get(current_model_id)
+        if not current_model:
+            current_provider = current_model_id.split("/")[0] if "/" in current_model_id else None
+        else:
+            current_provider = current_model.provider
+
+        # Get all active models of the specified type, excluding the failed model
+        active_models = [
+            m for m in cls._models_cache.values()
+            if m.model_type == model_type
+            and m.is_active
+            and m.model_id != current_model_id
+        ]
+
+        if not active_models:
+            return None
+
+        # First priority: models within the same provider
+        same_provider_models = [m for m in active_models if m.provider == current_provider]
+        if same_provider_models:
+            selected = random.choice(same_provider_models)
+            logger.info(
+                f"Fallback: switching from {current_model_id} to {selected.model_id} "
+                f"(same provider: {current_provider})"
+            )
+            return selected.model_id
+
+        # Second priority: any other active model from different providers
+        selected = random.choice(active_models)
+        logger.info(
+            f"Fallback: switching from {current_model_id} to {selected.model_id} "
+            f"(different provider: {selected.provider})"
+        )
+        return selected.model_id
+
+
+def get_model_manager() -> type[ModelManager]:
+    """Get the ModelManager singleton instance."""
+    # Return the class itself - all methods are classmethods
+    return ModelManager
