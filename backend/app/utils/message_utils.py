@@ -814,18 +814,29 @@ async def streaming_message_generator(
         )
 
         try:
-            # Stream using the current model - collect all events first
-            events = []
-            async for event in _stream_with_model(user_input, agent, current_model):
-                events.append(event)
+            # Direct streaming with the current model (TRUE STREAMING - NO BUFFERING!)
+            success = False
+            has_content = False
 
-            # If we got here without exception, yield all events and return
-            logger.info(
-                f"[Fallback] Stream completed successfully with model: {current_model}"
-            )
-            for event in events:
+            async for event in _stream_with_model(user_input, agent, current_model):
                 yield event
-            return
+                has_content = True
+                # Check if this is the DONE event (the last event marking successful completion)
+                if event.strip() == "data: [DONE]":
+                    success = True
+
+            if success:
+                logger.info(
+                    f"[Fallback] Stream completed successfully with model: {current_model}"
+                )
+                return
+
+            # If we got here without exception but no DONE event,
+            # the stream ended unexpectedly
+            if has_content:
+                logger.warning(f"[Fallback] Stream ended without DONE event for model: {current_model}")
+            else:
+                logger.warning(f"[Fallback] Stream produced no content for model: {current_model}")
 
         except Exception as e:
             # Check if this is an LLM-related error that should trigger fallback
