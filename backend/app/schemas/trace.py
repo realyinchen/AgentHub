@@ -1,151 +1,121 @@
-"""Trace schemas for Agent Kanban view.
+"""Schemas for Agent Trace functionality."""
 
-This module defines the Pydantic models for structured trace data,
-which is used to render the Kanban view of agent execution.
-"""
-
-from pydantic import BaseModel, Field
-from uuid import UUID
+import logging
 from datetime import datetime
-from typing import Optional, List, Dict, Any, Literal
+from pydantic import BaseModel, Field
+from typing import Any, Optional
 
 
-# ============================================================================
-# Base models
-# ============================================================================
+logger = logging.getLogger(__name__)
 
 
-class ToolCall(BaseModel):
-    """A tool call issued by the AI."""
+class CheckpointInfo(BaseModel):
+    """Information about a LangGraph checkpoint."""
 
-    name: str = Field(..., description="Tool name")
-    args: Dict[str, Any] = Field(default_factory=dict, description="Tool arguments")
-    id: Optional[str] = Field(None, description="Tool call ID (for matching results)")
-
-
-class ToolResultInfo(BaseModel):
-    """Tool execution result."""
-
-    tool_call_id: Optional[str] = Field(None, description="Corresponding tool_call ID")
-    name: str = Field(..., description="Tool name")
-    args: Dict[str, Any] = Field(default_factory=dict, description="Call arguments")
-    output: str = Field(..., description="Tool output")
-    latency_ms: Optional[int] = Field(None, description="Execution latency in ms")
-    status: Literal["success", "error"] = Field(
-        "success", description="Execution status"
-    )
+    checkpoint_id: str
+    thread_id: str
+    parent_checkpoint_id: str | None = None
+    node_name: str | None = None
+    timestamp: datetime | None = None
+    message_count: int = 0
+    last_message_type: str | None = None
+    has_next: bool = False
+    next_nodes: list[str] = Field(default_factory=list)
 
 
-class AIMessageInfo(BaseModel):
-    """AI message details."""
+class AIStepMetadata(BaseModel):
+    """Metadata for AI message steps."""
 
-    content: Optional[str] = Field(None, description="AI response content")
-    thinking: Optional[str] = Field(None, description="Thinking/reasoning process")
-    tool_calls: List[ToolCall] = Field(
-        default_factory=list, description="Issued tool calls"
-    )
-    model_name: Optional[str] = Field(None, description="Model used")
-    latency_ms: Optional[int] = Field(None, description="Generation latency in ms")
+    thinking: str | None = None
+    tool_calls: list[dict] | None = None
+    model_name: str | None = None
 
 
-class SubagentRun(BaseModel):
-    """Subagent execution (black-box view)."""
+class ToolStepMetadata(BaseModel):
+    """Metadata for Tool message steps."""
 
-    name: str = Field(..., description="Subagent name, e.g. 'navigator'")
-    input: str = Field(..., description="Input message")
-    output: str = Field(..., description="Output result")
-    latency_ms: int = Field(0, description="Total execution latency in ms")
-    step_count: int = Field(0, description="Number of internal steps")
+    tool_name: str
+    tool_args: dict = Field(default_factory=dict)
+    tool_call_id: str | None = None
 
 
-# ============================================================================
-# Agent Turn - Kanban core unit
-# ============================================================================
+class StepOutput(BaseModel):
+    """
+    Unified output schema for any message step.
 
-
-class AgentTurn(BaseModel):
-    """Represents a complete agent execution turn.
-
-    Kanban card structure:
-    ┌─────────────────────────────────┐
-    │ User: 查询天气                   │  ← humanMsg
-    ├─────────────────────────────────┤
-    │ LLM (qwen-plus)                 │  ← aiMsg (with tool_calls)
-    │ └─ Thinking: 用户需要天气...     │
-    ├─────────────────────────────────┤
-    │ [Parallel] Tool 1 → Tool 2      │  ← toolMsgs
-    ├─────────────────────────────────┤
-    │ [Subagent: navigator]           │  ← subagentRuns (black-box)
-    ├─────────────────────────────────┤
-    │ AI Final Response               │  ← aiFinalResponse
-    └─────────────────────────────────┘
+    Represents a single step in the agent execution, whether it's a human input,
+    AI response, or tool execution. This replaces the old MessageStep schema and
+    is populated directly from LangGraph checkpointer data.
     """
 
-    turn_id: str = Field(..., description="Turn ID, e.g. 'turn-1'")
-    session_id: Optional[str] = Field(
-        None, description="Session UUID for fetching raw steps"
+    step_number: int = Field(description="Step number within the turn")
+    message_type: str = Field(description="Type: human, ai, or tool")
+    content: str | None = Field(None, description="The message content")
+    timestamp: datetime | None = Field(None, description="When this step was created")
+    message_id: str | None = Field(None, description="Unique message identifier")
+    checkpoint_id: str | None = Field(None, description="LangGraph checkpoint ID")
+    node_name: str | None = Field(None, description="Name of the graph node")
+
+    # AI-specific fields (only set for ai type)
+    ai_metadata: AIStepMetadata | None = Field(
+        None, description="AI-specific metadata (thinking, tool_calls, etc.)"
     )
-    humanMsg: str = Field(..., description="User input message")
-    aiMsg: AIMessageInfo = Field(
-        default_factory=lambda: AIMessageInfo(
-            content=None, thinking=None, model_name=None, latency_ms=None
-        ),
-        description="AI response (with tool_calls, final response for simple chats)",
+
+    # Tool-specific fields (only set for tool type)
+    tool_metadata: ToolStepMetadata | None = Field(
+        None, description="Tool-specific metadata (name, args, output, etc.)"
     )
-    toolMsgs: List[ToolResultInfo] = Field(
-        default_factory=list, description="List of tool execution results"
-    )
-    subagentRuns: List[SubagentRun] = Field(
-        default_factory=list, description="List of subagent executions"
-    )
-    isParallelTools: bool = Field(
-        False, description="Whether tools were called in parallel"
-    )
-    aiFinalResponse: Optional[AIMessageInfo] = Field(
-        None, description="Final AI response after multi-round tool calls"
-    )
-    total_latency_ms: int = Field(0, description="Total turn latency in ms")
-    started_at: datetime = Field(default_factory=datetime.utcnow)
 
 
-# ============================================================================
-# Agent Trace - complete conversation trace
-# ============================================================================
+class DagNode(BaseModel):
+    """A node in the execution DAG."""
+
+    node_id: str = Field(description="Unique node identifier")
+    step_number: int = Field(description="Corresponding step number")
+    node_name: str = Field(description="Graph node name")
+    title: str = Field(description="Human-readable title for display")
+    message_type: str = Field(description="Type of message")
+    step: StepOutput = Field(description="Full step details")
+
+
+class ExecutionDag(BaseModel):
+    """The complete execution DAG for a thread."""
+
+    thread_id: str = Field(description="Thread/conversation ID")
+    nodes: list[DagNode] = Field(description="All nodes in the DAG")
+    edges: list[tuple[str, str]] = Field(description="Directed edges between nodes")
+    total_steps: int = Field(description="Total number of steps")
+    steps: list[StepOutput] = Field(description="All step outputs in order")
+
+
+class ExecutionTrace(BaseModel):
+    """Complete execution trace for a thread."""
+
+    thread_id: str = Field(description="Thread/conversation ID")
+    steps: list[StepOutput] = Field(description="All steps in execution order")
+    total_steps: int = Field(description="Total number of steps")
+    first_step_at: datetime | None = Field(None, description="When execution started")
+    last_step_at: datetime | None = Field(None, description="When execution ended")
 
 
 class TraceListItem(BaseModel):
-    """Trace list item (for trace list view)."""
+    """Lightweight trace information for listing."""
 
-    thread_id: UUID
-    title: str
-    total_turns: int
-    total_latency_ms: int
-    last_updated: datetime = Field(default_factory=datetime.utcnow)
+    thread_id: str = Field(description="Thread/conversation ID")
+    title: str = Field(description="Conversation title")
+    total_steps: int = Field(description="Total number of execution steps")
+    total_latency_ms: int = Field(description="Total execution time in milliseconds")
+    last_updated: datetime = Field(description="When the conversation was last updated")
+    agent_id: str | None = Field(None, description="Associated agent ID")
 
 
 class TraceListResponse(BaseModel):
-    """Response wrapper for trace list with pagination metadata."""
+    """Paginated response for trace listing."""
 
-    items: List[TraceListItem]
-    total: int = 0  # Total items matching the filter
-    total_pages: int = 0  # Total number of pages
-    page: int = 0  # Current page number
-    page_size: int = 0  # Items per page
-    has_more: bool = False  # Whether there are more items after this page
-    filter_hours: int = 24  # Time filter applied (hours back from now)
-
-
-class AgentTrace(BaseModel):
-    """Agent complete execution trace (data source for Kanban view)."""
-
-    thread_id: UUID = Field(..., description="Conversation thread ID")
-    title: str = Field("Untitled Conversation", description="Conversation title")
-    turns: List[AgentTurn] = Field(default_factory=list, description="List of turns")
-    total_turns: int = Field(0, description="Total number of turns")
-    total_tool_calls: int = Field(0, description="Total number of tool calls")
-    total_subagent_calls: int = Field(0, description="Total number of subagent calls")
-    total_latency_ms: int = Field(0, description="Total execution latency in ms")
-    generated_at: datetime = Field(default_factory=datetime.utcnow)
-
-    class Config:
-        from_attributes = True
+    items: list[TraceListItem] = Field(description="List of traces")
+    total: int = Field(description="Total number of matching traces")
+    total_pages: int = Field(description="Total number of pages")
+    page: int = Field(description="Current page number (0-indexed)")
+    page_size: int = Field(description="Number of items per page")
+    has_more: bool = Field(description="Whether there are more pages available")
+    filter_hours: int = Field(description="Applied time filter in hours")

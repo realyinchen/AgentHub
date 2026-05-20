@@ -78,6 +78,7 @@ CREATE TABLE IF NOT EXISTS models (
     model_type             VARCHAR(16) NOT NULL DEFAULT 'llm',
     model_id               VARCHAR(128) NOT NULL UNIQUE,
     thinking               BOOLEAN NOT NULL DEFAULT 0,
+    priority               INTEGER NOT NULL DEFAULT 0,
     is_default             BOOLEAN NOT NULL DEFAULT 0,
     is_active              BOOLEAN NOT NULL DEFAULT 1,
     created_at             TEXT NOT NULL DEFAULT (datetime('now')),

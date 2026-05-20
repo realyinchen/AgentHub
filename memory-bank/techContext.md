@@ -121,11 +121,11 @@ __all__ = ["chatbot", "navigator"]
 
 ### Database Connection Pool
 ```python
-# backend/app/database/db_manager.py
-pool_size=20,              # Base connections
-max_overflow=30,           # Overflow connections
-pool_recycle=300,          # Connection recycle time (seconds)
-pool_use_lifo=True,        # LIFO mode for better performance
+# backend/app/infra/config.py
+POSTGRES_MIN_CONNECTIONS_PER_POOL=2      # Min pool size
+POSTGRES_MAX_CONNECTIONS_PER_POOL=10     # Max pool size
+
+# Note: Individual backends may override these values
 ```
 
 ### Rate Limiting
@@ -160,9 +160,39 @@ ef_search=200              # Query-time search factor
 | File | Purpose |
 |------|---------|
 | `backend/.env` | Backend environment variables (embedding model, API keys) |
+| `backend/app/infra/config.py` | **Primary Settings** — Pydantic-based configuration (MODE, DB, API keys, tracing) |
 | `backend/scripts/sql/init_database.sql` | LLM/VLM model configurations + DB indexes |
 | `frontend/.env` | Frontend environment variables |
 | `backend/docker-compose.yml` | Backend Docker deployment |
 | `frontend/docker-compose.yml` | Frontend Docker deployment |
 | `backend/app/core/rate_limiter.py` | Rate limiting configuration |
 | `backend/app/core/cache.py` | Caching configuration |
+
+### Settings Pattern (FastAPI Recommended)
+```python
+# backend/app/infra/config.py
+
+from functools import lru_cache
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",    # Fixed path (not find_dotenv)
+        validate_default=True,
+    )
+    MODE: Literal["dev", "sit", "uat", "prod"] = "dev"
+    # ... all configuration fields
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+# Module-level singleton for backward compatibility
+settings = get_settings()
+```
+
+**Key Features:**
+- `MODE`-driven auto-selection: dev → sqlite/sqlite_vec, prod → postgres/qdrant
+- `@model_validator` validates production mode required fields (POSTGRES_*, QDRANT_*)
+- Connection URLs: `settings.get_async_postgres_url()` / `settings.get_postgres_url()`
+- All `.env.example` variables registered in Settings class

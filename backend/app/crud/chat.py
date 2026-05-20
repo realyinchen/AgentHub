@@ -138,6 +138,50 @@ async def soft_delete_conversation_by_thread_id(
     return bool(deleted)
 
 
+async def list_traces(
+    db: AsyncSession,
+    hours: int,
+    agent_id: str,
+    page: int,
+    page_size: int,
+) -> tuple[list[Conversation], int]:
+    """List conversations as traces with time/agent filtering and pagination.
+
+    Args:
+        db: Database session
+        hours: Filter to conversations updated within the last N hours
+        agent_id: Agent ID to filter by, or "all" to include every agent
+        page: 0-indexed page number
+        page_size: Number of items per page
+
+    Returns:
+        Tuple of (conversations for the requested page, total matching count).
+    """
+    time_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+    base_query = select(Conversation).where(
+        Conversation.updated_at >= time_cutoff,
+        Conversation.is_deleted.is_(False),
+    )
+
+    if agent_id != "all":
+        base_query = base_query.where(Conversation.agent_id == agent_id)
+
+    count_stmt = select(func.count()).select_from(base_query.subquery())
+    count_result = await db.execute(count_stmt)
+    total = count_result.scalar() or 0
+
+    convs_stmt = (
+        base_query.order_by(Conversation.updated_at.desc())
+        .offset(page * page_size)
+        .limit(page_size)
+    )
+    convs_result = await db.execute(convs_stmt)
+    convs = convs_result.scalars().all()
+
+    return list(convs), total
+
+
 async def list_conversations(
     db: AsyncSession, limit: int = 20, offset: int = 0
 ) -> tuple[list[Conversation], int]:

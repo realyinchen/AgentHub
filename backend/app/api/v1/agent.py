@@ -1,89 +1,98 @@
-from fastapi import APIRouter, HTTPException, status, Depends, Query, Request
-from sqlalchemy.ext.asyncio import AsyncSession
-from typing import List
+"""Agent Discovery API (DB-driven, memory-cached).
 
-from app.schemas.agent import AgentCreate, AgentUpdate, AgentInDB
-from app.core.middleware import limiter, RateLimits
+Serves agent metadata from in-memory dict (zero DB query).  The registry is
+populated at startup from the ``agents`` DB table and refreshed on any
+agent-table mutation (create / update / delete).
+
+- GET /agents: List all active agents
+- PATCH /agents/{agent_id}: Update an agent row (is_active=False → offline)
+"""
+
+import logging
+from datetime import datetime, timezone
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.agents.registry import get_metadata, list_metadata, reload_agent
 from app.api.v1.dependencies import get_db
-from app.crud import agent as agent_crud
+from app.models.agent import Agent as AgentModel
+from app.schemas.agent import AgentListResponse, AgentResponse, AgentUpdate
+
+logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/agents", tags=["Agent"])
 
 
-@api_router.post("/", response_model=AgentInDB, status_code=status.HTTP_201_CREATED)
-async def create_agent(
-    agent_in: AgentCreate, db: AsyncSession = Depends(get_db)
-) -> AgentInDB:
-    create_data = agent_in.model_dump(exclude_unset=True)
-    db_obj = await agent_crud.create_agent(db, create_data)
-    return AgentInDB.model_validate(db_obj)
+# ── Discovery API ───────────────────────────────────────────────────────
 
 
-@api_router.get("/", response_model=List[AgentInDB])
-@limiter.limit(RateLimits.LIST_AGENTS)
-async def list_agents(
-    request: Request,
-    active_only: bool = Query(True, description="Only show active agents"),
-    limit: int = Query(20, ge=1, le=100, description="Max number of agents to return"),
-    offset: int = Query(0, ge=0, description="Number of agents to skip"),
-    db: AsyncSession = Depends(get_db),
-) -> List[AgentInDB]:
-    """List agents with optional filtering and pagination."""
-    agents = await agent_crud.list_agents(
-        db, active_only=active_only, limit=limit, offset=offset
-    )
-    return [AgentInDB.model_validate(agent) for agent in agents]
+@api_router.get("/", response_model=AgentListResponse)
+async def list_agents() -> AgentListResponse:
+    """
+    List all active agents.
 
-
-@api_router.get("/{agent_id}", response_model=AgentInDB)
-async def get_agent(
-    agent_id: str,
-    active_only: bool = Query(True, description="Only return active agents"),
-    db: AsyncSession = Depends(get_db),
-) -> AgentInDB:
-    """Get a single agent by ID."""
-    agent = await agent_crud.get_agent(db, agent_id, active_only=active_only)
-
-    if not agent:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found or inactive"
-        )
-
-    return AgentInDB.model_validate(agent)
-
-
-@api_router.patch("/{agent_id}", response_model=AgentInDB)
-async def update_agent(
-    agent_id: str, agent_update: AgentUpdate, db: AsyncSession = Depends(get_db)
-) -> AgentInDB:
-    """Update an existing agent (partial update supported)."""
-    if not agent_update.model_dump(exclude_unset=True):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No fields provided to update",
-        )
-
-    updated = await agent_crud.update_agent(
-        db, agent_id, agent_update.model_dump(exclude_unset=True)
+    Reads directly from memory cache — zero DB query, sub-millisecond.
+    """
+    rows = list(list_metadata())
+    return AgentListResponse(
+        agents=[AgentResponse.model_validate(r) for r in rows],
+        total=len(rows),
+        timestamp=datetime.now(timezone.utc),
     )
 
-    if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Agent not found"
-        )
 
-    return AgentInDB.model_validate(updated)
+@api_router.get("/{agent_id}", response_model=AgentResponse)
+async def get_agent_detail(agent_id: str) -> AgentResponse:
+    """
+    Get metadata for a single agent.
 
-
-@api_router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
-    """Soft delete an agent (set is_active = False)."""
-    deactivated = await agent_crud.soft_delete_agent(db, agent_id)
-
-    if not deactivated:
+    Raises:
+        404: Agent not found or not active
+    """
+    row = get_metadata(agent_id)
+    if row is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Agent not found or already inactive",
+            detail=f"Agent '{agent_id}' not found",
+        )
+    return AgentResponse.model_validate(row)
+
+
+# ── Admin API ───────────────────────────────────────────────────────────
+
+
+@api_router.patch("/{agent_id}", response_model=AgentResponse)
+async def update_agent(
+    agent_id: str,
+    body: AgentUpdate,
+    db: AsyncSession = Depends(get_db),
+) -> AgentResponse:
+    """
+    Update an agent row in DB, then refresh the agent cache.
+
+    Set ``is_active=false`` to take an agent offline — it will be removed
+    from the memory cache on refresh.
+    """
+    row = await db.get(AgentModel, agent_id)
+    if row is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Agent '{agent_id}' not found",
         )
 
-    return None
+    if body.description is not None:
+        row.description = body.description
+    if body.is_active is not None:
+        row.is_active = body.is_active
+
+    await db.commit()
+    await db.refresh(row)
+
+    await reload_agent(agent_id)
+    logger.info(
+        "Agent updated and registry reloaded: %s (active=%s)",
+        agent_id,
+        row.is_active,
+    )
+    return AgentResponse.model_validate(row)

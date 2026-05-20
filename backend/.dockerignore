@@ -4,5 +4,6 @@ __pycache__
 .env
 .git
 .gitignore
-data/
+data/*
+!data/prompts/
 *.db

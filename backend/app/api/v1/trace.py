@@ -1,26 +1,42 @@
 """API routes for Agent Trace Kanban Viewer."""
 
+import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database import get_database
-from app.crud import message_step as message_step_crud
+from app.api.v1.dependencies import get_db
 from app.crud import chat as chat_crud
-from app.schemas.trace import AgentTrace, TraceListItem, TraceListResponse
-from app.schemas.chat import MessageStep
-from app.services.trace_builder import build_trace_from_steps
+from app.schemas.trace import (
+    TraceListItem,
+    TraceListResponse,
+    StepOutput,
+    ExecutionDag,
+)
+from app.observability import CheckpointTraceReader
+from app.agents.registry import get_graph
+
 
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/traces", tags=["traces"])
 
 
-def utc_now():
-    return datetime.now(timezone.utc)
+async def _get_step_count(agent, thread_id: str) -> int:
+    """Resolve step count for a single thread via checkpoint reader.
+
+    Uses the lighter ``get_checkpoint_history`` instead of the full
+    ``get_execution_trace`` to avoid unnecessary message parsing.
+    """
+    try:
+        reader = CheckpointTraceReader(agent)
+        checkpoints = await reader.get_checkpoint_history(thread_id)
+        return len(checkpoints)
+    except Exception:
+        logger.debug("Failed to get step count for thread %s", thread_id)
+        return 0
 
 
 @api_router.get("", response_model=TraceListResponse)
@@ -33,6 +49,8 @@ async def list_traces(
         le=168,
         description="Filter by hours back from now (max 168 hours / 7 days)",
     ),
+    agent_id: str = Query("all", description="Agent ID to filter traces"),
+    db: AsyncSession = Depends(get_db),
 ):
     """List traces with pagination and time filtering.
 
@@ -40,202 +58,239 @@ async def list_traces(
     Default: first page, 10 items, last 24 hours.
     """
     try:
-        db = get_database()
-        async with db.session() as session:
-            # Calculate time cutoff
-            time_cutoff = utc_now() - timedelta(hours=hours)
+        convs, total = await chat_crud.list_traces(
+            db, hours=hours, agent_id=agent_id, page=page, page_size=page_size
+        )
 
-            # Get total count matching the time filter
-            count_stmt = select(func.count(chat_crud.Conversation.thread_id)).where(
-                chat_crud.Conversation.updated_at >= time_cutoff,
-                chat_crud.Conversation.is_deleted.is_(False),
-            )
-            count_result = await session.execute(count_stmt)
-            total = count_result.scalar() or 0
+        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+        has_more = (page + 1) * page_size < total
 
-            # Calculate pagination
-            total_pages = (total + page_size - 1) // page_size if total > 0 else 0
-            has_more = (page + 1) * page_size < total
-            offset = page * page_size
-
-            # Get conversations with time filter (most recent first)
-            convs_stmt = (
-                select(chat_crud.Conversation)
-                .where(
-                    chat_crud.Conversation.updated_at >= time_cutoff,
-                    chat_crud.Conversation.is_deleted.is_(False),
-                )
-                .order_by(chat_crud.Conversation.updated_at.desc())
-                .offset(offset)
-                .limit(page_size)
-            )
-
-            convs_result = await session.execute(convs_stmt)
-            convs = convs_result.scalars().all()
-
-            if not convs:
-                return TraceListResponse(
-                    items=[],
-                    total=total,
-                    total_pages=total_pages,
-                    page=page,
-                    page_size=page_size,
-                    has_more=False,
-                    filter_hours=hours,
-                )
-
-            # Get thread IDs for batch query
-            thread_ids = [conv.thread_id for conv in convs]
-
-            # Get trace stats for all threads in ONE query (GROUP BY) - avoids N+1
-            stats_stmt = (
-                select(
-                    message_step_crud.MessageStepRecord.thread_id,
-                    func.count(
-                        func.distinct(message_step_crud.MessageStepRecord.session_id)
-                    ).label("total_turns"),
-                    func.coalesce(
-                        func.sum(message_step_crud.MessageStepRecord.latency_ms), 0
-                    ).label("total_latency_ms"),
-                )
-                .where(message_step_crud.MessageStepRecord.thread_id.in_(thread_ids))
-                .group_by(message_step_crud.MessageStepRecord.thread_id)
-            )
-
-            stats_result = await session.execute(stats_stmt)
-            stats_rows = stats_result.all()
-
-            # Build lookup dict
-            stats_lookup = {
-                row.thread_id: {
-                    "total_turns": row.total_turns,
-                    "total_latency_ms": row.total_latency_ms,
-                }
-                for row in stats_rows
-            }
-
-            # Build items
-            items = []
-            for conv in convs:
-                stats = stats_lookup.get(
-                    conv.thread_id,
-                    {
-                        "total_turns": 0,
-                        "total_latency_ms": 0,
-                    },
-                )
-                items.append(
-                    TraceListItem(
-                        thread_id=conv.thread_id,
-                        title=conv.title,
-                        total_turns=stats["total_turns"],
-                        total_latency_ms=stats["total_latency_ms"],
-                        last_updated=conv.updated_at,
-                    )
-                )
-
+        if not convs:
             return TraceListResponse(
-                items=items,
+                items=[],
                 total=total,
                 total_pages=total_pages,
                 page=page,
                 page_size=page_size,
-                has_more=has_more,
+                has_more=False,
                 filter_hours=hours,
             )
+
+        # Resolve agents once — multiple conversations may share the same agent_id
+        agent_cache: dict[str, object] = {}
+        resolve_tasks: list[tuple] = []
+
+        for conv in convs:
+            aid = conv.agent_id or "default"
+            agent = agent_cache.get(aid)
+            if agent is None:
+                agent = get_graph(aid)
+                if agent is None:
+                    continue  # inactive agent — skip
+                agent_cache[aid] = agent
+            resolve_tasks.append((conv, agent, str(conv.thread_id)))
+
+        # Resolve step counts concurrently across all conversations
+        if resolve_tasks:
+            counts = await asyncio.gather(
+                *(
+                    _get_step_count(agent, thread_id)
+                    for _, agent, thread_id in resolve_tasks
+                ),
+                return_exceptions=True,
+            )
+        else:
+            counts = []
+
+        # Build response items
+        items: list[TraceListItem] = []
+        for (conv, _agent, _tid), count in zip(resolve_tasks, counts):
+            total_steps = count if isinstance(count, int) else 0
+            items.append(
+                TraceListItem(
+                    thread_id=str(conv.thread_id),
+                    title=conv.title or f"Conversation {conv.thread_id}",
+                    total_steps=total_steps,
+                    total_latency_ms=0,  # Latency not available in checkpointer
+                    last_updated=conv.updated_at,
+                    agent_id=conv.agent_id,
+                )
+            )
+
+        return TraceListResponse(
+            items=items,
+            total=total,
+            total_pages=total_pages,
+            page=page,
+            page_size=page_size,
+            has_more=has_more,
+            filter_hours=hours,
+        )
     except Exception as e:
         logger.error(f"Error listing traces: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.get("/{thread_id}", response_model=AgentTrace)
-async def get_trace(thread_id: UUID):
-    """Get the full agent trace for a specific thread.
+@api_router.get("/{thread_id}/steps", response_model=list[StepOutput])
+async def get_trace_steps(thread_id: UUID, agent_id: str = Query("default")):
+    """Get all execution steps for a specific thread.
 
-    Returns an AgentTrace with all turns, tool calls, and metadata.
+    Returns a list of StepOutput objects representing each step in the execution.
+    This replaces the old message_steps-based approach by reading directly from
+    LangGraph checkpointer.
     """
     try:
-        db = get_database()
-        async with db.session() as session:
-            # Get conversation info
-            conv = await chat_crud.read_conversation_by_thread_id(session, thread_id)
-            if not conv:
-                raise HTTPException(status_code=404, detail="Thread not found")
+        agent = get_graph(agent_id)
+        if agent is None:
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+            )
+        trace_reader = CheckpointTraceReader(agent)
+        steps = await trace_reader.get_execution_trace(str(thread_id))
 
-            # Get all message steps for this thread
-            steps = await message_step_crud.get_steps_by_thread_id(session, thread_id)
-
-            # Build trace from raw steps
-            trace = build_trace_from_steps(
-                thread_id=thread_id,
-                steps=steps,
-                title=conv.title or f"Conversation {thread_id}",
+        if not steps:
+            raise HTTPException(
+                status_code=404, detail="No execution steps found for this thread"
             )
 
-            return trace
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error getting trace for thread {thread_id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@api_router.get(
-    "/{thread_id}/turns/{session_id}/steps", response_model=list[MessageStep]
-)
-async def get_turn_steps(thread_id: UUID, session_id: UUID):
-    """Get raw message steps for a specific turn (session).
-
-    Returns the original message_steps records for DAG visualization.
-    Each step includes: step_number, message_type, content, thinking, tool_calls,
-    tool_name, tool_args, tool_output, tool_call_id.
-    """
-    try:
-        db = get_database()
-        async with db.session() as db_session:
-            # Verify thread exists
-            conv = await chat_crud.read_conversation_by_thread_id(db_session, thread_id)
-            if not conv:
-                raise HTTPException(status_code=404, detail="Thread not found")
-
-            # Get all steps for this thread
-            all_steps = await message_step_crud.get_raw_steps_by_thread(
-                db_session, thread_id
-            )
-
-            # Filter by session_id
-            turn_steps = [step for step in all_steps if step.session_id == session_id]
-
-            if not turn_steps:
-                raise HTTPException(status_code=404, detail="Turn not found")
-
-            # Convert to MessageStep schema
-            steps = []
-            for record in turn_steps:
-                step = MessageStep(
-                    session_id=record.session_id,
-                    step_number=record.step_number,
-                    message_type=record.message_type,
-                    content=record.content,
-                    thinking=record.thinking,
-                    tool_calls=record.tool_calls,
-                    tool_name=record.tool_name,
-                    tool_args=record.tool_args,
-                    tool_output=record.tool_output,
-                    tool_call_id=record.tool_call_id,
-                    model_name=record.model_name,
-                    latency_ms=record.latency_ms,
-                )
-                steps.append(step)
-
-            return steps
+        return steps
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(
-            f"Error getting turn steps for thread {thread_id}, session {session_id}: {e}",
+            f"Error getting trace steps for thread {thread_id}: {e}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/{thread_id}/dag", response_model=ExecutionDag)
+async def get_trace_dag(thread_id: UUID, agent_id: str = Query("default")):
+    """Get the execution DAG for a specific thread.
+
+    Returns the full execution DAG with nodes and edges, suitable for visualization.
+    Each node contains step details and metadata.
+    """
+    try:
+        agent = get_graph(agent_id)
+        if agent is None:
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+            )
+        trace_reader = CheckpointTraceReader(agent)
+        dag = await trace_reader.get_execution_dag(str(thread_id))
+
+        if not dag.nodes:
+            raise HTTPException(
+                status_code=404, detail="No execution DAG found for this thread"
+            )
+
+        return dag
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error getting trace DAG for thread {thread_id}: {e}", exc_info=True
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/{thread_id}/steps/{step_number}", response_model=StepOutput)
+async def get_trace_step_by_number(
+    thread_id: UUID, step_number: int, agent_id: str = Query("default")
+):
+    """Get a specific step by number.
+
+    Returns detailed information for a specific step in the execution.
+    """
+    try:
+        agent = get_graph(agent_id)
+        if agent is None:
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+            )
+        trace_reader = CheckpointTraceReader(agent)
+        step = await trace_reader.get_step_by_number(str(thread_id), step_number)
+
+        if not step:
+            raise HTTPException(status_code=404, detail="Step not found")
+
+        return step
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error getting step {step_number} for thread {thread_id}: {e}",
             exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/{thread_id}/checkpoints/{checkpoint_id}", response_model=StepOutput)
+async def get_trace_step_by_checkpoint(
+    thread_id: UUID, checkpoint_id: str, agent_id: str = Query("default")
+):
+    """Get a specific step by checkpoint ID.
+
+    Returns detailed information for a step using its checkpoint ID.
+    """
+    try:
+        agent = get_graph(agent_id)
+        if agent is None:
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+            )
+        trace_reader = CheckpointTraceReader(agent)
+        step = await trace_reader.get_step_at_checkpoint(str(thread_id), checkpoint_id)
+
+        if not step:
+            raise HTTPException(status_code=404, detail="Checkpoint not found")
+
+        return step
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error getting checkpoint {checkpoint_id} for thread {thread_id}: {e}",
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@api_router.get("/{thread_id}/replay", response_model=list[StepOutput])
+async def replay_trace(
+    thread_id: UUID,
+    from_step: int = Query(1, ge=1, description="Start from this step number"),
+    to_step: int | None = Query(None, ge=1, description="End at this step number"),
+    agent_id: str = Query("default"),
+):
+    """Replay a trace from a specific step range.
+
+    Returns steps in the specified range for replay functionality.
+    """
+    try:
+        agent = get_graph(agent_id)
+        if agent is None:
+            raise HTTPException(
+                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+            )
+        trace_reader = CheckpointTraceReader(agent)
+        steps = await trace_reader.replay_steps(str(thread_id), from_step, to_step)
+
+        if not steps:
+            raise HTTPException(
+                status_code=404, detail="No steps found in the specified range"
+            )
+
+        return steps
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Error replaying trace for thread {thread_id}: {e}", exc_info=True
         )
         raise HTTPException(status_code=500, detail=str(e))

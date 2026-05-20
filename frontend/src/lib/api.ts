@@ -299,15 +299,6 @@ export async function setDefaultThinkingModel(modelId: string): Promise<ModelInf
 }
 
 /**
- * Manually refresh model cache
- */
-export async function refreshModelsCache(): Promise<{ success: boolean; message: string; models_count: number }> {
-  return requestJson<{ success: boolean; message: string; models_count: number }>("/models/refresh", {
-    method: "POST",
-  })
-}
-
-/**
  * Get all providers with their configuration
  */
 export async function getProviders(): Promise<ProvidersResponse> {

@@ -1,73 +1,148 @@
 # Active Context
 
-## Current Work Focus
+## Current Focus
 
-TODO.md 审查报告更新 — 对比当前实现与优化蓝图，标注已完成项和新增待办。
+**P2 Refactoring Complete** (May 20, 2026)
 
-## Recent Changes
+P2 ("结构精简 — 删繁就简") is complete. Builds on P1 to eliminate accidental complexity in the infrastructure layer.
 
-### TODO.md V8 审查更新 (2026-05-05)
-- **审查范围**：全面对比 TODO.md V7 与当前后端代码实现
-- **已完成项标注**：
-  - ✅ Agent Registry 装饰器模式（`app/agents/base.py`）
-  - ✅ 标准图构建工厂（`build_standard_agent_graph()`）
-  - ✅ 流式基础架构（`astream_events` v2）
-- **新增待办项**：
-  - ❌ Agent 元数据系统（display_name, description, keywords）
-  - ❌ Hybrid Router（关键词 + LLM 兜底路由）
-  - ❌ AsyncWriteQueue 异步写入队列
-  - ❌ ModelManager.acompletion() 统一调用入口
-  - ❌ LiteLLM Router Fallback + 重试机制
-- **版本评分调整**：99/100 → 85/100（反映实际进度）
-- **实施里程碑**：保留 3 天开发计划，明确任务优先级
+### P3 Changes Summary
 
-### Model Configuration API Key Validation (2026-04-30)
-- **Strong validation rule**: Can only add/edit models AFTER provider API key is successfully saved
-- **Disabled buttons when no API key saved**:
-  - "Add Model" button (initial state)
-  - "Continue Add" button (when new model forms exist)
-  - Model edit (pencil) button on each model card
-- **Tooltip hints**: Hovering disabled buttons shows "Please save the API Key first before adding/editing models"
-- **Empty list message**: Shows different messages based on API key status — guides user to save API key first
-- **Validation logic**: Uses `provider.has_api_key` (backend state), NOT frontend input value — ensures key is actually saved before allowing model operations
+**Model Architecture Reorganization** (May 20, 2026)
 
-### Docker Compose Profiles Overhaul (2026-04-28 v3)
-- **Profiles-based `docker-compose.yml`**: Three modes — dev (default), prod (`--profile prod`), postgres (`--profile postgres`)
-- **Frontend dev & prod both use nginx**: `frontend` service (default) and `frontend-prod` (profile) both use the same multi-stage Dockerfile with nginx. The difference is `frontend-prod` is behind `profiles: ["prod"]` for explicit production targeting.
-- **Frontend Dockerfile**: Multi-stage build — Stage 1: `node:24` builds React app; Stage 2: `nginx:stable-alpine3.23-perl` serves static assets. Uses `nginx.conf.template` (envsubst pattern) for dynamic backend proxy config.
-- **Build args**: `VITE_API_BASE_URL` (default `/api/v1`), `NGINX_BACKEND_HOST` (default `backend`), `NGINX_BACKEND_PORT` (default `8080`).
-- **Named Docker volumes**: `backend-data`, `postgres-data`, `qdrant-data` instead of bind mounts.
-- **Non-blocking `depends_on`**: Removed `service_healthy` condition. Frontend just depends on backend starting, not passing health.
-- **Optimized healthchecks**: Backend `wget` (interval 10s, timeout 3s, retries 2, start_period 5s). Non-blocking.
-- **PostgreSQL + Qdrant**: Both under `profiles: ["postgres"]`. Only start when explicitly requested. PostgreSQL uses `postgres:latest`.
-- **Docker network**: `agenthub-network` (bridge) for inter-service communication.
-- **README updates**: Both English and Chinese READMEs updated — dev mode no longer described as Vite dev server; both modes described as nginx-based. `nginx.conf.template` documented. `NGINX_BACKEND_HOST` default corrected to `backend`.
+1. **`model_manager.py` — removed per-request LLM caching**
+   - Deleted `_llm_cache` (was caching `ChatLiteLLMRouter` instances per model+thinking_mode)
+   - Deleted `get_llm()` (was constructing cached Router instances)
+   - Deleted `get_random_active_model()` (unused except in `stream.py`)
+   - Deleted `get_embedding_model_instance()` (was unused)
+   - Added `get_router_sync()` — synchronous Router accessor for use inside `@wrap_model_call` middleware (avoids async refresh)
+   - `refresh()` now pre-builds the Router at end, so `get_router_sync()` works immediately after startup
+   - **Why**: Per-request LLM caching was redundant — the Router instance is already cached. Each runtime model switch (via `dynamic_model` middleware) needs a fresh `ChatLiteLLMRouter` bound with the correct `extra_body`, but the underlying Router backing it is shared. This is the correct pattern: one Router instance, many lightweight bound instances.
 
-### Key Design Decisions
-- Docker profiles for flexibility — dev (default, nginx), prod (nginx, explicit profile), postgres (optional DB)
-- No blocking healthcheck dependencies — faster startup, no cascading waits
-- Both frontend modes use nginx multi-stage build — same Dockerfile, `frontend-prod` just gated behind `profiles: ["prod"]`
-- Named volumes over bind mounts for data persistence in Docker
+2. **`factory.py` — added `get_llm()` unified entry point**
+   - New `get_llm(model_id, thinking_mode, temperature)` builds a `ChatLiteLLMRouter` bound to the pre-built Router
+   - This is the recommended entry point for runtime model switching (used by `dynamic_model` middleware)
+   - `get_chat_litellm()` kept for special cases requiring direct model access (e.g., agent-creation time default model without Router)
+   - Exported in `__init__.py` as `from app.infra.llm import get_llm`
 
-## Next Steps
+3. **Deleted `middleware/fallback.py`**
+   - Custom fallback middleware (`@wrap_model_call` + manual fallback selection)` was removed
+   - Model fallback is now handled entirely by the LiteLLM Router's built-in `fallbacks` + `num_retries` (configured in `ModelManager._build_fallbacks()`)
+   - The Router automatically falls back to same-type models on rate-limit/quota/403/429 errors
+   - **Why**: Custom fallback middleware was duplicating functionality already built into the LiteLLM Router. The Router approach is more reliable (handles transient errors, connection issues, timeouts) and simpler (no custom deactivation logic, no async background tasks).
 
-根据 TODO.md V8 里程碑，按优先级实施：
-1. Agent 元数据扩展（前置依赖，0.3 天）
-2. Hybrid Router 实现（0.5 天）
-3. AsyncWriteQueue 异步写入（0.5 天）
-4. ModelManager.acompletion()（0.2 天）
-5. LiteLLM Router Fallback + 重试（0.5 天）
+4. **Updated `dynamic_model` middleware** (`middleware/model/dynamic.py`)
+   - Now uses `get_llm()` (via Router) instead of `get_chat_litellm()` (direct)
+   - Gets built-in fallback + retry from the Router automatically
+   - Removed dependency on `fallback_model` middleware
 
-## Active Decisions and Considerations
+5. **Updated `chatbot.py` agent**
+   - Removed `fallback_model` from middleware chain
+   - Router handles fallback transparently
 
-- Agent Registry 已实现，但缺少元数据系统（keywords 用于路由匹配）
-- Hybrid Router 采用关键词优先 + LLM 兜底策略
-- AsyncWriteQueue 使用 Context Manager 模式确保异常安全
-- ModelManager.acompletion() 作为统一非流式调用入口
+6. **Updated `stream.py`**
+   - Replaced `get_random_active_model()` with `ModelManager.get_default_llm_id()` + fallback iteration
+   - Removed unused `get_model_manager` import
 
-## Important Patterns and Preferences
+7. **Updated `provider.py` API**
+   - Added `ModelManager.refresh()` call after provider update (API key / base_url changes invalidate the cache)
 
-- Agent 注册使用装饰器模式（`@register_agent(agent_id)`）
-- 标准图构建使用工厂函数（`build_standard_agent_graph()`）
-- 流式输出使用 `astream_events` v2 版本
-- 路由决策优先关键词匹配（0 延迟），LLM 仅复杂查询时调用
+8. **Dead code cleanup**
+   - Removed `_record_fallback_event()`, `_deactivate_model()`, `_get_fallback_model_id()`, `_is_fallback_error()` (were in deleted `fallback.py`)
+   - Removed `_llm_cache` attribute from `ModelManager`
+
+### P2 Changes Summary (previous)
+
+1. **`infra/database/` 4-layer abstraction → 3 flat files**
+   - Deleted `interfaces.py` (ABC layer: `DatabaseInterface`, `VectorstoreInterface`, `CheckpointInterface`, `StoreInterface`) — over-abstracted for only 2 backends
+   - Deleted entire `backends/` directory (8 files: `postgres/{db,vectorstore,checkpointer,store}.py` + `sqlite/{db,vectorstore,checkpointer,store}.py`)
+   - Created `_postgres.py` (~410 lines): merged all 4 PostgreSQL backends
+   - Created `_sqlite.py` (~400 lines): merged all 4 SQLite backends
+   - Rewrote `factory.py`: `threading.Lock` → `asyncio.Lock`, strict `init_xxx() / get_xxx()` separation (lifespan-init / handler-get)
+   - `__init__.py` public API unchanged — 31 upstream imports work without modification
+   - `base.py` keeps only `Base(DeclarativeBase)` for ORM models
+   - **Behavior change**: `get_xxx()` now raises `RuntimeError` if `init_xxx()` wasn't called (was: lazy first-call init). Acceptable because `main.py` lifespan always inits, and no scripts use these directly (verified via search_files)
+
+2. **`infra/llm/` package + `core/model_manager.py` → single `__init__.py`**
+   - Deleted `infra/llm/{router,model_manager,streaming,utils}.py` (4 files)
+   - **Major finding**: `streaming.py` (497 lines) was entirely dead code after P1's migration to `astream_events(v3)` — no external imports
+   - Deleted `core/model_manager.py` (deprecation shim with no active callers)
+   - Merged everything into `infra/llm/__init__.py` (~370 lines): `build_extra_body`, `ModelManager` (with `LLMRouter` as internal methods), `get_chat_litellm`, `is_thinking_mode_available`
+   - Also deleted other dead code: `bind_tools_with_extra_body`, `async_to_sync` decorator, sync wrappers `embedding_model()` / `get_llm()`
+
+3. **Step 10 (merge `LLMConfig` into `Settings`) — SKIPPED**
+   - Project-wide search confirmed **no `LLMConfig` class exists** anywhere
+   - `docs.md` reference was based on stale project state
+   - `Settings` in `infra/config.py` already centralizes all config (DB, Qdrant, LangSmith, API keys, encryption key)
+
+4. **Step 11 (`agents/chatbot/` dir → file) — SKIPPED**
+   - `app/agents/` is already `__init__.py + base.py + chatbot.py + types.py` — chatbot is already a single file
+   - No `chatbot/` subdirectory exists
+
+5. **`POST /models/refresh` removed**
+   - All CRUD endpoints (create/update/delete/set-default) already auto-call `await ModelManager.refresh()`
+   - Removed redundant `POST /models/refresh` endpoint
+   - Removed `RefreshResponse` schema (no other usages)
+   - Removed frontend wrapper `refreshModelsCache()` in `frontend/src/lib/api.ts` (was never called)
+
+### P2 Verification
+
+Verified via temp import script: **14/14 core modules import cleanly**:
+- `infra.{database,llm}`
+- `api.v1.{chat,model,stream,trace,dependencies}`
+- `middleware.{fallback,memory.manager,memory.long_term,model.dynamic}`
+- `agents.{base,chatbot}`
+- `main`
+
+### Key Benefits
+
+- **Database layer**: 4-layer abstraction → 3 files; all `threading.Lock` → `asyncio.Lock`
+- **LLM layer**: 5 Python files → 1 `__init__.py`; ~700 lines of dead code deleted
+- **API layer**: -1 endpoint, -1 schema, -1 frontend wrapper
+- **Public API stability**: `from app.infra.database import ...` and `from app.infra.llm import ...` unchanged — zero breakage for upstream callers
+- All API contracts and Agent functionality preserved
+
+### Files Changed in P2
+
+- 🆕 `app/infra/database/_postgres.py` — merged postgres backends
+- 🆕 `app/infra/database/_sqlite.py` — merged sqlite backends
+- ✏️ `app/infra/database/factory.py` — asyncio.Lock, strict init/get separation
+- ✏️ `app/infra/database/__init__.py` — public API export (unchanged)
+- ✏️ `app/infra/database/base.py` — slimmed down to just `Base`
+- ✏️ `app/api/v1/dependencies.py` — removed `DatabaseInterface` import
+- 🗑️ `app/infra/database/interfaces.py` — deleted
+- 🗑️ `app/infra/database/backends/` — entire directory deleted (8 files)
+- ✏️ `app/infra/llm/__init__.py` — consolidated single-file module
+- 🗑️ `app/infra/llm/{router,model_manager,streaming,utils}.py` — deleted
+- 🗑️ `app/core/model_manager.py` — deleted (deprecation shim)
+- ✏️ `app/api/v1/model.py` — removed `POST /refresh` endpoint
+- ✏️ `app/schemas/model.py` — removed `RefreshResponse`
+- ✏️ `frontend/src/lib/api.ts` — removed `refreshModelsCache()`
+
+### P1 Recap (May 20, 2026 — earlier today)
+
+P1 ("用官方范式替代自造轮子") replaced custom code with LangChain official patterns:
+- `FallbackExecutor` → `@wrap_model_call` middleware (`app/middleware/fallback.py`)
+- `astream_events(version="v2")` → `version="v3"` with typed projections
+- Middleware chain: `chatbot_dynamic_prompt` → `dynamic_model` → `fallback_model` → `SummarizationMiddleware`
+- ChatbotContext dataclass for typed runtime context
+- v3 BetaWarning accepted per user decision
+
+### Next Steps
+
+P3 — minor cleanup tasks:
+- Pydantic v2 `model_config = ConfigDict(...)` migration for `ConversationInDB`
+- Move `trace.py` DB queries into `crud/chat.py` (layer separation)
+- Unify `ProviderInfo` definition (currently in 2 places)
+- Unify runtime context: prefer `context` parameter over `config["configurable"]["user_id"]`
+
+## Recent Decisions (P2)
+
+1. **Strict init/get separation** — `get_database()` now raises if `init_database()` hasn't run. More predictable than lazy init; suitable for high-concurrency prod (no runtime lock overhead). Safe because `main.py` lifespan always calls `init_all()`
+2. **Keep package directory `infra/llm/` over flat `infra/llm.py`** — `from app.infra.llm import ...` works the same way; single `__init__.py` is logically the same as a single file, but doesn't require changing package vs. module decision (could collide with cached `__pycache__/llm.cpython-*.pyc`)
+3. **Deleted `streaming.py` outright** — 497 lines, zero external imports. Was leftover from before P1's `astream_events(v3)` migration
+4. **Skipped Steps 10 & 11** — Both based on stale `docs.md` content; current code already in desired state. Documented as skipped with rationale
+
+## Active Branches
+
+- Main development on `main` branch

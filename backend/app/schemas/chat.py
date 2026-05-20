@@ -1,7 +1,9 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Any, Literal
 from uuid import UUID
 from datetime import datetime, timezone
+
+from app.schemas.trace import StepOutput
 
 
 class ToolCall(BaseModel):
@@ -92,15 +94,21 @@ class UserInput(BaseModel):
         description="User input to the agent.",
         examples=["What is the weather in Hefei?"],
     )
-    agent_id: str | None = Field(
+    agent_id: str = Field(
         description="The agent the user wants to use.",
-        default=None,
         examples=["chatbot"],
     )
-    thread_id: UUID | None = Field(
+    user_id: str = Field(
+        description="User ID for long-term memory and personalization.",
+        examples=["user-123"],
+    )
+    thread_id: UUID = Field(
         description="Thread ID to persist and continue a multi-turn conversation.",
-        default=None,
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
+    request_id: str = Field(
+        description="Request ID for end-to-end tracing and idempotency.",
+        examples=["req-abc-123"],
     )
     model_name: str | None = Field(
         description="The model name to use for this request. If not provided, uses the default model.",
@@ -111,6 +119,11 @@ class UserInput(BaseModel):
         description="Whether to enable thinking mode for models that support it (e.g., DeepSeek-R1, Qwen3).",
         default=False,
         examples=[True, False],
+    )
+    timezone: str = Field(
+        description="IANA timezone for time-context substitution in prompts (e.g. Asia/Shanghai, America/New_York).",
+        default="Asia/Shanghai",
+        examples=["Asia/Shanghai", "America/New_York", "Europe/London"],
     )
     custom_data: dict[str, Any] | None = Field(
         description="Custom data to persist with the message (e.g., quoted_message_id, user_content for quote feature).",
@@ -178,7 +191,7 @@ class ChatHistory(BaseModel):
     messages: list[ChatMessage] = Field(
         description="Messages for main chat UI (human and final AI messages)",
     )
-    message_sequence: list[MessageStep] = Field(
+    message_sequence: list[StepOutput] = Field(
         description="Complete message sequence for sidebar (tool calls and AI response)",
         default=[],
     )
@@ -198,7 +211,7 @@ class Conversation(BaseModel):
     agent_id: str | None = Field(
         description="The agent ID used in this conversation.",
         default="chatbot",
-        examples=["chatbot", "navigator"],
+        examples=["chatbot"],
     )
 
 
@@ -221,7 +234,7 @@ class ConversationUpdate(BaseModel):
     agent_id: str | None = Field(
         default=None,
         description="The agent ID used in this conversation.",
-        examples=["chatbot", "navigator"],
+        examples=["chatbot"],
     )
     is_deleted: bool | None = Field(
         default=None,
@@ -266,5 +279,4 @@ class ConversationInDB(Conversation):
         default=0,
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

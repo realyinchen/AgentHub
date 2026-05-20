@@ -1,6 +1,4 @@
-import os
 import uuid
-import json
 import logging
 from typing import Optional
 from fastapi import APIRouter, HTTPException, status, Depends
@@ -8,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
 from app.crud import model as crud
-from app.core.model_manager import ModelManager
+from app.infra.llm import ModelManager
 from app.schemas.model import (
     ModelCreate,
     ModelInfo,
@@ -16,8 +14,6 @@ from app.schemas.model import (
     SetDefaultModelRequest,
     ModelUpdateRequest,
     DeleteModelRequest,
-    RefreshResponse,
-    ProvidersResponse,
 )
 
 api_router = APIRouter(prefix="/models", tags=["Models"])
@@ -33,26 +29,12 @@ def model_to_info(model) -> ModelInfo:
         model_type=model.model_type,
         model_id=model.model_id,
         thinking=model.thinking,
+        priority=getattr(model, "priority", 0),
         is_default=model.is_default,
         is_active=model.is_active,
         created_at=model.created_at,
         updated_at=model.updated_at,
     )
-
-
-@api_router.get("/providers", response_model=ProvidersResponse)
-async def get_providers() -> ProvidersResponse:
-    """
-    Get available model providers.
-    Providers are configured in .env as MODEL_PROVIDERS=["dashscope", "zai"]
-    """
-    providers_str = os.getenv("MODEL_PROVIDERS", '["dashscope", "zai"]')
-    try:
-        providers = json.loads(providers_str)
-    except Exception:
-        providers = ["dashscope", "zai"]
-
-    return ProvidersResponse(providers=providers)
 
 
 def get_first_model_by_type(models: list, model_type: str) -> Optional[str]:
@@ -246,18 +228,3 @@ async def set_default_model(
     await ModelManager.refresh()
 
     return model_to_info(model)
-
-
-@api_router.post("/refresh", response_model=RefreshResponse)
-async def refresh_models_cache() -> RefreshResponse:
-    """
-    Manually refresh the model manager cache.
-    Call this after direct database modifications.
-    """
-    await ModelManager.refresh()
-
-    return RefreshResponse(
-        success=True,
-        message="Model cache refreshed successfully",
-        models_count=ModelManager.get_models_count(),
-    )

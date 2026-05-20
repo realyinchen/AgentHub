@@ -4,7 +4,7 @@ import sys
 import uvicorn
 from dotenv import load_dotenv
 
-from app.core.config import settings
+from app.infra.config import get_settings
 
 # Load environment variables first
 load_dotenv()
@@ -28,6 +28,7 @@ logging.getLogger("langgraph").setLevel(logging.WARNING)
 
 
 if __name__ == "__main__":
+    settings = get_settings()
     # Set Compatible event loop policy on Windows Systems.
     # On Windows systems, the default ProactorEventLoop can cause issues with
     # certain async database drivers like psycopg (PostgreSQL driver).
@@ -43,7 +44,7 @@ if __name__ == "__main__":
         "app.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=settings.is_dev(),
+        reload=settings.is_dev,
         reload_dirs=["app"],
         timeout_graceful_shutdown=settings.GRACEFUL_SHUTDOWN_TIMEOUT,
     )

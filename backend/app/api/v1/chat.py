@@ -4,11 +4,11 @@ from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse, JSONResponse
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
-from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Any
 
 from app.api.v1.dependencies import get_db
+from app.api.v1.stream import streaming_message_generator
 from app.schemas.chat import (
     ConversationCreate,
     ConversationInDB,
@@ -18,14 +18,13 @@ from app.schemas.chat import (
     ChatHistory,
 )
 from app.schemas.title import TitleGenerateRequest, TitleGenerateResponse
-from app.utils.agent_utils import get_agent
-from app.utils.llm import is_thinking_mode_available
-from app.core.config import settings
-from app.core.model_manager import ModelManager
+from app.schemas.trace import StepOutput
+from app.agents.registry import get_graph
+from app.observability import CheckpointTraceReader
+from app.infra.llm import ModelManager, is_thinking_mode_available
 from app.utils.message_utils import (
     handle_input,
     langchain_to_chat_message,
-    streaming_message_generator,
     collect_tool_calls_for_final_response,
 )
 from app.crud.chat import (
@@ -36,7 +35,6 @@ from app.crud.chat import (
     soft_delete_conversation_by_thread_id,
     get_daily_conversation_stats,
 )
-from app.crud import message_step as message_step_crud
 
 
 logger = logging.getLogger(__name__)
@@ -78,7 +76,11 @@ async def stream(user_input: UserInput) -> StreamingResponse:
         user_input.thinking_mode,
     )
 
-    agent: CompiledStateGraph = await get_agent(agent_id)
+    agent = get_graph(agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=400, detail=f"Agent '{agent_id}' not found or not active"
+        )
     return StreamingResponse(
         streaming_message_generator(user_input, agent),
         media_type="text/event-stream",
@@ -97,8 +99,12 @@ async def invoke(user_input: UserInput) -> ChatMessage:
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is not provided")
 
-    agent: CompiledStateGraph = await get_agent(agent_id)
-    kwargs = await handle_input(user_input, agent)
+    agent = get_graph(agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=400, detail=f"Agent '{agent_id}' not found or not active"
+        )
+    kwargs = await handle_input(user_input)
 
     response_events: list[tuple[str, Any]] = await agent.ainvoke(
         **kwargs,
@@ -132,13 +138,23 @@ async def history(
     if not thread_id:
         return ChatHistory(messages=[], message_sequence=[])
 
-    # Get message steps from database for sidebar
-    message_sequence = await message_step_crud.get_message_steps_by_thread(
-        db=db, thread_id=thread_id
-    )
+    # Get message steps from checkpointer for sidebar
+    agent = get_graph(agent_id)
+    if agent is None:
+        raise HTTPException(
+            status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+        )
+    trace_reader = CheckpointTraceReader(agent)
+    all_steps = await trace_reader.get_execution_trace(str(thread_id))
+
+    # Build message_sequence for sidebar
+    message_sequence: list[StepOutput] = []
+    for step in all_steps:
+        # Only include steps that have visible messages (not metadata-only checkpoints)
+        if hasattr(step, "message_type") or hasattr(step, "message_id"):
+            message_sequence.append(step)
 
     # Get messages from checkpointer for main chat UI
-    agent: CompiledStateGraph = await get_agent(agent_id)
     config = RunnableConfig({"configurable": {"thread_id": thread_id}})
     state_snapshot = await agent.aget_state(config=config)
     messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
@@ -367,14 +383,6 @@ async def delete_conversation(
     except Exception as e:
         logger.error("Error deleting conversation %s: %s", thread_id, e)
         raise HTTPException(status_code=500, detail="Error deleting conversation")
-
-
-@api_router.get("/models")
-async def get_available_models() -> dict[str, Any]:
-    """Get all available models from .env configuration."""
-    models = settings.get_model_info_list()
-    default_model = settings.LLM_DEFAULT_MODEL
-    return {"models": models, "default_model": default_model}
 
 
 @api_router.get("/stats/daily")

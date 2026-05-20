@@ -86,6 +86,7 @@ CREATE TABLE IF NOT EXISTS public.models (
     model_type             VARCHAR(16) NOT NULL DEFAULT 'llm',  -- llm, vlm, embedding
     model_id               VARCHAR(128) NOT NULL UNIQUE,  -- full model id with provider prefix, e.g. "dashscope/qwen3.5-27b"
     thinking               BOOLEAN NOT NULL DEFAULT FALSE,  -- whether supports thinking mode
+    priority               INTEGER NOT NULL DEFAULT 0,  -- fallback priority (higher = preferred)
     is_default             BOOLEAN NOT NULL DEFAULT FALSE,
     is_active              BOOLEAN NOT NULL DEFAULT TRUE,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),

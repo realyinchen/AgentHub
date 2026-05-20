@@ -18,6 +18,7 @@ class ModelCreate(ModelBase):
     """Create model"""
 
     thinking: bool = False
+    priority: int = 0
     is_default: bool = False
     is_active: bool = True
 
@@ -29,6 +30,7 @@ class ModelUpdate(BaseModel):
     model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
     model_id: Optional[str] = None  # Allow updating model_id (primary key)
     thinking: Optional[bool] = None
+    priority: Optional[int] = None
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
 
@@ -41,6 +43,7 @@ class ModelInDB(BaseModel):
     model_type: str
     model_id: str
     thinking: bool
+    priority: int
     is_default: bool
     is_active: bool
     created_at: datetime
@@ -84,6 +87,7 @@ class ModelUpdateRequest(BaseModel):
     provider: Optional[str] = None
     model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
     thinking: Optional[bool] = None
+    priority: Optional[int] = None
     is_default: Optional[bool] = None
     is_active: Optional[bool] = None
 
@@ -108,17 +112,3 @@ class TestConnectionResponse(BaseModel):
 
     success: bool
     message: str
-
-
-class RefreshResponse(BaseModel):
-    """Refresh cache response"""
-
-    success: bool
-    message: str
-    models_count: int = 0
-
-
-class ProvidersResponse(BaseModel):
-    """Available providers response"""
-
-    providers: list[str]

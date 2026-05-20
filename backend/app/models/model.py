@@ -1,9 +1,9 @@
 import uuid
 from datetime import datetime, timezone
-from sqlalchemy import String, Boolean, DateTime, ForeignKey, Uuid
+from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
-from app.database.base import Base
+from app.infra.database.base import Base
 
 
 def utc_now():
@@ -46,6 +46,9 @@ class Model(Base):
     thinking: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )  # whether supports thinking mode
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )  # fallback priority (higher = preferred)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(

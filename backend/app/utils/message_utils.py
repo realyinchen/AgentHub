@@ -1,9 +1,5 @@
-import json
 import logging
-import time
-import uuid
-import copy
-from collections.abc import AsyncGenerator, Sequence
+from collections.abc import Sequence
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -12,16 +8,9 @@ from langchain_core.messages import (
 )
 from langchain_core.runnables import RunnableConfig
 from langgraph.types import Command
-from langgraph.graph.state import CompiledStateGraph
 from typing import Any
 
-from app.database import get_database
 from app.schemas.chat import ChatMessage, ToolCall, UserInput
-from app.crud import message_step as message_step_crud
-from app.crud import chat as chat_crud
-from app.crud import model as model_crud
-from app.utils.async_writer import AsyncWriteQueue
-from app.core.model_manager import get_model_manager
 
 
 logger = logging.getLogger(__name__)
@@ -82,29 +71,6 @@ def _extract_thinking_content(message: AIMessage) -> str:
             thinking = reasoning_from_kwargs
 
     return thinking.strip()
-
-
-def _yield_model_fallback_event(
-    old_model: str,
-    new_model: str,
-) -> str:
-    """
-    Generate an SSE event for model fallback.
-
-    Args:
-        old_model: The model that failed
-        new_model: The model we're falling back to
-
-    Returns:
-        str: Formatted SSE event string
-    """
-    event_data = {
-        "type": "model_fallback",
-        "old_model": old_model,
-        "new_model": new_model,
-        "content": f"Switching to {new_model}...",
-    }
-    return f"data: {json.dumps(event_data)}\n\n"
 
 
 def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
@@ -267,674 +233,30 @@ def augment_ai_message_with_tool_info(messages: list[BaseMessage]) -> list[BaseM
     return messages
 
 
-async def save_messages_to_steps(
-    thread_id: uuid.UUID,
-    session_id: uuid.UUID,
-    messages: list[BaseMessage],
-    user_input_content: str | None = None,
-    model_name: str | None = None,
-) -> None:
-    """
-    Save messages from output.messages to message_steps table.
-
-    Since on_chain_end output.messages contains ALL messages (including history),
-    we use user_input_content to find the start of the current turn's messages.
-    Only messages from the current turn are saved.
-
-    Args:
-        thread_id: The thread/conversation ID
-        session_id: The session ID for this turn
-        messages: Full message list from on_chain_end output
-        user_input_content: The user's input content to find current turn start
-        model_name: The model name used for AI messages
-    """
-    # Find the start index of current turn's messages
-    start_index = 0
-    if user_input_content:
-        # Find the LAST occurrence of a HumanMessage with matching content
-        # This identifies the current turn's input in the full message list
-        for i in range(len(messages) - 1, -1, -1):
-            msg = messages[i]
-            if isinstance(msg, HumanMessage):
-                content = convert_message_content_to_string(msg.content)
-                if content == user_input_content:
-                    start_index = i
-                    break
-
-    # Only process messages from the current turn
-    current_turn_messages = messages[start_index:]
-    logger.debug(
-        f"[SAVE] Current turn: {len(current_turn_messages)} messages "
-        f"(starting from index {start_index} of {len(messages)} total)"
-    )
-
-    step_number = 0
-    # Map tool_call_id to tool name for ToolMessages
-    tool_call_id_to_name: dict[str, str] = {}
-    # Map tool_call_id to tool args for ToolMessages
-    tool_call_id_to_args: dict[str, dict] = {}
-
-    db = get_database()
-    async with db.session() as session:
-        for msg in current_turn_messages:
-            if isinstance(msg, HumanMessage):
-                step_number += 1
-                content = convert_message_content_to_string(msg.content)
-                await message_step_crud.save_human_step(
-                    db=session,
-                    thread_id=thread_id,
-                    session_id=session_id,
-                    step_number=step_number,
-                    content=content,
-                )
-                logger.debug(f"[SAVE] Human step {step_number}: {content[:50]}...")
-
-            elif isinstance(msg, AIMessage):
-                content = convert_message_content_to_string(msg.content)
-                thinking = _extract_thinking_content(msg)
-
-                # Store tool_calls mapping for subsequent ToolMessages
-                # (always do this, even if we don't save the AI step)
-                if msg.tool_calls:
-                    for tc in msg.tool_calls:
-                        tool_call_id = tc.get("id", "")
-                        if tool_call_id:
-                            tool_call_id_to_name[tool_call_id] = tc.get("name", "")
-                            tool_call_id_to_args[tool_call_id] = tc.get("args", {})
-
-                # Save AI step if it has content, thinking, OR tool_calls
-                # All steps are needed for complete DAG visibility (even tool_calls only)
-                has_content = bool(content.strip())
-                has_thinking = bool(thinking.strip())
-                has_tool_calls = bool(msg.tool_calls)
-
-                if has_content or has_thinking or has_tool_calls:
-                    step_number += 1
-
-                    # Convert tool_calls to list format for database
-                    tool_calls_list = None
-                    if msg.tool_calls:
-                        tool_calls_list = [
-                            {
-                                "name": tc.get("name", ""),
-                                "id": tc.get("id", ""),
-                                "args": tc.get("args", {}),
-                            }
-                            for tc in msg.tool_calls
-                        ]
-
-                    await message_step_crud.save_ai_step(
-                        db=session,
-                        thread_id=thread_id,
-                        session_id=session_id,
-                        step_number=step_number,
-                        content=content if content else None,
-                        thinking=thinking if thinking else None,
-                        tool_calls=tool_calls_list,
-                        model_name=model_name,
-                    )
-                    logger.debug(
-                        f"[SAVE] AI step {step_number}: "
-                        f"content_len={len(content)}, "
-                        f"thinking_len={len(thinking) if thinking else 0}, "
-                        f"tool_calls={len(tool_calls_list) if tool_calls_list else 0}"
-                    )
-
-            elif isinstance(msg, ToolMessage):
-                step_number += 1
-                # Get tool name from mapping (by tool_call_id)
-                tool_call_id = msg.tool_call_id
-                tool_name = tool_call_id_to_name.get(tool_call_id, "")
-                tool_args = tool_call_id_to_args.get(tool_call_id, {})
-
-                # Get complete output (no truncation)
-                tool_output = convert_message_content_to_string(msg.content)
-
-                await message_step_crud.save_tool_step(
-                    db=session,
-                    thread_id=thread_id,
-                    session_id=session_id,
-                    step_number=step_number,
-                    tool_name=tool_name,
-                    tool_args=tool_args,
-                    tool_output=tool_output,
-                    tool_call_id=tool_call_id,
-                )
-                logger.debug(
-                    f"[SAVE] Tool step {step_number}: "
-                    f"name={tool_name}, "
-                    f"tool_call_id={tool_call_id}, "
-                    f"output_len={len(tool_output)}"
-                )
-
-        await session.commit()
-        logger.info(
-            f"[SAVE] Completed saving {step_number} steps for "
-            f"thread={thread_id}, session={session_id}"
-        )
-
-
-async def _save_ai_step_async(
-    thread_id: uuid.UUID,
-    session_id: uuid.UUID,
-    step_number: int,
-    content: str | None,
-    thinking: str | None,
-    tool_calls: list[dict] | None,
-    model_name: str | None,
-) -> None:
-    """Async helper to save an AI step to database"""
-    db = get_database()
-    async with db.session() as session:
-        await message_step_crud.save_ai_step(
-            db=session,
-            thread_id=thread_id,
-            session_id=session_id,
-            step_number=step_number,
-            content=content,
-            thinking=thinking,
-            tool_calls=tool_calls,
-            model_name=model_name,
-        )
-        await session.commit()
-    logger.debug(
-        f"[SAVE] AI step {step_number}: tool_calls={len(tool_calls) if tool_calls else 0}"
-    )
-
-
-async def _save_human_step_async(
-    thread_id: uuid.UUID,
-    session_id: uuid.UUID,
-    step_number: int,
-    content: str,
-) -> None:
-    """Async helper to save a human step to database"""
-    db = get_database()
-    async with db.session() as session:
-        await message_step_crud.save_human_step(
-            db=session,
-            thread_id=thread_id,
-            session_id=session_id,
-            step_number=step_number,
-            content=content,
-        )
-        await session.commit()
-    logger.debug(f"[SAVE] Human step {step_number}: {content[:50]}...")
-
-
-async def _save_tool_step_async(
-    thread_id: uuid.UUID,
-    session_id: uuid.UUID,
-    step_number: int,
-    tool_name: str,
-    tool_args: dict,
-    tool_output: str,
-    tool_call_id: str,
-) -> None:
-    """Async helper to save a tool step to database"""
-    db = get_database()
-    async with db.session() as session:
-        await message_step_crud.save_tool_step(
-            db=session,
-            thread_id=thread_id,
-            session_id=session_id,
-            step_number=step_number,
-            tool_name=tool_name,
-            tool_args=tool_args,
-            tool_output=tool_output,
-            tool_call_id=tool_call_id,
-        )
-        await session.commit()
-    logger.debug(f"[SAVE] Tool step {step_number}: name={tool_name}")
-
-
-async def _stream_with_model(
-    user_input: UserInput,
-    agent: CompiledStateGraph,
-    model_name: str,
-) -> AsyncGenerator[str, None]:
-    """
-    Internal helper to stream messages using a specific model.
-
-    This is the core streaming logic that gets called with potentially
-    different models during fallback.
-
-    Args:
-        user_input: User input (model_name will be overridden)
-        agent: The compiled state graph agent to use
-        model_name: The model to use for this streaming attempt
-
-    Yields:
-        SSE-formatted event strings
-    """
-    # Create a copy of user_input with the specified model
-    modified_input = copy.copy(user_input)
-    modified_input.model_name = model_name
-
-    kwargs = await handle_input(modified_input)
-    started_at = time.perf_counter()
-    first_chunk_sent = False
-
-    # Async write queue for non-blocking database writes during streaming
-    write_queue = AsyncWriteQueue()
-
-    # Track step counter for SSE events (just for display)
-    step_counter = 0
-
-    # Generate session_id for this conversation turn
-    session_id = uuid.uuid4()
-
-    # Track accumulated content for final response streaming
-    accumulated_content = ""
-
-    # Track accumulated token usage for this conversation turn
-    accumulated_tokens = {
-        "input_tokens": 0,
-        "cache_read": 0,
-        "output_tokens": 0,
-        "reasoning": 0,
-        "total_tokens": 0,
-    }
-
-    # Send an SSE comment prelude immediately to encourage early flush in proxies.
-    yield f": {' ' * 2048}\n\n"
-
-    # Get thread_id from config
-    thread_id = kwargs["config"]["configurable"]["thread_id"]
-    if isinstance(thread_id, str):
-        thread_id = uuid.UUID(thread_id)
-
-    try:
-        # Use astream_events for fine-grained streaming
-        async for event in agent.astream_events(
-            kwargs["input"],
-            config=kwargs["config"],
-            version="v2",
-        ):
-            kind = event["event"]
-            name = event.get("name", "")
-            data = event.get("data", {})
-            metadata = event.get("metadata", {})
-            node = metadata.get("langgraph_node", "")
-
-            logger.debug(f"Event: kind={kind}, name={name}, node={node}")
-
-            # === LLM Call Start (on_chat_model_start) ===
-            if kind == "on_chat_model_start":
-                # Emit human step on first LLM call
-                if step_counter == 0:
-                    step_counter += 1
-                    yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'human', 'content': modified_input.content})}\n\n"
-                    first_chunk_sent = True
-                    logger.debug(f"[SSE] Step {step_counter}: human")
-
-            # === Token Streaming (on_chat_model_stream) ===
-            # Only stream tokens for final response display
-            elif kind == "on_chat_model_stream":
-                chunk = data.get("chunk")
-
-                # Handle content chunks
-                if chunk and hasattr(chunk, "content") and chunk.content:
-                    if not first_chunk_sent:
-                        first_chunk_sent = True
-                        logger.info(
-                            "stream first chunk (token) in %.1f ms",
-                            (time.perf_counter() - started_at) * 1000,
-                        )
-
-                    # Handle structured content (DashScope thinking models)
-                    if isinstance(chunk.content, list):
-                        for block in chunk.content:
-                            if isinstance(block, dict):
-                                block_type = block.get("type")
-                                if block_type == "text":
-                                    text_content = block.get("text", "")
-                                    if text_content:
-                                        accumulated_content += text_content
-                                        # Only stream text tokens for final response
-                                        yield f"data: {json.dumps({'type': 'token', 'content': text_content})}\n\n"
-                    # Handle string content (normal streaming)
-                    elif isinstance(chunk.content, str):
-                        accumulated_content += chunk.content
-                        yield f"data: {json.dumps({'type': 'token', 'content': chunk.content})}\n\n"
-
-            # === Tool Call Start (on_tool_start) ===
-            elif kind == "on_tool_start":
-                tool_name = name
-
-                if not first_chunk_sent:
-                    first_chunk_sent = True
-                    logger.info(
-                        "stream first chunk (tool_call) in %.1f ms",
-                        (time.perf_counter() - started_at) * 1000,
-                    )
-
-                # Emit tool_call step status
-                step_counter += 1
-                yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'tool_call', 'name': tool_name, 'status': 'calling'})}\n\n"
-                logger.debug(f"[SSE] Step {step_counter}: tool_call, name={tool_name}")
-
-            # === Tool Call End (on_tool_end) ===
-            elif kind == "on_tool_end":
-                # Emit tool_result step status (just indicate completion)
-                yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'tool_result', 'status': 'completed'})}\n\n"
-                logger.debug(f"[SSE] Step {step_counter}: tool_result completed")
-
-            # === LLM Call End (on_chat_model_end) ===
-            elif kind == "on_chat_model_end":
-                output = data.get("output")
-                node_name = metadata.get("langgraph_node", "unknown")
-
-                # Capture token usage
-                if output and hasattr(output, "usage_metadata"):
-                    usage = output.usage_metadata
-                    if usage:
-                        input_tokens = usage.get("input_tokens", 0)
-                        output_tokens = usage.get("output_tokens", 0)
-                        total_tokens = usage.get("total_tokens", 0)
-
-                        input_token_details = usage.get("input_token_details", {})
-                        cache_read = (
-                            input_token_details.get("cache_read", 0)
-                            if isinstance(input_token_details, dict)
-                            else 0
-                        )
-
-                        output_token_details = usage.get("output_token_details", {})
-                        reasoning = (
-                            output_token_details.get("reasoning", 0)
-                            if isinstance(output_token_details, dict)
-                            else 0
-                        )
-
-                        accumulated_tokens["input_tokens"] += input_tokens
-                        accumulated_tokens["cache_read"] += cache_read
-                        accumulated_tokens["output_tokens"] += output_tokens
-                        accumulated_tokens["reasoning"] += reasoning
-                        accumulated_tokens["total_tokens"] += total_tokens
-
-                        logger.info(
-                            f"[{node_name}] Token usage: "
-                            f"input={input_tokens}, output={output_tokens}, "
-                            f"total={total_tokens}, cache_read={cache_read}, reasoning={reasoning}"
-                        )
-                        yield f"data: {json.dumps({'type': 'usage', 'content': {'node': node_name, 'usage': usage}})}\n\n"
-
-                elif output and hasattr(output, "response_metadata"):
-                    resp_meta = output.response_metadata
-                    if "token_usage" in resp_meta:
-                        token_usage = resp_meta["token_usage"]
-                        input_tokens = token_usage.get("prompt_tokens", 0)
-                        output_tokens = token_usage.get("completion_tokens", 0)
-                        total_tokens = token_usage.get("total_tokens", 0)
-
-                        accumulated_tokens["input_tokens"] += input_tokens
-                        accumulated_tokens["output_tokens"] += output_tokens
-                        accumulated_tokens["total_tokens"] += total_tokens
-
-                        usage = {
-                            "input_tokens": input_tokens,
-                            "output_tokens": output_tokens,
-                            "total_tokens": total_tokens,
-                        }
-                        logger.info(
-                            f"[{node_name}] Token usage (from response_metadata): {usage}"
-                        )
-                        yield f"data: {json.dumps({'type': 'usage', 'content': {'node': node_name, 'usage': usage}})}\n\n"
-
-                # Emit ai_thinking step only if AI has actual text content
-                # (skip if AI only has tool_calls with no content)
-                has_content = False
-                if output:
-                    content = getattr(output, "content", "")
-                    if isinstance(content, str) and content.strip():
-                        has_content = True
-                    elif isinstance(content, list):
-                        # Check for text blocks in structured content
-                        for block in content:
-                            if isinstance(block, dict) and block.get("type") == "text":
-                                if block.get("text", "").strip():
-                                    has_content = True
-                                    break
-
-                if has_content:
-                    step_counter += 1
-                    yield f"data: {json.dumps({'type': 'step', 'step': step_counter, 'action': 'ai_thinking', 'status': 'thinking...'})}\n\n"
-                    logger.debug(
-                        f"[SSE] Step {step_counter}: ai_thinking (has content)"
-                    )
-
-                if output and hasattr(output, "tool_calls") and output.tool_calls:
-                    logger.debug(f"[SSE] AI has tool_calls: {len(output.tool_calls)}")
-
-            # === Chain End (Final Message) ===
-            elif kind == "on_chain_end" and node == "":
-                output = data.get("output", {})
-                messages = output.get("messages", [])
-
-                if messages:
-                    last_message = messages[-1]
-                    if hasattr(last_message, "content") and last_message.content:
-                        try:
-                            chat_message = langchain_to_chat_message(last_message)
-
-                            # Emit final message event
-                            yield f"data: {json.dumps({'type': 'message', 'content': chat_message.model_dump()})}\n\n"
-
-                            # Save messages to database via async queue (non-blocking)
-                            write_queue.add(
-                                "save_messages_to_steps",
-                                save_messages_to_steps(
-                                    thread_id=thread_id,
-                                    session_id=session_id,
-                                    messages=messages,
-                                    user_input_content=modified_input.content,
-                                    model_name=model_name,
-                                ),
-                            )
-                        except Exception as e:
-                            logger.error(f"Error parsing final message: {e}")
-
-    finally:
-        # Update conversation token usage in database via async queue (non-blocking)
-        if accumulated_tokens["total_tokens"] > 0:
-            db = get_database()
-
-            async def _update_tokens() -> None:
-                async with db.session() as session:
-                    updated_conv = await chat_crud.update_conversation_tokens(
-                        db=session,
-                        thread_id=thread_id,
-                        input_tokens=accumulated_tokens["input_tokens"],
-                        cache_read=accumulated_tokens["cache_read"],
-                        output_tokens=accumulated_tokens["output_tokens"],
-                        reasoning=accumulated_tokens["reasoning"],
-                        total_tokens=accumulated_tokens["total_tokens"],
-                    )
-                    if updated_conv:
-                        logger.info(
-                            f"Updated conversation tokens for thread {thread_id}: "
-                            f"input={updated_conv.input_tokens}, "
-                            f"cache_read={updated_conv.cache_read}, "
-                            f"output={updated_conv.output_tokens}, "
-                            f"reasoning={updated_conv.reasoning}, "
-                            f"total={updated_conv.total_tokens}"
-                        )
-
-            write_queue.add("update_conversation_tokens", _update_tokens())
-
-        yield "data: [DONE]\n\n"
-
-        # Wait for all pending database writes to complete
-        await write_queue.wait_all()
-
-
-async def streaming_message_generator(
-    user_input: UserInput, agent: CompiledStateGraph
-) -> AsyncGenerator[str, None]:
-    """
-    Generate a stream of messages from the agent using astream_events with model fallback.
-
-    If the current model fails due to rate limits, quota exhaustion, or permission issues,
-    the system will:
-    1. Deactivate the failed model in the database
-    2. Attempt to fallback to another model (same provider first, then any)
-    3. Send a model_fallback SSE event to notify the frontend
-    4. Continue streaming with the fallback model
-    5. After 3 failed attempts, return a friendly error
-
-    Uses LangGraph's astream_events (v2) for fine-grained event streaming.
-    Each step is saved to database immediately via async queue (non-blocking).
-
-    Args:
-        user_input: User input containing content, agent_id, thread_id, and thinking_mode
-        agent: The compiled state graph agent to use
-    """
-    # Ensure we have a valid model name
-    current_model = user_input.model_name
-    if not current_model:
-        model_manager = get_model_manager()
-        current_model = model_manager.get_random_active_model()
-        if not current_model:
-            logger.error("[Fallback] No models available at all")
-            error_data = {
-                "type": "error",
-                "content": "No AI models are currently available. Please check your configuration.",
-                "error_type": "no_models_available",
-            }
-            yield f"data: {json.dumps(error_data)}\n\n"
-            return
-
-    fallback_count = 0
-    max_fallbacks = 3
-
-    while fallback_count < max_fallbacks:
-        logger.info(
-            f"[Fallback] Attempting stream with model: {current_model} (attempt {fallback_count + 1}/{max_fallbacks})"
-        )
-
-        try:
-            # Direct streaming with the current model (TRUE STREAMING - NO BUFFERING!)
-            success = False
-            has_content = False
-
-            async for event in _stream_with_model(user_input, agent, current_model):
-                yield event
-                has_content = True
-                # Check if this is the DONE event (the last event marking successful completion)
-                if event.strip() == "data: [DONE]":
-                    success = True
-
-            if success:
-                logger.info(
-                    f"[Fallback] Stream completed successfully with model: {current_model}"
-                )
-                return
-
-            # If we got here without exception but no DONE event,
-            # the stream ended unexpectedly
-            if has_content:
-                logger.warning(
-                    f"[Fallback] Stream ended without DONE event for model: {current_model}"
-                )
-            else:
-                logger.warning(
-                    f"[Fallback] Stream produced no content for model: {current_model}"
-                )
-
-        except Exception as e:
-            # Check if this is an LLM-related error that should trigger fallback
-            error_str = str(e).lower()
-            is_fallback_error = (
-                "rate limit" in error_str
-                or "quota" in error_str
-                or "forbidden" in error_str
-                or "403" in error_str
-                or "429" in error_str
-                or "permission" in error_str
-                or "exhausted" in error_str
-                or "rate_limit" in error_str
-            )
-
-            if not is_fallback_error:
-                # Not a fallback-eligible error - re-raise
-                logger.warning(
-                    f"[Fallback] Error not eligible for fallback: {type(e).__name__}: {str(e)[:100]}"
-                )
-                raise
-
-            logger.warning(
-                f"[Fallback] Model {current_model} failed with: {type(e).__name__}: {str(e)[:100]}"
-            )
-
-            # Deactivate the failed model
-            try:
-                db = get_database()
-                async with db.session() as session:
-                    await model_crud.deactivate_model(session, current_model)
-                    await session.commit()
-                logger.info(f"[Fallback] Deactivated model: {current_model}")
-            except Exception as deactivate_error:
-                logger.error(
-                    f"[Fallback] Failed to deactivate model {current_model}: {deactivate_error}"
-                )
-
-            # Get fallback model from ModelManager
-            try:
-                model_manager = get_model_manager()
-                fallback_model = model_manager.get_fallback_model(current_model)
-
-                if not fallback_model:
-                    logger.error("[Fallback] No more models available for fallback")
-                    break
-
-                logger.info(
-                    f"[Fallback] Falling back from {current_model} to {fallback_model}"
-                )
-
-                # Send fallback event to frontend
-                yield _yield_model_fallback_event(current_model, fallback_model)
-
-                # Update current model for next attempt
-                current_model = fallback_model
-                fallback_count += 1
-
-            except Exception as fallback_error:
-                logger.error(
-                    f"[Fallback] Failed to get fallback model: {fallback_error}"
-                )
-                break
-
-    # If we exhausted all fallbacks, return friendly error
-    logger.error(f"[Fallback] Exhausted all {max_fallbacks} fallback attempts")
-    error_data = {
-        "type": "error",
-        "content": "The AI service is currently unavailable. Please try again later.",
-        "error_type": "service_unavailable",
-    }
-    yield f"data: {json.dumps(error_data)}\n\n"
-
-
 async def handle_input(user_input: UserInput) -> dict[str, Any]:
     """
     Parse user input and returns kwargs for agent invocation.
 
-    thinking_mode is passed through config.configurable to the agent's nodes,
-    where the LLM is dynamically selected based on this flag.
+    Two separate channels carry runtime data into the agent:
 
-    model_name is passed through config.configurable to allow dynamic model selection.
-    If model_name is provided, it takes precedence over thinking_mode for LLM selection.
+    - ``config["configurable"]``: ONLY contains ``thread_id``, because the
+      LangGraph checkpointer reads it from there as part of its own contract.
+      No business data lives here.
 
-    custom_data is stored in HumanMessage.additional_kwargs for persistence,
-    and will be restored when loading history.
+    - ``context`` (ChatbotContext dataclass): all business / runtime fields —
+      ``user_id``, ``request_id``, ``model_name``, ``thinking_mode``.
+      Middleware and tools read these via ``request.runtime.context.<field>``.
+
+    ``custom_data`` is stored in ``HumanMessage.additional_kwargs`` for
+    persistence and will be restored when loading history.
     """
-    thread_id = user_input.thread_id or str(uuid.uuid4())
+    thread_id = str(user_input.thread_id)
 
-    configurable = {
-        "thread_id": thread_id,
-        "thinking_mode": user_input.thinking_mode,  # Pass thinking_mode to agent nodes
-        "model_name": user_input.model_name,  # Pass model_name for dynamic model selection
-    }
+    # `thread_id` is the ONLY field the LangGraph checkpointer requires from
+    # configurable. Everything else (user_id, request_id, model_name,
+    # thinking_mode) is passed via ``context`` below — that's the LangChain v1
+    # recommended way to carry runtime data into middleware and tools.
+    configurable = {"thread_id": thread_id}
 
     config = RunnableConfig(configurable=configurable)
 
@@ -948,8 +270,23 @@ async def handle_input(user_input: UserInput) -> dict[str, Any]:
         "messages": [human_message],
     }
 
+    # Build context for create_agent (v1) middleware.
+    # Use ChatbotContext dataclass — middleware reads attributes via
+    # request.runtime.context (e.g. ctx.user_id, ctx.model_name).
+    from app.agents.chatbot.types import ChatbotContext
+
+    context = ChatbotContext(
+        user_id=user_input.user_id or "",
+        request_id=user_input.request_id or "",
+        model_name=user_input.model_name or "",
+        thinking_mode=bool(user_input.thinking_mode),
+        timezone=user_input.timezone or "Asia/Shanghai",
+    )
+
     logger.info(
-        "handle_input: thread_id=%s, thinking_mode=%s, model_name=%s, has_custom_data=%s",
+        "[request_id=%s][user_id=%s][thread_id=%s] handle_input: thinking_mode=%s, model_name=%s, has_custom_data=%s",
+        user_input.request_id,
+        user_input.user_id,
         thread_id,
         user_input.thinking_mode,
         user_input.model_name,
@@ -959,6 +296,7 @@ async def handle_input(user_input: UserInput) -> dict[str, Any]:
     kwargs = {
         "input": input,
         "config": config,
+        "context": context,  # For create_agent v1 middleware
     }
 
     return kwargs
