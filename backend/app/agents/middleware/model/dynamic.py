@@ -29,8 +29,9 @@ def dynamic_model(
 ) -> ModelResponse:
     """Dynamically select model based on runtime context.
 
-    Reads model_name and thinking_mode from the context (set by
-    handle_input) and overrides the default model if specified.
+    Reads model_name and thinking_mode from the runtime context (set by
+    ``build_agent_kwargs`` via the ChatbotContext dataclass) and
+    overrides the default model if specified.
 
     This replaces the old pattern of passing model_name via
     RunnableConfig.configurable. Instead, context is passed via

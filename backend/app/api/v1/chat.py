@@ -22,8 +22,8 @@ from app.schemas.trace import StepOutput
 from app.agents.registry import get_graph
 from app.observability import CheckpointTraceReader
 from app.infra.llm import ModelManager, is_thinking_mode_available
+from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import (
-    handle_input,
     langchain_to_chat_message,
     collect_tool_calls_for_final_response,
 )
@@ -104,11 +104,11 @@ async def invoke(user_input: UserInput) -> ChatMessage:
         raise HTTPException(
             status_code=400, detail=f"Agent '{agent_id}' not found or not active"
         )
-    kwargs = await handle_input(user_input)
+    kwargs = await build_agent_kwargs(user_input)
 
     response_events: list[tuple[str, Any]] = await agent.ainvoke(
         **kwargs,
-        stream_mode=["updates", "values"],  # type: ignore
+        stream_mode=["updates", "values"],
     )
     response_type, response = response_events[-1]
     if response_type == "values":

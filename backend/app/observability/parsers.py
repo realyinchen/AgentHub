@@ -9,30 +9,13 @@ from typing import Any, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
+from app.utils.message_utils import convert_message_content_to_string
 from app.schemas.trace import (
     AIStepMetadata,
     CheckpointInfo,
     StepOutput,
     ToolStepMetadata,
 )
-
-
-def get_message_content(message: BaseMessage) -> str:
-    """Extract string content from a LangChain message.
-
-    Handles both plain string and structured list content formats.
-    """
-    if isinstance(message.content, str):
-        return message.content
-    if isinstance(message.content, list):
-        parts: list[str] = []
-        for part in message.content:
-            if isinstance(part, str):
-                parts.append(part)
-            elif isinstance(part, dict) and part.get("type") == "text":
-                parts.append(part.get("text", ""))
-        return "".join(parts)
-    return str(message.content)
 
 
 def extract_thinking(message: AIMessage) -> str:
@@ -99,7 +82,7 @@ def extract_step_from_checkpoint(
     """Convert a checkpoint state snapshot into a :class:`StepOutput`.
 
     This is the main entry point for checkpoint → step conversion.
-    It delegates to :func:`get_message_content`, :func:`extract_thinking`,
+    It delegates to :func:`convert_message_content_to_string`, :func:`extract_thinking`,
     and :func:`get_tool_args` for the heavy lifting.
     """
     channel_values = state.values
@@ -113,13 +96,13 @@ def extract_step_from_checkpoint(
     # Determine message type and content
     if isinstance(last_message, HumanMessage):
         message_type = "human"
-        content = get_message_content(last_message)
+        content = convert_message_content_to_string(last_message.content)
     elif isinstance(last_message, AIMessage):
         message_type = "ai"
-        content = get_message_content(last_message)
+        content = convert_message_content_to_string(last_message.content)
     elif isinstance(last_message, ToolMessage):
         message_type = "tool"
-        content = get_message_content(last_message)
+        content = convert_message_content_to_string(last_message.content)
     else:
         message_type = "unknown"
         content = str(last_message.content) if hasattr(last_message, "content") else ""

@@ -26,7 +26,8 @@ from app.infra.database import get_database
 from app.infra.llm import ModelManager
 from app.schemas.chat import UserInput
 from app.utils.async_writer import AsyncWriteQueue
-from app.utils.message_utils import handle_input, langchain_to_chat_message
+from app.utils.request_handler import build_agent_kwargs
+from app.utils.message_utils import langchain_to_chat_message
 from app.crud import chat as chat_crud
 
 
@@ -46,21 +47,6 @@ def _sse_error(content: str, error_type: str = "error") -> str:
 
 
 # ── Content Helpers ─────────────────────────────────────────────────
-
-
-def _extract_text_content(content: Any) -> str:
-    """Extract plain text from an AI message content (handles str or structured blocks)."""
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        parts: list[str] = []
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                text = block.get("text", "")
-                if text:
-                    parts.append(text)
-        return "".join(parts)
-    return ""
 
 
 def _has_meaningful_content(output: Any) -> bool:
@@ -285,11 +271,11 @@ async def streaming_message_generator(
                 error_type="no_models_available",
             )
             return
-        # Pin the chosen model into user_input so handle_input + middleware see it
+        # Pin the chosen model into user_input so build_agent_kwargs + middleware see it
         user_input = user_input.model_copy(update={"model_name": initial_model})
 
     # ── Build agent invocation kwargs ──────────────────────────────
-    kwargs = await handle_input(user_input)
+    kwargs = await build_agent_kwargs(user_input)
     config = kwargs["config"]
     context = kwargs["context"]
 

@@ -182,76 +182,104 @@ npm run dev
 
 ## 🏗️ Architecture
 
-```mermaid
-flowchart TD
-    subgraph Frontend["React 19 Frontend"]
-        A[Chat Interface]
-        B[Agent Marketplace]
-        C[Model Settings]
-        D[Token Visualization]
-        KB[Kanban Dashboard]
-    end
-    
-    subgraph Backend["FastAPI Backend"]
-        E[API Router Layer]
-        F[Agent Manager]
-        G[Model Provider Manager]
-        T[Trace API]
-    end
-    
-    subgraph AgentLayer["LangGraph Agents"]
-        H[Master Agent (Chatbot)]
-        I[Sub Agent Pool]
-        J[Navigator Agent]
-        K[Custom Agents...]
-    end
-    
-    subgraph Tools["Tools & Memory"]
-        L[Web Search]
-        M[Geocoding & Routing]
-        N[RAG Vector Store]
-        O[Checkpointer Memory]
-    end
-    
-    subgraph Storage["Storage Layer"]
-        P[PostgreSQL / SQLite]
-        Q[Qdrant / sqlite-vec]
-    end
-    
-    subgraph Observability["Observability"]
-        R[LangSmith Tracing]
-        S[Token Statistics]
-    end
-    
-    A --> E
-    B --> E
-    C --> E
-    D --> E
-    KB --> T
-    
-    E --> F
-    E --> G
-    
-    F --> H
-    F --> I
-    
-    H --> J
-    H --> K
-    I --> J
-    I --> K
-    
-    J --> L
-    J --> M
-    K --> N
-    K --> O
-    
-    N --> Q
-    O --> P
-    
-    H --> R
-    J --> R
-    J --> S
+### Layered Architecture
+
 ```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                           REQUEST LAYER                                  │
+│                                                                          │
+│   uvicorn + FastAPI — lifespan initializes all services                  │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                             API LAYER                                    │
+│                                                                          │
+│   HTTP/SSE endpoints, parameter validation, global error handling        │
+│                                                                          │
+│   chat      — streaming/non-streaming chat, history, session management  │
+│   agent     — Agent discovery and configuration                          │
+│   model     — model CRUD and dynamic selection                          │
+│   provider  — API key configuration management                          │
+│   trace     — execution tracing, DAG visualization, step replay          │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                       AGENT RUNTIME LAYER                                │
+│                                                                          │
+│   Agent compilation, caching, and runtime scheduling                     │
+│                                                                          │
+│   ┌──────────────────────────────────────────────────────────────────┐   │
+│   │  Registry — central registry (DB-driven + atomic snapshot,       │   │
+│   │             zero-lock reads, auto-discovery)                      │   │
+│   └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│   ┌──────────────────────────────────────────────────────────────────┐   │
+│   │  Middleware — shared middleware (reused by all Agents)            │   │
+│   │  · dynamic model selection  · dynamic prompt injection            │   │
+│   └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│   ┌──────────────────────────────────────────────────────────────────┐   │
+│   │  Agents — independent sub-packages, auto-discovered               │   │
+│   │  · Chatbot  · RAG Agent  · Multi-Agent Supervisor  · ...         │   │
+│   └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+├───────────────┬─────────────────────────────────────────────────────────┤
+│               │                                                          │
+│  INFRA LAYER  │  OBSERVABILITY LAYER                                    │
+│               │                                                          │
+│  Foundation   │  Read-only analysis, not in runtime path                 │
+│  capabilities │                                                          │
+│               │  · TraceBuilder                                          │
+│  · Config     │    Reconstruct execution steps from checkpoint           │
+│    Global     │                                                          │
+│    config     │  · Parsers                                               │
+│               │    Message content / thinking extraction                 │
+│  · LLM        │                                                          │
+│    Litellm    │                                                          │
+│    multi-pro- │                                                          │
+│    vider with │                                                          │
+│    fallback   │                                                          │
+│               │                                                          │
+│  · Database   │                                                          │
+│    PG/SQLite  │                                                          │
+│    + Vector   │                                                          │
+│    + Checkp.  │                                                          │
+│               │                                                          │
+│  · Tools      │                                                          │
+│    time · web │                                                          │
+│    sql · vec  │                                                          │
+│               │                                                          │
+├───────────────┴─────────────────────────────────────────────────────────┤
+│                         DATA & UTILS LAYER                               │
+│                                                                          │
+│   Models (SQLAlchemy ORM)  — database table definitions                  │
+│   Schemas (Pydantic v2)    — request/response validation                 │
+│   CRUD                     — async database operations                   │
+│   Utils                    — message conversion, crypto, async writer    │
+│   Prompts                  — system prompt MD templates                  │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**Dependency flow (strictly unidirectional, no cycles):**
+
+```
+REQUEST → API → AGENT RUNTIME → INFRA
+                   │
+                   └──→ OBSERVABILITY (read-only)
+                              │
+                              ▼
+                    DATA · UTILS · PROMPTS
+```
+
+**Layer responsibilities:**
+
+| Layer | Responsibility |
+|-------|---------------|
+| **REQUEST** | Process entry point, starts FastAPI, initializes all services |
+| **API** | HTTP interface exposure, parameter validation, SSE streaming |
+| **AGENT RUNTIME** | Agent compilation/caching/scheduling, middleware injection, runtime context |
+| **INFRA** | LLM gateway, database, vector store, tool execution — pure capability provider |
+| **OBSERVABILITY** | Reconstruct execution traces from checkpoint, consumed by Trace UI — read-only |
+| **DATA & UTILS** | Data modeling, validation, persistence, shared utility functions |
 
 ### Technology Stack
 
@@ -259,10 +287,88 @@ flowchart TD
 |-------|-------------|
 | **Frontend** | React 19 + TypeScript + Tailwind CSS + shadcn/ui + TanStack Query |
 | **Backend** | FastAPI + Uvicorn + SQLAlchemy 2.0 (async) |
-| **AI Orchestration** | LangChain + LangGraph |
+| **AI Orchestration** | LangChain v1 + LangGraph (create_agent, middleware, astream_events v3) |
 | **Storage (Dev)** | SQLite + sqlite-vec (zero-dependency, embedded) |
-| **Storage (Production)** | PostgreSQL + asyncpg + Qdrant |
-| **Observability** | LangSmith + built-in token tracking |
+| **Storage (Production)** | PostgreSQL + pgvector + asyncpg |
+| **Observability** | Built-in TraceBuilder + LangSmith |
+
+### Directory Structure
+
+```
+backend/app/
+├── main.py                    # FastAPI entrypoint + lifespan
+├── api/                       # HTTP API layer
+│   ├── errors.py              # Global exception handlers
+│   └── v1/
+│       ├── router.py          # Route aggregation
+│       ├── dependencies.py    # Dependency injection (get_db)
+│       ├── chat.py            # Streaming, invoke, history
+│       ├── chat_title.py      # Title CRUD + auto-generation
+│       ├── chat_session.py    # Conversations, stats, thinking-mode
+│       ├── agent.py           # Agent discovery & config
+│       ├── model.py           # Model CRUD & selection
+│       ├── provider.py        # API key configuration
+│       ├── stream.py          # SSE streaming engine
+│       └── trace.py           # Trace kanban routes
+├── agents/                    # Agent runtime layer
+│   ├── __init__.py            # Auto-discovery (pkgutil)
+│   ├── registry.py            # Central registry (DB + atomic snapshot)
+│   ├── middleware/             # Shared middleware (all Agents reuse)
+│   │   ├── model/dynamic.py   # @wrap_model_call — dynamic model selection
+│   │   └── prompt/
+│   │       ├── dynamic.py     # make_dynamic_prompt(agent_id)
+│   │       └── service.py     # PromptService (configurable path)
+│   ├── chatbot/               # Agent: general-purpose chatbot
+│   │   ├── agent.py           # create_agent + register_factory
+│   │   └── types.py           # ChatbotContext
+│   ├── rag_agent/             # (future) RAG retrieval agent
+│   ├── research/              # (future) deep research agent
+│   └── multi_agent/           # (future) multi-agent supervisor
+├── infra/                     # Infrastructure layer
+│   ├── config.py              # pydantic-settings (single config source)
+│   ├── database/              # Factory pattern, PG/SQLite dual backends
+│   ├── llm/                   # Litellm gateway, model manager, extra_body
+│   └── tools/                 # Infra tools (time, web, sql, vectorstore)
+├── models/                    # SQLAlchemy ORM models
+├── schemas/                   # Pydantic v2 request/response schemas
+├── crud/                      # Async database operations
+├── observability/             # Read-only trace reconstruction
+│   ├── trace.py               # TraceBuilder
+│   └── parsers.py             # Message content parsers
+├── utils/                     # Shared utilities
+│   ├── message_converters.py  # Unified message conversion (single source)
+│   ├── request_handler.py     # Request-to-agent-kwargs handler
+│   ├── crypto.py              # AES-GCM encryption
+│   └── async_writer.py        # Async write queue
+└── prompts/                   # System prompt MD templates
+    ├── chatbot.md
+    ├── rag_agent.md
+    └── research.md
+```
+
+### Adding a New Agent
+
+```python
+# 1. Create app/agents/my_agent/agent.py
+from langchain.agents import create_agent
+from app.agents.registry import register_factory
+from app.agents.middleware.prompt.dynamic import make_dynamic_prompt
+from app.agents.middleware.model.dynamic import dynamic_model
+
+def _create_my_agent(checkpointer=None, store=None):
+    prompt = make_dynamic_prompt("my_agent")  # auto-loads prompts/my_agent.md
+    return create_agent(
+        model=default_llm,
+        tools=[...],
+        middleware=[prompt, dynamic_model],  # reuse shared middleware!
+        checkpointer=checkpointer,
+    )
+
+register_factory("my_agent", _create_my_agent)
+
+# 2. Create app/prompts/my_agent.md — system prompt
+# 3. Done! Auto-discovery picks it up — zero other code changes.
+```
 
 ---
 

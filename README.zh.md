@@ -182,76 +182,101 @@ npm run dev
 
 ## 🏗️ 架构设计
 
-```mermaid
-flowchart TD
-    subgraph Frontend["React 19 前端"]
-        A[聊天界面]
-        B[智能体市场]
-        C[模型设置]
-        D[Token 可视化]
-        KB[Kanban 仪表盘]
-    end
-    
-    subgraph Backend["FastAPI 后端"]
-        E[API 路由层]
-        F[智能体管理器]
-        G[模型供应商管理器]
-        T[Trace API]
-    end
-    
-    subgraph AgentLayer["LangGraph 智能体层"]
-        H[主控智能体 (Chatbot)]
-        I[子智能体池]
-        J[导航智能体]
-        K[自定义智能体...]
-    end
-    
-    subgraph Tools["工具 & 记忆"]
-        L[网络搜索]
-        M[地理编码 & 路线规划]
-        N[RAG 向量存储]
-        O[Checkpointer 记忆]
-    end
-    
-    subgraph Storage["存储层"]
-        P[PostgreSQL / SQLite]
-        Q[Qdrant / sqlite-vec]
-    end
-    
-    subgraph Observability["可观测性"]
-        R[LangSmith 追踪]
-        S[Token 统计]
-    end
-    
-    A --> E
-    B --> E
-    C --> E
-    D --> E
-    KB --> T
-    
-    E --> F
-    E --> G
-    
-    F --> H
-    F --> I
-    
-    H --> J
-    H --> K
-    I --> J
-    I --> K
-    
-    J --> L
-    J --> M
-    K --> N
-    K --> O
-    
-    N --> Q
-    O --> P
-    
-    H --> R
-    J --> R
-    J --> S
+### 分层架构
+
 ```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                            请求层 (REQUEST)                              │
+│                                                                          │
+│   uvicorn + FastAPI — lifespan 初始化所有服务                            │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                           接口层 (API)                                   │
+│                                                                          │
+│   提供 HTTP/SSE 接口，参数校验，全局异常处理                               │
+│                                                                          │
+│   chat      — 对话流式/非流式、历史、会话管理                             │
+│   agent     — Agent 发现与配置                                           │
+│   model     — 模型 CRUD 与动态选择                                       │
+│   provider  — API Key 配置管理                                           │
+│   trace     — 执行追踪、DAG 可视化、步骤回放                              │
+│                                                                          │
+├─────────────────────────────────────────────────────────────────────────┤
+│                       Agent 运行时层 (AGENT RUNTIME)                      │
+│                                                                          │
+│   Agent 的编译、缓存和运行时调度                                          │
+│                                                                          │
+│   ┌──────────────────────────────────────────────────────────────────┐   │
+│   │  注册表 — 中央注册表（DB 驱动 + 原子快照，零锁读，自动发现）       │   │
+│   └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│   ┌──────────────────────────────────────────────────────────────────┐   │
+│   │  中间件 — 共享中间件（所有 Agent 复用）                            │   │
+│   │  · 动态模型选择  · 动态提示词注入                                  │   │
+│   └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+│   ┌──────────────────────────────────────────────────────────────────┐   │
+│   │  Agent 实例 — 独立子包，自动发现                                   │   │
+│   │  · Chatbot  · RAG Agent  · Multi-Agent Supervisor  · ...        │   │
+│   └──────────────────────────────────────────────────────────────────┘   │
+│                                                                          │
+├───────────────┬─────────────────────────────────────────────────────────┤
+│               │                                                          │
+│  基础设施层    │  可观测性层 (OBSERVABILITY)                              │
+│  (INFRA)      │                                                          │
+│               │  只读分析，不参与运行时路径                                │
+│  基础能力      │                                                          │
+│               │  · TraceBuilder                                          │
+│  · Config     │    从 checkpoint 重建执行步骤                             │
+│    全局配置    │                                                          │
+│               │  · Parsers                                               │
+│  · LLM        │    消息内容 / thinking 解析                               │
+│    Litellm    │                                                          │
+│    多Provider │                                                          │
+│    + 自动回退  │                                                          │
+│               │                                                          │
+│  · Database   │                                                          │
+│    PG/SQLite  │                                                          │
+│    + 向量存储  │                                                          │
+│    + 检查点    │                                                          │
+│               │                                                          │
+│  · Tools      │                                                          │
+│    time · web │                                                          │
+│    sql · vec  │                                                          │
+│               │                                                          │
+├───────────────┴─────────────────────────────────────────────────────────┤
+│                        数据 & 工具层 (DATA & UTILS)                       │
+│                                                                          │
+│   Models (SQLAlchemy ORM)  — 数据库表定义                                 │
+│   Schemas (Pydantic v2)    — 请求/响应校验                                │
+│   CRUD                     — 异步数据操作                                 │
+│   Utils                    — 消息转换、加密、异步写入                      │
+│   Prompts                  — 系统提示词 MD 模板                           │
+│                                                                          │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+**依赖关系（严格单向，无循环）:**
+
+```
+REQUEST → API → AGENT RUNTIME → INFRA
+                   │
+                   └──→ OBSERVABILITY (只读)
+                              │
+                              ▼
+                    DATA · UTILS · PROMPTS
+```
+
+**各层职责:**
+
+| 层 | 职责 |
+|----|------|
+| **REQUEST** | 进程入口，启动 FastAPI，初始化所有服务 |
+| **API** | HTTP 接口暴露、参数校验、SSE 流式推送 |
+| **AGENT RUNTIME** | Agent 编译/缓存/调度，中间件注入，运行时上下文传递 |
+| **INFRA** | LLM 网关、数据库、向量存储、工具执行 — 纯能力提供，不感知业务 |
+| **OBSERVABILITY** | 从 checkpoint 重建执行轨迹，供 Trace UI 消费 — 只读，可独立替换 |
+| **DATA & UTILS** | 数据建模、校验、持久化、共享工具函数 |
 
 ### 技术栈
 
@@ -259,10 +284,88 @@ flowchart TD
 |------|------|
 | **前端** | React 19 + TypeScript + Tailwind CSS + shadcn/ui + TanStack Query |
 | **后端** | FastAPI + Uvicorn + SQLAlchemy 2.0 (异步) |
-| **AI 编排** | LangChain + LangGraph |
+| **AI 编排** | LangChain v1 + LangGraph (create_agent, middleware, astream_events v3) |
 | **存储（开发）** | SQLite + sqlite-vec（零依赖，嵌入式） |
-| **存储（生产）** | PostgreSQL + asyncpg + Qdrant |
-| **可观测性** | LangSmith + 内置 Token 追踪 |
+| **存储（生产）** | PostgreSQL + pgvector + asyncpg |
+| **可观测性** | 内置 TraceBuilder + LangSmith |
+
+### 目录结构
+
+```
+backend/app/
+├── main.py                    # FastAPI 入口 + lifespan
+├── api/                       # HTTP 接口层
+│   ├── errors.py              # 全局异常处理
+│   └── v1/
+│       ├── router.py          # 路由聚合
+│       ├── dependencies.py    # 依赖注入 (get_db)
+│       ├── chat.py            # 流式/非流式对话、历史
+│       ├── chat_title.py      # 标题 CRUD + 自动生成
+│       ├── chat_session.py    # 会话管理、统计、thinking 模式
+│       ├── agent.py           # Agent 发现与配置
+│       ├── model.py           # 模型 CRUD 与选择
+│       ├── provider.py        # API Key 配置管理
+│       ├── stream.py          # SSE 流式引擎
+│       └── trace.py           # Trace Kanban 路由
+├── agents/                    # Agent 运行时层
+│   ├── __init__.py            # 自动发现 (pkgutil)
+│   ├── registry.py            # 中央注册表 (DB + 原子快照)
+│   ├── middleware/             # 共享中间件 (所有 Agent 复用)
+│   │   ├── model/dynamic.py   # @wrap_model_call 动态模型选择
+│   │   └── prompt/
+│   │       ├── dynamic.py     # make_dynamic_prompt(agent_id)
+│   │       └── service.py     # PromptService (可配置路径)
+│   ├── chatbot/               # Agent: 通用对话机器人
+│   │   ├── agent.py           # create_agent + register_factory
+│   │   └── types.py           # ChatbotContext
+│   ├── rag_agent/             # (未来) RAG 检索增强 Agent
+│   ├── research/              # (未来) 深度研究 Agent
+│   └── multi_agent/           # (未来) 多 Agent 协作 Supervisor
+├── infra/                     # 基础设施层
+│   ├── config.py              # pydantic-settings (单一配置源)
+│   ├── database/              # 工厂模式，PG/SQLite 双后端
+│   ├── llm/                   # Litellm 网关、模型缓存、extra_body
+│   └── tools/                 # 基础工具 (time, web, sql, vectorstore)
+├── models/                    # SQLAlchemy ORM 模型
+├── schemas/                   # Pydantic v2 请求/响应 Schema
+├── crud/                      # 异步数据库操作
+├── observability/             # 只读追踪重建
+│   ├── trace.py               # TraceBuilder
+│   └── parsers.py             # 消息内容解析
+├── utils/                     # 共享工具
+│   ├── message_converters.py  # 统一消息转换 (单一来源)
+│   ├── request_handler.py     # 请求→Agent 参数转换
+│   ├── crypto.py              # AES-GCM 加密
+│   └── async_writer.py        # 异步写入队列
+└── prompts/                   # 系统提示词 MD 模板
+    ├── chatbot.md
+    ├── rag_agent.md
+    └── research.md
+```
+
+### 添加新 Agent
+
+```python
+# 1. 创建 app/agents/my_agent/agent.py
+from langchain.agents import create_agent
+from app.agents.registry import register_factory
+from app.agents.middleware.prompt.dynamic import make_dynamic_prompt
+from app.agents.middleware.model.dynamic import dynamic_model
+
+def _create_my_agent(checkpointer=None, store=None):
+    prompt = make_dynamic_prompt("my_agent")  # 自动加载 prompts/my_agent.md
+    return create_agent(
+        model=default_llm,
+        tools=[...],
+        middleware=[prompt, dynamic_model],  # 复用共享中间件！
+        checkpointer=checkpointer,
+    )
+
+register_factory("my_agent", _create_my_agent)
+
+# 2. 创建 app/prompts/my_agent.md — 系统提示词
+# 3. 完成！自动发现机制会识别 — 无需修改任何其他代码。
+```
 
 ---
 

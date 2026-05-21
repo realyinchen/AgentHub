@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     # =========================================================================
     # Application Mode & Metadata
     # =========================================================================
-    MODE: Literal["lite", "full"] = "lite"
+    MODE: Literal["dev", "prod"] = "dev"
 
     PROJECT_NAME: str = "AgentHub"
     VERSION: str = "1.0.0"
@@ -59,8 +59,8 @@ class Settings(BaseSettings):
     # Database Configuration
     # =========================================================================
     # DATABASE_TYPE is a computed_field, determined by MODE:
-    # - lite → sqlite
-    # - full → postgres
+    # - dev -> sqlite
+    # - prod -> postgres
 
     # PostgreSQL Configuration (required for DATABASE_TYPE == "postgres")
     POSTGRES_USER: Optional[str] = None
@@ -82,8 +82,8 @@ class Settings(BaseSettings):
     # Vector Store Configuration
     # =========================================================================
     # VECTORSTORE_TYPE is a computed_field, determined by MODE:
-    # - lite → sqlite_vec
-    # - full → pgvector (PostgreSQL pgvector extension — no external service)
+    # - dev -> sqlite_vec
+    # - prod -> pgvector (PostgreSQL pgvector extension, no external service)
 
     # PGVector uses the same PostgreSQL connection as the main database
     # (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB)
@@ -133,10 +133,10 @@ class Settings(BaseSettings):
     def DATABASE_TYPE(self) -> Literal["sqlite", "postgres"]:
         """Database type, automatically determined by MODE.
 
-        - lite → sqlite
-        - full → postgres
+        - dev -> sqlite
+        - prod -> postgres
         """
-        if self.MODE == "full":
+        if self.MODE == "prod":
             return "postgres"
         return "sqlite"
 
@@ -145,18 +145,18 @@ class Settings(BaseSettings):
     def VECTORSTORE_TYPE(self) -> Literal["sqlite_vec", "pgvector"]:
         """Vector store type, automatically determined by MODE.
 
-        - lite → sqlite_vec
-        - full → pgvector (PostgreSQL pgvector extension)
+        - dev -> sqlite_vec
+        - prod -> pgvector (PostgreSQL pgvector extension)
         """
-        if self.MODE == "full":
+        if self.MODE == "prod":
             return "pgvector"
         return "sqlite_vec"
 
     @computed_field
     @property
     def is_dev(self) -> bool:
-        """Whether running in lite (development/test) mode."""
-        return self.MODE == "lite"
+        """Whether running in dev (development/test) mode."""
+        return self.MODE == "dev"
 
     @computed_field
     @property
@@ -246,20 +246,20 @@ class Settings(BaseSettings):
         """Validate and enforce LangSmith restrictions.
 
         Rules:
-        1. Only lite MODE can use LangSmith tracing. Full mode is always disabled.
+        1. Only dev MODE can use LangSmith tracing. Prod mode is always disabled.
         2. If LANGCHAIN_TRACING_V2=True, LANGCHAIN_API_KEY must be provided.
            If not provided, tracing is force-disabled and a warning is logged.
         """
-        # Rule 1: Only lite mode can use LangSmith
+        # Rule 1: Only dev mode can use LangSmith
         if not self.is_dev and self.LANGCHAIN_TRACING_V2:
             logger.warning(
-                "LangSmith tracing is only allowed in lite mode. "
+                "LangSmith tracing is only allowed in dev mode. "
                 f"MODE='{self.MODE}' detected. Forcing LANGCHAIN_TRACING_V2=False."
             )
             self.LANGCHAIN_TRACING_V2 = False
             return self
 
-        # Rule 2: If tracing is enabled in lite mode, API key must be set
+        # Rule 2: If tracing is enabled in dev mode, API key must be set
         if self.is_dev and self.LANGCHAIN_TRACING_V2 and self.LANGCHAIN_API_KEY is None:
             logger.warning(
                 "LANGCHAIN_TRACING_V2=True but LANGCHAIN_API_KEY is not set. "

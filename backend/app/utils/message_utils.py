@@ -6,11 +6,8 @@ from langchain_core.messages import (
     HumanMessage,
     ToolMessage,
 )
-from langchain_core.runnables import RunnableConfig
-from langgraph.types import Command
-from typing import Any
 
-from app.schemas.chat import ChatMessage, ToolCall, UserInput
+from app.schemas.chat import ChatMessage, ToolCall
 
 
 logger = logging.getLogger(__name__)
@@ -231,72 +228,3 @@ def augment_ai_message_with_tool_info(messages: list[BaseMessage]) -> list[BaseM
             break
 
     return messages
-
-
-async def handle_input(user_input: UserInput) -> dict[str, Any]:
-    """
-    Parse user input and returns kwargs for agent invocation.
-
-    Two separate channels carry runtime data into the agent:
-
-    - ``config["configurable"]``: ONLY contains ``thread_id``, because the
-      LangGraph checkpointer reads it from there as part of its own contract.
-      No business data lives here.
-
-    - ``context`` (ChatbotContext dataclass): all business / runtime fields —
-      ``user_id``, ``request_id``, ``model_name``, ``thinking_mode``.
-      Middleware and tools read these via ``request.runtime.context.<field>``.
-
-    ``custom_data`` is stored in ``HumanMessage.additional_kwargs`` for
-    persistence and will be restored when loading history.
-    """
-    thread_id = str(user_input.thread_id)
-
-    # `thread_id` is the ONLY field the LangGraph checkpointer requires from
-    # configurable. Everything else (user_id, request_id, model_name,
-    # thinking_mode) is passed via ``context`` below — that's the LangChain v1
-    # recommended way to carry runtime data into middleware and tools.
-    configurable = {"thread_id": thread_id}
-
-    config = RunnableConfig(configurable=configurable)
-
-    # Create HumanMessage with custom_data in additional_kwargs for persistence
-    human_message = HumanMessage(content=user_input.content)
-    if user_input.custom_data:
-        human_message.additional_kwargs["custom_data"] = user_input.custom_data
-
-    input: Command | dict[str, Any]
-    input = {
-        "messages": [human_message],
-    }
-
-    # Build context for create_agent (v1) middleware.
-    # Use ChatbotContext dataclass — middleware reads attributes via
-    # request.runtime.context (e.g. ctx.user_id, ctx.model_name).
-    from app.agents.chatbot.types import ChatbotContext
-
-    context = ChatbotContext(
-        user_id=user_input.user_id or "",
-        request_id=user_input.request_id or "",
-        model_name=user_input.model_name or "",
-        thinking_mode=bool(user_input.thinking_mode),
-        timezone=user_input.timezone or "Asia/Shanghai",
-    )
-
-    logger.info(
-        "[request_id=%s][user_id=%s][thread_id=%s] handle_input: thinking_mode=%s, model_name=%s, has_custom_data=%s",
-        user_input.request_id,
-        user_input.user_id,
-        thread_id,
-        user_input.thinking_mode,
-        user_input.model_name,
-        bool(user_input.custom_data),
-    )
-
-    kwargs = {
-        "input": input,
-        "config": config,
-        "context": context,  # For create_agent v1 middleware
-    }
-
-    return kwargs

@@ -2,8 +2,8 @@
 Database / Vectorstore / Checkpointer / Store factory (singletons).
 
 All business code calls these `get_xxx()` functions. The concrete backend
-(PostgreSQL/pgvector/AsyncPostgresStore for full mode,
-SQLite/sqlite-vec/InMemoryStore for lite mode) is
+    (PostgreSQL/pgvector/AsyncPostgresStore for prod mode,
+    SQLite/sqlite-vec/InMemoryStore for dev mode) is
 selected based on `Settings.DATABASE_TYPE` / `Settings.VECTORSTORE_TYPE`.
 
 Thread/coroutine safety:
@@ -67,8 +67,8 @@ _CP_BACKENDS: dict[str, type] = {
 
 _STORE_BACKENDS: dict[str, type] = {
     # LangGraph official best practice:
-    #   - Full mode (PostgreSQL): AsyncPostgresStore for durable long-term memory
-    #   - Lite mode (SQLite):     InMemoryStore (ephemeral; SQLite not recommended for Store)
+    #   - Prod mode (PostgreSQL): AsyncPostgresStore for durable long-term memory
+    #   - Dev mode (SQLite):      InMemoryStore (ephemeral; SQLite not recommended for Store)
     "postgres": PostgresStore,
     "sqlite": InMemoryStoreBackend,
 }
@@ -217,8 +217,8 @@ async def init_checkpointer() -> None:
 async def init_store() -> None:
     """Initialize the long-term Store singleton (idempotent).
 
-    For full mode (PostgreSQL): AsyncPostgresStore (persistent, with vector search if configured).
-    For lite mode (SQLite):     InMemoryStore (ephemeral, dev/test only).
+    For prod mode (PostgreSQL): AsyncPostgresStore (persistent, with vector search if configured).
+    For dev mode (SQLite):      InMemoryStore (ephemeral, dev/test only).
     """
     global _store_instance
     async with _init_lock:

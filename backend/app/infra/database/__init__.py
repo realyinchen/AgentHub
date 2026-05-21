@@ -7,7 +7,7 @@ Public API (stable):
     - dispose_all
     - Base (SQLAlchemy declarative base for ORM models)
 
-Backends live in ``postgres/`` (full mode) and ``sqlite/`` (lite mode). Business code
+Backends live in ``postgres/`` (prod mode) and ``sqlite/`` (dev mode). Business code
 should never import them directly — always go through this package's API.
 
 Both backends expose identical public interfaces (``.session()`` async context manager,

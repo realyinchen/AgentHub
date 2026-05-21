@@ -84,7 +84,9 @@ def _create_chatbot_agent(checkpointer=None, store=None):
             "Chat requests will fail until a real model is added via the admin panel."
         )
         default_model = FakeListChatModel(
-            responses=["No model configured. Please add an LLM model in the admin settings."]
+            responses=[
+                "No model configured. Please add an LLM model in the admin settings."
+            ]
         )
 
     # Create the dynamic prompt middleware for this agent.
