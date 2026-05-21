@@ -147,16 +147,15 @@ async def invoke(user_input: UserInput) -> ChatMessage:
 
 ---
 
-### F-6 🟢 `chat.py` 中 `is_thinking_mode_available` 直接从 `infra.llm` 导入裸函数
+### F-6 ~~🟢~~ ✅ `chat.py` 中 `is_thinking_mode_available` 直接从 `infra.llm` 导入裸函数（已修复）
 
 **文件**: `api/v1/chat.py:24`
-```python
-from app.infra.llm import ModelManager, is_thinking_mode_available
-```
 
-`is_thinking_mode_available()` 在 `factory.py:170` 中定义——它不属于工厂职责，应该移到 `ModelManager` 类方法中。API 层应统一使用 `ModelManager.is_thinking_mode_available()`。
-
-**建议**（P5 已部分覆盖）: 删除 `factory.py` 中的 `is_thinking_mode_available` 函数，统一走 `ModelManager.is_thinking_mode_available(model_id)`。
+**修复内容（Phase 1）**:
+- 删除 `factory.py` 中的独立 `is_thinking_mode_available()` 函数（7 行）
+- `ModelManager.is_thinking_mode_available()` 扩展为支持 `model_id=None`（自动解析默认 LLM）
+- `chat.py:366` 改为 `ModelManager.is_thinking_mode_available()`
+- `infra/llm/__init__.py` 移除 `is_thinking_mode_available` 从公开导出
 
 ---
 
@@ -225,26 +224,15 @@ def _get_tools():
 
 ## 三、Infra 层面的问题
 
-### I-1 🟡 `infra/llm/__init__.py` 导出 `build_extra_body` 和 `is_thinking_mode_available`
+### I-1 ~~🟡~~ ✅ `infra/llm/__init__.py` 导出过多内部实现（已修复）
 
-**文件**: `infra/llm/__init__.py:12-13`
-```python
-from app.infra.llm.extra_body import build_extra_body
-from app.infra.llm.factory import get_chat_litellm, get_llm, is_thinking_mode_available
-```
+**文件**: `infra/llm/__init__.py`
 
-- `build_extra_body` 是内部实现细节，不应暴露给 API 层
-- `is_thinking_mode_available` 应属于 `ModelManager` 而非 `factory`
-- `get_chat_litellm` 和 `get_llm` 职责重叠（都是创建 LLM 实例），应统一为一个 `ChatModelFactory`
-
-**建议**:
-```python
-# infra/llm/__init__.py（精简后）
-from app.infra.llm.factory import ChatModelFactory
-from app.infra.llm.model_manager import ModelManager
-
-__all__ = ["ChatModelFactory", "ModelManager"]
-```
+**修复内容（Phase 1）**:
+- 移除 `build_extra_body` 从公开导出（仅 `factory.py` 内部使用）
+- 移除 `is_thinking_mode_available` 从公开导出（已归入 `ModelManager`）
+- 公开 API 从 6→4 符号：`ModelManager`, `get_model_manager`, `get_llm`, `get_chat_litellm`
+- `get_chat_litellm` 和 `get_llm` 的合并（P16）留待 Phase 3
 
 ---
 
@@ -390,7 +378,7 @@ from app.utils.message_converters import extract_text, extract_thinking, get_too
 | P15 | Agent | `dynamic.py` 中 dict/object 双路径分支 | 中 | ⬜ | `middleware/model/` + `middleware/prompt/` |
 | P16 | Infra | `get_llm()` 和 `get_chat_litellm()` 70% 重复 | 中 | ⬜ | `llm/factory.py` |
 | P17 | Infra | `ModelManager` classmethod 模式不利测试 | 低 | ⬜ | `llm/model_manager.py` |
-| P18 | Infra | `__init__.py` 导出过多内部实现 | 低 | ⬜ | `llm/__init__.py` |
+| P18 | Infra | `__init__.py` 导出过多内部实现 | 低 | ✅ | `llm/__init__.py` |
 | P19 | Observability | `CheckpointTraceReader` 门面过度抽象（强化 P3） | 高 | ⬜ | `observability/__init__.py` |
 | P20 | Observability | `parsers.py` 不应依赖 agent graph | 中 | ✅ | `observability/parsers.py` |
 | P21 | Agent | `_get_tools()` 缺少结果缓存 | 低 | ⬜ | `chatbot/chatbot.py` |
@@ -402,7 +390,7 @@ from app.utils.message_converters import extract_text, extract_thinking, get_too
 | 步骤 | Phase | 涉及问题 | 操作 | 状态 | 风险 |
 |------|:---:|------|------|:---:|:---:|
 | 1 | 0 | P4+P14 | 删除未用 DI + RequestContext | ✅ | 无 |
-| 2 | 1 | P5+P18 | 统一 thinking_mode + 精简 llm/__init__.py | ⬜ | 低 |
+| 2 | 1 | P5+P18+F-6 | 统一 thinking_mode + 精简 llm/__init__.py | ✅ | 低 |
 | 3 | 2 | P1+P11+P12+P20 | 消息转换合一 + 请求处理独立 | ✅ | 中 |
 | 4 | 2 | P3+P19 | 删除 CheckpointTraceReader | ⬜ | 中 |
 | 5 | 3 | P15 | 删除 dict/object 双路径 | ⬜ | 中 |
@@ -464,8 +452,8 @@ P4+P14(未用DI删除) ── 无依赖，最先做
 Phase 0 (安全清理, 0 风险)                                                [DONE]
 ├── Step 1: P4+P14  删除未用DI + RequestContext                          ✅
 
-Phase 1 (低风险重构)                                                      [NEXT]
-├── Step 2: P5+P18  统一thinking_mode + 精简llm/__init__.py              ⬜
+Phase 1 (低风险重构)                                                      [DONE]
+├── Step 2: P5+P18+F-6  统一thinking_mode + 精简llm/__init__.py          ✅
 
 Phase 2 (中风险, 互相依赖的放一起)                                        [DONE]
 ├── Step 3: P1+P11+P12+P20  消息转换合一 + 请求处理独立                   ✅
@@ -487,7 +475,26 @@ Phase 4 (补充完善)
 
 **每 Phase 完成后，29 个 API 端点的行为必须完全不变。**
 
-## 十一、Phase 0+2 已完成汇总
+## 十一、Phase 0+1+2 已完成汇总
+
+### Phase 1 (P5 + P18 + F-6)
+
+**执行日期**: 2026-05-21
+**修改文件**: 4 个
+
+| 文件 | 变更 |
+|------|------|
+| `infra/llm/model_manager.py` | `is_thinking_mode_available()` 支持 `model_id=None` 自动解析默认 LLM（+7 行） |
+| `infra/llm/factory.py` | 删除独立 `is_thinking_mode_available()` 函数（-7 行），docstring 更新 |
+| `infra/llm/__init__.py` | 公开 API 从 6→4 符号，移除 `build_extra_body` 和 `is_thinking_mode_available` |
+| `api/v1/chat.py` | 导入路径 `is_thinking_mode_available` → `ModelManager.is_thinking_mode_available()` |
+
+**解决**: P5, P18, F-6 (3/21 问题)
+
+---
+
+### Phase 0+2
+
 
 **执行日期**: 2026-05-21  
 **修改文件**: 7 个
@@ -502,8 +509,12 @@ Phase 4 (补充完善)
 | `observability/parsers.py` | 删除 `get_message_content()`，统一 `convert_message_content_to_string` |
 | `agents/middleware/model/dynamic.py` | docstring 更新 `handle_input` → `build_agent_kwargs` |
 
-**解决**: P1, P4, P11, P12, P14, P20 (6/21 问题)  
-**剩余**: P5, P18, P3, P19, P15, P16, P6, P7, P13, P9, I4, P17, P21, P10 (14 问题)
+**解决**: P1, P4, P11, P12, P14, P20 (6/21 问题)
+
+---
+
+**全部已解决**: P1, P4, P5, P11, P12, P14, P18, P20, F-6 (9/21 问题)  
+**剩余**: P3, P19, P15, P16, P6, P7, P13, P9, I4, P17, P21, P10 (12 问题)
 
 ---
 

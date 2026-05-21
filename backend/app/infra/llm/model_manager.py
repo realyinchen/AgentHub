@@ -248,7 +248,15 @@ class ModelManager:
         return cls._models_cache.get(model_id)
 
     @classmethod
-    def is_thinking_mode_available(cls, model_id: str) -> bool:
+    def is_thinking_mode_available(cls, model_id: str | None = None) -> bool:
+        """Check if thinking mode is available for a model.
+
+        If model_id is None, checks the default LLM model.
+        """
+        if model_id is None:
+            model_id = cls._default_llm_id
+            if model_id is None:
+                return False
         m = cls._models_cache.get(model_id)
         return bool(m.thinking) if m else False
 

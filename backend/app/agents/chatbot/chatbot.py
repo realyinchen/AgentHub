@@ -4,11 +4,10 @@ import logging
 
 from langchain.agents import create_agent
 from langchain.agents.middleware import SummarizationMiddleware
-from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from app.agents.registry import register_factory
 from app.agents.chatbot.types import ChatbotContext
-from app.infra.llm import get_chat_litellm, ModelManager
+from app.infra.llm import get_system_default_llm
 from app.agents.middleware.prompt.dynamic import make_dynamic_prompt
 from app.agents.middleware.model.dynamic import dynamic_model
 from app.infra.tools.time import get_current_time
@@ -48,9 +47,11 @@ def _create_chatbot_agent(checkpointer=None, store=None):
     cached in memory and reused for every request — no per-request compilation
     overhead.
 
-    The agent uses ChatLiteLLM under the hood (via infra/llm), which supports
-    multiple LLM providers through LiteLLM. The actual model is dynamically
-    overridden per-request by the @dynamic_model middleware.
+    Default model is the system-level LLM (from .env, via get_system_default_llm).
+    It is always available — independent of DB / ModelManager — so the agent
+    can be compiled and serve requests even before any user-facing model is
+    configured. The @dynamic_model middleware overrides it per-request when
+    the user explicitly selects a different model from the UI.
 
     Args:
         checkpointer: LangGraph checkpointer saver (SqliteSaver or
@@ -71,23 +72,8 @@ def _create_chatbot_agent(checkpointer=None, store=None):
     Returns:
         CompiledStateGraph: The compiled chatbot agent.
     """
-    # Resolve default model for agent creation.
-    # When no model is configured (first-time setup), use a FakeListChatModel
-    # as placeholder so the agent compiles and the system can start. Real chat
-    # requests will fail until a model is configured via the admin panel.
-    default_model_id = ModelManager.get_default_llm_id()
-    if default_model_id:
-        default_model = get_chat_litellm(default_model_id)
-    else:
-        logger.warning(
-            "No default LLM configured — using FakeListChatModel placeholder. "
-            "Chat requests will fail until a real model is added via the admin panel."
-        )
-        default_model = FakeListChatModel(
-            responses=[
-                "No model configured. Please add an LLM model in the admin settings."
-            ]
-        )
+    # System-level default LLM (from .env). Always available; never None.
+    default_model = get_system_default_llm()
 
     # Create the dynamic prompt middleware for this agent.
     chatbot_dynamic_prompt = make_dynamic_prompt("chatbot")

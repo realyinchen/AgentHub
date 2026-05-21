@@ -125,6 +125,18 @@ class Settings(BaseSettings):
     API_KEY_ENCRYPTION_KEY: Optional[SecretStr] = None
 
     # =========================================================================
+    # System-level Default LLM (Required)
+    # =========================================================================
+    # Used by agents at compile time, and by all internal/implicit LLM calls
+    # (long-term memory extraction, conversation summarization, title generation,
+    # etc.). Users can dynamically switch models at runtime per-request, but
+    # this is the always-available system fallback.
+    #
+    # DEFAULT_LLM_MODEL format: "provider/model-id" (e.g. "zai/glm-5.1")
+    DEFAULT_LLM_MODEL: Optional[str] = None
+    DEFAULT_LLM_API_KEY: Optional[SecretStr] = None
+
+    # =========================================================================
     # Computed Fields
     # =========================================================================
 
@@ -177,6 +189,7 @@ class Settings(BaseSettings):
         "AMAP_KEY",
         "TAVILY_API_KEY",
         "API_KEY_ENCRYPTION_KEY",
+        "DEFAULT_LLM_API_KEY",
         mode="before",
     )
     @classmethod
@@ -186,7 +199,13 @@ class Settings(BaseSettings):
             return None
         return v
 
-    @field_validator("POSTGRES_USER", "POSTGRES_HOST", "POSTGRES_DB", mode="before")
+    @field_validator(
+        "POSTGRES_USER",
+        "POSTGRES_HOST",
+        "POSTGRES_DB",
+        "DEFAULT_LLM_MODEL",
+        mode="before",
+    )
     @classmethod
     def empty_str_to_none_str(cls, v):
         """Convert empty strings from .env to None for Optional str fields."""
@@ -238,6 +257,29 @@ class Settings(BaseSettings):
             raise ValueError(
                 "API_KEY_ENCRYPTION_KEY must be set in .env for ALL environments. "
                 'Generate a secure key with: python -c "import secrets; print(secrets.token_urlsafe(24)[:32])"'
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_system_default_llm(self) -> "Settings":
+        """Validate the system-level default LLM is fully configured.
+
+        DEFAULT_LLM_MODEL + DEFAULT_LLM_API_KEY are REQUIRED — they back the
+        agent's compile-time default model and every internal/implicit LLM
+        call (summarization, long-term memory, title generation, etc.).
+        DEFAULT_LLM_MODEL must be in "provider/model-id" form so the provider
+        can be parsed for provider-specific extra_body handling.
+        """
+        if self.DEFAULT_LLM_MODEL is None or self.DEFAULT_LLM_API_KEY is None:
+            raise ValueError(
+                "DEFAULT_LLM_MODEL and DEFAULT_LLM_API_KEY must both be set in .env. "
+                "These provide the system-level fallback LLM used by all agents "
+                "and internal LLM calls."
+            )
+        if "/" not in self.DEFAULT_LLM_MODEL:
+            raise ValueError(
+                f"DEFAULT_LLM_MODEL must be in 'provider/model-id' format, "
+                f"got '{self.DEFAULT_LLM_MODEL}'. Example: 'zai/glm-5.1'."
             )
         return self
 

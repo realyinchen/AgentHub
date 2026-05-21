@@ -21,7 +21,7 @@ from app.schemas.title import TitleGenerateRequest, TitleGenerateResponse
 from app.schemas.trace import StepOutput
 from app.agents.registry import get_graph
 from app.observability import CheckpointTraceReader
-from app.infra.llm import ModelManager, is_thinking_mode_available
+from app.infra.llm import ModelManager
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import (
     langchain_to_chat_message,
@@ -363,7 +363,7 @@ async def generate_title(request: TitleGenerateRequest) -> TitleGenerateResponse
 @api_router.get("/thinking-mode")
 async def get_thinking_mode_status() -> dict[str, bool]:
     """Check if thinking mode is available."""
-    return {"available": is_thinking_mode_available()}
+    return {"available": ModelManager.is_thinking_mode_available()}
 
 
 @api_router.delete("/conversations/{thread_id}", status_code=204)

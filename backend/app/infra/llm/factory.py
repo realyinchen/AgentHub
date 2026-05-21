@@ -3,7 +3,6 @@
 Provides:
     - get_llm(): Build a ChatLiteLLMRouter via the pre-built Router (recommended).
     - get_chat_litellm(): Build a direct ChatLiteLLM instance (for special cases).
-    - is_thinking_mode_available(): Check whether thinking mode is enabled for a model.
 
 The primary entry point for runtime model switching (via `@wrap_model_call`
 middleware) is `get_llm()`, which creates a per-request instance through the
@@ -12,6 +11,9 @@ needed — the Router is already cached in ModelManager.
 
 For LangGraph `bind_tools()` scenarios, `get_chat_litellm()` builds a direct
 ChatLiteLLM without the Router layer.
+
+For thinking-mode availability queries, use
+`ModelManager.is_thinking_mode_available()` directly.
 """
 
 from __future__ import annotations
@@ -167,11 +169,3 @@ def get_chat_litellm(
     return llm
 
 
-def is_thinking_mode_available(model_id: str | None = None) -> bool:
-    """Check whether thinking mode is enabled for the given model (or default LLM)."""
-    if model_id is None:
-        default_id = ModelManager.get_default_llm_id()
-        if default_id is None:
-            return False
-        return ModelManager.is_thinking_mode_available(default_id)
-    return ModelManager.is_thinking_mode_available(model_id)
