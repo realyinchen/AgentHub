@@ -1,39 +1,35 @@
+"""Chat conversation endpoints — streaming, invocation, and history.
+
+Routes:
+    POST /chat/stream                          — SSE streaming agent response
+    POST /chat/invoke                          — Async invoke (one-shot) agent response
+    GET  /chat/history/{agent_id}/{thread_id}  — Conversation history + step sequence
+"""
+
 import logging
 from uuid import UUID
-from fastapi import APIRouter, HTTPException, status, Depends, Query
-from fastapi.responses import StreamingResponse, JSONResponse
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi.responses import StreamingResponse
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Any
 
 from app.api.v1.dependencies import get_db
 from app.api.v1.stream import streaming_message_generator
 from app.schemas.chat import (
-    ConversationCreate,
-    ConversationInDB,
-    ConversationUpdate,
     ChatMessage,
     UserInput,
     ChatHistory,
 )
-from app.schemas.title import TitleGenerateRequest, TitleGenerateResponse
 from app.schemas.trace import StepOutput
 from app.agents.registry import get_graph
 from app.observability import CheckpointTraceReader
-from app.infra.llm import ModelManager
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import (
     langchain_to_chat_message,
     collect_tool_calls_for_final_response,
-)
-from app.crud.chat import (
-    read_conversation_by_thread_id,
-    update_conversation_by_thread_id,
-    list_conversations,
-    create_conversation,
-    soft_delete_conversation_by_thread_id,
-    get_daily_conversation_stats,
 )
 
 
@@ -62,9 +58,7 @@ def _sse_response_example() -> dict[int | str, Any]:
     responses=_sse_response_example(),
 )
 async def stream(user_input: UserInput) -> StreamingResponse:
-    """
-    Stream an agent's response to a user input, including intermediate messages and tokens.
-    """
+    """Stream an agent's response to a user input, including intermediate messages and tokens."""
     agent_id = user_input.agent_id
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is not provided")
@@ -129,9 +123,7 @@ async def history(
     thread_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> ChatHistory:
-    """
-    Get chat history with message sequence for sidebar.
-    """
+    """Get chat history with message sequence for sidebar."""
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is not provided")
 
@@ -185,220 +177,3 @@ async def history(
         chat_messages.append(chat_message)
 
     return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
-
-
-@api_router.get("/title/{thread_id}")
-async def get_conversation_title(
-    thread_id: UUID | None = None, db: AsyncSession = Depends(get_db)
-) -> ConversationInDB | None:
-    """Get the title of a conversation."""
-    if not thread_id:
-        raise HTTPException(status_code=400, detail="thread_id is not provided")
-
-    try:
-        conv = await read_conversation_by_thread_id(db=db, thread_id=thread_id)
-        if conv is None:
-            return None
-        return ConversationInDB.model_validate(conv)
-    except Exception as e:
-        logger.error(
-            "Error retrieving conversation title for thread %s: %s", thread_id, e
-        )
-        raise HTTPException(
-            status_code=500, detail="Error retrieving conversation title"
-        )
-
-
-@api_router.post("/title")
-async def update_conversation_title(
-    thread_id: UUID,
-    conversation_title: ConversationUpdate,
-    db: AsyncSession = Depends(get_db),
-) -> ConversationInDB | None:
-    """Set or update the title of a conversation."""
-    if not thread_id:
-        raise HTTPException(
-            status_code=400, detail="thread_id is required to set conversation title."
-        )
-    title = conversation_title.title
-    if not title or not title.strip():
-        raise HTTPException(
-            status_code=400, detail="title is required to set conversation title."
-        )
-
-    try:
-        conv = await update_conversation_by_thread_id(
-            db=db, thread_id=thread_id, update_data=conversation_title
-        )
-        if conv is None:
-            return None
-        return ConversationInDB.model_validate(conv)
-    except Exception as e:
-        logger.error("Error setting conversation title: %s", e)
-        raise HTTPException(status_code=500, detail="Error setting conversation title")
-
-
-@api_router.get("/conversations")
-async def get_conversations(
-    limit: int = Query(
-        20,
-        ge=1,
-        le=100,
-        description="Maximum number of conversations to retrieve (1-100)",
-    ),
-    offset: int = Query(
-        0, ge=0, description="Number of conversations to skip (for pagination)"
-    ),
-    db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
-    """Get a list of recent conversations (most recently updated first)."""
-    try:
-        conversations, total = await list_conversations(
-            db=db, limit=limit, offset=offset
-        )
-
-        response = JSONResponse(
-            content=[
-                ConversationInDB.model_validate(conv).model_dump(mode="json")
-                for conv in conversations
-            ],
-            headers={"X-Total-Count": str(total)},
-        )
-        return response  # type: ignore
-
-    except Exception as e:
-        logger.error("Error retrieving conversations: %s", e)
-        raise HTTPException(status_code=500, detail="Error retrieving conversations")
-
-
-@api_router.post("/conversations", response_model=ConversationInDB)
-async def save_conversation(
-    conversation_in: ConversationCreate,
-    db: AsyncSession = Depends(get_db),
-) -> ConversationInDB:
-    """Create a conversation in DB."""
-    try:
-        conv = await create_conversation(db=db, conversation_in=conversation_in)
-        return ConversationInDB.model_validate(conv)
-    except Exception as e:
-        logger.error("Error creating conversation: %s", e)
-        raise HTTPException(status_code=500, detail="Error creating conversation")
-
-
-@api_router.post("/title/generate", response_model=TitleGenerateResponse)
-async def generate_title(request: TitleGenerateRequest) -> TitleGenerateResponse:
-    """
-    Generate a conversation title using the default LLM.
-
-    Uses system/user message separation to prevent prompt injection.
-    """
-    try:
-        model_id = ModelManager.get_default_llm_id()
-        if not model_id:
-            raise ValueError("No default LLM configured")
-
-        router = await ModelManager.get_router()
-        if not router:
-            raise ValueError("Model router not initialized")
-
-        # Use chat message format to isolate user input from system prompt (prevents prompt injection)
-        # Truncate user input to limit injection surface
-        truncated_user_msg = request.user_message[:200]
-
-        if request.ai_response:
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Based on the following conversation, generate a concise title "
-                        "(max 20 characters, in the same language as the conversation). "
-                        "Only output the title, nothing else."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": f"User: {truncated_user_msg}\nAI: {request.ai_response[:200]}",
-                },
-            ]
-        else:
-            messages = [
-                {
-                    "role": "system",
-                    "content": (
-                        "Generate a concise title (max 20 characters, in the same language) "
-                        "for this message. Only output the title, nothing else."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": truncated_user_msg,
-                },
-            ]
-
-        # Direct LiteLLM call (bypassing LangChain to avoid pydantic warnings)
-        resp = await router.acompletion(
-            model=model_id,
-            messages=messages,  # type: ignore[arg-type]
-        )
-
-        content = resp.choices[0].message.content
-        title = content.strip() if content else ""
-        if title.startswith('"') and title.endswith('"'):
-            title = title[1:-1]
-        elif title.startswith("'") and title.endswith("'"):
-            title = title[1:-1]
-        if len(title) > 50:
-            title = title[:47] + "..."
-
-        return TitleGenerateResponse(title=title)
-
-    except Exception as e:
-        logger.error("Error generating title: %s", e)
-        fallback = request.user_message[:30]
-        if len(request.user_message) > 30:
-            fallback += "..."
-        return TitleGenerateResponse(title=fallback)
-
-
-@api_router.get("/thinking-mode")
-async def get_thinking_mode_status() -> dict[str, bool]:
-    """Check if thinking mode is available."""
-    return {"available": ModelManager.is_thinking_mode_available()}
-
-
-@api_router.delete("/conversations/{thread_id}", status_code=204)
-async def delete_conversation(
-    thread_id: UUID,
-    db: AsyncSession = Depends(get_db),
-) -> None:
-    """Soft-delete a conversation by thread_id."""
-    try:
-        deleted = await soft_delete_conversation_by_thread_id(
-            db=db, thread_id=thread_id
-        )
-        if not deleted:
-            raise HTTPException(status_code=404, detail="Conversation not found")
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Error deleting conversation %s: %s", thread_id, e)
-        raise HTTPException(status_code=500, detail="Error deleting conversation")
-
-
-@api_router.get("/stats/daily")
-async def get_daily_stats(
-    days: int = Query(
-        30,
-        ge=1,
-        le=365,
-        description="Number of days to retrieve statistics for (1-365)",
-    ),
-    db: AsyncSession = Depends(get_db),
-) -> list[dict[str, int | str]]:
-    """Get daily conversation count and token usage statistics."""
-    try:
-        stats = await get_daily_conversation_stats(db=db, days=days)
-        return stats
-    except Exception as e:
-        logger.error("Error retrieving daily statistics: %s", e)
-        raise HTTPException(status_code=500, detail="Error retrieving daily statistics")

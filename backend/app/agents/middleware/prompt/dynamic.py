@@ -75,25 +75,18 @@ def make_dynamic_prompt(
     def _dynamic_prompt(request: ModelRequest) -> str:
         """Generate system prompt before each model call.
 
-        Reads runtime context to assemble:
-        - MD template with time context
+        Reads ``timezone`` from the runtime context (dataclass attribute access)
+        and assembles the MD template with time-context substitution.
+
+        Per the LangChain v1 official pattern, all agents in this project MUST
+        use a ``@dataclass`` for ``context_schema`` — dict / TypedDict contexts
+        are not supported.
         """
         svc = get_prompt_service()
 
-        # Default values
         timezone = default_timezone
-
-        # Extract timezone from runtime context (dataclass or dict)
         if request.runtime is not None and request.runtime.context is not None:
-            ctx = request.runtime.context
-
-            # dataclass context (e.g. ChatbotContext.timezone) — preferred
-            # dict context (e.g. TypedDict) — supported for future agent types
-            if isinstance(ctx, dict):
-                tz = ctx.get("timezone")
-            else:
-                tz = getattr(ctx, "timezone", None)
-
+            tz = getattr(request.runtime.context, "timezone", None)
             if tz:
                 timezone = tz
 

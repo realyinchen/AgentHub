@@ -51,9 +51,9 @@ def get_system_default_llm() -> ChatLiteLLM:
     # Parse provider from "provider/model-id" (validator enforces "/" presence)
     provider = settings.DEFAULT_LLM_MODEL.split("/", 1)[0]
 
-    # Built via **kwargs to mirror app.infra.llm.factory.get_chat_litellm() —
-    # `drop_params` and `extra_body` are valid LiteLLM kwargs forwarded to the
-    # underlying provider, though Pylance can't statically see them.
+    # Built via **kwargs — `drop_params` and `extra_body` are valid LiteLLM
+    # kwargs forwarded to the underlying provider, though Pylance can't
+    # statically see them.
     llm_kwargs: dict[str, Any] = {
         "model": settings.DEFAULT_LLM_MODEL,
         "api_key": settings.DEFAULT_LLM_API_KEY.get_secret_value(),

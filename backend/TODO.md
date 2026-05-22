@@ -4,51 +4,51 @@ FastAPI + LangChain 最佳实践深度评审
 
 ```
 backend/app/
-├── main.py                    # FastAPI 入口 + lifespan
-├── api/                       # HTTP 接口层
-│   ├── errors.py              # 全局异常处理
-│   └── v1/
-│       ├── router.py          # 路由聚合
-│       ├── dependencies.py    # 依赖注入 (get_db)
-│       ├── chat.py            # 流式/非流式对话、历史
-│       ├── chat_title.py      # 标题 CRUD + 自动生成
-│       ├── chat_session.py    # 会话管理、统计、thinking 模式
-│       ├── agent.py           # Agent 发现与配置
-│       ├── model.py           # 模型 CRUD 与选择
-│       ├── provider.py        # API Key 配置管理
-│       ├── stream.py          # SSE 流式引擎
-│       └── trace.py           # Trace Kanban 路由
-├── agents/                    # Agent 运行时层
-│   ├── __init__.py            # 自动发现 (pkgutil)
-│   ├── registry.py            # 中央注册表 (DB + 原子快照)
-│   ├── middleware/             # 共享中间件 (所有 Agent 复用)
-│   │   ├── model/dynamic.py   # @wrap_model_call 动态模型选择
-│   │   └── prompt/
-│   │       ├── dynamic.py     # make_dynamic_prompt(agent_id)
-│   │       └── service.py     # PromptService (可配置路径)
-│   ├── chatbot/               # Agent: 通用对话机器人
-│   │   ├── agent.py           # create_agent + register_factory
-│   │   └── types.py           # ChatbotContext
-│   ├── rag_agent/             # (未来) RAG 检索增强 Agent
-│   ├── research/              # (未来) 深度研究 Agent
-│   └── multi_agent/           # (未来) 多 Agent 协作 Supervisor
-├── infra/                     # 基础设施层
-│   ├── config.py              # pydantic-settings (单一配置源)
-│   ├── database/              # 工厂模式，PG/SQLite 双后端
-│   ├── llm/                   # Litellm 网关、模型缓存、extra_body
-│   └── tools/                 # 基础工具 (time, web, sql, vectorstore)
-├── models/                    # SQLAlchemy ORM 模型
-├── schemas/                   # Pydantic v2 请求/响应 Schema
-├── crud/                      # 异步数据库操作
-├── observability/             # 只读追踪重建
-│   ├── trace.py               # TraceBuilder
-│   └── parsers.py             # 消息内容解析
-├── utils/                     # 共享工具
-│   ├── message_converters.py  # 统一消息转换 (单一来源)
-│   ├── request_handler.py     # 请求→Agent 参数转换
-│   ├── crypto.py              # AES-GCM 加密
-│   └── async_writer.py        # 异步写入队列
-└── prompts/                   # 系统提示词 MD 模板
+├── main.py                    # FastAPI 入口 + lifespan
+├── api/                       # HTTP 接口层
+│   ├── errors.py              # 全局异常处理
+│   └── v1/
+│       ├── router.py          # 路由聚合
+│       ├── dependencies.py    # 依赖注入 (get_db)
+│       ├── chat.py            # 流式/非流式对话、历史
+│       ├── chat_title.py      # 标题 CRUD + 自动生成
+│       ├── chat_session.py    # 会话管理、统计、thinking 模式
+│       ├── agent.py           # Agent 发现与配置
+│       ├── model.py           # 模型 CRUD 与选择
+│       ├── provider.py        # API Key 配置管理
+│       ├── stream.py          # SSE 流式引擎
+│       └── trace.py           # Trace Kanban 路由
+├── agents/                    # Agent 运行时层
+│   ├── __init__.py            # 自动发现 (pkgutil)
+│   ├── registry.py            # 中央注册表 (DB + 原子快照)
+│   ├── middleware/             # 共享中间件 (所有 Agent 复用)
+│   │   ├── model/dynamic.py   # @wrap_model_call 动态模型选择
+│   │   └── prompt/
+│   │       ├── dynamic.py     # make_dynamic_prompt(agent_id)
+│   │       └── service.py     # PromptService (可配置路径)
+│   ├── chatbot/               # Agent: 通用对话机器人
+│   │   ├── agent.py           # create_agent + register_factory
+│   │   └── types.py           # ChatbotContext
+│   ├── rag_agent/             # (未来) RAG 检索增强 Agent
+│   ├── research/              # (未来) 深度研究 Agent
+│   └── multi_agent/           # (未来) 多 Agent 协作 Supervisor
+├── infra/                     # 基础设施层
+│   ├── config.py              # pydantic-settings (单一配置源)
+│   ├── database/              # 工厂模式，PG/SQLite 双后端
+│   ├── llm/                   # Litellm 网关、模型缓存、extra_body
+│   └── tools/                 # 基础工具 (time, web, sql, vectorstore)
+├── models/                    # SQLAlchemy ORM 模型
+├── schemas/                   # Pydantic v2 请求/响应 Schema
+├── crud/                      # 异步数据库操作
+├── observability/             # 只读追踪重建
+│   ├── trace.py               # TraceBuilder
+│   └── parsers.py             # 消息内容解析
+├── utils/                     # 共享工具
+│   ├── message_converters.py  # 统一消息转换 (单一来源)
+│   ├── request_handler.py     # 请求→Agent 参数转换
+│   ├── crypto.py              # AES-GCM 加密
+│   └── async_writer.py        # 异步写入队列
+└── prompts/                   # 系统提示词 MD 模板
 ├── chatbot.md
 ├── rag_agent.md
 └── research.md
@@ -161,33 +161,24 @@ async def invoke(user_input: UserInput) -> ChatMessage:
 
 ## 二、Agent / LangChain 层面的问题
 
-### A-1 🟡 `middleware/model/dynamic.py` 中 dict/object 双路径判断不够优雅
+### A-1 ~~🟡~~ ✅ `middleware/model/dynamic.py` 中 dict/object 双路径判断不够优雅（已修复）
 
-**文件**: `agents/middleware/model/dynamic.py:58-68`
-```python
-ctx = request.runtime.context
-model_name = getattr(ctx, "model_name", None)
-if model_name is None and isinstance(ctx, dict):
-    model_name = ctx.get("model_name")
-```
+**文件**: `agents/middleware/model/dynamic.py`
 
-**问题**: 每次请求都要判断一次 `isinstance(ctx, dict)`。在目标架构中，所有 Agent 都使用 `context_schema`（dataclass），dict 路径是向后兼容的冗余。
-
-**建议**: 删除 dict 路径（当前仅 chatbot agent 使用，统一 dataclass 后不再需要），减少每次模型调用时的分支判断。
+**修复内容（Phase 3）**:
+- 删除 `isinstance(ctx, dict)` 分支，仅保留 `getattr(ctx, "model_name", None)`
+- 每次模型调用减少一次类型判断
+- 明确文档：所有 Agent MUST 使用 `@dataclass` 作为 `context_schema`（符合 LangChain v1 官方模式）
 
 ---
 
-### A-2 🟡 `middleware/prompt/dynamic.py` 中同样有 dict/object 双路径判断
+### A-2 ~~🟡~~ ✅ `middleware/prompt/dynamic.py` 中同样有 dict/object 双路径判断（已修复）
 
-**文件**: `agents/middleware/prompt/dynamic.py:87-98`
-```python
-if isinstance(ctx, dict):
-    tz = ctx.get("timezone")
-else:
-    tz = getattr(ctx, "timezone", None)
-```
+**文件**: `agents/middleware/prompt/dynamic.py`
 
-与 A-1 相同问题。
+**修复内容（Phase 3）**:
+- 删除 `isinstance(ctx, dict)` 分支
+- 仅保留 `getattr(request.runtime.context, "timezone", None)` 单路径
 
 ---
 
@@ -228,32 +219,23 @@ def _get_tools():
 
 **文件**: `infra/llm/__init__.py`
 
-**修复内容（Phase 1）**:
-- 移除 `build_extra_body` 从公开导出（仅 `factory.py` 内部使用）
-- 移除 `is_thinking_mode_available` 从公开导出（已归入 `ModelManager`）
-- 公开 API 从 6→4 符号：`ModelManager`, `get_model_manager`, `get_llm`, `get_chat_litellm`
-- `get_chat_litellm` 和 `get_llm` 的合并（P16）留待 Phase 3
+**修复内容（Phase 1 + Phase 3）**:
+- Phase 1: 移除 `build_extra_body` / `is_thinking_mode_available` 从公开导出（6→5 符号）
+- Phase 3: 移除 `get_chat_litellm`（5→4 符号）
+- 当前公开 API：`ModelManager`, `get_model_manager`, `get_llm`, `get_system_default_llm`
 
 ---
 
-### I-2 🟡 `factory.py` 中 `get_llm()` 和 `get_chat_litellm()` 的逻辑 70% 重叠
+### I-2 ~~🟡~~ ✅ `factory.py` 中 `get_llm()` 和 `get_chat_litellm()` 的逻辑 70% 重叠（已修复）
 
 **文件**: `infra/llm/factory.py`
 
-两者都做：读 model config → 读 provider → 解密 API key → 构建 extra_body → 组装 kwargs。
-
-**建议**: 合并为一个 `ChatModelFactory` 类，通过参数控制 Router 层：
-```python
-class ChatModelFactory:
-    @staticmethod
-    def create(
-        model_id: str,
-        thinking_mode: bool = False,
-        temperature: float = 0,
-        use_router: bool = True,  # True → Router; False → 直接 ChatLiteLLM
-    ) -> BaseChatModel:
-        ...
-```
+**修复内容（Phase 3）**:
+- 经全代码库 grep 确认 `get_chat_litellm()` 零调用方（仅 docstring 中被自引用）
+- 直接删除 `get_chat_litellm()` 函数（67 行）—— 用户确认采用"直接删除"而非"合并"方案
+- 删除 `langchain_litellm.ChatLiteLLM` / `decrypt_api_key` / `Any` 等仅由该函数使用的 import
+- `factory.py` 从 171 行降至 90 行，公开 API 收敛到单一 `get_llm()` 工厂
+- 若未来 LangGraph `bind_tools` 场景需要直接 ChatLiteLLM，再单独引入新工厂（YAGNI 原则）
 
 ---
 
@@ -346,16 +328,15 @@ from app.utils.message_converters import extract_text, extract_thinking, get_too
 
 ## 五、Data & Schemas 层面的问题
 
-### S-1 ~~🟡~~ ✅ `schemas/chat.py` 中的 `UserInput` 职责已精简（Phase 2 间接修复）
+### S-1 ~~🟡~~ ✅ `schemas/chat.py` 中的 `UserInput` 职责已精简（Phase 2 间接修复 + Phase 3 完善）
 
 `UserInput` 当前仅用于：
 1. Stream 请求体（`/chat/stream`）
 2. Invoke 请求体（`/chat/invoke`）
 3. `build_agent_kwargs()` 参数（已从 `handle_input` 迁移）
 
-已删除的旧用途：`get_request_context()` 参数（函数已随 P4 删除）。
-
-**建议**: 保持单一 Pydantic 模型，但明确其作为 "Chat Request DTO" 的定位，所有 chat 端点统一使用。
+**Phase 3 完善**: 为 `schemas/chat.py` 新增 module docstring，明确将其定位为 "Chat Request DTO" 单一来源；
+同时删除了 `MessageStep` 死代码（90 行，从未被任何路由 / CRUD / 测试引用）。
 
 ---
 
@@ -375,8 +356,8 @@ from app.utils.message_converters import extract_text, extract_thinking, get_too
 | P12 | FastAPI | `handle_input()` 职责错位放在 utils | 中 | ✅ | `message_utils.py` |
 | P13 | FastAPI | token usage 提取仅 stream 有，invoke 没有 | 中 | ⬜ | `stream.py` |
 | P14 | FastAPI | `RequestContext` 与 `ChatbotContext` 语义重叠 | 低 | ✅ | `dependencies.py` |
-| P15 | Agent | `dynamic.py` 中 dict/object 双路径分支 | 中 | ⬜ | `middleware/model/` + `middleware/prompt/` |
-| P16 | Infra | `get_llm()` 和 `get_chat_litellm()` 70% 重复 | 中 | ⬜ | `llm/factory.py` |
+| P15 | Agent | `dynamic.py` 中 dict/object 双路径分支 | 中 | ✅ | `middleware/model/` + `middleware/prompt/` |
+| P16 | Infra | `get_llm()` 和 `get_chat_litellm()` 70% 重复 | 中 | ✅ | `llm/factory.py` |
 | P17 | Infra | `ModelManager` classmethod 模式不利测试 | 低 | ⬜ | `llm/model_manager.py` |
 | P18 | Infra | `__init__.py` 导出过多内部实现 | 低 | ✅ | `llm/__init__.py` |
 | P19 | Observability | `CheckpointTraceReader` 门面过度抽象（强化 P3） | 高 | ⬜ | `observability/__init__.py` |
@@ -393,10 +374,10 @@ from app.utils.message_converters import extract_text, extract_thinking, get_too
 | 2 | 1 | P5+P18+F-6 | 统一 thinking_mode + 精简 llm/__init__.py | ✅ | 低 |
 | 3 | 2 | P1+P11+P12+P20 | 消息转换合一 + 请求处理独立 | ✅ | 中 |
 | 4 | 2 | P3+P19 | 删除 CheckpointTraceReader | ⬜ | 中 |
-| 5 | 3 | P15 | 删除 dict/object 双路径 | ⬜ | 中 |
-| 6 | 3 | P16 | 合并 get_llm + get_chat_litellm | ⬜ | 中 |
-| 7 | 3 | P6 | 拆分 chat.py 路由 | ⬜ | 中 |
-| 8 | 3 | P7 | 拆分 schemas/trace | ⬜ | 中 |
+| 5 | 3 | P15 | 删除 dict/object 双路径 | ✅ | 中 |
+| 6 | 3 | P16 | 删除 get_chat_litellm 死代码 | ✅ | 中 |
+| 7 | 3 | P6 | 拆分 chat.py 路由 | ✅ | 中 |
+| 8 | 3 | P7 | schemas 整理（方案 A：保留单文件 + 删 MessageStep） | ✅ | 中 |
 | 9 | 4 | P13 | invoke 端点增加 token usage | ⬜ | 低 |
 | 10 | 4 | P9+I4 | 配置化 PROMPTS_DIR | ⬜ | 低 |
 | 11 | 4 | P17 | ModelManager 改为实例单例 | ⬜ | 低 |
@@ -409,11 +390,11 @@ from app.utils.message_converters import extract_text, extract_thinking, get_too
 
 | 维度 | 初始评分 | 当前评分 | 目标评分 | 说明 |
 |------|:---:|:---:|:---:|------|
-| **代码重复** | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 消息提取 3→1 ✅，LLM 工厂 2→1 ⬜ |
+| **代码重复** | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 消息提取 3→1 ✅，LLM 工厂 2→1 ✅ |
 | **抽象适度** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | RequestContext ✅，CheckpointTraceReader ⬜ |
-| **模块边界** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | handle_input 移正 ✅，chat.py 拆分 ⬜ |
+| **模块边界** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | handle_input 移正 ✅，chat.py 拆分为 3 个聚焦文件 ✅ |
 | **配置管理** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | PROMPTS_DIR 配置化 ⬜ |
-| **类型安全** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | dict 双路径待删 ⬜ |
+| **类型安全** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | dict 双路径已删 ✅ |
 | **可测试性** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ModelManager 实例化 ⬜ |
 | **异步一致性** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | invoke token usage ⬜ |
 | **API 完整性** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 29 端点全保留 ✅ |
@@ -433,7 +414,7 @@ P5(thinking_mode分散) ── P18(llm/__init__导出过多) ── F-6(is_think
 
 P6(chat.py拆分) ── 独立操作
 
-P16(LLM工厂合并) ── 独立操作
+P16(get_chat_litellm) ── 独立操作（删除死代码）
 
 P15(dict/object双路径) ── 独立操作（依赖所有Agent统一使用dataclass context_schema）
 
@@ -455,15 +436,15 @@ Phase 0 (安全清理, 0 风险)                                                
 Phase 1 (低风险重构)                                                      [DONE]
 ├── Step 2: P5+P18+F-6  统一thinking_mode + 精简llm/__init__.py          ✅
 
-Phase 2 (中风险, 互相依赖的放一起)                                        [DONE]
+Phase 2 (中风险, 互相依赖的放一起)                                        [PARTIAL]
 ├── Step 3: P1+P11+P12+P20  消息转换合一 + 请求处理独立                   ✅
 ├── Step 4: P3+P19  删除CheckpointTraceReader                            ⬜
 
-Phase 3 (结构调整)
-├── Step 5: P15  删除dict/object双路径                                   ⬜
-├── Step 6: P16  合并get_llm + get_chat_litellm                          ⬜
-├── Step 7: P6   拆分chat.py路由                                          ⬜
-├── Step 8: P7   拆分schemas/trace                                        ⬜
+Phase 3 (结构调整)                                                        [DONE]
+├── Step 5: P15  删除dict/object双路径                                   ✅
+├── Step 6: P16  删除get_chat_litellm 死代码                              ✅
+├── Step 7: P6   拆分chat.py路由                                          ✅
+├── Step 8: P7   schemas/trace 内部分组 + 删除 MessageStep                ✅
 
 Phase 4 (补充完善)
 ├── Step 9:  P13  invoke增加token usage                                   ⬜
@@ -475,7 +456,7 @@ Phase 4 (补充完善)
 
 **每 Phase 完成后，29 个 API 端点的行为必须完全不变。**
 
-## 十一、Phase 0+1+2 已完成汇总
+## 十一、Phase 0+1+2+3 已完成汇总
 
 ### Phase 1 (P5 + P18 + F-6)
 
@@ -486,7 +467,7 @@ Phase 4 (补充完善)
 |------|------|
 | `infra/llm/model_manager.py` | `is_thinking_mode_available()` 支持 `model_id=None` 自动解析默认 LLM（+7 行） |
 | `infra/llm/factory.py` | 删除独立 `is_thinking_mode_available()` 函数（-7 行），docstring 更新 |
-| `infra/llm/__init__.py` | 公开 API 从 6→4 符号，移除 `build_extra_body` 和 `is_thinking_mode_available` |
+| `infra/llm/__init__.py` | 公开 API 从 6→5 符号，移除 `build_extra_body` 和 `is_thinking_mode_available` |
 | `api/v1/chat.py` | 导入路径 `is_thinking_mode_available` → `ModelManager.is_thinking_mode_available()` |
 
 **解决**: P5, P18, F-6 (3/21 问题)
@@ -495,8 +476,7 @@ Phase 4 (补充完善)
 
 ### Phase 0+2
 
-
-**执行日期**: 2026-05-21  
+**执行日期**: 2026-05-21
 **修改文件**: 7 个
 
 | 文件 | 变更 |
@@ -513,8 +493,37 @@ Phase 4 (补充完善)
 
 ---
 
-**全部已解决**: P1, P4, P5, P11, P12, P14, P18, P20, F-6 (9/21 问题)  
-**剩余**: P3, P19, P15, P16, P6, P7, P13, P9, I4, P17, P21, P10 (12 问题)
+### Phase 3 (P15 + P16 + P6 + P7)
+
+**执行日期**: 2026-05-22
+**修改文件**: 10 个（含 2 个新建）
+
+| 文件 | 变更 |
+|------|------|
+| `infra/llm/factory.py` | 删除 `get_chat_litellm()` 死代码（67 行）+ 清理未用 import；171→90 行 |
+| `infra/llm/__init__.py` | 公开 API 从 5→4 符号，移除 `get_chat_litellm`；docstring 同步更新 |
+| `infra/llm/system.py` | docstring 移除对 `get_chat_litellm` 的引用 |
+| `agents/middleware/model/dynamic.py` | 删除 `isinstance(ctx, dict)` 分支，仅保留 dataclass 路径 |
+| `agents/middleware/prompt/dynamic.py` | 删除 `isinstance(ctx, dict)` 分支，仅保留 dataclass 路径 |
+| `api/v1/chat.py` | 精简到 stream / invoke / history（404→180 行） |
+| `api/v1/chat_title.py` | **新建** — 标题 GET/POST/generate（`tags=["Chat"]` 与原保持一致） |
+| `api/v1/chat_session.py` | **新建** — 会话 CRUD + stats + thinking-mode |
+| `api/v1/router.py` | include 三个新路由 |
+| `schemas/chat.py` | 删除 `MessageStep` 死代码（90 行）+ 新增 module docstring 标明 "Chat Request DTO" 单一来源 |
+| `schemas/trace.py` | 内部按 4 个章节分组（CheckpointInfo / StepOutput / DAG / Listing），保留单文件易索引性 |
+
+**解决**: P6, P7, P15, P16 (4/21 问题)
+
+**验证**:
+- ✅ `app.main` 干净导入
+- ✅ API 端点总数 33 = 28 业务 + 1 health + 4 docs
+- ✅ `/api/v1/chat/*` 11 个端点路径/方法/`tags=["Chat"]` 全部与原始一致
+- ✅ 全代码库零 `get_chat_litellm` / `MessageStep` 引用
+- ✅ `app.infra.llm.__all__` = `['ModelManager', 'get_model_manager', 'get_llm', 'get_system_default_llm']`
 
 ---
 
+**全部已解决**: P1, P4, P5, P6, P7, P11, P12, P14, P15, P16, P18, P20, F-6 (13/21 问题)
+**剩余**: P3, P19, P13, P9, I4, P17, P21, P10 (8 问题)
+
+---

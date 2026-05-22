@@ -1,12 +1,27 @@
-"""Schemas for Agent Trace functionality."""
+"""Schemas for Agent Trace observability.
+
+Single-file home for all trace-related Pydantic schemas. Grouped into four
+logical sections via comment banners — keep this file modular by section,
+not by separate files, since all schemas operate on the same data flow
+(checkpoint → step → DAG → list view).
+
+Sections:
+    1. Checkpoint info — low-level LangGraph checkpoint metadata
+    2. Step output     — per-message step model (replaces the legacy
+                         ``MessageStep`` schema) + per-type metadata
+    3. Execution DAG   — node + edge representation for visualization
+    4. Trace listing   — paginated list view for the Trace Kanban UI
+"""
 
 import logging
 from datetime import datetime
 from pydantic import BaseModel, Field
-from typing import Any, Optional
 
 
 logger = logging.getLogger(__name__)
+
+
+# ── 1. Checkpoint info ─────────────────────────────────────────────────
 
 
 class CheckpointInfo(BaseModel):
@@ -21,6 +36,9 @@ class CheckpointInfo(BaseModel):
     last_message_type: str | None = None
     has_next: bool = False
     next_nodes: list[str] = Field(default_factory=list)
+
+
+# ── 2. Step output ─────────────────────────────────────────────────────
 
 
 class AIStepMetadata(BaseModel):
@@ -40,12 +58,11 @@ class ToolStepMetadata(BaseModel):
 
 
 class StepOutput(BaseModel):
-    """
-    Unified output schema for any message step.
+    """Unified output schema for any message step.
 
     Represents a single step in the agent execution, whether it's a human input,
-    AI response, or tool execution. This replaces the old MessageStep schema and
-    is populated directly from LangGraph checkpointer data.
+    AI response, or tool execution. Populated directly from LangGraph
+    checkpointer data via ``observability.TraceBuilder``.
     """
 
     step_number: int = Field(description="Step number within the turn")
@@ -65,6 +82,9 @@ class StepOutput(BaseModel):
     tool_metadata: ToolStepMetadata | None = Field(
         None, description="Tool-specific metadata (name, args, output, etc.)"
     )
+
+
+# ── 3. Execution DAG ───────────────────────────────────────────────────
 
 
 class DagNode(BaseModel):
@@ -96,6 +116,9 @@ class ExecutionTrace(BaseModel):
     total_steps: int = Field(description="Total number of steps")
     first_step_at: datetime | None = Field(None, description="When execution started")
     last_step_at: datetime | None = Field(None, description="When execution ended")
+
+
+# ── 4. Trace listing ───────────────────────────────────────────────────
 
 
 class TraceListItem(BaseModel):

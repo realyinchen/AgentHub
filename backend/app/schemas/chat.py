@@ -1,3 +1,13 @@
+"""Chat request/response schemas.
+
+This module hosts the Pydantic schemas exposed by the ``/chat/*`` endpoints
+(stream, invoke, history, title, conversations, stats). It is intentionally
+the single source of truth for the **chat request DTO** (``UserInput``) used
+by both the stream and invoke endpoints.
+
+Trace / observability schemas live in ``app.schemas.trace``.
+"""
+
 from pydantic import BaseModel, ConfigDict, Field
 from typing import Any, Literal
 from uuid import UUID
@@ -12,79 +22,6 @@ class ToolCall(BaseModel):
     name: str = Field(description="Tool name")
     args: dict[str, Any] = Field(default={}, description="Tool arguments")
     id: str | None = Field(default=None, description="Tool call ID")
-
-
-class MessageStep(BaseModel):
-    """Single step in the agent execution sequence for sidebar display.
-
-    Each step represents a message in the conversation flow.
-    Steps are numbered sequentially (Step 1, Step 2, etc.)
-
-    Types:
-    - human: User message with content
-    - ai: AI message with thinking, content, and optional tool_calls
-    - tool: Tool execution with name, args, and output
-    """
-
-    session_id: UUID = Field(
-        description="Session ID that groups steps from the same conversation turn",
-        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
-    )
-    step_number: int = Field(
-        description="Step number (1-indexed)",
-        examples=[1, 2, 3],
-    )
-    message_type: Literal["human", "ai", "tool"] = Field(
-        description="Type of the step: human, ai, or tool",
-        examples=["human", "ai", "tool"],
-    )
-    # Content field (for human and ai types)
-    content: str | None = Field(
-        description="Message content (for human and ai types)",
-        default=None,
-        examples=["What's the weather in Beijing?"],
-    )
-    # AI message fields
-    thinking: str | None = Field(
-        description="Thinking/reasoning content (for ai type)",
-        default=None,
-        examples=["用户想了解北京天气..."],
-    )
-    tool_calls: list[ToolCall] | None = Field(
-        description="Tool calls from AI message (for ai type with tool calls)",
-        default=None,
-    )
-    # Tool fields (for tool type)
-    tool_name: str | None = Field(
-        description="Tool name (for tool type)",
-        default=None,
-        examples=["get_weather", "search_web"],
-    )
-    tool_args: dict[str, Any] | None = Field(
-        description="Tool call arguments (for tool type)",
-        default=None,
-        examples=[{"city": "Beijing"}],
-    )
-    tool_output: str | None = Field(
-        description="Tool execution result (for tool type)",
-        default=None,
-        examples=["晴天, 25°C"],
-    )
-    tool_call_id: str | None = Field(
-        description="Tool call ID for matching (for tool type)",
-        default=None,
-    )
-    # Additional fields for DAG visualization
-    model_name: str | None = Field(
-        description="Model name used for AI response (for ai type)",
-        default=None,
-        examples=["qwen-plus", "glm-4"],
-    )
-    latency_ms: int | None = Field(
-        description="Step execution latency in milliseconds",
-        default=None,
-        examples=[450, 1200],
-    )
 
 
 class UserInput(BaseModel):
