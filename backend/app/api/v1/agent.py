@@ -86,7 +86,10 @@ async def update_agent(
     if body.is_active is not None:
         row.is_active = body.is_active
 
-    await db.commit()
+    # Flush to push UPDATE to the DB so refresh() can read server-side fields,
+    # but defer commit to the get_db()/db.session() context manager
+    # (project rule: business code must not commit/rollback directly).
+    await db.flush()
     await db.refresh(row)
 
     await reload_agent(agent_id)

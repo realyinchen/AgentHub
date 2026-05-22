@@ -1,6 +1,6 @@
 # 项目进度 — 重构
 
-**最后更新**: 2026-05-20
+**最后更新**: 2026-05-22
 
 ---
 
@@ -110,6 +110,18 @@
 | Pydantic v1 `class Config` 遗留 | 4 个 schema | 0 | 全部升级到 v2 |
 
 ---
+
+### PR-A: 零风险清理 ✅ 完成（2026-05-22）
+| # | Issue | 操作 |
+|---|-------|------|
+| **N1** | `app/tools/` 整目录是死代码 | 删除 5 个 .py（`__init__.py` / `time.py` / `web.py` / `execute_sql_query.py` / `vectorstore_retriever.py`）+ `__pycache__/`；全代码库 `from app.tools` 真实匹配 = 0 |
+| **F-I** | `api/v1/agent.py:89` 双 commit 违反全局规范 | `await db.commit()` → `await db.flush()`；commit 由 `get_db()` 的 `db.session()` 上下文管理器统一收尾 |
+| **验证** | 语法检查 | `ast.parse(agent.py)` 通过；OpenAPI 33 端点未变化（无端点签名/路径/响应模型修改） |
+
+#### PR-A 关键收益
+- **代码重复 ⭐⭐⭐⭐ → ⭐⭐⭐⭐⭐**：`app/tools/` 误导性的"平行目录"消失，唯一的工具实现源在 `app/infra/tools/`
+- **事务规范一致性**：API 层零 `db.commit()`（grep 全量确认），全部依赖 `session()` 上下文管理器
+- **零行为变化**：33 个端点行为完全不变，OpenAPI schema 无差异
 
 ### P3: 模型架构重新组织 ✅ 完成
 | # | Issue | 操作 |

@@ -2,9 +2,9 @@
 
 ## Current Focus
 
-**P2 Refactoring Complete** (May 20, 2026)
+**PR-A Complete** (May 22, 2026)
 
-P2 ("结构精简 — 删繁就简") is complete. Builds on P1 to eliminate accidental complexity in the infrastructure layer.
+Working through the 20-item TODO from the architecture review (`backend/TODO.md`). PR-A (zero-risk safety deletions) is complete. Next: PR-B (delete `CheckpointTraceReader` facade + fix `stream.py` private attribute access).
 
 ### P3 Changes Summary
 
@@ -128,15 +128,32 @@ P1 ("用官方范式替代自造轮子") replaced custom code with LangChain off
 - ChatbotContext dataclass for typed runtime context
 - v3 BetaWarning accepted per user decision
 
-### Next Steps
+### PR-A Changes Summary (May 22, 2026)
 
-P3 — minor cleanup tasks:
-- Pydantic v2 `model_config = ConfigDict(...)` migration for `ConversationInDB`
-- Move `trace.py` DB queries into `crud/chat.py` (layer separation)
-- Unify `ProviderInfo` definition (currently in 2 places)
-- Unify runtime context: prefer `context` parameter over `config["configurable"]["user_id"]`
+1. **Deleted `app/tools/` directory (N1)** — 5 dead .py files + `__pycache__/`
+   - `from app.tools` had zero callers in the entire codebase
+   - The real tools live in `app/infra/tools/` (used by `chatbot.py`)
+   - **Why**: Eliminates 5 misleading files that mirrored the actual `infra/tools/` structure
 
-## Recent Decisions (P2)
+2. **Fixed double commit in `agent.py` (F-I)** — `await db.commit()` → `await db.flush()`
+   - `get_db()` dependency uses `db.session()` which auto-commits on context exit
+   - The explicit `db.commit()` was a redundant second commit, violating project rule "business code must not commit/rollback directly"
+   - `flush()` still pushes the UPDATE to DB so `refresh()` can read server-side fields
+   - **Why**: Aligns with `systemPatterns.md` transaction commit convention; prevents potential transaction-semantic confusion
+
+### Next Steps (from TODO.md)
+
+**PR-B** (low risk, high ROI):
+- P3/P19: Delete `CheckpointTraceReader` facade class (6 callers → direct delegation)
+- N2: Add `ModelManager.get_first_active_llm_id()` public method, replace `stream.py`'s access to `_models_cache` private attribute
+
+**PR-C** (medium risk, needs regression):
+- N3: Unify `chat_title.generate_title` to use `get_system_default_llm()` instead of bypassing the LLM factory
+
+## Recent Decisions (PR-A / P2)
+
+1. **PR-A: Dead tools dir is safe to delete** — `grep "from app.tools"` = 0 real matches; `chatbot.py` uses `app.infra.tools.*` exclusively
+2. **PR-A: `flush()` is the correct fix** — SQLAlchemy `flush()` pushes pending SQL to the DB connection (same transaction), making data available for `refresh()`. The actual commit is left to the `session()` context manager per project convention
 
 1. **Strict init/get separation** — `get_database()` now raises if `init_database()` hasn't run. More predictable than lazy init; suitable for high-concurrency prod (no runtime lock overhead). Safe because `main.py` lifespan always calls `init_all()`
 2. **Keep package directory `infra/llm/` over flat `infra/llm.py`** — `from app.infra.llm import ...` works the same way; single `__init__.py` is logically the same as a single file, but doesn't require changing package vs. module decision (could collide with cached `__pycache__/llm.cpython-*.pyc`)
