@@ -280,6 +280,14 @@ class ModelManager:
         return cls._default_llm_id
 
     @classmethod
+    def get_first_active_llm_id(cls) -> Optional[str]:
+        """Return the first active LLM model_id from cache, or None."""
+        for m in cls._models_cache.values():
+            if getattr(m, "model_type", "llm") == "llm" and getattr(m, "is_active", False):
+                return str(m.model_id)
+        return None
+
+    @classmethod
     def get_default_vlm_id(cls) -> Optional[str]:
         return cls._default_vlm_id
 

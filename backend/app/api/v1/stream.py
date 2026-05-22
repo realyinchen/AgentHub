@@ -257,13 +257,10 @@ async def streaming_message_generator(
     # ── Validate model availability ────────────────────────────────
     initial_model = user_input.model_name
     if not initial_model:
-        initial_model = ModelManager.get_default_llm_id()
-        if not initial_model:
-            # Fallback: pick the first active LLM model
-            for m in ModelManager._models_cache.values():
-                if m.model_type == "llm" and m.is_active:
-                    initial_model = m.model_id
-                    break
+        initial_model = (
+            ModelManager.get_default_llm_id()
+            or ModelManager.get_first_active_llm_id()
+        )
         if not initial_model:
             logger.error("No models available for streaming")
             yield _sse_error(

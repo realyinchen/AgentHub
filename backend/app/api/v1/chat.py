@@ -25,7 +25,7 @@ from app.schemas.chat import (
 )
 from app.schemas.trace import StepOutput
 from app.agents.registry import get_graph
-from app.observability import CheckpointTraceReader
+from app.observability import TraceBuilder
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import (
     langchain_to_chat_message,
@@ -136,7 +136,7 @@ async def history(
         raise HTTPException(
             status_code=404, detail=f"Agent '{agent_id}' not found or not active"
         )
-    trace_reader = CheckpointTraceReader(agent)
+    trace_reader = TraceBuilder(agent)
     all_steps = await trace_reader.get_execution_trace(str(thread_id))
 
     # Build message_sequence for sidebar

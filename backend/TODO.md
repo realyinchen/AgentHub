@@ -1,6 +1,6 @@
 # FastAPI + LangChain 最佳实践深度评审
 
-> **状态**：已完成 Phase 0/1/2/3（共 13 项）+ PR-A（2 项），剩余 **18 个待办**
+> **状态**：已完成 Phase 0/1/2/3（共 13 项）+ PR-A（2 项）+ PR-B（2 项），剩余 **16 个待办**
 > **目标**：保持 33 个 API 端点行为完全不变的前提下，持续收敛代码复杂度与一致性。
 
 ---
@@ -74,37 +74,7 @@ backend/app/
 
 ### 🔴 P1 — 高 ROI（30 min 内，对架构整洁度提升明显）
 
-#### P3 / P19 / F-A 🔴 `CheckpointTraceReader` 是过度抽象门面
-**位置**：`observability/__init__.py:44-105`
-**问题**：6 处调用都是 100% 委派转发，无任何逻辑
-**操作**：
-1. 删除 `class CheckpointTraceReader` 整段
-2. `__all__` 改为 `["CheckpointReader", "TraceBuilder", "DagBuilder"]`
-3. 修改 6 处调用方（`chat.py:139` 1 处 + `trace.py:34/148/180/213/245/280` 6 处）：
-   - `get_checkpoint_history` → `CheckpointReader(agent)`
-   - `get_execution_trace / step / replay` → `TraceBuilder(agent)`
-   - `get_execution_dag` → `DagBuilder(agent)`
-
-#### N2 / C-3 🟡 `stream.py` 访问 `ModelManager._models_cache` 私有属性
-**位置**：`api/v1/stream.py:259-273`
-**操作**：在 `ModelManager` 中新增公开方法 `get_first_active_llm_id()`，`stream.py` 改用该方法
-
-```python
-# infra/llm/model_manager.py
-@classmethod
-def get_first_active_llm_id(cls) -> str | None:
-    """Return the first active LLM model_id, or None."""
-    for m in cls._models_cache.values():
-        if m.model_type == "llm" and m.is_active:
-            return m.model_id
-    return None
-
-# stream.py
-initial_model = (
-    ModelManager.get_default_llm_id()
-    or ModelManager.get_first_active_llm_id()
-)
-```
+> **PR-B 已完成（2026-05-22）**：P3/P19（删 CheckpointTraceReader）+ N2（修私有访问）。详见第七章。
 
 ---
 
@@ -196,7 +166,7 @@ def prompts_dir(self) -> Path:
 | PR | 内容 | 涉及文件 | 风险 | 行为变更 |
 |:---:|------|:---:|:---:|------|
 | ~~**PR-A**~~ | ✅ 已完成（2026-05-22）N1 删 `app/tools/` + F-I 修双 commit | 6 | 🟢 零 | 无 |
-| **PR-B** | P3/P19 删 CheckpointTraceReader + N2 修私有访问 | 4 | 🟡 低 | 无 |
+| ~~**PR-B**~~ | ✅ 已完成（2026-05-22）P3/P19 删 CheckpointTraceReader + N2 修私有访问 | 5 | 🟡 低 | 无 |
 | **PR-C** | N3 统一 title 走 `get_system_default_llm()` | 1 | 🟡 中 | LLM 调用栈变 |
 | **PR-D** | P13 invoke 补 token usage（新增 `utils/token_utils.py`） | 3 | 🟡 中 | invoke 现在写 DB |
 | **PR-E** | F-B/F-F trace 路由 agent 默认值 + 离线兜底 | 2 | 🟡 中 | trace 端点新行为 |
@@ -204,7 +174,7 @@ def prompts_dir(self) -> Path:
 | **PR-G**（延后） | P17 ModelManager 实例化 | 12+ | 🟡 中 | 无（仅测试友好性） |
 
 **建议节奏**：
-- ~~PR-A~~ ✅ 已完成、PR-B 本周做（零风险 + 高 ROI）
+- ~~PR-A~~ ✅ 已完成、~~PR-B~~ ✅ 已完成
 - PR-C、PR-D、PR-E 下周做（带业务回归）
 - PR-F 任意时间穿插
 - PR-G 等到引入测试基建时再做
@@ -273,17 +243,17 @@ diff <(jq -S . before.json) <(jq -S . after.json)
 | 维度 | 初始 | 当前 | 目标 | 说明 |
 |------|:---:|:---:|:---:|------|
 | **代码重复** | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | `app/tools/` 死目录已删 ✅ |
-| **抽象适度** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | CheckpointTraceReader 门面待删 |
+| **抽象适度** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | CheckpointTraceReader 门面已删 ✅ |
 | **模块边界** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | chat.py 拆分完成 ✅ |
 | **配置管理** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | PROMPTS_DIR 配置化 ⬜ |
 | **类型安全** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | `/chat/conversations` response_model ⬜ |
 | **可测试性** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ModelManager 实例化 ⬜ |
 | **异步一致性** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | invoke token usage ⬜ |
-| **封装** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | stream.py 访问私有属性 ⬜ |
+| **封装** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | stream.py 访问私有属性已修复 ✅ |
 | **LLM 调用一致性** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | title 生成绕过工厂 ⬜ |
 | **API 完整性** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 33 端点全保留 ✅ |
 
-**整体**：当前 **4.5/5**（+0.1，PR-A 完成），全部 PR 完成后预计 **4.8/5**。
+**整体**：当前 **4.6/5**（+0.2，PR-A + PR-B 完成），全部 PR 完成后预计 **4.8/5**。
 
 ---
 
@@ -296,6 +266,7 @@ diff <(jq -S . before.json) <(jq -S . after.json)
 | **Phase 2** | P1 + P11 + P12 + P20（消息转换合一 + 请求处理独立） | 2026-05-21 |
 | **Phase 3** | P15 + P16 + P6 + P7（删 dict 双路径 + 删 get_chat_litellm + 拆 chat.py + schemas 整理） | 2026-05-22 |
 | **PR-A** | N1（删 `app/tools/` 死目录）+ F-I（修 `agent.py` 双 commit → `db.flush()`） | 2026-05-22 |
+| **PR-B** | P3/P19（删 CheckpointTraceReader 门面）+ N2（stream.py 修私有属性访问） | 2026-05-22 |
 
-**已解决（15/33）**：P1, P4, P5, P6, P7, P11, P12, P14, P15, P16, P18, P20, F-6, N1, F-I
-**待办（18）**：见第三章节
+**已解决（17/33）**：P1, P3, P4, P5, P6, P7, P11, P12, P14, P15, P16, P18, P19, P20, F-6, N1, N2, F-I
+**待办（16）**：见第三章节

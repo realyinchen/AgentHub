@@ -15,7 +15,7 @@ from app.schemas.trace import (
     StepOutput,
     ExecutionDag,
 )
-from app.observability import CheckpointTraceReader
+from app.observability import CheckpointReader, TraceBuilder, DagBuilder
 from app.agents.registry import get_graph
 
 
@@ -31,7 +31,7 @@ async def _get_step_count(agent, thread_id: str) -> int:
     ``get_execution_trace`` to avoid unnecessary message parsing.
     """
     try:
-        reader = CheckpointTraceReader(agent)
+        reader = CheckpointReader(agent)
         checkpoints = await reader.get_checkpoint_history(thread_id)
         return len(checkpoints)
     except Exception:
@@ -145,7 +145,7 @@ async def get_trace_steps(thread_id: UUID, agent_id: str = Query("default")):
             raise HTTPException(
                 status_code=404, detail=f"Agent '{agent_id}' not found or not active"
             )
-        trace_reader = CheckpointTraceReader(agent)
+        trace_reader = TraceBuilder(agent)
         steps = await trace_reader.get_execution_trace(str(thread_id))
 
         if not steps:
@@ -177,7 +177,7 @@ async def get_trace_dag(thread_id: UUID, agent_id: str = Query("default")):
             raise HTTPException(
                 status_code=404, detail=f"Agent '{agent_id}' not found or not active"
             )
-        trace_reader = CheckpointTraceReader(agent)
+        trace_reader = DagBuilder(agent)
         dag = await trace_reader.get_execution_dag(str(thread_id))
 
         if not dag.nodes:
@@ -210,7 +210,7 @@ async def get_trace_step_by_number(
             raise HTTPException(
                 status_code=404, detail=f"Agent '{agent_id}' not found or not active"
             )
-        trace_reader = CheckpointTraceReader(agent)
+        trace_reader = TraceBuilder(agent)
         step = await trace_reader.get_step_by_number(str(thread_id), step_number)
 
         if not step:
@@ -242,7 +242,7 @@ async def get_trace_step_by_checkpoint(
             raise HTTPException(
                 status_code=404, detail=f"Agent '{agent_id}' not found or not active"
             )
-        trace_reader = CheckpointTraceReader(agent)
+        trace_reader = TraceBuilder(agent)
         step = await trace_reader.get_step_at_checkpoint(str(thread_id), checkpoint_id)
 
         if not step:
@@ -277,7 +277,7 @@ async def replay_trace(
             raise HTTPException(
                 status_code=404, detail=f"Agent '{agent_id}' not found or not active"
             )
-        trace_reader = CheckpointTraceReader(agent)
+        trace_reader = TraceBuilder(agent)
         steps = await trace_reader.replay_steps(str(thread_id), from_step, to_step)
 
         if not steps:
