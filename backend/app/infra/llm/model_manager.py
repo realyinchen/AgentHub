@@ -280,6 +280,12 @@ class ModelManager:
         return cls._default_llm_id
 
     @classmethod
+    def is_model_active(cls, model_id: str) -> bool:
+        """Check if a model is present in the cache and marked active."""
+        m = cls._models_cache.get(model_id)
+        return bool(m) and bool(getattr(m, "is_active", False))
+
+    @classmethod
     def get_first_active_llm_id(cls) -> Optional[str]:
         """Return the first active LLM model_id from cache, or None."""
         for m in cls._models_cache.values():

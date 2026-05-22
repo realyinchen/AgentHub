@@ -15,6 +15,7 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     thread_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     title: Mapped[str] = mapped_column(String(64), nullable=False)
     agent_id: Mapped[str | None] = mapped_column(
         String(64), nullable=True, default="chatbot"

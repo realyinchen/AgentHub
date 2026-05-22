@@ -20,6 +20,7 @@ ON CONFLICT (agent_id) DO NOTHING;
 -- 2. conversations table
 CREATE TABLE IF NOT EXISTS public.conversations (
     thread_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id          VARCHAR(128) NOT NULL,
     title            VARCHAR(64) NOT NULL,
     agent_id         VARCHAR(64) DEFAULT 'chatbot',
     is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
@@ -34,9 +35,15 @@ CREATE TABLE IF NOT EXISTS public.conversations (
     total_tokens     BIGINT NOT NULL DEFAULT 0
 );
 
--- Index for conversations
-CREATE INDEX IF NOT EXISTS idx_conversations_deleted_updated 
-ON public.conversations (is_deleted, updated_at DESC);
+-- User-scoped index: list active conversations for a user, sorted by last update
+CREATE INDEX IF NOT EXISTS idx_conv_user_active 
+ON public.conversations (user_id, is_deleted, updated_at DESC);
+
+-- Covering index for user-scoped conversation list (avoids table lookups)
+CREATE INDEX IF NOT EXISTS idx_conv_user_list 
+ON public.conversations (user_id, is_deleted, updated_at DESC) 
+INCLUDE (thread_id, title, agent_id, created_at, input_tokens, cache_read, output_tokens, reasoning, total_tokens)
+WHERE is_deleted = FALSE;
 
 -- Index for agent_id lookups (used in conversation filtering)
 CREATE INDEX IF NOT EXISTS idx_conversations_agent_id 
@@ -106,87 +113,38 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_models_model_id ON public.models(model_id)
 -- No default models are inserted - configure them in the application
 -- =============================================================================
 
--- 4. message_steps table (agent execution sequence for sidebar)
--- Stores each step of agent execution: human messages, tool calls, tool results, and AI responses
--- Each session (conversation turn) has a unique session_id to group steps together
-CREATE TABLE IF NOT EXISTS public.message_steps (
-    id              BIGSERIAL PRIMARY KEY,
+-- 5. trace_executions table (persisted DAG snapshots for offline trace viewing)
+-- Each row = one agent invocation (user→agent turn), identified by request_id.
+-- Contains per-request token usage, model used, and the full ExecutionDag.
+CREATE TABLE IF NOT EXISTS public.trace_executions (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     thread_id       UUID NOT NULL REFERENCES public.conversations(thread_id) ON DELETE CASCADE,
-    session_id      UUID NOT NULL,         -- Groups steps by conversation turn
-    step_number     INTEGER NOT NULL,
-    message_type    VARCHAR(16) NOT NULL,  -- 'human', 'ai', 'tool'
-    
-    -- Tool call/result fields
-    tool_name       VARCHAR(128),          -- Tool name (e.g., "get_weather")
-    tool_args       JSONB,                 -- Tool call arguments
-    tool_output     TEXT,                  -- Tool execution result
-    tool_call_id    VARCHAR(128),          -- Tool call ID for matching call with result
-    
-    -- AI response fields
-    content         TEXT,                  -- Message content (human or AI)
-    thinking        TEXT,                  -- Thinking/reasoning content (for AI messages)
-    tool_calls      JSONB,                 -- Tool calls from AI (for AI messages with tool calls)
-    
-    -- Trace fields (for Agent Trace Kanban Viewer)
-    run_id          VARCHAR(128),          -- LangGraph run_id
-    parent_run_id   VARCHAR(128),          -- Parent run_id (for subagent identification)
-    latency_ms      INTEGER,               -- Step latency in milliseconds
-    model_name      VARCHAR(128),          -- LLM model name used
-    
-    created_at      TIMESTAMPTZ DEFAULT NOW(),
-    
-    CONSTRAINT unique_thread_session_step UNIQUE (thread_id, session_id, step_number)
+    agent_id        VARCHAR(64) NOT NULL,
+    request_id      VARCHAR(128) NOT NULL,
+    model_name      VARCHAR(128),              -- LLM model used for this turn
+    dag_data        JSONB NOT NULL,             -- Complete ExecutionDag as JSONB
+    total_steps     INTEGER NOT NULL DEFAULT 0,
+    -- Per-request token usage
+    input_tokens    BIGINT NOT NULL DEFAULT 0,
+    cache_read      BIGINT NOT NULL DEFAULT 0,
+    output_tokens   BIGINT NOT NULL DEFAULT 0,
+    reasoning       BIGINT NOT NULL DEFAULT 0,
+    total_tokens    BIGINT NOT NULL DEFAULT 0,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Indexes for efficient queries
-CREATE INDEX IF NOT EXISTS idx_message_steps_session ON public.message_steps(session_id);
-CREATE INDEX IF NOT EXISTS idx_message_steps_type ON public.message_steps(message_type);
+-- Indexes for trace_executions
+CREATE INDEX IF NOT EXISTS idx_trace_exec_thread_id
+ON public.trace_executions (thread_id, created_at DESC);
 
--- Composite index for message steps lookup (most common query pattern - covers thread_id lookups)
-CREATE INDEX IF NOT EXISTS idx_message_steps_thread_session_step 
-ON public.message_steps (thread_id, session_id, step_number);
+CREATE INDEX IF NOT EXISTS idx_trace_exec_agent_id
+ON public.trace_executions (agent_id);
 
--- Index for message steps pagination
-CREATE INDEX IF NOT EXISTS idx_message_steps_created_at 
-ON public.message_steps (created_at DESC);
-
--- ============================================================================
--- Additional Performance Optimizations (2026-04-23)
--- ============================================================================
-
--- Partial index for active conversations only (most queries filter by is_deleted=FALSE)
--- This index is smaller and faster for the common case
-CREATE INDEX IF NOT EXISTS idx_conversations_active_updated 
-ON public.conversations (updated_at DESC) 
-WHERE is_deleted = FALSE;
-
--- Covering index for conversation list query
--- Includes all fields needed to avoid table lookups
-CREATE INDEX IF NOT EXISTS idx_conversations_list_covering 
-ON public.conversations (is_deleted, updated_at DESC) 
-INCLUDE (thread_id, title, agent_id, created_at, input_tokens, cache_read, output_tokens, reasoning, total_tokens)
-WHERE is_deleted = FALSE;
-
--- Index for tool_name lookups (when filtering by specific tools)
-CREATE INDEX IF NOT EXISTS idx_message_steps_tool_name 
-ON public.message_steps (tool_name) 
-WHERE tool_name IS NOT NULL;
-
--- Indexes for trace fields (Agent Trace Kanban Viewer)
-CREATE INDEX IF NOT EXISTS idx_message_steps_run_id 
-ON public.message_steps (run_id) 
-WHERE run_id IS NOT NULL;
-
-CREATE INDEX IF NOT EXISTS idx_message_steps_parent_run_id 
-ON public.message_steps (parent_run_id) 
-WHERE parent_run_id IS NOT NULL;
-
--- Index for AI message content search (full-text search preparation)
--- Note: For production, consider using PostgreSQL full-text search with GIN index
--- CREATE INDEX idx_message_steps_content_fts ON public.message_steps USING GIN (to_tsvector('simple', content));
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trace_exec_request_id
+ON public.trace_executions (request_id);
 
 -- Analyze tables after index creation for query planner
 ANALYZE public.conversations;
-ANALYZE public.message_steps;
 ANALYZE public.models;
 ANALYZE public.providers;
+ANALYZE public.trace_executions;

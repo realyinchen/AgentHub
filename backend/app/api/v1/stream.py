@@ -28,6 +28,7 @@ from app.schemas.chat import UserInput
 from app.utils.async_writer import AsyncWriteQueue
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import langchain_to_chat_message
+from app.utils.token_utils import extract_usage, accumulate_usage, empty_totals
 from app.crud import chat as chat_crud
 
 
@@ -62,48 +63,6 @@ def _has_meaningful_content(output: Any) -> bool:
                 if block.get("text", "").strip():
                     return True
     return False
-
-
-# ── Token Usage Helpers ─────────────────────────────────────────────
-
-
-def _extract_usage(final_message: Any) -> dict | None:
-    """Extract token usage from a finalized AI message.
-
-    Tries usage_metadata first (preferred), then response_metadata.token_usage.
-    """
-    if final_message is None:
-        return None
-
-    usage = getattr(final_message, "usage_metadata", None)
-    if usage:
-        return dict(usage)
-
-    resp_meta = getattr(final_message, "response_metadata", None)
-    if resp_meta and isinstance(resp_meta, dict):
-        token_usage = resp_meta.get("token_usage")
-        if token_usage:
-            return {
-                "input_tokens": token_usage.get("prompt_tokens", 0),
-                "output_tokens": token_usage.get("completion_tokens", 0),
-                "total_tokens": token_usage.get("total_tokens", 0),
-            }
-    return None
-
-
-def _accumulate_usage(totals: dict, usage: dict) -> None:
-    """Accumulate per-call usage into running totals."""
-    totals["input_tokens"] += usage.get("input_tokens", 0)
-    totals["output_tokens"] += usage.get("output_tokens", 0)
-    totals["total_tokens"] += usage.get("total_tokens", 0)
-
-    input_details = usage.get("input_token_details")
-    if isinstance(input_details, dict):
-        totals["cache_read"] += input_details.get("cache_read", 0)
-
-    output_details = usage.get("output_token_details")
-    if isinstance(output_details, dict):
-        totals["reasoning"] += output_details.get("reasoning", 0)
 
 
 # ── Core Streaming Logic ────────────────────────────────────────────
@@ -143,10 +102,10 @@ async def _consume_messages_projection(
             continue
 
         # Token usage
-        usage = _extract_usage(final)
+        usage = extract_usage(final)
         node_name = getattr(message, "node", "") or "model"
         if usage:
-            _accumulate_usage(state["accumulated_tokens"], usage)
+            accumulate_usage(state["accumulated_tokens"], usage)
             logger.info(
                 f"[{node_name}] Token usage: input={usage.get('input_tokens', 0)}, "
                 f"output={usage.get('output_tokens', 0)}, total={usage.get('total_tokens', 0)}"
@@ -297,13 +256,7 @@ async def streaming_message_generator(
     state = {
         "step_counter": 0,
         "first_chunk_time": None,
-        "accumulated_tokens": {
-            "input_tokens": 0,
-            "cache_read": 0,
-            "output_tokens": 0,
-            "reasoning": 0,
-            "total_tokens": 0,
-        },
+        "accumulated_tokens": empty_totals(),
         "final_message": None,
         "final_state_messages": None,
     }
@@ -442,6 +395,39 @@ async def streaming_message_generator(
                     )
 
             write_queue.add("update_conversation_tokens", _update_tokens())
+
+        # ── Build and persist execution DAG (non-blocking) ─────────
+        try:
+            from app.observability import DagBuilder
+            from app.crud import trace as trace_crud
+
+            tokens = state["accumulated_tokens"]
+
+            async def _persist_dag() -> None:
+                db = get_database()
+                dag_builder = DagBuilder(agent)
+                dag = await dag_builder.get_execution_dag(thread_id_str)
+                async with db.session() as session:
+                    await trace_crud.upsert_trace(
+                        db=session,
+                        thread_id=thread_id,
+                        agent_id=user_input.agent_id,
+                        request_id=str(request_id),
+                        dag_data=dag.model_dump(),
+                        total_steps=len(dag.steps),
+                        model_name=initial_model,
+                        input_tokens=tokens["input_tokens"],
+                        cache_read=tokens["cache_read"],
+                        output_tokens=tokens["output_tokens"],
+                        reasoning=tokens["reasoning"],
+                        total_tokens=tokens["total_tokens"],
+                    )
+
+            write_queue.add("persist_dag", _persist_dag())
+        except Exception:
+            logger.exception(
+                "Failed to build/persist DAG for thread %s", thread_id_str
+            )
 
         # ── Performance log ────────────────────────────────────────
         if state["first_chunk_time"] is not None:

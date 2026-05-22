@@ -12,26 +12,32 @@ from app.schemas.chat import (
 
 
 async def read_conversation_by_thread_id(
-    db: AsyncSession, thread_id: UUID
+    db: AsyncSession,
+    thread_id: UUID,
+    user_id: str,
 ) -> Conversation | None:
     stmt = select(Conversation).where(
-        Conversation.thread_id == thread_id, Conversation.is_deleted.is_(False)
+        Conversation.thread_id == thread_id,
+        Conversation.user_id == user_id,
+        Conversation.is_deleted.is_(False),
     )
     result = await db.execute(stmt)
     return result.scalar_one_or_none()
 
 
 async def create_conversation(
-    db: AsyncSession, conversation_in: ConversationCreate
+    db: AsyncSession,
+    conversation_in: ConversationCreate,
+    user_id: str,
 ) -> Conversation:
     create_data = conversation_in.model_dump(exclude_unset=True)
+    create_data["user_id"] = user_id
 
     db_obj = Conversation(
         **create_data,
     )
 
     db.add(db_obj)
-    # Ensure ORM/DB defaults (e.g. created_at/updated_at) are populated before response serialization.
     await db.flush()
     await db.refresh(db_obj)
 
@@ -39,7 +45,10 @@ async def create_conversation(
 
 
 async def update_conversation_by_thread_id(
-    db: AsyncSession, thread_id: UUID, update_data: ConversationUpdate
+    db: AsyncSession,
+    thread_id: UUID,
+    update_data: ConversationUpdate,
+    user_id: str,
 ) -> Conversation | None:
     update_values = update_data.model_dump(exclude_unset=True)
     if not update_values:
@@ -49,6 +58,7 @@ async def update_conversation_by_thread_id(
         update(Conversation)
         .where(
             Conversation.thread_id == thread_id,
+            Conversation.user_id == user_id,
             Conversation.is_deleted.is_(False),
         )
         .values(**update_values)
@@ -68,6 +78,7 @@ async def update_conversation_by_thread_id(
 async def get_daily_conversation_stats(
     db: AsyncSession,
     days: int = 30,
+    user_id: str | None = None,
 ) -> list[dict]:
     """
     Get daily conversation count and token usage statistics for the last N days.
@@ -75,13 +86,20 @@ async def get_daily_conversation_stats(
     Args:
         db: Database session
         days: Number of days to look back (default: 30)
+        user_id: Optional user scope filter
 
     Returns:
         List of dicts with date, count, input_tokens, cache_read,
         output_tokens, reasoning, total_tokens
     """
-    # Calculate start date (days ago)
     start_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    conditions = [
+        Conversation.is_deleted.is_(False),
+        Conversation.created_at >= start_date,
+    ]
+    if user_id:
+        conditions.append(Conversation.user_id == user_id)
 
     stmt = (
         select(
@@ -93,10 +111,7 @@ async def get_daily_conversation_stats(
             func.sum(Conversation.reasoning).label("reasoning"),
             func.sum(Conversation.total_tokens).label("total_tokens"),
         )
-        .where(
-            Conversation.is_deleted.is_(False),
-            Conversation.created_at >= start_date,
-        )
+        .where(*conditions)
         .group_by(func.date(Conversation.created_at))
         .order_by("date")
     )
@@ -119,12 +134,15 @@ async def get_daily_conversation_stats(
 
 
 async def soft_delete_conversation_by_thread_id(
-    db: AsyncSession, thread_id: UUID
+    db: AsyncSession,
+    thread_id: UUID,
+    user_id: str,
 ) -> bool:
     stmt = (
         update(Conversation)
         .where(
             Conversation.thread_id == thread_id,
+            Conversation.user_id == user_id,
             Conversation.is_deleted.is_(False),
         )
         .values(is_deleted=True)
@@ -144,6 +162,7 @@ async def list_traces(
     agent_id: str,
     page: int,
     page_size: int,
+    user_id: str,
 ) -> tuple[list[Conversation], int]:
     """List conversations as traces with time/agent filtering and pagination.
 
@@ -153,6 +172,7 @@ async def list_traces(
         agent_id: Agent ID to filter by, or "all" to include every agent
         page: 0-indexed page number
         page_size: Number of items per page
+        user_id: User scope filter
 
     Returns:
         Tuple of (conversations for the requested page, total matching count).
@@ -160,6 +180,7 @@ async def list_traces(
     time_cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
 
     base_query = select(Conversation).where(
+        Conversation.user_id == user_id,
         Conversation.updated_at >= time_cutoff,
         Conversation.is_deleted.is_(False),
     )
@@ -183,11 +204,17 @@ async def list_traces(
 
 
 async def list_conversations(
-    db: AsyncSession, limit: int = 20, offset: int = 0
+    db: AsyncSession,
+    user_id: str,
+    limit: int = 20,
+    offset: int = 0,
 ) -> tuple[list[Conversation], int]:
     stmt = (
         select(Conversation)
-        .where(Conversation.is_deleted.is_(False))
+        .where(
+            Conversation.user_id == user_id,
+            Conversation.is_deleted.is_(False),
+        )
         .order_by(Conversation.updated_at.desc())
         .offset(offset)
         .limit(limit)
@@ -196,7 +223,10 @@ async def list_conversations(
     count_stmt = (
         select(func.count())
         .select_from(Conversation)
-        .where(Conversation.is_deleted.is_(False))
+        .where(
+            Conversation.user_id == user_id,
+            Conversation.is_deleted.is_(False),
+        )
     )
 
     result = await db.execute(stmt)
@@ -255,3 +285,19 @@ async def update_conversation_tokens(
         return None
 
     return updated
+
+
+async def get_latest_trace_info(
+    db: AsyncSession,
+    thread_id: UUID,
+) -> tuple[str | None, str | None]:
+    """Return (agent_id, model_name) from the most recent trace in a thread.
+
+    Convenience re-export for API layer — delegates to trace crud.
+
+    Returns:
+        Tuple of (agent_id, model_name). Both are None if no trace exists.
+    """
+    from app.crud.trace import get_latest_trace_info as _get
+
+    return await _get(db, thread_id)

@@ -139,6 +139,10 @@ class Conversation(BaseModel):
         description="The thread ID of the conversation.",
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
     )
+    user_id: str = Field(
+        description="The user ID who owns this conversation.",
+        examples=["user-123"],
+    )
     title: str = Field(
         description="The title of the conversation",
         examples=["Hello"],

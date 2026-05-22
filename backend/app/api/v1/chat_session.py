@@ -1,7 +1,7 @@
 """Chat session endpoints — conversation CRUD, statistics, and thinking-mode status.
 
 Routes:
-    GET    /chat/conversations              — List conversations (paginated)
+    GET    /chat/conversations              — List conversations (paginated, user-scoped)
     POST   /chat/conversations              — Create a conversation
     DELETE /chat/conversations/{thread_id}  — Soft-delete a conversation
     GET    /chat/stats/daily                — Daily conversation + token stats
@@ -33,6 +33,7 @@ api_router = APIRouter(prefix="/chat", tags=["Chat"])
 
 @api_router.get("/conversations")
 async def get_conversations(
+    user_id: str = Query(..., description="User ID to scope conversations"),
     limit: int = Query(
         20,
         ge=1,
@@ -44,10 +45,10 @@ async def get_conversations(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> JSONResponse:
-    """Get a list of recent conversations (most recently updated first)."""
+    """Get a list of recent conversations for a user (most recently updated first)."""
     try:
         conversations, total = await list_conversations(
-            db=db, limit=limit, offset=offset
+            db=db, user_id=user_id, limit=limit, offset=offset
         )
 
         response = JSONResponse(
@@ -67,11 +68,14 @@ async def get_conversations(
 @api_router.post("/conversations", response_model=ConversationInDB)
 async def save_conversation(
     conversation_in: ConversationCreate,
+    user_id: str = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB:
     """Create a conversation in DB."""
     try:
-        conv = await create_conversation(db=db, conversation_in=conversation_in)
+        conv = await create_conversation(
+            db=db, conversation_in=conversation_in, user_id=user_id
+        )
         return ConversationInDB.model_validate(conv)
     except Exception as e:
         logger.error("Error creating conversation: %s", e)
@@ -81,12 +85,13 @@ async def save_conversation(
 @api_router.delete("/conversations/{thread_id}", status_code=204)
 async def delete_conversation(
     thread_id: UUID,
+    user_id: str = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Soft-delete a conversation by thread_id."""
     try:
         deleted = await soft_delete_conversation_by_thread_id(
-            db=db, thread_id=thread_id
+            db=db, thread_id=thread_id, user_id=user_id
         )
         if not deleted:
             raise HTTPException(status_code=404, detail="Conversation not found")
@@ -105,11 +110,12 @@ async def get_daily_stats(
         le=365,
         description="Number of days to retrieve statistics for (1-365)",
     ),
+    user_id: str | None = Query(None, description="Optional user scope filter"),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict[str, int | str]]:
     """Get daily conversation count and token usage statistics."""
     try:
-        stats = await get_daily_conversation_stats(db=db, days=days)
+        stats = await get_daily_conversation_stats(db=db, days=days, user_id=user_id)
         return stats
     except Exception as e:
         logger.error("Error retrieving daily statistics: %s", e)

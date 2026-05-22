@@ -10,7 +10,7 @@ import logging
 from uuid import UUID
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, status, Depends
+from fastapi import APIRouter, HTTPException, status, Depends, Query
 from fastapi.responses import StreamingResponse
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
@@ -25,12 +25,15 @@ from app.schemas.chat import (
 )
 from app.schemas.trace import StepOutput
 from app.agents.registry import get_graph
-from app.observability import TraceBuilder
+from app.crud import chat as chat_crud
+from app.crud import trace as trace_crud
+from app.infra.llm import ModelManager
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import (
     langchain_to_chat_message,
     collect_tool_calls_for_final_response,
 )
+from app.utils.token_utils import extract_usage, accumulate_usage, empty_totals
 
 
 logger = logging.getLogger(__name__)
@@ -87,8 +90,16 @@ async def stream(user_input: UserInput) -> StreamingResponse:
 
 
 @api_router.post("/invoke")
-async def invoke(user_input: UserInput) -> ChatMessage:
-    """Async invoke an agent with user input to retrieve a final response."""
+async def invoke(
+    user_input: UserInput,
+    db: AsyncSession = Depends(get_db),
+) -> ChatMessage:
+    """Async invoke an agent with user input to retrieve a final response.
+
+    After the agent returns, token usage is accumulated across all AI
+    messages and persisted to the conversation, and the execution DAG
+    is snapshot to ``trace_executions`` for offline trace viewing.
+    """
     agent_id = user_input.agent_id
     if not agent_id:
         raise HTTPException(status_code=400, detail="agent_id is not provided")
@@ -98,6 +109,15 @@ async def invoke(user_input: UserInput) -> ChatMessage:
         raise HTTPException(
             status_code=400, detail=f"Agent '{agent_id}' not found or not active"
         )
+
+    # Resolve model name (with fallback to default)
+    initial_model = user_input.model_name
+    if not initial_model:
+        initial_model = (
+            ModelManager.get_default_llm_id()
+            or ModelManager.get_first_active_llm_id()
+        )
+
     kwargs = await build_agent_kwargs(user_input)
 
     response_events: list[tuple[str, Any]] = await agent.ainvoke(
@@ -113,6 +133,59 @@ async def invoke(user_input: UserInput) -> ChatMessage:
         )
     else:
         raise ValueError(f"Unexpected response type: {response_type}")
+
+    # ── Accumulate token usage from all AI messages ─────────────────
+    totals = empty_totals()
+    for event_type, event in response_events:
+        if event_type == "values" and isinstance(event, dict):
+            messages = event.get("messages", [])
+            for msg in messages:
+                if isinstance(msg, AIMessage):
+                    usage = extract_usage(msg)
+                    if usage:
+                        accumulate_usage(totals, usage)
+
+    if totals["total_tokens"] > 0:
+        try:
+            await chat_crud.update_conversation_tokens(
+                db=db,
+                thread_id=user_input.thread_id,
+                input_tokens=totals["input_tokens"],
+                cache_read=totals["cache_read"],
+                output_tokens=totals["output_tokens"],
+                reasoning=totals["reasoning"],
+                total_tokens=totals["total_tokens"],
+            )
+        except Exception:
+            logger.exception(
+                "Failed to update tokens for invoke %s", user_input.request_id
+            )
+
+    # ── Build and persist execution DAG ────────────────────────────
+    try:
+        from app.observability import DagBuilder
+
+        thread_id_str = str(user_input.thread_id)
+        dag_builder = DagBuilder(agent)
+        dag = await dag_builder.get_execution_dag(thread_id_str)
+        await trace_crud.upsert_trace(
+            db=db,
+            thread_id=user_input.thread_id,
+            agent_id=agent_id,
+            request_id=user_input.request_id,
+            dag_data=dag.model_dump(),
+            total_steps=len(dag.steps),
+            model_name=initial_model,
+            input_tokens=totals["input_tokens"],
+            cache_read=totals["cache_read"],
+            output_tokens=totals["output_tokens"],
+            reasoning=totals["reasoning"],
+            total_tokens=totals["total_tokens"],
+        )
+    except Exception:
+        logger.exception(
+            "Failed to persist DAG for invoke %s", user_input.request_id
+        )
 
     return output
 
@@ -130,23 +203,18 @@ async def history(
     if not thread_id:
         return ChatHistory(messages=[], message_sequence=[])
 
-    # Get message steps from checkpointer for sidebar
+    # Get message steps from persisted DAG for sidebar (no graph needed)
+    _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+    message_sequence: list[StepOutput] = [
+        StepOutput(**s) for s in (steps or [])
+    ]
+
+    # Get messages from checkpointer for main chat UI (needs live agent)
     agent = get_graph(agent_id)
     if agent is None:
         raise HTTPException(
             status_code=404, detail=f"Agent '{agent_id}' not found or not active"
         )
-    trace_reader = TraceBuilder(agent)
-    all_steps = await trace_reader.get_execution_trace(str(thread_id))
-
-    # Build message_sequence for sidebar
-    message_sequence: list[StepOutput] = []
-    for step in all_steps:
-        # Only include steps that have visible messages (not metadata-only checkpoints)
-        if hasattr(step, "message_type") or hasattr(step, "message_id"):
-            message_sequence.append(step)
-
-    # Get messages from checkpointer for main chat UI
     config = RunnableConfig({"configurable": {"thread_id": thread_id}})
     state_snapshot = await agent.aget_state(config=config)
     messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
@@ -177,3 +245,64 @@ async def history(
         chat_messages.append(chat_message)
 
     return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
+
+
+@api_router.get("/conversation-info/{thread_id}")
+async def get_conversation_info(
+    thread_id: UUID,
+    user_id: str = Query(..., description="User ID who owns this conversation"),
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, Any]:
+    """Get the last-used agent and model for a conversation.
+
+    Used when entering a historical conversation. Returns the agent_id and
+    model_name from the most recent trace execution. If the model is no longer
+    active, falls back to the system default.
+
+    Response:
+        {
+            "agent_id": "chatbot",
+            "model_name": "dashscope/qwen3.5-27b",
+            "model_fallback": false
+        }
+    """
+    try:
+        # Verify the conversation belongs to the user
+        conv = await chat_crud.read_conversation_by_thread_id(
+            db=db, thread_id=thread_id, user_id=user_id
+        )
+        if conv is None:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+
+        agent_id, model_name = await chat_crud.get_latest_trace_info(db, thread_id)
+
+        # Validate model is still active
+        model_fallback = False
+        if model_name:
+            if not ModelManager.is_model_active(model_name):
+                model_name = (
+                    ModelManager.get_default_llm_id()
+                    or ModelManager.get_first_active_llm_id()
+                )
+                model_fallback = True
+        else:
+            model_name = (
+                ModelManager.get_default_llm_id()
+                or ModelManager.get_first_active_llm_id()
+            )
+
+        return {
+            "agent_id": agent_id or conv.agent_id or "chatbot",
+            "model_name": model_name,
+            "model_fallback": model_fallback,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "Error getting conversation info for thread %s: %s", thread_id, e
+        )
+        raise HTTPException(
+            status_code=500, detail="Error retrieving conversation info"
+        )

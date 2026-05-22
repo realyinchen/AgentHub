@@ -1,42 +1,56 @@
-"""API routes for Agent Trace Kanban Viewer."""
+"""API routes for Agent Trace Kanban Viewer.
 
-import asyncio
+All endpoints read from the persisted ``trace_executions`` table, so trace
+viewing never depends on agent graph compilation or agent liveness.
+"""
+
 import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
 from app.crud import chat as chat_crud
+from app.crud import trace as trace_crud
+from app.models.trace import TraceExecution
 from app.schemas.trace import (
     TraceListItem,
     TraceListResponse,
     StepOutput,
     ExecutionDag,
 )
-from app.observability import CheckpointReader, TraceBuilder, DagBuilder
-from app.agents.registry import get_graph
-
 
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/traces", tags=["traces"])
 
 
-async def _get_step_count(agent, thread_id: str) -> int:
-    """Resolve step count for a single thread via checkpoint reader.
+# ── helpers ──────────────────────────────────────────────────────────────────
 
-    Uses the lighter ``get_checkpoint_history`` instead of the full
-    ``get_execution_trace`` to avoid unnecessary message parsing.
+
+async def _resolve_agent_id(
+    db: AsyncSession, agent_id: str, thread_id: UUID, user_id: str
+) -> tuple[str | None, int | None, str | None]:
+    """Resolve agent_id when "all" from the conversation table.
+
+    Returns:
+        (agent_id, status_code, error_detail).  When successful status_code
+        and error are None.
     """
-    try:
-        reader = CheckpointReader(agent)
-        checkpoints = await reader.get_checkpoint_history(thread_id)
-        return len(checkpoints)
-    except Exception:
-        logger.debug("Failed to get step count for thread %s", thread_id)
-        return 0
+    if agent_id != "all":
+        return agent_id, None, None
+
+    conv = await chat_crud.read_conversation_by_thread_id(
+        db, thread_id, user_id=user_id
+    )
+    if conv is None or not conv.agent_id:
+        return None, 404, f"No conversation found for thread {thread_id}"
+    return conv.agent_id, None, None
+
+
+# ── routes ───────────────────────────────────────────────────────────────────
 
 
 @api_router.get("", response_model=TraceListResponse)
@@ -50,16 +64,25 @@ async def list_traces(
         description="Filter by hours back from now (max 168 hours / 7 days)",
     ),
     agent_id: str = Query("all", description="Agent ID to filter traces"),
+    user_id: str = Query(..., description="User ID to scope traces"),
     db: AsyncSession = Depends(get_db),
 ):
     """List traces with pagination and time filtering.
 
     Returns TraceListResponse with pagination metadata.
     Default: first page, 10 items, last 24 hours.
+
+    Step counts come from the persisted ``trace_executions`` table rather
+    than live checkpointer queries — no graph compilation needed.
     """
     try:
         convs, total = await chat_crud.list_traces(
-            db, hours=hours, agent_id=agent_id, page=page, page_size=page_size
+            db,
+            hours=hours,
+            agent_id=agent_id,
+            page=page,
+            page_size=page_size,
+            user_id=user_id,
         )
 
         total_pages = (total + page_size - 1) // page_size if total > 0 else 0
@@ -76,42 +99,18 @@ async def list_traces(
                 filter_hours=hours,
             )
 
-        # Resolve agents once — multiple conversations may share the same agent_id
-        agent_cache: dict[str, object] = {}
-        resolve_tasks: list[tuple] = []
+        # Batch-fetch latest step counts from persisted trace_executions
+        thread_ids = [conv.thread_id for conv in convs]
+        step_counts = await _batch_fetch_step_counts(db, thread_ids)
 
-        for conv in convs:
-            aid = conv.agent_id or "default"
-            agent = agent_cache.get(aid)
-            if agent is None:
-                agent = get_graph(aid)
-                if agent is None:
-                    continue  # inactive agent — skip
-                agent_cache[aid] = agent
-            resolve_tasks.append((conv, agent, str(conv.thread_id)))
-
-        # Resolve step counts concurrently across all conversations
-        if resolve_tasks:
-            counts = await asyncio.gather(
-                *(
-                    _get_step_count(agent, thread_id)
-                    for _, agent, thread_id in resolve_tasks
-                ),
-                return_exceptions=True,
-            )
-        else:
-            counts = []
-
-        # Build response items
         items: list[TraceListItem] = []
-        for (conv, _agent, _tid), count in zip(resolve_tasks, counts):
-            total_steps = count if isinstance(count, int) else 0
+        for conv in convs:
             items.append(
                 TraceListItem(
                     thread_id=str(conv.thread_id),
                     title=conv.title or f"Conversation {conv.thread_id}",
-                    total_steps=total_steps,
-                    total_latency_ms=0,  # Latency not available in checkpointer
+                    total_steps=step_counts.get(conv.thread_id, 0),
+                    total_latency_ms=0,
                     last_updated=conv.updated_at,
                     agent_id=conv.agent_id,
                 )
@@ -131,29 +130,56 @@ async def list_traces(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.get("/{thread_id}/steps", response_model=list[StepOutput])
-async def get_trace_steps(thread_id: UUID, agent_id: str = Query("default")):
-    """Get all execution steps for a specific thread.
+async def _batch_fetch_step_counts(
+    db: AsyncSession, thread_ids: list[UUID]
+) -> dict[UUID, int]:
+    """Return {thread_id: total_steps} using DISTINCT ON for latest per thread."""
+    if not thread_ids:
+        return {}
 
-    Returns a list of StepOutput objects representing each step in the execution.
-    This replaces the old message_steps-based approach by reading directly from
-    LangGraph checkpointer.
+    sub = (
+        select(
+            TraceExecution.thread_id,
+            TraceExecution.total_steps,
+        )
+        .where(TraceExecution.thread_id.in_(thread_ids))
+        .order_by(TraceExecution.thread_id, TraceExecution.created_at.desc())
+    )
+
+    rows = (await db.execute(sub)).all()
+    result: dict[UUID, int] = {}
+    for tid, steps in rows:
+        if tid not in result:
+            result[tid] = steps
+    return result
+
+
+@api_router.get("/{thread_id}/steps", response_model=list[StepOutput])
+async def get_trace_steps(
+    thread_id: UUID,
+    agent_id: str = Query("all"),
+    user_id: str = Query(..., description="User ID to verify ownership"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get all execution steps for a specific thread from persisted DAG.
+
+    Reads from ``trace_executions`` — no graph compilation required.
+    Agent_id="all" resolves from the conversation table automatically.
     """
     try:
-        agent = get_graph(agent_id)
-        if agent is None:
-            raise HTTPException(
-                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
-            )
-        trace_reader = TraceBuilder(agent)
-        steps = await trace_reader.get_execution_trace(str(thread_id))
+        agent_id_resolved, status_code, error = await _resolve_agent_id(
+            db, agent_id, thread_id, user_id
+        )
+        if agent_id_resolved is None:
+            raise HTTPException(status_code=status_code or 404, detail=error)
 
+        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
         if not steps:
             raise HTTPException(
                 status_code=404, detail="No execution steps found for this thread"
             )
 
-        return steps
+        return [StepOutput(**s) for s in steps]
 
     except HTTPException:
         raise
@@ -165,27 +191,31 @@ async def get_trace_steps(thread_id: UUID, agent_id: str = Query("default")):
 
 
 @api_router.get("/{thread_id}/dag", response_model=ExecutionDag)
-async def get_trace_dag(thread_id: UUID, agent_id: str = Query("default")):
-    """Get the execution DAG for a specific thread.
+async def get_trace_dag(
+    thread_id: UUID,
+    agent_id: str = Query("all"),
+    user_id: str = Query(..., description="User ID to verify ownership"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the execution DAG for a specific thread from persisted data.
 
-    Returns the full execution DAG with nodes and edges, suitable for visualization.
-    Each node contains step details and metadata.
+    Reads from ``trace_executions`` table — no graph compilation required.
+    Returns the full execution DAG with nodes and edges for visualization.
     """
     try:
-        agent = get_graph(agent_id)
-        if agent is None:
-            raise HTTPException(
-                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
-            )
-        trace_reader = DagBuilder(agent)
-        dag = await trace_reader.get_execution_dag(str(thread_id))
+        agent_id_resolved, status_code, error = await _resolve_agent_id(
+            db, agent_id, thread_id, user_id
+        )
+        if agent_id_resolved is None:
+            raise HTTPException(status_code=status_code or 404, detail=error)
 
-        if not dag.nodes:
+        dag_data, _, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+        if dag_data is None:
             raise HTTPException(
                 status_code=404, detail="No execution DAG found for this thread"
             )
 
-        return dag
+        return ExecutionDag(**dag_data)
 
     except HTTPException:
         raise
@@ -198,25 +228,28 @@ async def get_trace_dag(thread_id: UUID, agent_id: str = Query("default")):
 
 @api_router.get("/{thread_id}/steps/{step_number}", response_model=StepOutput)
 async def get_trace_step_by_number(
-    thread_id: UUID, step_number: int, agent_id: str = Query("default")
+    thread_id: UUID,
+    step_number: int,
+    agent_id: str = Query("all"),
+    user_id: str = Query(..., description="User ID to verify ownership"),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Get a specific step by number.
+    """Get a specific step by number from persisted DAG.
 
-    Returns detailed information for a specific step in the execution.
+    Reads from ``trace_executions`` — no graph compilation required.
     """
     try:
-        agent = get_graph(agent_id)
-        if agent is None:
+        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+        if not steps:
             raise HTTPException(
-                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+                status_code=404, detail="No execution steps found for this thread"
             )
-        trace_reader = TraceBuilder(agent)
-        step = await trace_reader.get_step_by_number(str(thread_id), step_number)
 
-        if not step:
-            raise HTTPException(status_code=404, detail="Step not found")
+        for s in steps:
+            if s.get("step_number") == step_number:
+                return StepOutput(**s)
 
-        return step
+        raise HTTPException(status_code=404, detail="Step not found")
 
     except HTTPException:
         raise
@@ -228,27 +261,32 @@ async def get_trace_step_by_number(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.get("/{thread_id}/checkpoints/{checkpoint_id}", response_model=StepOutput)
+@api_router.get(
+    "/{thread_id}/checkpoints/{checkpoint_id}", response_model=StepOutput
+)
 async def get_trace_step_by_checkpoint(
-    thread_id: UUID, checkpoint_id: str, agent_id: str = Query("default")
+    thread_id: UUID,
+    checkpoint_id: str,
+    agent_id: str = Query("all"),
+    user_id: str = Query(..., description="User ID to verify ownership"),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Get a specific step by checkpoint ID.
+    """Get a specific step by checkpoint ID from persisted DAG.
 
-    Returns detailed information for a step using its checkpoint ID.
+    Reads from ``trace_executions`` — no graph compilation required.
     """
     try:
-        agent = get_graph(agent_id)
-        if agent is None:
+        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+        if not steps:
             raise HTTPException(
-                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
+                status_code=404, detail="No execution steps found for this thread"
             )
-        trace_reader = TraceBuilder(agent)
-        step = await trace_reader.get_step_at_checkpoint(str(thread_id), checkpoint_id)
 
-        if not step:
-            raise HTTPException(status_code=404, detail="Checkpoint not found")
+        for s in steps:
+            if s.get("checkpoint_id") == checkpoint_id:
+                return StepOutput(**s)
 
-        return step
+        raise HTTPException(status_code=404, detail="Checkpoint not found")
 
     except HTTPException:
         raise
@@ -265,27 +303,28 @@ async def replay_trace(
     thread_id: UUID,
     from_step: int = Query(1, ge=1, description="Start from this step number"),
     to_step: int | None = Query(None, ge=1, description="End at this step number"),
-    agent_id: str = Query("default"),
+    agent_id: str = Query("all"),
+    user_id: str = Query(..., description="User ID to verify ownership"),
+    db: AsyncSession = Depends(get_db),
 ):
-    """Replay a trace from a specific step range.
+    """Replay a trace from a specific step range from persisted DAG.
 
-    Returns steps in the specified range for replay functionality.
+    Reads from ``trace_executions`` — no graph compilation required.
     """
     try:
-        agent = get_graph(agent_id)
-        if agent is None:
-            raise HTTPException(
-                status_code=404, detail=f"Agent '{agent_id}' not found or not active"
-            )
-        trace_reader = TraceBuilder(agent)
-        steps = await trace_reader.replay_steps(str(thread_id), from_step, to_step)
-
+        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
         if not steps:
+            raise HTTPException(
+                status_code=404, detail="No execution steps found for this thread"
+            )
+
+        result = steps[from_step - 1 : to_step]
+        if not result:
             raise HTTPException(
                 status_code=404, detail="No steps found in the specified range"
             )
 
-        return steps
+        return [StepOutput(**s) for s in result]
 
     except HTTPException:
         raise

@@ -20,6 +20,7 @@ VALUES
 -- 2. conversations table
 CREATE TABLE IF NOT EXISTS conversations (
     thread_id        TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
+    user_id          VARCHAR(128) NOT NULL,
     title            VARCHAR(64) NOT NULL,
     agent_id         VARCHAR(64) DEFAULT 'chatbot',
     is_deleted       BOOLEAN NOT NULL DEFAULT 0,
@@ -34,9 +35,9 @@ CREATE TABLE IF NOT EXISTS conversations (
     total_tokens     BIGINT NOT NULL DEFAULT 0
 );
 
--- Index for conversations
-CREATE INDEX IF NOT EXISTS idx_conversations_deleted_updated 
-ON conversations (is_deleted, updated_at DESC);
+-- User-scoped index: list active conversations for a user, sorted by last update
+CREATE INDEX IF NOT EXISTS idx_conv_user_active 
+ON conversations (user_id, is_deleted, updated_at DESC);
 
 -- Index for agent_id lookups
 CREATE INDEX IF NOT EXISTS idx_conversations_agent_id 
@@ -93,55 +94,32 @@ CREATE INDEX IF NOT EXISTS idx_models_is_active ON models(is_active);
 CREATE INDEX IF NOT EXISTS idx_models_is_default ON models(is_default);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_models_model_id ON models(model_id);
 
--- 5. message_steps table (agent execution sequence for sidebar)
-CREATE TABLE IF NOT EXISTS message_steps (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+-- 5. trace_executions table (persisted DAG snapshots for offline trace viewing)
+-- Each row = one agent invocation (user→agent turn), identified by request_id.
+-- Contains per-request token usage, model used, and the full ExecutionDag.
+CREATE TABLE IF NOT EXISTS trace_executions (
+    id              TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))),2) || '-' || substr('89ab',abs(random()) % 4 + 1, 1) || substr(lower(hex(randomblob(2))),2) || '-' || lower(hex(randomblob(6)))),
     thread_id       TEXT NOT NULL REFERENCES conversations(thread_id) ON DELETE CASCADE,
-    session_id      TEXT NOT NULL,
-    step_number     INTEGER NOT NULL,
-    message_type    VARCHAR(16) NOT NULL,
-    
-    -- Tool call/result fields
-    tool_name       VARCHAR(128),
-    tool_args       TEXT,           -- JSON stored as TEXT
-    tool_output     TEXT,
-    tool_call_id    VARCHAR(128),
-    
-    -- AI response fields
-    content         TEXT,
-    thinking        TEXT,
-    tool_calls      TEXT,           -- JSON stored as TEXT
-    
-    -- Trace fields (for Agent Trace Kanban Viewer)
-    run_id          VARCHAR(128),   -- LangGraph run_id
-    parent_run_id   VARCHAR(128),   -- Parent run_id (for subagent identification)
-    latency_ms      INTEGER,        -- Step latency in milliseconds
-    model_name      VARCHAR(128),   -- LLM model name used
-    
-    created_at      TEXT DEFAULT (datetime('now')),
-    
-    CONSTRAINT unique_thread_session_step UNIQUE (thread_id, session_id, step_number)
+    agent_id        VARCHAR(64) NOT NULL,
+    request_id      VARCHAR(128) NOT NULL,
+    model_name      VARCHAR(128),              -- LLM model used for this turn
+    dag_data        TEXT NOT NULL,              -- JSON stored as TEXT (complete ExecutionDag)
+    total_steps     INTEGER NOT NULL DEFAULT 0,
+    -- Per-request token usage
+    input_tokens    BIGINT NOT NULL DEFAULT 0,
+    cache_read      BIGINT NOT NULL DEFAULT 0,
+    output_tokens   BIGINT NOT NULL DEFAULT 0,
+    reasoning       BIGINT NOT NULL DEFAULT 0,
+    total_tokens    BIGINT NOT NULL DEFAULT 0,
+    created_at      TEXT DEFAULT (datetime('now'))
 );
 
--- Indexes for efficient queries
-CREATE INDEX IF NOT EXISTS idx_message_steps_session ON message_steps(session_id);
-CREATE INDEX IF NOT EXISTS idx_message_steps_type ON message_steps(message_type);
+-- Indexes for trace_executions
+CREATE INDEX IF NOT EXISTS idx_trace_exec_thread_id 
+ON trace_executions (thread_id, created_at DESC);
 
--- Composite index for message steps lookup
-CREATE INDEX IF NOT EXISTS idx_message_steps_thread_session_step 
-ON message_steps (thread_id, session_id, step_number);
+CREATE INDEX IF NOT EXISTS idx_trace_exec_agent_id 
+ON trace_executions (agent_id);
 
--- Index for message steps pagination
-CREATE INDEX IF NOT EXISTS idx_message_steps_created_at 
-ON message_steps (created_at DESC);
-
--- Index for tool_name lookups
-CREATE INDEX IF NOT EXISTS idx_message_steps_tool_name 
-ON message_steps (tool_name);
-
--- Indexes for trace fields (Agent Trace Kanban Viewer)
-CREATE INDEX IF NOT EXISTS idx_message_steps_run_id 
-ON message_steps (run_id);
-
-CREATE INDEX IF NOT EXISTS idx_message_steps_parent_run_id 
-ON message_steps (parent_run_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trace_exec_request_id 
+ON trace_executions (request_id);

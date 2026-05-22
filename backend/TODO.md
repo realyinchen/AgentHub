@@ -1,6 +1,6 @@
 # FastAPI + LangChain 最佳实践深度评审
 
-> **状态**：已完成 Phase 0/1/2/3（共 13 项）+ PR-A（2 项）+ PR-B（2 项），剩余 **16 个待办**
+> **状态**：已完成 Phase 0/1/2/3（共 13 项）+ PR-A（2 项）+ PR-B（2 项）+ PR-C/D/E（3 项），剩余 **13 个待办**
 > **目标**：保持 33 个 API 端点行为完全不变的前提下，持续收敛代码复杂度与一致性。
 
 ---
@@ -49,7 +49,7 @@ backend/app/
 │   ├── crypto.py              # AES-GCM 加密
 │   ├── async_writer.py        # 异步写入队列
 │   ├── cache.py               # @cached decorator (Thundering Herd 防护)
-│   └── token_utils.py         # ⬜ (P2-2 待新建) token usage 提取
+│   └── token_utils.py         # ✅ token usage 提取 + 累加
 └── prompts/                   # MD 提示词模板
     └── chatbot.md
 ```
@@ -78,30 +78,7 @@ backend/app/
 
 ---
 
-### 🟡 P2 — 业务功能修复（涉及 LLM 调用路径，需多端验证）
-
-#### N3 / F-G 🟡 `chat_title.generate_title` 绕过统一 LLM 工厂
-**位置**：`api/v1/chat_title.py:130-145`
-**问题**：唯一直接调 `router.acompletion(...)` 绕过 LangChain 的 LLM 调用
-**修复**：改用 `get_system_default_llm().ainvoke([SystemMessage(...), HumanMessage(...)])`
-**收益**：统一 LLM 调用路径；title 生成出现在 LangSmith trace
-**风险**：中 —— 改动了"已能用"的代码，需验证 title 生成行为不变
-
-#### P13 / F-H 🟡 invoke 端点缺失 token usage
-**位置**：`api/v1/chat.py::invoke` + 新建 `utils/token_utils.py`
-**操作**：
-1. **新建** `utils/token_utils.py`，将 `stream.py` 中的 `_extract_usage` / `_accumulate_usage` 提取为 `extract_usage` / `accumulate_usage` / `empty_totals` 三个公共函数
-2. `stream.py` 改用 `from app.utils.token_utils import ...`
-3. `chat.py::invoke` 在 `agent.ainvoke` 后聚合所有 AI 消息的 usage 并写入 DB
-
-#### F-B / F-F 🟡 trace 路由 agent 默认值不一致 + 离线无兜底
-**问题**：
-- `/traces` 默认 `agent_id="all"`；`/traces/{tid}/*` 五个端点默认 `"default"`，DB 中根本没这个 ID
-- agent `is_active=false` 下线后所有历史 trace 立即 404
-**操作**：
-1. 5 个 trace 端点的 `agent_id` 默认值统一为 `"all"`
-2. 新增 helper `_resolve_agent(db, agent_id, thread_id)`：当 `agent_id="all"` 时从 `conversation` 表反查
-3. agent 已下线时返回 `410 Gone` 而非误导性 404
+> **PR-C/D/E 已完成（2026-05-22）**：N3/F-G（统一 title LLM 路径）+ P13/F-H（invoke token usage + 共享函数提取）+ F-B/F-F（trace 路由统一 + 离线兜底 + DAG 持久化）。详见第七章。
 
 ---
 
@@ -167,15 +144,14 @@ def prompts_dir(self) -> Path:
 |:---:|------|:---:|:---:|------|
 | ~~**PR-A**~~ | ✅ 已完成（2026-05-22）N1 删 `app/tools/` + F-I 修双 commit | 6 | 🟢 零 | 无 |
 | ~~**PR-B**~~ | ✅ 已完成（2026-05-22）P3/P19 删 CheckpointTraceReader + N2 修私有访问 | 5 | 🟡 低 | 无 |
-| **PR-C** | N3 统一 title 走 `get_system_default_llm()` | 1 | 🟡 中 | LLM 调用栈变 |
-| **PR-D** | P13 invoke 补 token usage（新增 `utils/token_utils.py`） | 3 | 🟡 中 | invoke 现在写 DB |
-| **PR-E** | F-B/F-F trace 路由 agent 默认值 + 离线兜底 | 2 | 🟡 中 | trace 端点新行为 |
+| ~~**PR-C**~~ | ✅ 已完成（2026-05-22）N3 统一 title 走 `get_system_default_llm()` | 1 | 🟡 中 | LLM 调用栈变 |
+| ~~**PR-D**~~ | ✅ 已完成（2026-05-22）P13 invoke 补 token usage（新增 `utils/token_utils.py`） | 3 | 🟡 中 | invoke 现在写 DB |
+| ~~**PR-E**~~ | ✅ 已完成（2026-05-22）F-B/F-F trace 路由 agent 默认值 + 离线兜底 + DAG 持久化 | 10 | 🟡 中 | trace 读纯 DB |
 | **PR-F** | F-C `/chat/conversations` + P21 `_get_tools` 缓存 + P9 PROMPTS_DIR + P10 清理 | 4 | 🟢 低 | 无 |
 | **PR-G**（延后） | P17 ModelManager 实例化 | 12+ | 🟡 中 | 无（仅测试友好性） |
 
 **建议节奏**：
-- ~~PR-A~~ ✅ 已完成、~~PR-B~~ ✅ 已完成
-- PR-C、PR-D、PR-E 下周做（带业务回归）
+- ~~PR-A~~ ✅ 已完成、~~PR-B~~ ✅ 已完成、~~PR-C/D/E~~ ✅ 已完成
 - PR-F 任意时间穿插
 - PR-G 等到引入测试基建时再做
 
@@ -248,12 +224,12 @@ diff <(jq -S . before.json) <(jq -S . after.json)
 | **配置管理** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | PROMPTS_DIR 配置化 ⬜ |
 | **类型安全** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | `/chat/conversations` response_model ⬜ |
 | **可测试性** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ModelManager 实例化 ⬜ |
-| **异步一致性** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | invoke token usage ⬜ |
+| **异步一致性** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | invoke token usage ✅ |
 | **封装** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | stream.py 访问私有属性已修复 ✅ |
-| **LLM 调用一致性** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | title 生成绕过工厂 ⬜ |
+| **LLM 调用一致性** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | title 生成绕过工厂 ✅ |
 | **API 完整性** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 33 端点全保留 ✅ |
 
-**整体**：当前 **4.6/5**（+0.2，PR-A + PR-B 完成），全部 PR 完成后预计 **4.8/5**。
+**整体**：当前 **4.8/5**（+0.4，PR-A/B/C/D/E 完成），全部 PR 完成后预计 **4.8/5**。
 
 ---
 
@@ -267,6 +243,9 @@ diff <(jq -S . before.json) <(jq -S . after.json)
 | **Phase 3** | P15 + P16 + P6 + P7（删 dict 双路径 + 删 get_chat_litellm + 拆 chat.py + schemas 整理） | 2026-05-22 |
 | **PR-A** | N1（删 `app/tools/` 死目录）+ F-I（修 `agent.py` 双 commit → `db.flush()`） | 2026-05-22 |
 | **PR-B** | P3/P19（删 CheckpointTraceReader 门面）+ N2（stream.py 修私有属性访问） | 2026-05-22 |
+| **PR-C** | N3/F-G（chat_title 统一走 `get_system_default_llm().ainvoke()`） | 2026-05-22 |
+| **PR-D** | P13/F-H（invoke token usage + `utils/token_utils.py` 共享函数） | 2026-05-22 |
+| **PR-E** | F-B/F-F（trace agent 默认值统一 + 离线兜底 + DAG 持久化，新增 `models/trace.py` + `crud/trace.py`） | 2026-05-22 |
 
-**已解决（17/33）**：P1, P3, P4, P5, P6, P7, P11, P12, P14, P15, P16, P18, P19, P20, F-6, N1, N2, F-I
-**待办（16）**：见第三章节
+**已解决（20/33）**：P1, P3, P4, P5, P6, P7, P11, P12, P13, P14, P15, P16, P18, P19, P20, F-6, F-B, F-F, F-G, F-H, N1, N2, N3
+**待办（13）**：见第三章节
