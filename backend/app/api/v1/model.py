@@ -21,22 +21,6 @@ api_router = APIRouter(prefix="/models", tags=["Models"])
 logger = logging.getLogger(__name__)
 
 
-def model_to_info(model) -> ModelInfo:
-    """Convert database model to ModelInfo"""
-    return ModelInfo(
-        id=str(model.id),
-        provider=model.provider,
-        model_type=model.model_type,
-        model_id=model.model_id,
-        thinking=model.thinking,
-        priority=getattr(model, "priority", 0),
-        is_default=model.is_default,
-        is_active=model.is_active,
-        created_at=model.created_at,
-        updated_at=model.updated_at,
-    )
-
-
 def get_first_model_by_type(models: list, model_type: str) -> Optional[str]:
     """
     Get the first model of a specific type from a sorted list.
@@ -59,7 +43,7 @@ def _build_models_response(models: list) -> ModelsResponse:
     - Otherwise, use the first model of that type (sorted alphabetically by provider)
     """
     # Convert to ModelInfo
-    model_infos = [model_to_info(m) for m in models]
+    model_infos = [ModelInfo.model_validate(m) for m in models]
 
     # Extract default model IDs from the list (no additional DB query needed)
     default_llm_id = None
@@ -138,7 +122,7 @@ async def create_model(
     # Refresh model manager cache
     await ModelManager.refresh()
 
-    return model_to_info(new_model)
+    return ModelInfo.model_validate(new_model)
 
 
 @api_router.post("/update", response_model=ModelInfo)
@@ -175,7 +159,7 @@ async def update_model(
     # Refresh model manager cache
     await ModelManager.refresh()
 
-    return model_to_info(updated_model)
+    return ModelInfo.model_validate(updated_model)
 
 
 @api_router.post("/delete", status_code=status.HTTP_204_NO_CONTENT)
@@ -227,4 +211,4 @@ async def set_default_model(
     # Refresh model manager cache
     await ModelManager.refresh()
 
-    return model_to_info(model)
+    return ModelInfo.model_validate(model)

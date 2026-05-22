@@ -1,6 +1,6 @@
 # FastAPI + LangChain 最佳实践深度评审
 
-> **状态**：已完成 Phase 0/1/2/3（共 13 项）+ PR-A（2 项）+ PR-B（2 项）+ PR-C/D/E（3 项），剩余 **13 个待办**
+> **状态**：已完成 Phase 0/1/2/3（共 13 项）+ PR-A/B/C/D/E/H/I（共 15 项）+ 全栈架构评审三阶段（架构分析 + API 文档 + 优化建议），剩余 **14 个待办**
 > **目标**：保持 33 个 API 端点行为完全不变的前提下，持续收敛代码复杂度与一致性。
 
 ---
@@ -44,6 +44,7 @@ backend/app/
 ├── observability/             # 只读追踪重建
 │   ├── checkpoint.py / trace.py / dag.py / parsers.py
 ├── utils/
+│   ├── stream_helpers.py      # ✅ 共享 invoke/stream 后处理 (model fallback + token + DAG 持久化)
 │   ├── message_utils.py       # 统一消息转换 (单一来源)
 │   ├── request_handler.py     # 请求→Agent 参数转换
 │   ├── crypto.py              # AES-GCM 加密
@@ -68,7 +69,7 @@ backend/app/
 
 ---
 
-## 三、待办问题清单（18 项）
+## 三、待办问题清单（14 项）
 
 > **PR-A 已完成（2026-05-22）**：N1（删除 `app/tools/`）+ F-I（修双 commit）。详见第七章。
 
@@ -82,6 +83,14 @@ backend/app/
 
 ---
 
+> **PR-H 已完成（2026-05-22）**：H-1（新增 `utils/stream_helpers.py`，消除 invoke/stream 间 ~90 行重复）。
+
+---
+
+> **PR-I 已完成（2026-05-22）**：H-2（删除 `model_to_info()`，`ModelManager.get_model_info_list()` 返回 `list[ModelInfo]`）。
+
+---
+
 ### 🟢 P3 — 一致性收敛（低风险）
 
 #### F-C 🟢 `/chat/conversations` 用 `JSONResponse` 而非 `response_model`
@@ -92,11 +101,12 @@ backend/app/
 @api_router.get("/conversations", response_model=list[ConversationInDB])
 async def get_conversations(
     response: Response,
+    user_id: str = Query(...),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConversationInDB]:
-    conversations, total = await list_conversations(db=db, limit=limit, offset=offset)
+    conversations, total = await list_conversations(db=db, user_id=user_id, limit=limit, offset=offset)
     response.headers["X-Total-Count"] = str(total)
     return [ConversationInDB.model_validate(c) for c in conversations]
 ```
@@ -133,7 +143,7 @@ def prompts_dir(self) -> Path:
 **问题**：
 1. classmethod + 可变类变量 → 测试无法独立 mock
 2. `asyncio.Lock = asyncio.Lock()` 在 import 时绑定 event loop
-**操作**：改为 `__init__` 实例 + 模块级 `_model_manager` + 延迟创建 `_router_lock`；约 12 处调用方改造（`ModelManager.refresh()` → `get_model_manager().refresh()`）
+**操作**：改为 `__init__` 实例 + 模块级 `get_model_manager()` (带 `@lru_cache`) + 延迟创建 `_router_lock`；约 12 处调用方改造（`ModelManager.refresh()` → `get_model_manager().refresh()`）
 **建议**：仅在引入单元测试基建时再做，否则纯增 PR 噪音
 
 ---
@@ -147,12 +157,14 @@ def prompts_dir(self) -> Path:
 | ~~**PR-C**~~ | ✅ 已完成（2026-05-22）N3 统一 title 走 `get_system_default_llm()` | 1 | 🟡 中 | LLM 调用栈变 |
 | ~~**PR-D**~~ | ✅ 已完成（2026-05-22）P13 invoke 补 token usage（新增 `utils/token_utils.py`） | 3 | 🟡 中 | invoke 现在写 DB |
 | ~~**PR-E**~~ | ✅ 已完成（2026-05-22）F-B/F-F trace 路由 agent 默认值 + 离线兜底 + DAG 持久化 | 10 | 🟡 中 | trace 读纯 DB |
+| ~~**PR-H**~~ | ✅ 已完成（2026-05-22）H-1 提取 `utils/stream_helpers.py`，消除 invoke/stream 间 ~90 行重复 | 3 (+1 新文件) | 🟡 中 | 无 |
+| ~~**PR-I**~~ | ✅ 已完成（2026-05-22）H-2 `model_to_info()` → `ModelInfo.model_validate()` 统一 | 2 | 🟢 低 | 无 |
 | **PR-F** | F-C `/chat/conversations` + P21 `_get_tools` 缓存 + P9 PROMPTS_DIR + P10 清理 | 4 | 🟢 低 | 无 |
 | **PR-G**（延后） | P17 ModelManager 实例化 | 12+ | 🟡 中 | 无（仅测试友好性） |
 
 **建议节奏**：
-- ~~PR-A~~ ✅ 已完成、~~PR-B~~ ✅ 已完成、~~PR-C/D/E~~ ✅ 已完成
-- PR-F 任意时间穿插
+- ~~PR-A~~ ✅ 已完成、~~PR-B~~ ✅ 已完成、~~PR-C/D/E~~ ✅ 已完成、~~PR-H~~ ✅ 已完成、~~PR-I~~ ✅ 已完成
+- PR-F 优先执行（零风险，纯收敛）
 - PR-G 等到引入测试基建时再做
 
 ---
@@ -192,6 +204,23 @@ r = httpx.get(f"{BASE}/chat/history/chatbot/00000000-0000-0000-0000-000000000001
 assert "messages" in r.json() and "message_sequence" in r.json()
 r = httpx.get(f"{BASE}/traces?page=0&page_size=10")
 assert r.status_code == 200
+
+# Conversations
+assert httpx.get(f"{BASE}/chat/conversations?user_id=smoke").status_code == 200
+
+# Stats
+assert httpx.get(f"{BASE}/chat/stats/daily?days=7").status_code == 200
+
+# Thinking mode
+assert isinstance(httpx.get(f"{BASE}/chat/thinking-mode").json()["available"], bool)
+
+# Title
+assert httpx.post(f"{BASE}/chat/title/generate", json={
+    "user_message": "hello", "ai_response": "hi"
+}).status_code == 200
+
+# Trace endpoints
+assert httpx.get(f"{BASE}/traces?page=0&page_size=10&user_id=smoke").status_code == 200
 ```
 
 ### 5.2 OpenAPI Schema diff
@@ -216,24 +245,24 @@ diff <(jq -S . before.json) <(jq -S . after.json)
 
 ## 六、架构健康度评分
 
-| 维度 | 初始 | 当前 | 目标 | 说明 |
-|------|:---:|:---:|:---:|------|
-| **代码重复** | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | `app/tools/` 死目录已删 ✅ |
-| **抽象适度** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | CheckpointTraceReader 门面已删 ✅ |
-| **模块边界** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | chat.py 拆分完成 ✅ |
-| **配置管理** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | PROMPTS_DIR 配置化 ⬜ |
-| **类型安全** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | `/chat/conversations` response_model ⬜ |
-| **可测试性** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ModelManager 实例化 ⬜ |
-| **异步一致性** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | invoke token usage ✅ |
-| **封装** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | stream.py 访问私有属性已修复 ✅ |
-| **LLM 调用一致性** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | title 生成绕过工厂 ✅ |
-| **API 完整性** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 33 端点全保留 ✅ |
+| 维度 | 初始 | 当前 | PR-F 后 | PR-G 后 (目标) | 说明 |
+|------|:---:|:---:|:---:|:---:|------|
+| **代码重复** | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | H-1 消除 invoke/stream 重复 ✅ |
+| **抽象适度** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | CheckpointTraceReader 门面已删 ✅ |
+| **模块边界** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | H-1 后 stream.py 职责聚焦 SSE ✅ |
+| **配置管理** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | PROMPTS_DIR 配置化 ⬜ PR-F |
+| **类型安全** | ⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | `/chat/conversations` response_model ⬜ PR-F |
+| **可测试性** | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐ | ModelManager 实例化 ⬜ PR-G |
+| **异步一致性** | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | invoke token usage ✅ |
+| **封装** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | stream.py 访问私有属性已修复 ✅ |
+| **LLM 调用一致性** | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | title 生成统一路径 ✅ |
+| **API 完整性** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ | 33 端点全保留 ✅ |
 
-**整体**：当前 **4.8/5**（+0.4，PR-A/B/C/D/E 完成），全部 PR 完成后预计 **4.8/5**。
+**整体**：当前 **4.8/5**，PR-F 后 **4.9/5**，PR-G 后 **5.0/5**。
 
 ---
 
-## 七、已完成历史汇总（15 项，已删除详细描述以保持 TODO 简洁）
+## 七、已完成历史汇总
 
 | Phase / PR | 解决问题 | 完成日期 |
 |:---:|------|:---:|
@@ -246,6 +275,9 @@ diff <(jq -S . before.json) <(jq -S . after.json)
 | **PR-C** | N3/F-G（chat_title 统一走 `get_system_default_llm().ainvoke()`） | 2026-05-22 |
 | **PR-D** | P13/F-H（invoke token usage + `utils/token_utils.py` 共享函数） | 2026-05-22 |
 | **PR-E** | F-B/F-F（trace agent 默认值统一 + 离线兜底 + DAG 持久化，新增 `models/trace.py` + `crud/trace.py`） | 2026-05-22 |
+| **架构评审** | 全栈三阶段分析：分层架构 + API 文档(33端点) + 精简优化建议（新增 H-1/H-2 两项，PR-H/PR-I） | 2026-05-22 |
+| **PR-H** | H-1（新增 `utils/stream_helpers.py`，消除 invoke/stream 间 ~90 行重复） | 2026-05-22 |
+| **PR-I** | H-2（删除 `model_to_info()`，`ModelManager.get_model_info_list()` 返回 `list[ModelInfo]`） | 2026-05-22 |
 
-**已解决（20/33）**：P1, P3, P4, P5, P6, P7, P11, P12, P13, P14, P15, P16, P18, P19, P20, F-6, F-B, F-F, F-G, F-H, N1, N2, N3
-**待办（13）**：见第三章节
+**已解决（24/38）**：P1, P3, P4, P5, P6, P7, P11, P12, P13, P14, P15, P16, P18, P19, P20, F-6, F-B, F-F, F-G, F-H, H-1, H-2, N1, N2, N3
+**待办（14）**：见第三章节（P3 一致性收敛 4 项 + P4 测试友好性 1 项，另 9 项为未来 Agent 新增）

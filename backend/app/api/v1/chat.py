@@ -33,6 +33,7 @@ from app.utils.message_utils import (
     langchain_to_chat_message,
     collect_tool_calls_for_final_response,
 )
+from app.utils.stream_helpers import resolve_model_name, persist_tokens_and_dag
 from app.utils.token_utils import extract_usage, accumulate_usage, empty_totals
 
 
@@ -110,13 +111,8 @@ async def invoke(
             status_code=400, detail=f"Agent '{agent_id}' not found or not active"
         )
 
-    # Resolve model name (with fallback to default)
-    initial_model = user_input.model_name
-    if not initial_model:
-        initial_model = (
-            ModelManager.get_default_llm_id()
-            or ModelManager.get_first_active_llm_id()
-        )
+    # Resolve model name (shared fallback chain)
+    initial_model = resolve_model_name(user_input.model_name)
 
     kwargs = await build_agent_kwargs(user_input)
 
@@ -145,47 +141,16 @@ async def invoke(
                     if usage:
                         accumulate_usage(totals, usage)
 
-    if totals["total_tokens"] > 0:
-        try:
-            await chat_crud.update_conversation_tokens(
-                db=db,
-                thread_id=user_input.thread_id,
-                input_tokens=totals["input_tokens"],
-                cache_read=totals["cache_read"],
-                output_tokens=totals["output_tokens"],
-                reasoning=totals["reasoning"],
-                total_tokens=totals["total_tokens"],
-            )
-        except Exception:
-            logger.exception(
-                "Failed to update tokens for invoke %s", user_input.request_id
-            )
-
-    # ── Build and persist execution DAG ────────────────────────────
-    try:
-        from app.observability import DagBuilder
-
-        thread_id_str = str(user_input.thread_id)
-        dag_builder = DagBuilder(agent)
-        dag = await dag_builder.get_execution_dag(thread_id_str)
-        await trace_crud.upsert_trace(
-            db=db,
-            thread_id=user_input.thread_id,
-            agent_id=agent_id,
-            request_id=user_input.request_id,
-            dag_data=dag.model_dump(),
-            total_steps=len(dag.steps),
-            model_name=initial_model,
-            input_tokens=totals["input_tokens"],
-            cache_read=totals["cache_read"],
-            output_tokens=totals["output_tokens"],
-            reasoning=totals["reasoning"],
-            total_tokens=totals["total_tokens"],
-        )
-    except Exception:
-        logger.exception(
-            "Failed to persist DAG for invoke %s", user_input.request_id
-        )
+    # ── Unified token + DAG persistence (shared with stream) ────────
+    await persist_tokens_and_dag(
+        db=db,
+        agent=agent,
+        thread_id=user_input.thread_id,
+        agent_id=agent_id,
+        request_id=user_input.request_id,
+        model_name=initial_model,
+        tokens=totals,
+    )
 
     return output
 

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 import litellm
 from litellm.router import Router
@@ -30,6 +30,9 @@ from app.crud import model as model_crud
 from app.crud import provider as provider_crud
 from app.infra.database import get_database
 from app.utils.crypto import decrypt_api_key
+
+if TYPE_CHECKING:
+    from app.schemas.model import ModelInfo
 
 logger = logging.getLogger(__name__)
 
@@ -261,19 +264,23 @@ class ModelManager:
         return bool(m.thinking) if m else False
 
     @classmethod
-    def get_model_info_list(cls) -> list[dict]:
-        return [
-            {
-                "model_id": m.model_id,
-                "model_type": m.model_type,
-                "provider": m.provider,
-                "thinking": m.thinking,
-                "priority": getattr(m, "priority", 0),
-                "is_default": m.is_default,
-                "is_active": m.is_active,
-            }
-            for m in cls._models_cache.values()
-        ]
+    def get_model_info_list(cls, active_only: bool = False) -> "list[ModelInfo]":
+        """Return all cached models as ``ModelInfo`` schemas.
+
+        Args:
+            active_only: When ``True``, filter to ``is_active`` models only.
+        """
+        from app.schemas.model import ModelInfo
+
+        result: list[ModelInfo] = []
+        for m in cls._models_cache.values():
+            if active_only and not getattr(m, "is_active", False):
+                continue
+            try:
+                result.append(ModelInfo.model_validate(m))
+            except Exception:
+                logger.warning("Model cache entry failed ModelInfo validation, skipping")
+        return result
 
     @classmethod
     def get_default_llm_id(cls) -> Optional[str]:

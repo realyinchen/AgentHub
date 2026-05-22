@@ -23,13 +23,12 @@ from typing import Any
 from langgraph.graph.state import CompiledStateGraph
 
 from app.infra.database import get_database
-from app.infra.llm import ModelManager
 from app.schemas.chat import UserInput
 from app.utils.async_writer import AsyncWriteQueue
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import langchain_to_chat_message
+from app.utils.stream_helpers import resolve_model_name, persist_tokens_and_dag
 from app.utils.token_utils import extract_usage, accumulate_usage, empty_totals
-from app.crud import chat as chat_crud
 
 
 logger = logging.getLogger(__name__)
@@ -214,20 +213,16 @@ async def streaming_message_generator(
         SSE-formatted strings (e.g. "data: {...}\\n\\n")
     """
     # ── Validate model availability ────────────────────────────────
-    initial_model = user_input.model_name
+    initial_model = resolve_model_name(user_input.model_name)
     if not initial_model:
-        initial_model = (
-            ModelManager.get_default_llm_id()
-            or ModelManager.get_first_active_llm_id()
+        logger.error("No models available for streaming")
+        yield _sse_error(
+            "No AI models are currently available. Please check your configuration.",
+            error_type="no_models_available",
         )
-        if not initial_model:
-            logger.error("No models available for streaming")
-            yield _sse_error(
-                "No AI models are currently available. Please check your configuration.",
-                error_type="no_models_available",
-            )
-            return
-        # Pin the chosen model into user_input so build_agent_kwargs + middleware see it
+        return
+    # Pin the chosen model into user_input so build_agent_kwargs + middleware see it
+    if not user_input.model_name:
         user_input = user_input.model_copy(update={"model_name": initial_model})
 
     # ── Build agent invocation kwargs ──────────────────────────────
@@ -377,57 +372,23 @@ async def streaming_message_generator(
                 except Exception as e:
                     logger.error(f"Error converting final message: {e}")
 
-        # ── Persist token usage (non-blocking) ─────────────────────
+        # ── Unified token + DAG persistence (non-blocking) ─────────
         tokens = state["accumulated_tokens"]
-        if tokens["total_tokens"] > 0:
-            db = get_database()
 
-            async def _update_tokens() -> None:
-                async with db.session() as session:
-                    await chat_crud.update_conversation_tokens(
-                        db=session,
-                        thread_id=thread_id,
-                        input_tokens=tokens["input_tokens"],
-                        cache_read=tokens["cache_read"],
-                        output_tokens=tokens["output_tokens"],
-                        reasoning=tokens["reasoning"],
-                        total_tokens=tokens["total_tokens"],
-                    )
-
-            write_queue.add("update_conversation_tokens", _update_tokens())
-
-        # ── Build and persist execution DAG (non-blocking) ─────────
-        try:
-            from app.observability import DagBuilder
-            from app.crud import trace as trace_crud
-
-            tokens = state["accumulated_tokens"]
-
-            async def _persist_dag() -> None:
+        async def _persist_tokens_and_dag() -> None:
                 db = get_database()
-                dag_builder = DagBuilder(agent)
-                dag = await dag_builder.get_execution_dag(thread_id_str)
                 async with db.session() as session:
-                    await trace_crud.upsert_trace(
+                    await persist_tokens_and_dag(
                         db=session,
+                        agent=agent,
                         thread_id=thread_id,
                         agent_id=user_input.agent_id,
                         request_id=str(request_id),
-                        dag_data=dag.model_dump(),
-                        total_steps=len(dag.steps),
                         model_name=initial_model,
-                        input_tokens=tokens["input_tokens"],
-                        cache_read=tokens["cache_read"],
-                        output_tokens=tokens["output_tokens"],
-                        reasoning=tokens["reasoning"],
-                        total_tokens=tokens["total_tokens"],
+                        tokens=tokens,
                     )
 
-            write_queue.add("persist_dag", _persist_dag())
-        except Exception:
-            logger.exception(
-                "Failed to build/persist DAG for thread %s", thread_id_str
-            )
+        write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
 
         # ── Performance log ────────────────────────────────────────
         if state["first_chunk_time"] is not None:
