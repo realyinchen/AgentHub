@@ -8,7 +8,7 @@ This enables:
 - Fallback model configuration
 """
 
-from app.agents.middleware.model.dynamic import dynamic_model
+from app.agents.middleware.model.model_middleware import dynamic_model
 
 __all__ = [
     "dynamic_model",

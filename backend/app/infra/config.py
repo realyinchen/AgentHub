@@ -125,6 +125,16 @@ class Settings(BaseSettings):
     API_KEY_ENCRYPTION_KEY: Optional[SecretStr] = None
 
     # =========================================================================
+    # Prompts Configuration
+    # =========================================================================
+    # Absolute path to the prompts directory.
+    # None = auto-resolve to app/prompts/ relative to the backend package.
+    PROMPTS_DIR: Optional[str] = Field(
+        default=None,
+        description="Absolute path to prompts directory. None = use app/prompts/.",
+    )
+
+    # =========================================================================
     # System-level Default LLM (Required)
     # =========================================================================
     # Used by agents at compile time, and by all internal/implicit LLM calls
@@ -172,6 +182,14 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
+    def prompts_dir(self) -> Path:
+        """Resolved prompts directory path."""
+        if self.PROMPTS_DIR:
+            return Path(self.PROMPTS_DIR)
+        return Path(__file__).resolve().parent.parent / "prompts"
+
+    @computed_field
+    @property
     def cors_origins_list(self) -> list[str]:
         """Parse CORS_ORIGINS comma-separated string into a list."""
         if not self.CORS_ORIGINS.strip():
@@ -204,6 +222,7 @@ class Settings(BaseSettings):
         "POSTGRES_HOST",
         "POSTGRES_DB",
         "DEFAULT_LLM_MODEL",
+        "PROMPTS_DIR",
         mode="before",
     )
     @classmethod

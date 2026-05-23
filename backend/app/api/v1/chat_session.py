@@ -11,8 +11,7 @@ Routes:
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Depends, Query
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
@@ -31,8 +30,9 @@ logger = logging.getLogger(__name__)
 api_router = APIRouter(prefix="/chat", tags=["Chat"])
 
 
-@api_router.get("/conversations")
+@api_router.get("/conversations", response_model=list[ConversationInDB])
 async def get_conversations(
+    response: Response,
     user_id: str = Query(..., description="User ID to scope conversations"),
     limit: int = Query(
         20,
@@ -44,21 +44,14 @@ async def get_conversations(
         0, ge=0, description="Number of conversations to skip (for pagination)"
     ),
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
+) -> list[ConversationInDB]:
     """Get a list of recent conversations for a user (most recently updated first)."""
     try:
         conversations, total = await list_conversations(
             db=db, user_id=user_id, limit=limit, offset=offset
         )
-
-        response = JSONResponse(
-            content=[
-                ConversationInDB.model_validate(conv).model_dump(mode="json")
-                for conv in conversations
-            ],
-            headers={"X-Total-Count": str(total)},
-        )
-        return response  # type: ignore
+        response.headers["X-Total-Count"] = str(total)
+        return [ConversationInDB.model_validate(c) for c in conversations]
 
     except Exception as e:
         logger.error("Error retrieving conversations: %s", e)

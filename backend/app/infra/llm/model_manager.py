@@ -12,7 +12,7 @@ Thread-safety: an `asyncio.Lock` guards Router rebuilds.
 Fallback / retry is handled by the LiteLLM Router's built-in `fallbacks`
 and `num_retries` — no custom middleware needed.
 
-Runtime model switching is handled by `app.middleware.model.dynamic`
+Runtime model switching is handled by `app.agents.middleware.model.model_middleware`
 (via `@wrap_model_call` reading `context.model_name`), which calls
 `app.infra.llm.factory.get_llm()` to obtain a per-request LLM instance.
 """

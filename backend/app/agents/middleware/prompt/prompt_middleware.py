@@ -9,7 +9,7 @@ Follows the official LangChain v1 pattern:
 
 Usage::
 
-    from app.agents.middleware.prompt.dynamic import make_dynamic_prompt
+    from app.agents.middleware.prompt.prompt_middleware import make_dynamic_prompt
 
     # One line per agent — no need to write separate functions
     chatbot_prompt = make_dynamic_prompt("chatbot")
@@ -29,7 +29,7 @@ import logging
 
 from langchain.agents.middleware import dynamic_prompt, ModelRequest
 
-from app.agents.middleware.prompt.service import get_prompt_service
+from app.agents.middleware.prompt.prompt_builder import get_prompt_service
 
 logger = logging.getLogger(__name__)
 

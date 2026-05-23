@@ -78,12 +78,6 @@ TemplateProviderFn = Callable[[str], ChatPromptTemplate]
 
 # ── Constants ────────────────────────────────────────────────────────
 
-# Backend app root (4 levels up from this file: backend/app/agents/middleware/prompt/service.py)
-_APP_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-
-# Local MD prompt directory — each agent's prompt stored as app/prompts/<agent_id>.md
-_MD_PROMPT_DIR = _APP_ROOT / "prompts"
-
 # Template cache TTL in seconds (5 minutes) — aligns with LangSmith SDK default
 _TEMPLATE_CACHE_TTL = 300
 
@@ -96,15 +90,16 @@ class PromptService:
 
     Template resolution priority:
         1. Template provider (e.g. LangSmith ``pull_prompt``) — highest priority
-        2. Local MD file (``app/prompts/<agent_id>.md``) — external source
+        2. Local MD file (``<prompts_dir>/<agent_id>.md``) — external source
         3. KeyError — no fallback, prompts MUST be externally provided
 
     Both sources return the same type (``ChatPromptTemplate``), so
     ``.format_messages()`` works identically regardless of source.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, prompts_dir: Path | None = None) -> None:
         self._template_provider: Optional[TemplateProviderFn] = None
+        self._prompts_dir = prompts_dir or self._resolve_default_prompts_dir()
 
         # Thread-safe cache for parsed ChatPromptTemplate objects loaded from MD files.
         # We cache the ChatPromptTemplate (not the rendered string) so that each
@@ -116,6 +111,13 @@ class PromptService:
         # asyncio.Lock for cache write protection in async context.
         # Unlike threading.Lock, this does NOT block the event loop.
         self._template_lock = asyncio.Lock()
+
+    @staticmethod
+    def _resolve_default_prompts_dir() -> Path:
+        """Resolve the default prompts directory from Settings."""
+        from app.infra.config import get_settings
+
+        return get_settings().prompts_dir
 
     # ── Configuration API ───────────────────────────────────────────
 
@@ -178,11 +180,11 @@ class PromptService:
         """
         loaded: list[str] = []
 
-        if not _MD_PROMPT_DIR.exists():
-            logger.debug("MD prompt directory not found: %s", _MD_PROMPT_DIR)
+        if not self._prompts_dir.exists():
+            logger.debug("MD prompt directory not found: %s", self._prompts_dir)
             return loaded
 
-        for md_file in sorted(_MD_PROMPT_DIR.glob("*.md")):
+        for md_file in sorted(self._prompts_dir.glob("*.md")):
             agent_id = md_file.stem
             if agent_id in self._template_cache:
                 continue  # already cached
@@ -263,7 +265,7 @@ class PromptService:
             return cached
 
         # Cache miss — read and parse MD file
-        md_path = _MD_PROMPT_DIR / f"{agent_id}.md"
+        md_path = self._prompts_dir / f"{agent_id}.md"
         if not md_path.exists():
             logger.debug("MD prompt file not found: %s", md_path)
             return None
@@ -382,5 +384,5 @@ def get_prompt_service() -> PromptService:
     if _service_instance is None:
         _service_instance = PromptService()
         _service_instance.preload_md_templates()
-        logger.info("PromptService initialized (prompt dir: %s)", _MD_PROMPT_DIR)
+        logger.info("PromptService initialized (prompt dir: %s)", _service_instance._prompts_dir)
     return _service_instance

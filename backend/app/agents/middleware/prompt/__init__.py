@@ -46,8 +46,8 @@ Development:
     svc.clear_cache_sync()
 """
 
-from app.agents.middleware.prompt.service import PromptService, get_prompt_service
-from app.agents.middleware.prompt.dynamic import make_dynamic_prompt
+from app.agents.middleware.prompt.prompt_builder import PromptService, get_prompt_service
+from app.agents.middleware.prompt.prompt_middleware import make_dynamic_prompt
 
 __all__ = [
     "PromptService",

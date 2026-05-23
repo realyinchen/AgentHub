@@ -7,8 +7,7 @@ not by separate files, since all schemas operate on the same data flow
 
 Sections:
     1. Checkpoint info — low-level LangGraph checkpoint metadata
-    2. Step output     — per-message step model (replaces the legacy
-                         ``MessageStep`` schema) + per-type metadata
+    2. Step output     — per-message step model with per-type metadata
     3. Execution DAG   — node + edge representation for visualization
     4. Trace listing   — paginated list view for the Trace Kanban UI
 """

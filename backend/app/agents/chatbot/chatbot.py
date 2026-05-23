@@ -8,8 +8,8 @@ from langchain.agents.middleware import SummarizationMiddleware
 from app.agents.registry import register_factory
 from app.agents.chatbot.types import ChatbotContext
 from app.infra.llm import get_system_default_llm
-from app.agents.middleware.prompt.dynamic import make_dynamic_prompt
-from app.agents.middleware.model.dynamic import dynamic_model
+from app.agents.middleware.prompt.prompt_middleware import make_dynamic_prompt
+from app.agents.middleware.model.model_middleware import dynamic_model
 from app.infra.tools.time import get_current_time
 from app.infra.tools.web import create_web_search
 
@@ -19,21 +19,30 @@ logger = logging.getLogger(__name__)
 
 # ── Tools ───────────────────────────────────────────────────────────────
 
+_tools_cache: list | None = None
+
 
 def _get_tools():
-    """Get tools lazily to avoid import-time errors when API keys are missing.
+    """Get tools lazily — cached after first successful initialization.
 
     Graceful degradation:
     - If web search API key is missing, falls back to time tools only
+    - Result is cached at module level; agent recompiles always reuse the
+      same tool instances.
     """
+    global _tools_cache
+    if _tools_cache is not None:
+        return _tools_cache
+
     try:
         web_search = create_web_search()
-        return [get_current_time, web_search]
+        _tools_cache = [get_current_time, web_search]
     except Exception:
         logger.warning(
             "Web search tool initialization failed, falling back to time only"
         )
-        return [get_current_time]
+        _tools_cache = [get_current_time]
+    return _tools_cache
 
 
 # ── Agent Factory ────────────────────────────────────────────────────────
