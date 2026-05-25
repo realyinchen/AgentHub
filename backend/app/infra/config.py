@@ -125,16 +125,6 @@ class Settings(BaseSettings):
     API_KEY_ENCRYPTION_KEY: Optional[SecretStr] = None
 
     # =========================================================================
-    # Prompts Configuration
-    # =========================================================================
-    # Absolute path to the prompts directory.
-    # None = auto-resolve to app/prompts/ relative to the backend package.
-    PROMPTS_DIR: Optional[str] = Field(
-        default=None,
-        description="Absolute path to prompts directory. None = use app/prompts/.",
-    )
-
-    # =========================================================================
     # System-level Default LLM (Required)
     # =========================================================================
     # Used by agents at compile time, and by all internal/implicit LLM calls
@@ -142,9 +132,9 @@ class Settings(BaseSettings):
     # etc.). Users can dynamically switch models at runtime per-request, but
     # this is the always-available system fallback.
     #
-    # DEFAULT_LLM_MODEL format: "provider/model-id" (e.g. "zai/glm-5.1")
-    DEFAULT_LLM_MODEL: Optional[str] = None
-    DEFAULT_LLM_API_KEY: Optional[SecretStr] = None
+    # SYSTEM_DEFAULT_LLM_MODEL format: "provider/model-id" (e.g. "zai/glm-5.1")
+    SYSTEM_DEFAULT_LLM_MODEL: Optional[str] = None
+    SYSTEM_DEFAULT_LLM_API_KEY: Optional[SecretStr] = None
 
     # =========================================================================
     # Computed Fields
@@ -183,9 +173,11 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def prompts_dir(self) -> Path:
-        """Resolved prompts directory path."""
-        if self.PROMPTS_DIR:
-            return Path(self.PROMPTS_DIR)
+        """Resolved prompts directory path — fixed to backend/app/prompts.
+
+        This path is NOT configurable via environment variables.
+        Prompt templates live under backend/app/prompts by project convention.
+        """
         return Path(__file__).resolve().parent.parent / "prompts"
 
     @computed_field
@@ -207,7 +199,7 @@ class Settings(BaseSettings):
         "AMAP_KEY",
         "TAVILY_API_KEY",
         "API_KEY_ENCRYPTION_KEY",
-        "DEFAULT_LLM_API_KEY",
+        "SYSTEM_DEFAULT_LLM_API_KEY",
         mode="before",
     )
     @classmethod
@@ -221,8 +213,7 @@ class Settings(BaseSettings):
         "POSTGRES_USER",
         "POSTGRES_HOST",
         "POSTGRES_DB",
-        "DEFAULT_LLM_MODEL",
-        "PROMPTS_DIR",
+        "SYSTEM_DEFAULT_LLM_MODEL",
         mode="before",
     )
     @classmethod
@@ -283,22 +274,24 @@ class Settings(BaseSettings):
     def validate_system_default_llm(self) -> "Settings":
         """Validate the system-level default LLM is fully configured.
 
-        DEFAULT_LLM_MODEL + DEFAULT_LLM_API_KEY are REQUIRED — they back the
-        agent's compile-time default model and every internal/implicit LLM
-        call (summarization, long-term memory, title generation, etc.).
-        DEFAULT_LLM_MODEL must be in "provider/model-id" form so the provider
-        can be parsed for provider-specific extra_body handling.
+        SYSTEM_DEFAULT_LLM_MODEL + SYSTEM_DEFAULT_LLM_API_KEY are REQUIRED —
+        they back the agent's compile-time default model and every internal/
+        implicit LLM call (summarization, long-term memory, title generation,
+        etc.).
+
+        SYSTEM_DEFAULT_LLM_MODEL must be in "provider/model-id" form so the
+        provider can be parsed for provider-specific extra_body handling.
         """
-        if self.DEFAULT_LLM_MODEL is None or self.DEFAULT_LLM_API_KEY is None:
+        if self.SYSTEM_DEFAULT_LLM_MODEL is None or self.SYSTEM_DEFAULT_LLM_API_KEY is None:
             raise ValueError(
-                "DEFAULT_LLM_MODEL and DEFAULT_LLM_API_KEY must both be set in .env. "
+                "SYSTEM_DEFAULT_LLM_MODEL and SYSTEM_DEFAULT_LLM_API_KEY must both be set in .env. "
                 "These provide the system-level fallback LLM used by all agents "
                 "and internal LLM calls."
             )
-        if "/" not in self.DEFAULT_LLM_MODEL:
+        if "/" not in self.SYSTEM_DEFAULT_LLM_MODEL:
             raise ValueError(
-                f"DEFAULT_LLM_MODEL must be in 'provider/model-id' format, "
-                f"got '{self.DEFAULT_LLM_MODEL}'. Example: 'zai/glm-5.1'."
+                f"SYSTEM_DEFAULT_LLM_MODEL must be in 'provider/model-id' format, "
+                f"got '{self.SYSTEM_DEFAULT_LLM_MODEL}'. Example: 'zai/glm-5.1'."
             )
         return self
 

@@ -26,7 +26,7 @@ from langchain_core.runnables import Runnable
 from langchain_litellm import ChatLiteLLMRouter
 
 from app.infra.llm.extra_body import build_extra_body
-from app.infra.llm.model_manager import ModelManager
+from app.infra.llm.model_manager import get_model_manager
 
 logger = logging.getLogger(__name__)
 
@@ -54,14 +54,14 @@ def get_llm(
     Raises:
         ValueError: If the model is not found in the cache or no Router available.
     """
-    model_config = ModelManager.get_model(model_id)
+    manager = get_model_manager()
+    model_config = manager.get_model(model_id)
     if model_config is None:
         raise ValueError(
             f"Model '{model_id}' not found in database. "
-            "Available models: %s" % ", ".join(ModelManager._models_cache.keys())
         )
 
-    router = ModelManager.get_router_sync()
+    router = manager.get_router_sync()
     if router is None:
         raise ValueError("No LiteLLM Router available. Ensure models are configured.")
 

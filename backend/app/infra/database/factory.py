@@ -85,9 +85,9 @@ def _get_embed_fn():
 
     async def embed_fn(text: str) -> list[float]:
         import litellm
-        from app.infra.llm import ModelManager
+        from app.infra.llm.model_manager import get_model_manager
 
-        model_id, api_key = await ModelManager.get_embedding_model()
+        model_id, api_key = await get_model_manager().get_embedding_model()
         if model_id is None:
             raise ValueError(
                 "No embedding model configured. "

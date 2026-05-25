@@ -66,9 +66,9 @@ class PostgresStore:
     async def _try_build_index_config(self) -> Optional[PostgresIndexConfig]:
         """Build vector-search index config if an embedding model is available."""
         try:
-            from app.infra.llm import ModelManager
+            from app.infra.llm.model_manager import get_model_manager
 
-            model_id, _ = await ModelManager.get_embedding_model()
+            model_id, _ = await get_model_manager().get_embedding_model()
             if model_id is None:
                 return None
 
@@ -76,9 +76,9 @@ class PostgresStore:
 
             async def embed_texts(texts: Sequence[str]) -> list[list[float]]:
                 import litellm
-                from app.infra.llm import ModelManager as _MM
+                from app.infra.llm.model_manager import get_model_manager as _gmm
 
-                m_id, api_key = await _MM.get_embedding_model()
+                m_id, api_key = await _gmm().get_embedding_model()
                 if m_id is None:
                     raise ValueError("No embedding model configured")
                 response = await litellm.aembedding(
@@ -102,9 +102,9 @@ class PostgresStore:
         """Detect embedding dimensions by calling the embedding model."""
         try:
             import litellm
-            from app.infra.llm import ModelManager
+            from app.infra.llm.model_manager import get_model_manager
 
-            model_id, api_key = await ModelManager.get_embedding_model()
+            model_id, api_key = await get_model_manager().get_embedding_model()
             if model_id is None:
                 return 1536
             response = await litellm.aembedding(

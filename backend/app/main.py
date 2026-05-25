@@ -6,7 +6,7 @@ from fastapi.routing import APIRoute
 
 from app.agents.registry import reload_agents, get_ids
 from app.infra.config import get_settings
-from app.infra.llm import ModelManager
+from app.infra.llm.model_manager import get_model_manager
 from app.api.errors import register_exception_handlers
 from app.infra.database import init_all, dispose_all
 from app.api.v1.router import api_router
@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         logger.info("All database components initialized successfully")
 
         # Initialize model manager (preload model configurations)
-        await ModelManager.refresh()
+        await get_model_manager().refresh()
 
         # Load active agents from DB, compile, store in memory.
         # reload_agents() now reads checkpointer and store from the database

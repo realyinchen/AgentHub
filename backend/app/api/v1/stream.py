@@ -13,7 +13,6 @@ Architecture:
 """
 
 import asyncio
-import json
 import logging
 import time
 import uuid
@@ -27,41 +26,12 @@ from app.schemas.chat import UserInput
 from app.utils.async_writer import AsyncWriteQueue
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import langchain_to_chat_message
+from app.utils.stream_events import has_meaningful_content, sse, sse_error
 from app.utils.stream_helpers import resolve_model_name, persist_tokens_and_dag
 from app.utils.token_utils import extract_usage, accumulate_usage, empty_totals
 
 
 logger = logging.getLogger(__name__)
-
-
-# ── SSE Formatting Helpers ──────────────────────────────────────────
-
-
-def _sse(data: dict) -> str:
-    """Format a dict as an SSE data event."""
-    return f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def _sse_error(content: str, error_type: str = "error") -> str:
-    return _sse({"type": "error", "content": content, "error_type": error_type})
-
-
-# ── Content Helpers ─────────────────────────────────────────────────
-
-
-def _has_meaningful_content(output: Any) -> bool:
-    """Check if an AI message output has actual text content (not just tool calls)."""
-    if output is None:
-        return False
-    content = getattr(output, "content", "")
-    if isinstance(content, str):
-        return bool(content.strip())
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                if block.get("text", "").strip():
-                    return True
-    return False
 
 
 # ── Core Streaming Logic ────────────────────────────────────────────
@@ -88,12 +58,12 @@ async def _consume_messages_projection(
             if delta:
                 if state["first_chunk_time"] is None:
                     state["first_chunk_time"] = time.perf_counter()
-                await out_queue.put(_sse({"type": "token", "content": delta}))
+                await out_queue.put(sse({"type": "token", "content": delta}))
 
         # Stream reasoning deltas (thinking models)
         async for delta in message.reasoning:
             if delta:
-                await out_queue.put(_sse({"type": "reasoning", "content": delta}))
+                await out_queue.put(sse({"type": "reasoning", "content": delta}))
 
         # Finalized message arrives last
         final = message.output
@@ -110,14 +80,14 @@ async def _consume_messages_projection(
                 f"output={usage.get('output_tokens', 0)}, total={usage.get('total_tokens', 0)}"
             )
             await out_queue.put(
-                _sse({"type": "usage", "content": {"node": node_name, "usage": usage}})
+                sse({"type": "usage", "content": {"node": node_name, "usage": usage}})
             )
 
         # Emit ai_thinking step if there's meaningful content
-        if _has_meaningful_content(final):
+        if has_meaningful_content(final):
             state["step_counter"] += 1
             await out_queue.put(
-                _sse(
+                sse(
                     {
                         "type": "step",
                         "step": state["step_counter"],
@@ -146,7 +116,7 @@ async def _consume_tool_calls_projection(
         # Tool start
         state["step_counter"] += 1
         await out_queue.put(
-            _sse(
+            sse(
                 {
                     "type": "step",
                     "step": state["step_counter"],
@@ -172,7 +142,7 @@ async def _consume_tool_calls_projection(
 
         # Tool end
         await out_queue.put(
-            _sse(
+            sse(
                 {
                     "type": "step",
                     "step": state["step_counter"],
@@ -216,7 +186,7 @@ async def streaming_message_generator(
     initial_model = resolve_model_name(user_input.model_name)
     if not initial_model:
         logger.error("No models available for streaming")
-        yield _sse_error(
+        yield sse_error(
             "No AI models are currently available. Please check your configuration.",
             error_type="no_models_available",
         )
@@ -263,7 +233,7 @@ async def streaming_message_generator(
 
     # ── Emit initial human step ────────────────────────────────────
     state["step_counter"] += 1
-    yield _sse(
+    yield sse(
         {
             "type": "step",
             "step": state["step_counter"],
@@ -322,7 +292,7 @@ async def streaming_message_generator(
                 break
             if isinstance(item, Exception):
                 # Consumer raised — emit error and exit
-                yield _sse_error(
+                yield sse_error(
                     f"Stream error: {type(item).__name__}: {str(item)[:200]}"
                 )
                 break
@@ -330,7 +300,7 @@ async def streaming_message_generator(
 
     except Exception as e:
         logger.exception(f"Stream setup error: {e}")
-        yield _sse_error(f"Stream error: {type(e).__name__}: {str(e)[:200]}")
+        yield sse_error(f"Stream error: {type(e).__name__}: {str(e)[:200]}")
 
     finally:
         # Cancel completion task if still running
@@ -368,7 +338,7 @@ async def streaming_message_generator(
             if hasattr(last, "content") and last.content:
                 try:
                     chat_msg = langchain_to_chat_message(last)
-                    yield _sse({"type": "message", "content": chat_msg.model_dump()})
+                    yield sse({"type": "message", "content": chat_msg.model_dump()})
                 except Exception as e:
                     logger.error(f"Error converting final message: {e}")
 

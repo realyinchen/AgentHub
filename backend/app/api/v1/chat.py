@@ -20,6 +20,7 @@ from app.api.v1.dependencies import get_db
 from app.api.v1.stream import streaming_message_generator
 from app.schemas.chat import (
     ChatMessage,
+    ConversationInfoResponse,
     UserInput,
     ChatHistory,
 )
@@ -27,7 +28,7 @@ from app.schemas.trace import StepOutput
 from app.agents.registry import get_graph
 from app.crud import chat as chat_crud
 from app.crud import trace as trace_crud
-from app.infra.llm import ModelManager
+from app.infra.llm.model_manager import get_model_manager
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import (
     langchain_to_chat_message,
@@ -212,12 +213,12 @@ async def history(
     return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
 
 
-@api_router.get("/conversation-info/{thread_id}")
+@api_router.get("/conversation-info/{thread_id}", response_model=ConversationInfoResponse)
 async def get_conversation_info(
     thread_id: UUID,
     user_id: str = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
-) -> dict[str, Any]:
+) -> ConversationInfoResponse:
     """Get the last-used agent and model for a conversation.
 
     Used when entering a historical conversation. Returns the agent_id and
@@ -244,23 +245,25 @@ async def get_conversation_info(
         # Validate model is still active
         model_fallback = False
         if model_name:
-            if not ModelManager.is_model_active(model_name):
+            manager = get_model_manager()
+            if not manager.is_model_active(model_name):
                 model_name = (
-                    ModelManager.get_default_llm_id()
-                    or ModelManager.get_first_active_llm_id()
+                    manager.get_default_llm_id()
+                    or manager.get_first_active_llm_id()
                 )
                 model_fallback = True
         else:
+            manager = get_model_manager()
             model_name = (
-                ModelManager.get_default_llm_id()
-                or ModelManager.get_first_active_llm_id()
+                manager.get_default_llm_id()
+                or manager.get_first_active_llm_id()
             )
 
-        return {
-            "agent_id": agent_id or conv.agent_id or "chatbot",
-            "model_name": model_name,
-            "model_fallback": model_fallback,
-        }
+        return ConversationInfoResponse(
+            agent_id=agent_id or conv.agent_id or "chatbot",
+            model_name=model_name,
+            model_fallback=model_fallback,
+        )
 
     except HTTPException:
         raise

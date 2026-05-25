@@ -221,3 +221,69 @@ class ConversationInDB(Conversation):
     )
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── Conversation info ───────────────────────────────────────────────────────
+
+
+class ConversationInfoResponse(BaseModel):
+    """Response for GET /chat/conversation-info/{thread_id}."""
+
+    agent_id: str = Field(description="Agent ID used in this conversation")
+    model_name: str | None = Field(
+        default=None, description="Model name from last trace execution"
+    )
+    model_fallback: bool = Field(
+        default=False,
+        description="True when the trace model was inactive and fell back to default",
+    )
+
+
+# ── Daily stats ─────────────────────────────────────────────────────────────
+
+
+class DailyStatsItem(BaseModel):
+    """A single day's conversation + token statistics."""
+
+    date: str = Field(description="Date in YYYY-MM-DD format")
+    conversation_count: int = Field(description="Number of conversations that day")
+    input_tokens: int = Field(default=0, description="Input tokens consumed")
+    cache_read: int = Field(default=0, description="Cache read tokens")
+    output_tokens: int = Field(default=0, description="Output tokens consumed")
+    reasoning: int = Field(default=0, description="Reasoning tokens consumed")
+    total_tokens: int = Field(default=0, description="Total tokens consumed")
+
+
+# ── Thinking mode ───────────────────────────────────────────────────────────
+
+
+class ThinkingModeStatus(BaseModel):
+    """Response for GET /chat/thinking-mode."""
+
+    available: bool = Field(description="Whether thinking mode is available")
+
+
+# ── Title schemas ───────────────────────────────────────────────────────────
+
+
+class TitleGenerateRequest(BaseModel):
+    """Request for generating a conversation title."""
+
+    user_message: str = Field(
+        description="The user's message to generate title from",
+        examples=["What is the weather in Beijing?"],
+    )
+    ai_response: str | None = Field(
+        default=None,
+        description="The AI's response (optional, for better context)",
+        examples=["The weather in Beijing is sunny, 25°C."],
+    )
+
+
+class TitleGenerateResponse(BaseModel):
+    """Response for title generation."""
+
+    title: str = Field(
+        description="The generated title",
+        examples=["Beijing Weather Inquiry"],
+    )

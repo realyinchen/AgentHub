@@ -15,8 +15,8 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
-from app.schemas.chat import ConversationCreate, ConversationInDB
-from app.infra.llm import ModelManager
+from app.schemas.chat import ConversationCreate, ConversationInDB, DailyStatsItem, ThinkingModeStatus
+from app.infra.llm.model_manager import get_model_manager
 from app.crud.chat import (
     list_conversations,
     create_conversation,
@@ -95,7 +95,7 @@ async def delete_conversation(
         raise HTTPException(status_code=500, detail="Error deleting conversation")
 
 
-@api_router.get("/stats/daily")
+@api_router.get("/stats/daily", response_model=list[DailyStatsItem])
 async def get_daily_stats(
     days: int = Query(
         30,
@@ -105,17 +105,17 @@ async def get_daily_stats(
     ),
     user_id: str | None = Query(None, description="Optional user scope filter"),
     db: AsyncSession = Depends(get_db),
-) -> list[dict[str, int | str]]:
+) -> list[DailyStatsItem]:
     """Get daily conversation count and token usage statistics."""
     try:
         stats = await get_daily_conversation_stats(db=db, days=days, user_id=user_id)
-        return stats
+        return [DailyStatsItem(**s) for s in stats]
     except Exception as e:
         logger.error("Error retrieving daily statistics: %s", e)
         raise HTTPException(status_code=500, detail="Error retrieving daily statistics")
 
 
-@api_router.get("/thinking-mode")
-async def get_thinking_mode_status() -> dict[str, bool]:
+@api_router.get("/thinking-mode", response_model=ThinkingModeStatus)
+async def get_thinking_mode_status() -> ThinkingModeStatus:
     """Check if thinking mode is available."""
-    return {"available": ModelManager.is_thinking_mode_available()}
+    return ThinkingModeStatus(available=get_model_manager().is_thinking_mode_available())

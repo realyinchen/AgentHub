@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
 from app.crud import model as crud
-from app.infra.llm import ModelManager
+from app.infra.llm.model_manager import get_model_manager
 from app.schemas.model import (
     ModelCreate,
     ModelInfo,
@@ -120,7 +120,7 @@ async def create_model(
         )
 
     # Refresh model manager cache
-    await ModelManager.refresh()
+    await get_model_manager().refresh()
 
     return ModelInfo.model_validate(new_model)
 
@@ -157,7 +157,7 @@ async def update_model(
         updated_model = await crud.set_default_model_by_id(db, model_uuid)
 
     # Refresh model manager cache
-    await ModelManager.refresh()
+    await get_model_manager().refresh()
 
     return ModelInfo.model_validate(updated_model)
 
@@ -182,7 +182,7 @@ async def delete_model(request: DeleteModelRequest, db: AsyncSession = Depends(g
         )
 
     # Refresh model manager cache
-    await ModelManager.refresh()
+    await get_model_manager().refresh()
 
     return None
 
@@ -209,6 +209,6 @@ async def set_default_model(
         )
 
     # Refresh model manager cache
-    await ModelManager.refresh()
+    await get_model_manager().refresh()
 
     return ModelInfo.model_validate(model)

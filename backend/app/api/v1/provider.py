@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
 from app.crud import provider as crud
-from app.infra.llm import ModelManager
+from app.infra.llm.model_manager import get_model_manager
 from app.schemas.provider import (
     ProviderInfo,
     ProvidersResponse,
@@ -75,6 +75,6 @@ async def update_provider(
         )
 
     # Refresh model manager cache (provider API key / base_url changed)
-    await ModelManager.refresh()
+    await get_model_manager().refresh()
 
     return provider_to_info(updated)

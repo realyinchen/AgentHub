@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from app.infra.llm.model_manager import ModelManager
+from app.infra.llm.model_manager import get_model_manager
 
 if TYPE_CHECKING:
     from uuid import UUID
@@ -53,9 +53,10 @@ def resolve_model_name(user_model: str | None) -> str | None:
     """
     if user_model:
         return user_model
+    manager = get_model_manager()
     return (
-        ModelManager.get_default_llm_id()
-        or ModelManager.get_first_active_llm_id()
+        manager.get_default_llm_id()
+        or manager.get_first_active_llm_id()
     )
 
 

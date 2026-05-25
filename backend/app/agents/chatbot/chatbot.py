@@ -8,8 +8,8 @@ from langchain.agents.middleware import SummarizationMiddleware
 from app.agents.registry import register_factory
 from app.agents.chatbot.types import ChatbotContext
 from app.infra.llm import get_system_default_llm
-from app.agents.middleware.prompt.prompt_middleware import make_dynamic_prompt
-from app.agents.middleware.model.model_middleware import dynamic_model
+from app.agents.middleware.prompt import make_dynamic_prompt
+from app.agents.middleware.model import dynamic_model
 from app.infra.tools.time import get_current_time
 from app.infra.tools.web import create_web_search
 

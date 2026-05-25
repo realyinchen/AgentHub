@@ -50,6 +50,19 @@ async def _resolve_agent_id(
     return conv.agent_id, None, None
 
 
+async def _verify_trace_owner(
+    db: AsyncSession,
+    thread_id: UUID,
+    user_id: str,
+) -> None:
+    """Verify that a thread belongs to user_id, or raise 404."""
+    conv = await chat_crud.read_conversation_by_thread_id(
+        db=db, thread_id=thread_id, user_id=user_id,
+    )
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+
 # ── routes ───────────────────────────────────────────────────────────────────
 
 
@@ -239,6 +252,7 @@ async def get_trace_step_by_number(
     Reads from ``trace_executions`` — no graph compilation required.
     """
     try:
+        await _verify_trace_owner(db, thread_id, user_id)
         _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
         if not steps:
             raise HTTPException(
@@ -276,6 +290,7 @@ async def get_trace_step_by_checkpoint(
     Reads from ``trace_executions`` — no graph compilation required.
     """
     try:
+        await _verify_trace_owner(db, thread_id, user_id)
         _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
         if not steps:
             raise HTTPException(
@@ -312,6 +327,7 @@ async def replay_trace(
     Reads from ``trace_executions`` — no graph compilation required.
     """
     try:
+        await _verify_trace_owner(db, thread_id, user_id)
         _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
         if not steps:
             raise HTTPException(

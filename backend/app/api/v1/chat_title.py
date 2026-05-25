@@ -13,8 +13,7 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
-from app.schemas.chat import ConversationInDB, ConversationUpdate
-from app.schemas.title import TitleGenerateRequest, TitleGenerateResponse
+from app.schemas.chat import ConversationInDB, ConversationUpdate, TitleGenerateRequest, TitleGenerateResponse
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.crud.chat import (
@@ -57,8 +56,8 @@ async def get_conversation_title(
 
 @api_router.post("/title")
 async def update_conversation_title(
-    thread_id: UUID,
     conversation_title: ConversationUpdate,
+    thread_id: UUID = Query(..., description="Thread ID of the conversation"),
     user_id: str = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB | None:
