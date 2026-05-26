@@ -52,7 +52,7 @@ async def update_conversation_by_thread_id(
 ) -> Conversation | None:
     update_values = update_data.model_dump(exclude_unset=True)
     if not update_values:
-        raise ValueError("No fields provided to update")
+        return None
 
     stmt = (
         update(Conversation)

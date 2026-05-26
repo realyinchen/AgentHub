@@ -57,7 +57,9 @@ async def _verify_trace_owner(
 ) -> None:
     """Verify that a thread belongs to user_id, or raise 404."""
     conv = await chat_crud.read_conversation_by_thread_id(
-        db=db, thread_id=thread_id, user_id=user_id,
+        db=db,
+        thread_id=thread_id,
+        user_id=user_id,
     )
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -275,9 +277,7 @@ async def get_trace_step_by_number(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@api_router.get(
-    "/{thread_id}/checkpoints/{checkpoint_id}", response_model=StepOutput
-)
+@api_router.get("/{thread_id}/checkpoints/{checkpoint_id}", response_model=StepOutput)
 async def get_trace_step_by_checkpoint(
     thread_id: UUID,
     checkpoint_id: str,

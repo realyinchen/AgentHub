@@ -1,12 +1,10 @@
+from datetime import datetime
+
 from sqlalchemy import String, Boolean, DateTime, Text
 from sqlalchemy.orm import Mapped, mapped_column
-from datetime import datetime, timezone
 
 from app.infra.database.base import Base
-
-
-def utc_now():
-    return datetime.now(timezone.utc)
+from app.models.base import utc_now
 
 
 class Provider(Base):

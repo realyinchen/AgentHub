@@ -110,10 +110,13 @@ async def create_model(
             detail="model_id_exists",
         )
 
-    # Create model
-    new_model = await crud.create_model(db, model_data.model_dump())
+    # Create model (without is_default — the atomic set_default handles it)
+    create_data = model_data.model_dump()
+    create_data.pop("is_default", None)
+    new_model = await crud.create_model(db, create_data)
 
-    # If setting as default, use atomic CASE statement to set as default and clear others
+    # If setting as default, use atomic CASE statement to set as default and
+    # clear all other models of the same type in a single SQL statement.
     if model_data.is_default:
         new_model = await crud.set_default_model_by_model_id(
             db, str(new_model.model_id)

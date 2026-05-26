@@ -1,29 +1,50 @@
-"""Shared type definitions for agents.
+"""Chatbot-specific runtime context types.
 
-Extracted to avoid circular imports between chatbot.py and memory/tools.py.
+Architecture
+------------
+``AgentRuntimeContext`` is the shared base for all agents — defined in
+``app.agents.types`` (framework layer).  ``ChatbotContext`` extends it
+with chatbot-specific fields.
+
+To create a context for another agent, follow the same pattern::
+
+    from app.agents.types import AgentRuntimeContext
+
+    @dataclass
+    class RAGContext(AgentRuntimeContext):
+        collection_id: str = ""
+        top_k: int = 5
+
+Then pass it via ``AgentSpec(context_schema=RAGContext)``.
 """
 
 from dataclasses import dataclass
 
+from app.agents.types import AgentRuntimeContext  # noqa: F401  — re-exported
+
 
 @dataclass
-class ChatbotContext:
-    """Runtime context for the chatbot agent.
+class ChatbotContext(AgentRuntimeContext):
+    """Chatbot Agent runtime context — inherits base + adds file-QA support.
 
-    Using @dataclass (instead of TypedDict) follows the LangChain v1
-    official pattern — attribute access (ctx.user_id) works naturally
-    in middleware without dict fallback checks.
+    This subclass demonstrates the canonical extension pattern:
+    define a dataclass that inherits from ``AgentRuntimeContext``, add
+    only the agent-specific fields, and pass it via ``AgentSpec``.
 
-    Attributes:
-        user_id: User identifier for long-term memory lookup
-        request_id: Request identifier for end-to-end tracing
-        model_name: Override model for this request (e.g. "openai:gpt-4o")
-        thinking_mode: Enable thinking/reasoning mode for the model
-        timezone: IANA timezone for time-context substitution in prompts
+    For other agents, follow the same pattern:
+
+        @dataclass
+        class RAGContext(AgentRuntimeContext):
+            collection_id: str = ""
+            top_k: int = 5
+
+        @dataclass
+        class ResearchContext(AgentRuntimeContext):
+            depth: int = 3
+            max_steps: int = 10
+
+    Middleware accessing only base-class fields (dynamic_model,
+    dynamic_prompt) remains compatible with all subclasses.
     """
 
-    user_id: str = ""
-    request_id: str = ""
-    model_name: str = ""
-    thinking_mode: bool = False
-    timezone: str = "Asia/Shanghai"
+    file: str = ""  # File path / URL for file-based Q&A scenarios

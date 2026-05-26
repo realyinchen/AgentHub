@@ -201,7 +201,7 @@ async def streaming_message_generator(
     context = kwargs["context"]
 
     # `thread_id` is the only field carried in configurable (checkpointer
-    # contract). All other runtime fields live on `context` (ChatbotContext).
+    # contract). All other runtime fields live on `context` (AgentRuntimeContext).
     thread_id_str = config["configurable"]["thread_id"]
     user_id = context.user_id or "unknown"
     request_id = context.request_id or "unknown"
@@ -346,17 +346,17 @@ async def streaming_message_generator(
         tokens = state["accumulated_tokens"]
 
         async def _persist_tokens_and_dag() -> None:
-                db = get_database()
-                async with db.session() as session:
-                    await persist_tokens_and_dag(
-                        db=session,
-                        agent=agent,
-                        thread_id=thread_id,
-                        agent_id=user_input.agent_id,
-                        request_id=str(request_id),
-                        model_name=initial_model,
-                        tokens=tokens,
-                    )
+            db = get_database()
+            async with db.session() as session:
+                await persist_tokens_and_dag(
+                    db=session,
+                    agent=agent,
+                    thread_id=thread_id,
+                    agent_id=user_input.agent_id,
+                    request_id=str(request_id),
+                    model_name=initial_model,
+                    tokens=tokens,
+                )
 
         write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
 

@@ -13,7 +13,7 @@ https://docs.langchain.com/oss/python/deepagents/models#select-a-model-at-runtim
 """
 
 import logging
-from typing import Any, Callable, cast
+from typing import Callable, cast
 
 from langchain.agents.middleware import wrap_model_call, ModelRequest, ModelResponse
 from langchain_core.language_models import BaseChatModel
@@ -30,7 +30,7 @@ def dynamic_model(
     """Dynamically select model based on runtime context.
 
     Reads ``model_name`` and ``thinking_mode`` from the runtime context (set by
-    ``build_agent_kwargs`` via a ``@dataclass`` context, e.g. ``ChatbotContext``)
+    ``build_agent_kwargs`` via a ``@dataclass`` context, e.g. ``AgentRuntimeContext``)
     and overrides the default model if specified.
 
     Per the LangChain v1 official pattern, all agents in this project MUST use
@@ -72,7 +72,7 @@ def dynamic_model(
     # Create a new LLM instance via the Router (with built-in fallback + retry).
     # ChatLiteLLMRouter is a Runnable; override() accepts it as a model.
     llm: BaseChatModel = cast(
-        Any,
+        BaseChatModel,
         get_llm(
             model_id=model_name,
             thinking_mode=thinking_mode,

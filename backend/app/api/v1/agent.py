@@ -9,7 +9,6 @@ agent-table mutation (create / update / delete).
 """
 
 import logging
-from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents.registry import get_metadata, list_metadata, reload_agent
 from app.api.v1.dependencies import get_db
 from app.models.agent import Agent as AgentModel
+from app.models.base import utc_now
 from app.schemas.agent import AgentListResponse, AgentResponse, AgentUpdate
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ async def list_agents() -> AgentListResponse:
     return AgentListResponse(
         agents=[AgentResponse.model_validate(r) for r in rows],
         total=len(rows),
-        timestamp=datetime.now(timezone.utc),
+        timestamp=utc_now(),
     )
 
 

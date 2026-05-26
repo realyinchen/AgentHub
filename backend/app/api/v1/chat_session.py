@@ -15,7 +15,12 @@ from fastapi import APIRouter, HTTPException, Depends, Query, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
-from app.schemas.chat import ConversationCreate, ConversationInDB, DailyStatsItem, ThinkingModeStatus
+from app.schemas.chat import (
+    ConversationCreate,
+    ConversationInDB,
+    DailyStatsItem,
+    ThinkingModeStatus,
+)
 from app.infra.llm.model_manager import get_model_manager
 from app.crud.chat import (
     list_conversations,
@@ -118,4 +123,6 @@ async def get_daily_stats(
 @api_router.get("/thinking-mode", response_model=ThinkingModeStatus)
 async def get_thinking_mode_status() -> ThinkingModeStatus:
     """Check if thinking mode is available."""
-    return ThinkingModeStatus(available=get_model_manager().is_thinking_mode_available())
+    return ThinkingModeStatus(
+        available=get_model_manager().is_thinking_mode_available()
+    )

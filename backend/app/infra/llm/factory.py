@@ -57,9 +57,7 @@ def get_llm(
     manager = get_model_manager()
     model_config = manager.get_model(model_id)
     if model_config is None:
-        raise ValueError(
-            f"Model '{model_id}' not found in database. "
-        )
+        raise ValueError(f"Model '{model_id}' not found in database. ")
 
     router = manager.get_router_sync()
     if router is None:

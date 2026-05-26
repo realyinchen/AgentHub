@@ -27,38 +27,46 @@ logger = logging.getLogger(__name__)
 # Exception Types
 # =============================================================================
 
+
 class LLMBaseError(Exception):
     """Base exception for LLM-related errors."""
+
     pass
 
 
 class LLMAuthenticationError(LLMBaseError):
     """Raised when LLM API key is invalid or authentication fails."""
+
     pass
 
 
 class LLMConnectionError(LLMBaseError):
     """Raised when there is a network/connection issue with the LLM provider."""
+
     pass
 
 
 class LLMInvalidRequestError(LLMBaseError):
     """Raised when the request to the LLM is invalid (bad parameters, etc.)."""
+
     pass
 
 
 class LLMRateLimitError(LLMBaseError):
     """Raised when the LLM API rate limit is exceeded."""
+
     pass
 
 
 class LLMPermissionError(LLMBaseError):
     """Raised when LLM API permission is denied (e.g. model not accessible)."""
+
     pass
 
 
 class LLMUnknownProviderError(LLMBaseError):
     """Raised when the model provider is unknown or not supported."""
+
     pass
 
 
@@ -66,15 +74,25 @@ class LLMUnknownProviderError(LLMBaseError):
 # Classifiers — LLM error detection & classification
 # =============================================================================
 
+
 def is_llm_authentication_error(exception: Exception) -> bool:
     """Detect if an exception is related to LLM authentication / API key issues."""
     error_str = str(exception).lower()
     class_name = type(exception).__name__.lower()
 
     auth_keywords = [
-        "auth", "api key", "api_key", "authentication",
-        "unauthorized", "401", "forbidden", "403",
-        "invalid", "incorrect", "wrong key", "missing key",
+        "auth",
+        "api key",
+        "api_key",
+        "authentication",
+        "unauthorized",
+        "401",
+        "forbidden",
+        "403",
+        "invalid",
+        "incorrect",
+        "wrong key",
+        "missing key",
     ]
     auth_type_names = ["authenticationerror", "autherror", "unauthorizederror"]
 
@@ -91,14 +109,31 @@ def is_llm_connection_error(exception: Exception) -> bool:
     class_name = type(exception).__name__.lower()
 
     connection_keywords = [
-        "connection", "timeout", "network", "socket", "dns",
-        "could not connect", "failed to connect", "connection refused",
-        "connection reset", "econnrefused", "etimedout",
-        "502", "503", "504", "bad gateway", "service unavailable",
+        "connection",
+        "timeout",
+        "network",
+        "socket",
+        "dns resolution",
+        "dns error",
+        "name resolution",
+        "could not connect",
+        "failed to connect",
+        "connection refused",
+        "connection reset",
+        "econnrefused",
+        "etimedout",
+        "502",
+        "503",
+        "504",
+        "bad gateway",
+        "service unavailable",
         "gateway timeout",
     ]
     connection_type_names = [
-        "apiconnectionerror", "connectionerror", "timeouterror", "networkerror",
+        "apiconnectionerror",
+        "connectionerror",
+        "timeouterror",
+        "networkerror",
     ]
 
     if any(keyword in class_name for keyword in connection_type_names):
@@ -114,11 +149,18 @@ def is_llm_rate_limit_error(exception: Exception) -> bool:
     class_name = type(exception).__name__.lower()
 
     rate_limit_keywords = [
-        "rate limit", "ratelimit", "quota", "too many requests",
-        "429", "rate exceeded", "request limit",
+        "rate limit",
+        "ratelimit",
+        "quota",
+        "too many requests",
+        "429",
+        "rate exceeded",
+        "request limit",
     ]
     rate_limit_type_names = [
-        "ratelimiterror", "toolmanyrequests", "quotaexceedederror",
+        "ratelimiterror",
+        "toolmanyrequests",
+        "quotaexceedederror",
     ]
 
     if any(keyword in class_name for keyword in rate_limit_type_names):
@@ -134,12 +176,21 @@ def is_llm_invalid_request_error(exception: Exception) -> bool:
     class_name = type(exception).__name__.lower()
 
     invalid_request_keywords = [
-        "invalid request", "bad request", "400",
-        "parameter", "invalid parameter", "missing parameter",
-        "max tokens", "context length", "contextwindow", "maximum context",
+        "invalid request",
+        "bad request",
+        "400",
+        "parameter",
+        "invalid parameter",
+        "missing parameter",
+        "max tokens",
+        "context length",
+        "contextwindow",
+        "maximum context",
     ]
     invalid_request_type_names = [
-        "invalidrequesterror", "badrequesterror", "validationerror",
+        "invalidrequesterror",
+        "badrequesterror",
+        "validationerror",
     ]
 
     if any(keyword in class_name for keyword in invalid_request_type_names):
@@ -155,12 +206,18 @@ def is_llm_unknown_provider_error(exception: Exception) -> bool:
     class_name = type(exception).__name__.lower()
 
     provider_keywords = [
-        "unknown provider", "provider not found", "invalid provider",
-        "unsupported provider", "model not found", "model does not exist",
+        "unknown provider",
+        "provider not found",
+        "invalid provider",
+        "unsupported provider",
+        "model not found",
+        "model does not exist",
         "no such model",
     ]
     provider_type_names = [
-        "unknownprovidererror", "notimplementederror", "notfounderror",
+        "unknownprovidererror",
+        "notimplementederror",
+        "notfounderror",
     ]
 
     if any(keyword in class_name for keyword in provider_type_names):
@@ -206,7 +263,9 @@ def get_user_friendly_error_message(exception: Exception) -> str:
         case "llm_connection":
             return "Unable to connect to the AI service. Please check your network and try again."
         case "llm_rate_limit":
-            return "The AI service is busy right now. Please try again in a few moments."
+            return (
+                "The AI service is busy right now. Please try again in a few moments."
+            )
         case "llm_invalid_request" | "llm_permission":
             return "The AI service is temporarily unavailable. Please try again later."
         case _:
@@ -229,13 +288,26 @@ def extract_error_context(exception: Exception) -> dict[str, Any]:
     }
 
     if hasattr(exception, "__dict__"):
+        # Sensitive key patterns to filter from logged attributes
+        _SENSITIVE_PATTERNS = (
+            "key",
+            "token",
+            "secret",
+            "password",
+            "credential",
+            "api_key",
+            "auth",
+        )
         extra_attrs = {}
         for key, value in exception.__dict__.items():
-            if not key.startswith("_") and key not in ["args", "message"]:
-                try:
-                    extra_attrs[key] = str(value)
-                except Exception:
-                    pass
+            if key.startswith("_") or key in ("args", "message"):
+                continue
+            if any(pattern in key.lower() for pattern in _SENSITIVE_PATTERNS):
+                continue
+            try:
+                extra_attrs[key] = str(value)
+            except Exception:
+                pass
         if extra_attrs:
             error_context["attributes"] = extra_attrs
 
@@ -246,13 +318,17 @@ def extract_error_context(exception: Exception) -> dict[str, Any]:
 # FastAPI Exception Handlers
 # =============================================================================
 
+
 async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle HTTPExceptions raised by business logic."""
     assert isinstance(exc, HTTPException)
 
     logger.warning(
         "HTTPException: status_code=%s, detail=%s, path=%s, method=%s",
-        exc.status_code, exc.detail, request.url.path, request.method,
+        exc.status_code,
+        exc.detail,
+        request.url.path,
+        request.method,
     )
 
     return JSONResponse(
@@ -297,8 +373,11 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
 
     logger.error(
         "Uncaught Exception: type=%s, is_llm_related=%s, category=%s, path=%s, method=%s",
-        error_context["type"], is_llm_error, error_category,
-        request.url.path, request.method,
+        error_context["type"],
+        is_llm_error,
+        error_category,
+        request.url.path,
+        request.method,
         exc_info=True,
     )
 
@@ -318,8 +397,8 @@ async def general_exception_handler(request: Request, exc: Exception) -> JSONRes
 
 def register_exception_handlers(app: FastAPI) -> None:
     """Register all exception handlers with the FastAPI application."""
-    app.add_exception_handler(HTTPException, http_exception_handler)      # type: ignore[arg-type]
-    app.add_exception_handler(LLMBaseError, llm_base_error_handler)       # type: ignore[arg-type]
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(LLMBaseError, llm_base_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, general_exception_handler)
     logger.info("Exception handlers registered successfully")
 
@@ -327,6 +406,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 # =============================================================================
 # SSE Error Formatting
 # =============================================================================
+
 
 def format_sse_error(exception: Exception) -> dict[str, Any]:
     """Format an exception for SSE streaming responses.

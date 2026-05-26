@@ -121,6 +121,11 @@ async def invoke(
         **kwargs,
         stream_mode=["updates", "values"],
     )
+    if not response_events:
+        raise HTTPException(
+            status_code=500,
+            detail="Agent invocation returned no events",
+        )
     response_type, response = response_events[-1]
     if response_type == "values":
         output = langchain_to_chat_message(response["messages"][-1])
@@ -171,9 +176,7 @@ async def history(
 
     # Get message steps from persisted DAG for sidebar (no graph needed)
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
-    message_sequence: list[StepOutput] = [
-        StepOutput(**s) for s in (steps or [])
-    ]
+    message_sequence: list[StepOutput] = [StepOutput(**s) for s in (steps or [])]
 
     # Get messages from checkpointer for main chat UI (needs live agent)
     agent = get_graph(agent_id)
@@ -213,7 +216,9 @@ async def history(
     return ChatHistory(messages=chat_messages, message_sequence=message_sequence)
 
 
-@api_router.get("/conversation-info/{thread_id}", response_model=ConversationInfoResponse)
+@api_router.get(
+    "/conversation-info/{thread_id}", response_model=ConversationInfoResponse
+)
 async def get_conversation_info(
     thread_id: UUID,
     user_id: str = Query(..., description="User ID who owns this conversation"),
@@ -248,15 +253,13 @@ async def get_conversation_info(
             manager = get_model_manager()
             if not manager.is_model_active(model_name):
                 model_name = (
-                    manager.get_default_llm_id()
-                    or manager.get_first_active_llm_id()
+                    manager.get_default_llm_id() or manager.get_first_active_llm_id()
                 )
                 model_fallback = True
         else:
             manager = get_model_manager()
             model_name = (
-                manager.get_default_llm_id()
-                or manager.get_first_active_llm_id()
+                manager.get_default_llm_id() or manager.get_first_active_llm_id()
             )
 
         return ConversationInfoResponse(
@@ -268,9 +271,7 @@ async def get_conversation_info(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(
-            "Error getting conversation info for thread %s: %s", thread_id, e
-        )
+        logger.error("Error getting conversation info for thread %s: %s", thread_id, e)
         raise HTTPException(
             status_code=500, detail="Error retrieving conversation info"
         )

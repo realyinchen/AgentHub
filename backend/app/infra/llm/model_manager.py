@@ -309,9 +309,8 @@ class ModelManager:
     def get_first_active_llm_id(self) -> Optional[str]:
         """Return the first active LLM model_id from cache, or None."""
         for m in self._models_cache.values():
-            if (
-                getattr(m, "model_type", "llm") == "llm"
-                and getattr(m, "is_active", False)
+            if getattr(m, "model_type", "llm") == "llm" and getattr(
+                m, "is_active", False
             ):
                 return str(m.model_id)
         return None
@@ -322,9 +321,7 @@ class ModelManager:
     def get_default_embedding_id(self) -> Optional[str]:
         return self._default_embedding_id
 
-    async def get_embedding_model(
-        self, model_id: Optional[str] = None
-    ):
+    async def get_embedding_model(self, model_id: Optional[str] = None):
         """Return (litellm_model_id, api_key) for use with litellm.aembedding().
 
         Resolves the embedding model from the cache (or the configured default)

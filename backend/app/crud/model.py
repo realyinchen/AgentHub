@@ -22,12 +22,6 @@ async def get_model(db: AsyncSession, model_id: str) -> Optional[Model]:
     return result.scalar_one_or_none()
 
 
-async def get_model_by_name(db: AsyncSession, model_name: str) -> Optional[Model]:
-    """Get a single model by name"""
-    result = await db.execute(select(Model).where(Model.model_id == model_name))
-    return result.scalar_one_or_none()
-
-
 async def get_all_models(db: AsyncSession, active_only: bool = True) -> list[Model]:
     """Get all models"""
     stmt = select(Model)
@@ -97,40 +91,9 @@ async def update_model_by_id(
     return model
 
 
-async def update_model(
-    db: AsyncSession, model_id: str, model_data: dict
-) -> Optional[Model]:
-    """Update a model by model_id string (legacy)
-
-    Note: model_data should be generated using model_dump(exclude_unset=True)
-    to ensure only fields explicitly set by the caller are updated.
-    """
-    model = await get_model(db, model_id)
-    if not model:
-        return None
-
-    for key, value in model_data.items():
-        setattr(model, key, value)
-
-    await db.flush()
-    await db.refresh(model)
-    return model
-
-
 async def delete_model_by_id(db: AsyncSession, id: uuid.UUID) -> bool:
     """Delete a model by UUID primary key"""
     model = await get_model_by_id(db, id)
-    if not model:
-        return False
-
-    await db.delete(model)
-    await db.flush()
-    return True
-
-
-async def delete_model(db: AsyncSession, model_id: str) -> bool:
-    """Delete a model by model_id string (legacy)"""
-    model = await get_model(db, model_id)
     if not model:
         return False
 
@@ -173,14 +136,6 @@ async def set_default_model_by_id(db: AsyncSession, id: uuid.UUID) -> Optional[M
     await db.flush()
     await db.refresh(model)
     return model
-
-
-async def set_default_model(db: AsyncSession, model_id: str) -> Optional[Model]:
-    """Set default model for its model_type by model_id string (atomic)
-
-    Alias for set_default_model_by_model_id for backwards compatibility.
-    """
-    return await set_default_model_by_model_id(db, model_id)
 
 
 async def set_default_model_by_model_id(

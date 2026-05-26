@@ -54,16 +54,13 @@ def resolve_model_name(user_model: str | None) -> str | None:
     if user_model:
         return user_model
     manager = get_model_manager()
-    return (
-        manager.get_default_llm_id()
-        or manager.get_first_active_llm_id()
-    )
+    return manager.get_default_llm_id() or manager.get_first_active_llm_id()
 
 
 async def persist_tokens_and_dag(
     db: AsyncSession,
     *,
-    agent,              # CompiledStateGraph
+    agent,  # CompiledStateGraph
     thread_id: UUID,
     agent_id: str,
     request_id: str,

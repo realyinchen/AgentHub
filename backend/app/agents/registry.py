@@ -206,7 +206,17 @@ async def reload_agent(agent_id: str) -> None:
             logger.info("Agent %r reloaded incrementally", agent_id)
         except Exception:
             logger.exception("Failed to compile agent %r", agent_id)
-            # Keep old version if compile fails
+            # If this is an existing agent and compile fails, keep the old
+            # compiled graph so in-flight requests don't break.  For a new
+            # agent (not previously in graphs), there is nothing to keep.
+            if agent_id in old.graphs:
+                new_graphs[agent_id] = old.graphs[agent_id]
+                old_meta = old.metadata.get(agent_id)
+                new_metadata[agent_id] = old_meta if old_meta is not None else row
+                logger.warning(
+                    "Agent %r compile failed — retaining previous version",
+                    agent_id,
+                )
             _snapshot = RegistrySnapshot(graphs=new_graphs, metadata=new_metadata)
 
 

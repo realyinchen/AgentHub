@@ -2,6 +2,7 @@ import io
 import csv
 import logging
 import json
+import re
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, List, Optional
@@ -47,7 +48,11 @@ async def execute_sql_query(
     if not sql_lower.startswith("select"):
         return "Error: Only SELECT queries are allowed for security reasons."
 
-    dangerous_keywords = {
+    # Word-boundary check for SQL reserved keywords (exact keyword match only).
+    # "comment" → "comment" but NOT "recommendation", "comment_count"
+    # "exec"   → "exec"   but NOT "execute", "executive"
+    # "sp_"    → "sp_"    but NOT "dispatcher", "response"
+    dangerous_keywords = [
         "drop",
         "delete",
         "update",
@@ -58,14 +63,17 @@ async def execute_sql_query(
         "grant",
         "revoke",
         "comment",
-        "--",
-        "/*",
-        "xp_",
         "exec",
         "sp_",
-    }
-    if any(keyword in sql_lower for keyword in dangerous_keywords):
-        return "Error: Query contains potentially harmful or disallowed operations."
+    ]
+    for kw in dangerous_keywords:
+        if re.search(rf"\b{re.escape(kw)}\b", sql_lower):
+            return f"Error: Disallowed SQL keyword detected: {kw}"
+
+    # Comment-introduction tokens: only flag them when they appear outside
+    # single-quoted string literals (so `SELECT 'hello -- world'` is fine).
+    if re.search(r"(?<!['\"])(--|/\*)", sql_lower):
+        return "Error: Comment sequences (--, /*) are disallowed."
 
     try:
         db = get_database()

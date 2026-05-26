@@ -49,7 +49,3 @@ def get_current_time(timezone_name: str = "Asia/Singapore") -> str:
                 f"Invalid timezone '{timezone_name}'. Common timezones: {suggestions}"
             )
         return f"Failed to get time: {error_msg}"
-
-
-# Keep backward compatibility alias
-get_current_local_time = get_current_time

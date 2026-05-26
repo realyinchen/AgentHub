@@ -282,7 +282,10 @@ class Settings(BaseSettings):
         SYSTEM_DEFAULT_LLM_MODEL must be in "provider/model-id" form so the
         provider can be parsed for provider-specific extra_body handling.
         """
-        if self.SYSTEM_DEFAULT_LLM_MODEL is None or self.SYSTEM_DEFAULT_LLM_API_KEY is None:
+        if (
+            self.SYSTEM_DEFAULT_LLM_MODEL is None
+            or self.SYSTEM_DEFAULT_LLM_API_KEY is None
+        ):
             raise ValueError(
                 "SYSTEM_DEFAULT_LLM_MODEL and SYSTEM_DEFAULT_LLM_API_KEY must both be set in .env. "
                 "These provide the system-level fallback LLM used by all agents "

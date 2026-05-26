@@ -13,7 +13,12 @@ from fastapi import APIRouter, HTTPException, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
-from app.schemas.chat import ConversationInDB, ConversationUpdate, TitleGenerateRequest, TitleGenerateResponse
+from app.schemas.chat import (
+    ConversationInDB,
+    ConversationUpdate,
+    TitleGenerateRequest,
+    TitleGenerateResponse,
+)
 from langchain_core.messages import SystemMessage, HumanMessage
 
 from app.crud.chat import (

@@ -33,7 +33,7 @@ Usage::
         model=llm,
         tools=tools,
         middleware=[chatbot_prompt, ...],
-        context_schema=ChatbotContext,
+        context_schema=AgentRuntimeContext,
     )
 """
 
@@ -57,13 +57,14 @@ TemplateProviderFn = Callable[[str], ChatPromptTemplate]
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
-_TEMPLATE_CACHE_TTL = 300          # 5 minutes — aligns with LangSmith SDK default
+_TEMPLATE_CACHE_TTL = 300  # 5 minutes — aligns with LangSmith SDK default
 _TEMPLATE_CACHE_MAX_SIZE = 20
 
 
 # =============================================================================
 # PromptService
 # =============================================================================
+
 
 class PromptService:
     """Assembles system prompts at request time.
@@ -89,6 +90,7 @@ class PromptService:
     @staticmethod
     def _resolve_default_prompts_dir() -> Path:
         from app.infra.config import get_settings
+
         return get_settings().prompts_dir
 
     # ── Configuration API ──────────────────────────────────────────────────
@@ -148,7 +150,9 @@ class PromptService:
 
         if loaded:
             logger.info(
-                "Preloaded %d MD prompt templates: %s", len(loaded), loaded,
+                "Preloaded %d MD prompt templates: %s",
+                len(loaded),
+                loaded,
             )
         return loaded
 
@@ -166,7 +170,8 @@ class PromptService:
             now = datetime.now(tz)
         except (ZoneInfoNotFoundError, KeyError):
             logger.warning(
-                "Invalid timezone '%s' — falling back to system local time", timezone,
+                "Invalid timezone '%s' — falling back to system local time",
+                timezone,
             )
             now = datetime.now()
 
@@ -204,7 +209,8 @@ class PromptService:
         except Exception as e:
             logger.warning(
                 "Failed to parse MD prompt for %s: %s. Falling back to next source.",
-                agent_id, e,
+                agent_id,
+                e,
             )
             return None
 
@@ -227,7 +233,8 @@ class PromptService:
             except Exception as e:
                 logger.warning(
                     "Template provider failed for %s: %s. Falling back to MD file.",
-                    agent_id, e,
+                    agent_id,
+                    e,
                 )
 
         md_template = self._load_from_md(agent_id)
@@ -272,6 +279,7 @@ class PromptService:
 # ── Module-level singleton ──────────────────────────────────────────────────
 
 _service_instance: Optional[PromptService] = None
+_service_initialized = False
 
 
 def get_prompt_service() -> PromptService:
@@ -279,13 +287,18 @@ def get_prompt_service() -> PromptService:
 
     On first call, initializes the service and preloads all MD prompt
     templates from ``app/prompts/`` into the in-memory cache.
+
+    Calling ``init_prompt_service()`` from the application lifespan
+    **before** the event loop starts serving requests is the recommended
+    pattern — it avoids lazy-init during the first request entirely.
     """
     global _service_instance
     if _service_instance is None:
         _service_instance = PromptService()
         _service_instance.preload_md_templates()
         logger.info(
-            "PromptService initialized (prompt dir: %s)", _service_instance._prompts_dir,
+            "PromptService initialized (prompt dir: %s)",
+            _service_instance._prompts_dir,
         )
     return _service_instance
 
@@ -293,6 +306,7 @@ def get_prompt_service() -> PromptService:
 # =============================================================================
 # make_dynamic_prompt — @dynamic_prompt middleware factory
 # =============================================================================
+
 
 def make_dynamic_prompt(
     agent_id: str,

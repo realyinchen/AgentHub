@@ -27,12 +27,12 @@ def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
         Dict to pass as `extra_body` to LiteLLM.
     """
     p = provider.lower()
-    if "dashscope" in p:
+    if p == "dashscope":
         return {"enable_thinking": thinking_enabled}
-    if "zai" in p or "zhipu" in p:
+    if p == "zai":
         return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
-    if "deepseek" in p:
+    if p == "deepseek":
         return {}
-    if "openai" in p:
+    if p == "openai":
         return {"reasoning_effort": "medium"} if thinking_enabled else {}
     return {}
