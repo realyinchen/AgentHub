@@ -32,6 +32,7 @@ from litellm.router import Router
 
 from app.crud import model as model_crud
 from app.crud import provider as provider_crud
+from app.infra.config import get_settings
 from app.infra.database import get_database
 from app.utils.crypto import decrypt_api_key
 
@@ -111,16 +112,20 @@ class ModelManager:
             fallbacks = self._build_fallbacks()
 
             if model_list:
+                settings = get_settings()
+                timeout = settings.LLM_REQUEST_TIMEOUT if settings.LLM_REQUEST_TIMEOUT > 0 else None
                 self._router = Router(
                     model_list=model_list,
                     fallbacks=fallbacks if fallbacks else [],
                     num_retries=2,
                     retry_after=1,
+                    timeout=timeout,
                 )
                 logger.info(
-                    "LiteLLM Router initialized with %d models, %d fallback rules",
+                    "LiteLLM Router initialized with %d models, %d fallback rules, timeout=%s",
                     len(model_list),
                     len(fallbacks),
+                    f"{timeout}s" if timeout else "disabled",
                 )
             else:
                 self._router = None

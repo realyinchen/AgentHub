@@ -5,14 +5,15 @@ conversation state is maintained by the checkpointer on the supervisor
 graph. Sub-agents are stateless one-shot calls via ``list_agents``/``task`` tools.
 """
 
-from __future__ import annotations
-
 import logging
-from pathlib import Path
 from typing import cast
 
 from langchain.agents import create_agent
-from langchain.agents.middleware import SummarizationMiddleware, ToolRetryMiddleware
+from langchain.agents.middleware import (
+    ModelRetryMiddleware,
+    SummarizationMiddleware,
+    ToolRetryMiddleware,
+)
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
@@ -27,7 +28,6 @@ from app.infra.llm import get_system_default_llm
 
 logger = logging.getLogger(__name__)
 
-_PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 # CompiledStateGraph is a complex generic from LangGraph. Using the bare
 # (unparameterised) type is the recommended pattern — type-checkers treat
@@ -36,67 +36,77 @@ _PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 _supervisor: CompiledStateGraph | None = None
 
 
-async def build_supervisor(
+async def init_supervisor(
     checkpointer: BaseCheckpointSaver,
     store: BaseStore | None = None,
 ) -> CompiledStateGraph:
     """Build and cache the supervisor agent (called once during lifespan startup)."""
     global _supervisor
     model = get_system_default_llm()
-    system_prompt = (_PROMPTS_DIR / "supervisor.md").read_text(encoding="utf-8")
 
-    settings = get_settings()
-
-    # Build middleware list dynamically — ToolRetryMiddleware is optional
-    # and gated by the TOOL_RETRY_ENABLED feature flag per the Stage 0
-    # roadmap (T01).  Only the `task` tool is retried because:
+    # Build middleware list dynamically following the official LangChain
+    # middleware order: Pre-processing → Model Selection → Model Retry →
+    # Tool Retry → Post-processing.
+    #
+    # Only the `task` tool is retried because:
     #   - `task` makes network calls to subagent graphs → benefits from retry
     #   - `list_agents` is a pure in-memory dict lookup → never needs retry
     # Per LangChain official docs: "Scope ToolRetryMiddleware to specific
     # tools rather than retrying everything."
+    #
+    # ModelRetryMiddleware supplements LiteLLM Router's built-in
+    # fallback+retry — they operate at different layers.  Router handles
+    # provider-level failover; ModelRetryMiddleware handles per-call
+    # transient errors with exponential backoff.
+    settings = get_settings()
+
     middleware: list = [
         make_dynamic_prompt("supervisor", store=store),
         dynamic_model,
     ]
 
-    if settings.TOOL_RETRY_ENABLED:
+    if settings.MODEL_RETRY_ENABLED:
         middleware.append(
-            ToolRetryMiddleware(
-                max_retries=settings.TOOL_RETRY_MAX_RETRIES,
-                backoff_factor=settings.TOOL_RETRY_BACKOFF_FACTOR,
-                initial_delay=settings.TOOL_RETRY_INITIAL_DELAY,
-                max_delay=settings.TOOL_RETRY_MAX_DELAY,
-                tools=["task"],
+            ModelRetryMiddleware(
+                max_retries=settings.MODEL_RETRY_MAX_RETRIES,
+                backoff_factor=settings.MODEL_RETRY_BACKOFF_FACTOR,
+                initial_delay=settings.MODEL_RETRY_INITIAL_DELAY,
+                max_delay=settings.MODEL_RETRY_MAX_DELAY,
+                jitter=True,
                 retry_on=(ConnectionError, TimeoutError),
                 on_failure="continue",
             )
         )
 
-    middleware.append(
-        SummarizationMiddleware(
-            model=model,
-            trigger=("tokens", 4000),
-            keep=("messages", 20),
-        ),
+    middleware.extend(
+        [
+            ToolRetryMiddleware(
+                tools=["task"],
+                retry_on=(ConnectionError, TimeoutError),
+                on_failure="continue",
+            ),
+            SummarizationMiddleware(
+                model=model,
+                trigger=("tokens", 4000),
+                keep=("messages", 20),
+            ),
+        ]
     )
-
-    # Stage 0 T03: Structured Output routing constraint
-    # When USE_STRUCTURED_OUTPUT is True, the supervisor produces a validated
-    # RoutingDecision captured in state["structured_response"] instead of
-    # free-form natural language.  Defaults to False (existing behavior).
-    response_format = RoutingDecision if settings.USE_STRUCTURED_OUTPUT else None
 
     _supervisor = cast(
         CompiledStateGraph,
         create_agent(
             model=model,
             tools=[list_agents, task],
-            system_prompt=system_prompt,
-            middleware=middleware,  # pyright: ignore[reportArgumentType]
+            system_prompt="",
+            middleware=middleware,
             checkpointer=checkpointer,
             store=store,
             context_schema=AgentRuntimeContext,
-            response_format=response_format,  # pyright: ignore[reportArgumentType]
+            # Structured Output routing constraint the supervisor produces a validated
+            # RoutingDecision captured in state["structured_response"] instead of
+            # free-form natural language.  Defaults to False (existing behavior).
+            response_format=RoutingDecision,
         ),
     )
     logger.info("Supervisor agent built and ready")

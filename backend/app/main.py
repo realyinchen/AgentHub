@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.routing import APIRoute
 
-from app.agents import build_supervisor
+from app.agents import init_supervisor
 from app.infra.config import get_settings
 from app.infra.llm.model_manager import get_model_manager
 from app.api.errors import register_exception_handlers
@@ -53,7 +53,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("Model manager initialized")
 
     store = get_store()
-    await build_supervisor(
+    await init_supervisor(
         checkpointer=get_checkpointer().get_saver(),
         store=store.get_store() if store else None,
     )

@@ -90,12 +90,6 @@ class Settings(BaseSettings):
     EMBEDDING_DIMENSION: int = Field(default=1024, ge=1)
 
     # =========================================================================
-    # WebSocket Configuration
-    # =========================================================================
-    WS_ENABLED: bool = False
-    WS_HEARTBEAT_INTERVAL: int = Field(default=30, ge=1)
-
-    # =========================================================================
     # CORS Configuration
     # =========================================================================
     # Comma-separated string, e.g.: "http://localhost:5173,https://app.example.com"
@@ -121,36 +115,36 @@ class Settings(BaseSettings):
     AGENT_STREAM_TIMEOUT: float = Field(default=300.0, ge=0)
 
     # =========================================================================
-    # Tool Retry Configuration
+    # ModelRetryMiddleware — LLM Call Retry
     # =========================================================================
-    # Feature flag to enable ToolRetryMiddleware for the `task` tool.
-    # Set to false to disable tool retries entirely.
-    TOOL_RETRY_ENABLED: bool = True
+    # When enabled, failed model calls are automatically retried with
+    # exponential backoff.  This is a *supplement* to LiteLLM Router's
+    # built-in fallback + retry — they operate at different layers
+    # (middleware vs Router).  LiteLLM Router handles provider-level
+    # failover; ModelRetryMiddleware handles per-call transient errors.
+    MODEL_RETRY_ENABLED: bool = True
 
-    # Maximum number of retry attempts for failed tool calls.
-    TOOL_RETRY_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+    # Maximum retry attempts after the initial call.
+    MODEL_RETRY_MAX_RETRIES: int = Field(default=3, ge=1, le=10)
 
-    # Multiplier for exponential backoff (delay = initial_delay * backoff_factor^attempt).
-    TOOL_RETRY_BACKOFF_FACTOR: float = Field(default=2.0, ge=1.0)
+    # Exponential backoff multiplier.  Each retry waits:
+    #   MODEL_RETRY_INITIAL_DELAY * (MODEL_RETRY_BACKOFF_FACTOR ** retry_number)
+    MODEL_RETRY_BACKOFF_FACTOR: float = Field(default=2.0, ge=0.0)
 
-    # Initial delay in seconds before first retry.
-    TOOL_RETRY_INITIAL_DELAY: float = Field(default=1.0, ge=0.1)
+    # Initial delay in seconds before the first retry.
+    MODEL_RETRY_INITIAL_DELAY: float = Field(default=1.0, ge=0.0)
 
-    # Maximum delay in seconds between retries.
-    TOOL_RETRY_MAX_DELAY: float = Field(default=60.0, ge=1.0)
+    # Maximum delay in seconds between retries (caps exponential growth).
+    MODEL_RETRY_MAX_DELAY: float = Field(default=60.0, ge=0.0)
 
     # =========================================================================
-    # Structured Output (Stage 0 — T03)
+    # LiteLLM Router — Per-Call Timeout
     # =========================================================================
-    # When enabled, the supervisor agent uses response_format=RoutingDecision
-    # to constrain its routing decisions to a validated Pydantic schema.
-    # The structured output is captured in state["structured_response"] and
-    # logged by the API layer for observability.
-    #
-    # Tradeoff: when enabled, the final model response is structured JSON
-    # rather than free-form natural language.  Defaults to False so existing
-    # conversational behavior is preserved.
-    USE_STRUCTURED_OUTPUT: bool = False
+    # Maximum seconds for a single LLM API call through the LiteLLM Router.
+    # This applies at the Router level and is separate from the per-request
+    # timeouts (AGENT_INVOKE_TIMEOUT / AGENT_STREAM_TIMEOUT).  Set to 0 to
+    # disable.  Recommended: 60 seconds for production.
+    LLM_REQUEST_TIMEOUT: float = Field(default=60.0, ge=0)
 
     # =========================================================================
     # API Keys & Secrets
@@ -185,31 +179,9 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def DATABASE_TYPE(self) -> Literal["postgres"]:
-        """Database type — always PostgreSQL."""
-        return "postgres"
-
-    @computed_field
-    @property
-    def VECTORSTORE_TYPE(self) -> Literal["pgvector"]:
-        """Vector store type — always pgvector (PostgreSQL pgvector extension)."""
-        return "pgvector"
-
-    @computed_field
-    @property
     def is_dev(self) -> bool:
         """Whether running in dev (development/test) mode."""
         return self.MODE == "dev"
-
-    @computed_field
-    @property
-    def prompts_dir(self) -> Path:
-        """Resolved prompts directory path — fixed to backend/app/prompts.
-
-        This path is NOT configurable via environment variables.
-        Prompt templates live under backend/app/prompts by project convention.
-        """
-        return Path(__file__).resolve().parent.parent / "prompts"
 
     @computed_field
     @property
