@@ -5,9 +5,8 @@
 # backend-only deployments where you manage the frontend separately.
 #
 # Prerequisites:
-# - Running PostgreSQL instance (if DATABASE_TYPE=postgres)
-# - Running Qdrant instance (if VECTORSTORE_TYPE=qdrant)
-# - Configure POSTGRES_HOST, POSTGRES_PORT, QDRANT_HOST, QDRANT_PORT in .env
+# - Running PostgreSQL instance with pgvector extension
+# - Configure POSTGRES_HOST, POSTGRES_PORT in .env
 
 services:
   backend:
@@ -17,18 +16,12 @@ services:
       dockerfile: Dockerfile
     container_name: agenthub-backend
     restart: unless-stopped
-    volumes:
-      # SQLite database persistence (harmless in PostgreSQL mode)
-      - /app/agenthub/backend/data:/app/data
     env_file:
       - /app/agenthub/backend/.env
     environment:
       # Override for container environment
       HOST: 0.0.0.0
       PORT: 8080
-      # Override for Docker container: SQLite path inside volume
-      SQLITE_DATABASE_PATH: /app/data/agenthub.db
-      SQLITE_VEC_DATABASE_PATH: /app/data/agenthub_vec.db
     ports:
       - "${BACKEND_PORT:-8080}:8080"
     healthcheck:

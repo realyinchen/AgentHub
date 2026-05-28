@@ -1,17 +1,15 @@
 """
 Database / Vectorstore / Checkpointer / Store factory (singletons).
 
-All business code calls these `get_xxx()` functions. The concrete backend
-    (PostgreSQL/pgvector/AsyncPostgresStore for prod mode,
-    SQLite/sqlite-vec/InMemoryStore for dev mode) is
-selected based on `Settings.DATABASE_TYPE` / `Settings.VECTORSTORE_TYPE`.
+All business code calls these ``get_xxx()`` functions. All components use
+PostgreSQL + pgvector exclusively.
 
 Thread/coroutine safety:
     Singleton creation uses asyncio.Lock (init is now async). This is safe
     because every caller is in the async context (FastAPI handlers + lifespan).
 
-    `get_xxx()` are sync to keep the call sites simple — they only return
-    pre-created singletons. The actual creation happens inside `init_xxx()`,
+    ``get_xxx()`` are sync to keep the call sites simple — they only return
+    pre-created singletons. The actual creation happens inside ``init_xxx()``,
     which is called from the FastAPI lifespan before any request is served.
 """
 
@@ -19,59 +17,26 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional
 
-from app.infra.config import get_settings
+from langgraph.checkpoint.base import BaseCheckpointSaver
+
 from app.infra.database.postgres import (
     PostgresCheckpointer,
     PostgresDatabase,
     PostgresStore,
     PGVectorVectorstore,
 )
-from app.infra.database.sqlite import (
-    InMemoryStoreBackend,
-    SQLiteDatabase,
-    SqliteCheckpointer,
-    SqliteVecVectorstore,
-)
 
 logger = logging.getLogger(__name__)
 
+_db_instance: PostgresDatabase | None = None
+_vs_instance: PGVectorVectorstore | None = None
+_cp_instance: PostgresCheckpointer | None = None
+_store_instance: PostgresStore | None = None
 
-# ── Singleton instances ─────────────────────────────────────────────────────
-_db_instance: Any | None = None
-_vs_instance: Any | None = None
-_cp_instance: Any | None = None
-_store_instance: Any | None = None  # None | concrete store | _NO_STORE
-_NO_STORE = object()  # Sentinel: store explicitly unavailable for this backend
-
-# ── Async lock for safe singleton creation (init is async) ──────────────────
 _init_lock = asyncio.Lock()
 
 
-# ── Backend registries (DATABASE_TYPE / VECTORSTORE_TYPE → class) ───────────
-_DB_BACKENDS: dict[str, type] = {
-    "postgres": PostgresDatabase,
-    "sqlite": SQLiteDatabase,
-}
-
-_VS_BACKENDS: dict[str, type] = {
-    "pgvector": PGVectorVectorstore,
-    "sqlite_vec": SqliteVecVectorstore,
-}
-
-_CP_BACKENDS: dict[str, type] = {
-    "postgres": PostgresCheckpointer,
-    "sqlite": SqliteCheckpointer,
-}
-
-_STORE_BACKENDS: dict[str, type] = {
-    # LangGraph official best practice:
-    #   - Prod mode (PostgreSQL): AsyncPostgresStore for durable long-term memory
-    #   - Dev mode (SQLite):      InMemoryStore (ephemeral; SQLite not recommended for Store)
-    "postgres": PostgresStore,
-    "sqlite": InMemoryStoreBackend,
-}
 
 
 # ── Embedding function (lazy-resolves the current embedding model) ──────────
@@ -106,47 +71,33 @@ def _get_embed_fn():
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-def get_database() -> Any:
-    """Return the database singleton. `init_database()` must run during startup."""
+def get_database() -> PostgresDatabase:
+    """Return the database singleton."""
     if _db_instance is None:
-        raise RuntimeError(
-            "Database not initialized. Ensure init_database() (or init_all()) "
-            "was called during application startup."
-        )
+        raise RuntimeError("Database not initialized — call init_database() during startup")
     return _db_instance
 
 
-def get_vectorstore() -> Any:
-    """Return the vectorstore singleton. `init_vectorstore()` must run during startup."""
+def get_vectorstore() -> PGVectorVectorstore:
+    """Return the vectorstore singleton."""
     if _vs_instance is None:
-        raise RuntimeError(
-            "Vectorstore not initialized. Ensure init_vectorstore() (or init_all()) "
-            "was called during application startup."
-        )
+        raise RuntimeError("Vectorstore not initialized — call init_vectorstore() during startup")
     return _vs_instance
 
 
-def get_checkpointer() -> Any:
-    """Return the checkpointer singleton. `init_checkpointer()` must run during startup."""
+def get_checkpointer() -> PostgresCheckpointer:
+    """Return the checkpointer singleton."""
     if _cp_instance is None:
-        raise RuntimeError(
-            "Checkpointer not initialized. Ensure init_checkpointer() (or init_all()) "
-            "was called during application startup."
-        )
+        raise RuntimeError("Checkpointer not initialized — call init_checkpointer() during startup")
     return _cp_instance
 
 
-def get_store() -> Optional[Any]:
-    """Return the long-term Store singleton, or None if unavailable for this backend."""
-    if _store_instance is None:
-        # Not yet initialized — caller may be checking before lifespan ran.
-        return None
-    if _store_instance is _NO_STORE:
-        return None
+def get_store() -> PostgresStore | None:
+    """Return the long-term Store singleton, or None if not initialized."""
     return _store_instance
 
 
-def get_saver():
+def get_saver() -> BaseCheckpointSaver:
     """Convenience: return the LangGraph-compatible saver from the checkpointer."""
     return get_checkpointer().get_saver()
 
@@ -162,17 +113,10 @@ async def init_database() -> None:
     async with _init_lock:
         if _db_instance is not None:
             return
-        settings = get_settings()
-        db_type = settings.DATABASE_TYPE
-        if db_type not in _DB_BACKENDS:
-            raise ValueError(
-                f"Unsupported DATABASE_TYPE: {db_type}. "
-                f"Supported: {list(_DB_BACKENDS.keys())}"
-            )
-        instance = _DB_BACKENDS[db_type]()
+        instance = PostgresDatabase()
         await instance.initialize()
         _db_instance = instance
-        logger.info("Database initialized: %s", db_type)
+        logger.info("Database initialized: postgres")
 
 
 async def init_vectorstore() -> None:
@@ -181,18 +125,11 @@ async def init_vectorstore() -> None:
     async with _init_lock:
         if _vs_instance is not None:
             return
-        settings = get_settings()
-        vs_type = settings.VECTORSTORE_TYPE
-        if vs_type not in _VS_BACKENDS:
-            raise ValueError(
-                f"Unsupported VECTORSTORE_TYPE: {vs_type}. "
-                f"Supported: {list(_VS_BACKENDS.keys())}"
-            )
-        instance = _VS_BACKENDS[vs_type]()
+        instance = PGVectorVectorstore()
         instance.set_embed_fn(_get_embed_fn())
         await instance.initialize()
         _vs_instance = instance
-        logger.info("Vectorstore initialized: %s (with embedding function)", vs_type)
+        logger.info("Vectorstore initialized: pgvector (with embedding function)")
 
 
 async def init_checkpointer() -> None:
@@ -201,44 +138,26 @@ async def init_checkpointer() -> None:
     async with _init_lock:
         if _cp_instance is not None:
             return
-        settings = get_settings()
-        db_type = settings.DATABASE_TYPE
-        if db_type not in _CP_BACKENDS:
-            raise ValueError(
-                f"No checkpointer backend for DATABASE_TYPE: {db_type}. "
-                f"Supported: {list(_CP_BACKENDS.keys())}"
-            )
-        instance = _CP_BACKENDS[db_type]()
+        instance = PostgresCheckpointer()
         await instance.initialize()
         _cp_instance = instance
-        logger.info("Checkpointer initialized: %s", db_type)
+        logger.info("Checkpointer initialized: postgres")
 
 
 async def init_store() -> None:
     """Initialize the long-term Store singleton (idempotent).
 
-    For prod mode (PostgreSQL): AsyncPostgresStore (persistent, with vector search if configured).
-    For dev mode (SQLite):      InMemoryStore (ephemeral, dev/test only).
+    Uses AsyncPostgresStore for persistent long-term memory with
+    optional vector search.
     """
     global _store_instance
     async with _init_lock:
         if _store_instance is not None:
             return
-        settings = get_settings()
-        db_type = settings.DATABASE_TYPE
-        if db_type not in _STORE_BACKENDS:
-            logger.warning(
-                "Store not available for DATABASE_TYPE: %s. "
-                "Supported: %s. Long-term memory disabled.",
-                db_type,
-                list(_STORE_BACKENDS.keys()),
-            )
-            _store_instance = _NO_STORE
-            return
-        instance = _STORE_BACKENDS[db_type]()
+        instance = PostgresStore()
         await instance.initialize()
         _store_instance = instance
-        logger.info("Store initialized: %s", db_type)
+        logger.info("Store initialized: postgres")
 
 
 async def init_all() -> None:
@@ -259,7 +178,7 @@ async def dispose_all() -> None:
 
     async with _init_lock:
         vs, cp, db = _vs_instance, _cp_instance, _db_instance
-        store = _store_instance if _store_instance is not _NO_STORE else None
+        store = _store_instance
         _vs_instance = _cp_instance = _store_instance = _db_instance = None
 
     # Dispose outside the lock to avoid holding it during slow operations.

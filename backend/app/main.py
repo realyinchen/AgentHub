@@ -2,19 +2,25 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.routing import APIRoute
-from sqlalchemy import text
 
-from app.agents.registry import reload_agents, get_ids
+from app.agents import build_supervisor
 from app.infra.config import get_settings
 from app.infra.llm.model_manager import get_model_manager
 from app.api.errors import register_exception_handlers
-from app.infra.database import init_all, dispose_all, get_database
+from app.infra.database import init_all, dispose_all, get_checkpointer, get_store
 from app.api.v1.router import api_router
+from app.utils.logging import RequestIdFilter
 
 
 settings = get_settings()
+
+# ── Logging Configuration ──────────────────────────────────────────────
+# Register RequestIdFilter on root logger so every log record automatically
+# carries the request_id from the current contextvar.
+logging.getLogger().addFilter(RequestIdFilter())
+
 logger = logging.getLogger(__name__)
 
 
@@ -46,11 +52,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     await get_model_manager().refresh()
     logger.info("Model manager initialized")
 
-    # Load active agents from DB, compile them with checkpointer + store,
-    # atomically replace the registry snapshot.  On subsequent requests,
-    # get_graph() is a zero-overhead dict lookup on the frozen snapshot.
-    await reload_agents()
-    logger.info("Agent registry initialized: %d agents active", len(get_ids()))
+    store = get_store()
+    await build_supervisor(
+        checkpointer=get_checkpointer().get_saver(),
+        store=store.get_store() if store else None,
+    )
 
     try:
         yield
@@ -74,19 +80,8 @@ register_exception_handlers(app)
 
 
 @app.get("/health", tags=["Health"])
-async def health_check() -> dict[str, str]:
-    """Health check endpoint for Docker healthcheck / K8s liveness probe.
-
-    Verifies basic database connectivity with a lightweight ``SELECT 1``
-    query. Returns 503 if the database is unreachable, otherwise 200.
-    """
-    try:
-        db = get_database()
-        async with db.session_readonly() as session:
-            await session.execute(text("SELECT 1"))
-        return {"status": "healthy", "database": "ok"}
-    except Exception:
-        raise HTTPException(status_code=503, detail="database_unhealthy")
+async def health_check() -> str:
+    return "ok"
 
 
 app.include_router(api_router, prefix=settings.API_V1_STR)

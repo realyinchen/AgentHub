@@ -48,6 +48,12 @@ class Settings(BaseSettings):
     GRACEFUL_SHUTDOWN_TIMEOUT: int = Field(default=30, ge=1, le=300)
 
     # =========================================================================
+    # Timezone
+    # =========================================================================
+    # Default IANA timezone used for time-context injection in dynamic prompts.
+    DEFAULT_TIMEZONE: str = "Asia/Shanghai"
+
+    # =========================================================================
     # LangSmith Tracing Configuration
     # =========================================================================
     LANGCHAIN_TRACING_V2: bool = False
@@ -56,13 +62,11 @@ class Settings(BaseSettings):
     LANGCHAIN_API_KEY: Optional[SecretStr] = None
 
     # =========================================================================
-    # Database Configuration
+    # Database Configuration (PostgreSQL only)
     # =========================================================================
-    # DATABASE_TYPE is a computed_field, determined by MODE:
-    # - dev -> sqlite
-    # - prod -> postgres
+    # AgentHub uses PostgreSQL exclusively for all environments.
+    # Database type and vector store type are always "postgres" / "pgvector".
 
-    # PostgreSQL Configuration (required for DATABASE_TYPE == "postgres")
     POSTGRES_USER: Optional[str] = None
     POSTGRES_PASSWORD: Optional[SecretStr] = None
     POSTGRES_HOST: Optional[str] = None
@@ -75,18 +79,11 @@ class Settings(BaseSettings):
     POSTGRES_MIN_CONNECTIONS_PER_POOL: int = Field(default=2, ge=1)
     POSTGRES_MAX_CONNECTIONS_PER_POOL: int = Field(default=10, ge=1)
 
-    # SQLite configuration (used when DATABASE_TYPE == "sqlite")
-    SQLITE_DATABASE_PATH: str = "./data/agenthub.db"
-
     # =========================================================================
-    # Vector Store Configuration
+    # Vector Store Configuration (pgvector only)
     # =========================================================================
-    # VECTORSTORE_TYPE is a computed_field, determined by MODE:
-    # - dev -> sqlite_vec
-    # - prod -> pgvector (PostgreSQL pgvector extension, no external service)
-
     # PGVector uses the same PostgreSQL connection as the main database
-    # (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB)
+    # (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB).
     # No additional configuration required.
 
     # Default embedding dimension for vector databases
@@ -108,6 +105,52 @@ class Settings(BaseSettings):
     # Logging Configuration
     # =========================================================================
     LOG_LEVEL: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    LOG_FORMAT: Literal["console", "json"] = "console"
+
+    # =========================================================================
+    # Agent Execution Timeouts
+    # =========================================================================
+    # Per-request timeout for agent.ainvoke (synchronous invocation).
+    # Set to 0 to disable.  Recommended: 120 (2 minutes) for production.
+    AGENT_INVOKE_TIMEOUT: float = Field(default=120.0, ge=0)
+
+    # Per-request timeout for agent.astream_events (SSE streaming).
+    # Must be longer than invoke because streaming can involve many
+    # sequential tool calls.  Set to 0 to disable.
+    # Recommended: 300 (5 minutes) for production.
+    AGENT_STREAM_TIMEOUT: float = Field(default=300.0, ge=0)
+
+    # =========================================================================
+    # Tool Retry Configuration
+    # =========================================================================
+    # Feature flag to enable ToolRetryMiddleware for the `task` tool.
+    # Set to false to disable tool retries entirely.
+    TOOL_RETRY_ENABLED: bool = True
+
+    # Maximum number of retry attempts for failed tool calls.
+    TOOL_RETRY_MAX_RETRIES: int = Field(default=3, ge=0, le=10)
+
+    # Multiplier for exponential backoff (delay = initial_delay * backoff_factor^attempt).
+    TOOL_RETRY_BACKOFF_FACTOR: float = Field(default=2.0, ge=1.0)
+
+    # Initial delay in seconds before first retry.
+    TOOL_RETRY_INITIAL_DELAY: float = Field(default=1.0, ge=0.1)
+
+    # Maximum delay in seconds between retries.
+    TOOL_RETRY_MAX_DELAY: float = Field(default=60.0, ge=1.0)
+
+    # =========================================================================
+    # Structured Output (Stage 0 — T03)
+    # =========================================================================
+    # When enabled, the supervisor agent uses response_format=RoutingDecision
+    # to constrain its routing decisions to a validated Pydantic schema.
+    # The structured output is captured in state["structured_response"] and
+    # logged by the API layer for observability.
+    #
+    # Tradeoff: when enabled, the final model response is structured JSON
+    # rather than free-form natural language.  Defaults to False so existing
+    # conversational behavior is preserved.
+    USE_STRUCTURED_OUTPUT: bool = False
 
     # =========================================================================
     # API Keys & Secrets
@@ -142,27 +185,15 @@ class Settings(BaseSettings):
 
     @computed_field
     @property
-    def DATABASE_TYPE(self) -> Literal["sqlite", "postgres"]:
-        """Database type, automatically determined by MODE.
-
-        - dev -> sqlite
-        - prod -> postgres
-        """
-        if self.MODE == "prod":
-            return "postgres"
-        return "sqlite"
+    def DATABASE_TYPE(self) -> Literal["postgres"]:
+        """Database type — always PostgreSQL."""
+        return "postgres"
 
     @computed_field
     @property
-    def VECTORSTORE_TYPE(self) -> Literal["sqlite_vec", "pgvector"]:
-        """Vector store type, automatically determined by MODE.
-
-        - dev -> sqlite_vec
-        - prod -> pgvector (PostgreSQL pgvector extension)
-        """
-        if self.MODE == "prod":
-            return "pgvector"
-        return "sqlite_vec"
+    def VECTORSTORE_TYPE(self) -> Literal["pgvector"]:
+        """Vector store type — always pgvector (PostgreSQL pgvector extension)."""
+        return "pgvector"
 
     @computed_field
     @property
@@ -230,34 +261,33 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_pool_sizes(self) -> "Settings":
         """Validate PostgreSQL connection pool size configuration."""
-        # Only validate if using PostgreSQL
-        if self.DATABASE_TYPE == "postgres":
-            if (
-                self.POSTGRES_MIN_CONNECTIONS_PER_POOL
-                > self.POSTGRES_MAX_CONNECTIONS_PER_POOL
-            ):
-                raise ValueError(
-                    "POSTGRES_MIN_CONNECTIONS_PER_POOL must be <= POSTGRES_MAX_CONNECTIONS_PER_POOL"
-                )
+        if (
+            self.POSTGRES_MIN_CONNECTIONS_PER_POOL is not None
+            and self.POSTGRES_MAX_CONNECTIONS_PER_POOL is not None
+            and self.POSTGRES_MIN_CONNECTIONS_PER_POOL
+            > self.POSTGRES_MAX_CONNECTIONS_PER_POOL
+        ):
+            raise ValueError(
+                "POSTGRES_MIN_CONNECTIONS_PER_POOL must be <= POSTGRES_MAX_CONNECTIONS_PER_POOL"
+            )
         return self
 
     @model_validator(mode="after")
     def validate_postgres_config(self) -> "Settings":
-        """Validate required PostgreSQL fields when DATABASE_TYPE is postgres."""
-        if self.DATABASE_TYPE == "postgres":
-            required_fields = [
-                ("POSTGRES_USER", self.POSTGRES_USER),
-                ("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD),
-                ("POSTGRES_HOST", self.POSTGRES_HOST),
-                ("POSTGRES_PORT", self.POSTGRES_PORT),
-                ("POSTGRES_DB", self.POSTGRES_DB),
-            ]
-            missing = [name for name, value in required_fields if value is None]
-            if missing:
-                raise ValueError(
-                    f"DATABASE_TYPE='postgres' requires the following fields to be set: "
-                    f"{', '.join(missing)}. Please set these in .env."
-                )
+        """Validate required PostgreSQL fields."""
+        required_fields = [
+            ("POSTGRES_USER", self.POSTGRES_USER),
+            ("POSTGRES_PASSWORD", self.POSTGRES_PASSWORD),
+            ("POSTGRES_HOST", self.POSTGRES_HOST),
+            ("POSTGRES_PORT", self.POSTGRES_PORT),
+            ("POSTGRES_DB", self.POSTGRES_DB),
+        ]
+        missing = [name for name, value in required_fields if value is None]
+        if missing:
+            raise ValueError(
+                f"PostgreSQL is required. The following fields must be set in .env: "
+                f"{', '.join(missing)}."
+            )
         return self
 
     @model_validator(mode="after")
@@ -331,17 +361,8 @@ class Settings(BaseSettings):
     # Helper Methods
     # =========================================================================
 
-    def _require_postgres(self) -> None:
-        """Raise RuntimeError if not using PostgreSQL."""
-        if self.DATABASE_TYPE != "postgres":
-            raise RuntimeError(
-                f"PostgreSQL URLs are not available when DATABASE_TYPE='{self.DATABASE_TYPE}'. "
-                "Check settings.DATABASE_TYPE before calling this method."
-            )
-
     def _get_encoded_credentials(self) -> tuple[str, str]:
         """Return URL-encoded (user, password) tuple for PostgreSQL connection strings."""
-        self._require_postgres()
         # These are guaranteed to be set by validate_postgres_config
         assert self.POSTGRES_USER is not None
         assert self.POSTGRES_PASSWORD is not None

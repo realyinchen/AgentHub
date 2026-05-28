@@ -30,26 +30,6 @@ api_router = APIRouter(prefix="/traces", tags=["traces"])
 # ── helpers ──────────────────────────────────────────────────────────────────
 
 
-async def _resolve_agent_id(
-    db: AsyncSession, agent_id: str, thread_id: UUID, user_id: str
-) -> tuple[str | None, int | None, str | None]:
-    """Resolve agent_id when "all" from the conversation table.
-
-    Returns:
-        (agent_id, status_code, error_detail).  When successful status_code
-        and error are None.
-    """
-    if agent_id != "all":
-        return agent_id, None, None
-
-    conv = await chat_crud.read_conversation_by_thread_id(
-        db, thread_id, user_id=user_id
-    )
-    if conv is None or not conv.agent_id:
-        return None, 404, f"No conversation found for thread {thread_id}"
-    return conv.agent_id, None, None
-
-
 async def _verify_trace_owner(
     db: AsyncSession,
     thread_id: UUID,
@@ -78,7 +58,6 @@ async def list_traces(
         le=168,
         description="Filter by hours back from now (max 168 hours / 7 days)",
     ),
-    agent_id: str = Query("all", description="Agent ID to filter traces"),
     user_id: str = Query(..., description="User ID to scope traces"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -94,7 +73,6 @@ async def list_traces(
         convs, total = await chat_crud.list_traces(
             db,
             hours=hours,
-            agent_id=agent_id,
             page=page,
             page_size=page_size,
             user_id=user_id,
@@ -127,7 +105,6 @@ async def list_traces(
                     total_steps=step_counts.get(conv.thread_id, 0),
                     total_latency_ms=0,
                     last_updated=conv.updated_at,
-                    agent_id=conv.agent_id,
                 )
             )
 
@@ -172,21 +149,15 @@ async def _batch_fetch_step_counts(
 @api_router.get("/{thread_id}/steps", response_model=list[StepOutput])
 async def get_trace_steps(
     thread_id: UUID,
-    agent_id: str = Query("all"),
     user_id: str = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all execution steps for a specific thread from persisted DAG.
 
     Reads from ``trace_executions`` — no graph compilation required.
-    Agent_id="all" resolves from the conversation table automatically.
     """
     try:
-        agent_id_resolved, status_code, error = await _resolve_agent_id(
-            db, agent_id, thread_id, user_id
-        )
-        if agent_id_resolved is None:
-            raise HTTPException(status_code=status_code or 404, detail=error)
+        await _verify_trace_owner(db, thread_id, user_id)
 
         _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
         if not steps:
@@ -208,7 +179,6 @@ async def get_trace_steps(
 @api_router.get("/{thread_id}/dag", response_model=ExecutionDag)
 async def get_trace_dag(
     thread_id: UUID,
-    agent_id: str = Query("all"),
     user_id: str = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -218,11 +188,7 @@ async def get_trace_dag(
     Returns the full execution DAG with nodes and edges for visualization.
     """
     try:
-        agent_id_resolved, status_code, error = await _resolve_agent_id(
-            db, agent_id, thread_id, user_id
-        )
-        if agent_id_resolved is None:
-            raise HTTPException(status_code=status_code or 404, detail=error)
+        await _verify_trace_owner(db, thread_id, user_id)
 
         dag_data, _, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
         if dag_data is None:
@@ -245,7 +211,6 @@ async def get_trace_dag(
 async def get_trace_step_by_number(
     thread_id: UUID,
     step_number: int,
-    agent_id: str = Query("all"),
     user_id: str = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -281,7 +246,6 @@ async def get_trace_step_by_number(
 async def get_trace_step_by_checkpoint(
     thread_id: UUID,
     checkpoint_id: str,
-    agent_id: str = Query("all"),
     user_id: str = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
@@ -318,7 +282,6 @@ async def replay_trace(
     thread_id: UUID,
     from_step: int = Query(1, ge=1, description="Start from this step number"),
     to_step: int | None = Query(None, ge=1, description="End at this step number"),
-    agent_id: str = Query("all"),
     user_id: str = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):

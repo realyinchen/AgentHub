@@ -20,6 +20,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request, status
 from fastapi.responses import JSONResponse
 
+from app.infra.errors import (
+    AgentHubError,
+    AgentTimeoutError,
+    LLMError as DomainLLMError,
+    ToolError as DomainToolError,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -365,6 +372,51 @@ async def llm_base_error_handler(request: Request, exc: Exception) -> JSONRespon
     )
 
 
+async def agent_hub_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handle AgentHub domain errors with appropriate HTTP status codes.
+
+    Maps domain error types to HTTP status codes:
+    - AgentTimeoutError → 504 Gateway Timeout
+    - LLMError → 502 Bad Gateway
+    - ToolError → 500 (tool failures are internal)
+    - AgentError → 500 (generic agent failures)
+    - AgentHubError (base) → 500
+    """
+    assert isinstance(exc, AgentHubError)
+
+    # Determine HTTP status code based on error type
+    if isinstance(exc, AgentTimeoutError):
+        http_status = status.HTTP_504_GATEWAY_TIMEOUT
+        error_type = "agent_timeout"
+    elif isinstance(exc, DomainLLMError):
+        http_status = status.HTTP_502_BAD_GATEWAY
+        error_type = "llm_error"
+    elif isinstance(exc, DomainToolError):
+        http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+        error_type = "tool_error"
+    else:
+        http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+        error_type = "agent_error"
+
+    logger.error(
+        "AgentHubError: type=%s, http_status=%d, path=%s, method=%s, message=%s",
+        type(exc).__name__,
+        http_status,
+        request.url.path,
+        request.method,
+        str(exc),
+        exc_info=True,
+    )
+
+    return JSONResponse(
+        status_code=http_status,
+        content={
+            "detail": str(exc),
+            "error_type": error_type,
+        },
+    )
+
+
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle all uncaught exceptions without exposing raw details to users."""
     error_context = extract_error_context(exc)
@@ -399,6 +451,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     """Register all exception handlers with the FastAPI application."""
     app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
     app.add_exception_handler(LLMBaseError, llm_base_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(AgentHubError, agent_hub_error_handler)  # type: ignore[arg-type]
     app.add_exception_handler(Exception, general_exception_handler)
     logger.info("Exception handlers registered successfully")
 

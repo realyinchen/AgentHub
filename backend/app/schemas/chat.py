@@ -31,10 +31,6 @@ class UserInput(BaseModel):
         description="User input to the agent.",
         examples=["What is the weather in Hefei?"],
     )
-    agent_id: str = Field(
-        description="The agent the user wants to use.",
-        examples=["chatbot"],
-    )
     user_id: str = Field(
         description="User ID for long-term memory and personalization.",
         examples=["user-123"],
@@ -146,11 +142,6 @@ class Conversation(BaseModel):
         min_length=1,
         max_length=64,
     )
-    agent_id: str | None = Field(
-        description="The agent ID used in this conversation.",
-        default="chatbot",
-        examples=["chatbot"],
-    )
 
 
 class ConversationCreate(Conversation):
@@ -168,11 +159,6 @@ class ConversationUpdate(BaseModel):
         examples=["Hello"],
         min_length=1,
         max_length=64,
-    )
-    agent_id: str | None = Field(
-        default=None,
-        description="The agent ID used in this conversation.",
-        examples=["chatbot"],
     )
     is_deleted: bool | None = Field(
         default=None,
@@ -226,7 +212,6 @@ class ConversationInDB(Conversation):
 class ConversationInfoResponse(BaseModel):
     """Response for GET /chat/conversation-info/{thread_id}."""
 
-    agent_id: str = Field(description="Agent ID used in this conversation")
     model_name: str | None = Field(
         default=None, description="Model name from last trace execution"
     )

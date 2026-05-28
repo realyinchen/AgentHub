@@ -10,7 +10,7 @@ Usage (invoke path — synchronous with FastAPI db session)::
     model_name = resolve_model_name(user_input.model_name)
     # ... run agent ...
     await persist_tokens_and_dag(
-        db=db, agent=agent, thread_id=..., agent_id=..., request_id=...,
+        db=db, agent=agent, thread_id=..., request_id=...,
         model_name=model_name, tokens=totals,
     )
 
@@ -20,8 +20,8 @@ Usage (stream path — inside AsyncWriteQueue callback)::
         database = get_database()
         async with database.session() as session:
             await persist_tokens_and_dag(
-                db=session, agent=agent, thread_id=..., agent_id=...,
-                request_id=..., model_name=model_name, tokens=tokens,
+                db=session, agent=agent, thread_id=..., request_id=...,
+                model_name=model_name, tokens=tokens,
             )
     write_queue.add("persist", _persist())
 """
@@ -62,7 +62,6 @@ async def persist_tokens_and_dag(
     *,
     agent,  # CompiledStateGraph
     thread_id: UUID,
-    agent_id: str,
     request_id: str,
     model_name: str | None,
     tokens: dict[str, int],
@@ -77,7 +76,6 @@ async def persist_tokens_and_dag(
             this function — the caller owns transaction boundaries).
         agent: The compiled LangGraph agent used for DAG reconstruction.
         thread_id: Conversation thread identifier.
-        agent_id: Agent identifier string (e.g. ``"chatbot"``).
         request_id: Unique request identifier for this invocation.
         model_name: Resolved model name (or *None*).
         tokens: An ``empty_totals()``-shaped dict with
@@ -112,7 +110,6 @@ async def persist_tokens_and_dag(
         await trace_crud.upsert_trace(
             db=db,
             thread_id=thread_id,
-            agent_id=agent_id,
             request_id=str(request_id),
             dag_data=dag.model_dump(),
             total_steps=len(dag.steps),

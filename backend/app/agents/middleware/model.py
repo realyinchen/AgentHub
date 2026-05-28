@@ -16,7 +16,7 @@ import logging
 from typing import Callable, cast
 
 from langchain.agents.middleware import wrap_model_call, ModelRequest, ModelResponse
-from langchain_core.language_models import BaseChatModel
+from langchain_core.language_models.chat_models import BaseChatModel
 
 from app.infra.llm import get_llm
 
@@ -71,7 +71,7 @@ def dynamic_model(
 
     # Create a new LLM instance via the Router (with built-in fallback + retry).
     # ChatLiteLLMRouter is a Runnable; override() accepts it as a model.
-    llm: BaseChatModel = cast(
+    model: BaseChatModel = cast(
         BaseChatModel,
         get_llm(
             model_id=model_name,
@@ -79,4 +79,4 @@ def dynamic_model(
         ),
     )
 
-    return handler(request.override(model=llm))
+    return handler(request.override(model=model))

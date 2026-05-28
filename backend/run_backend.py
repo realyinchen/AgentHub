@@ -1,34 +1,80 @@
 import asyncio
 import logging
 import sys
+
 import uvicorn
 from dotenv import load_dotenv
 
 from app.infra.config import get_settings
+from app.utils.logging import JsonFormatter
 
 # Load environment variables first
 load_dotenv()
 
-# Configure logging before importing app modules
-# This ensures all loggers (including app modules) are properly configured
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
+settings = get_settings()
 
-# Set log level for app loggers
-logging.getLogger("app").setLevel(logging.INFO)
 
-# Reduce noise from third-party libraries
-logging.getLogger("httpcore").setLevel(logging.WARNING)
-logging.getLogger("httpx").setLevel(logging.WARNING)
-logging.getLogger("langchain").setLevel(logging.WARNING)
-logging.getLogger("langgraph").setLevel(logging.WARNING)
+def configure_logging() -> None:
+    """Configure application-wide logging.
+
+    Two formats are supported, controlled by ``LOG_FORMAT``:
+
+    - ``console`` (default for dev): Human-readable with timestamp, logger
+      name, request_id, and message.
+    - ``json`` (recommended for prod): One JSON object per line, compatible
+      with log aggregation systems (ELK, Loki, Datadog, etc.). Uses only
+      stdlib ``json`` — no external dependencies.
+
+    Both formats automatically include ``request_id`` via the
+    ``RequestIdFilter`` registered in ``app.main``.
+
+    Third-party library noise is suppressed (httpcore, httpx, langchain,
+    langgraph) regardless of format.
+    """
+    root = logging.getLogger()
+    root.setLevel(settings.LOG_LEVEL)
+
+    # Remove any pre-existing handlers (basicConfig adds a StreamHandler)
+    root.handlers.clear()
+
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(settings.LOG_LEVEL)
+
+    if settings.LOG_FORMAT == "json":
+        handler.setFormatter(JsonFormatter())
+    else:
+        handler.setFormatter(
+            logging.Formatter(
+                "%(asctime)s %(levelname)-8s [%(name)s] "
+                "[request_id=%(request_id)s] %(message)s"
+            )
+        )
+
+    root.addHandler(handler)
+
+    # Set app logger level
+    logging.getLogger("app").setLevel(settings.LOG_LEVEL)
+
+    # Suppress noisy third-party libraries
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("langchain").setLevel(logging.WARNING)
+    logging.getLogger("langgraph").setLevel(logging.WARNING)
+
+    logger = logging.getLogger(__name__)
+    logger.info(
+        "Logging configured: format=%s, level=%s, mode=%s",
+        settings.LOG_FORMAT,
+        settings.LOG_LEVEL,
+        settings.MODE,
+    )
 
 
 if __name__ == "__main__":
-    settings = get_settings()
+    # Configure logging before importing app modules so all loggers
+    # inherit the correct format.
+    configure_logging()
+
     # Set Compatible event loop policy on Windows Systems.
     # On Windows systems, the default ProactorEventLoop can cause issues with
     # certain async database drivers like psycopg (PostgreSQL driver).

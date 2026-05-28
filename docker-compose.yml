@@ -9,8 +9,6 @@ services:
     restart: unless-stopped
     networks:
       - agenthub-network
-    volumes:
-      - /app/agenthub/backend/data:/app/data
     env_file:
       - /app/agenthub/backend/.env  # Host machine absolute path
     environment:

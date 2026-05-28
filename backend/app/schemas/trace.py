@@ -128,7 +128,6 @@ class TraceListItem(BaseModel):
     total_steps: int = Field(description="Total number of execution steps")
     total_latency_ms: int = Field(description="Total execution time in milliseconds")
     last_updated: datetime = Field(description="When the conversation was last updated")
-    agent_id: str | None = Field(None, description="Associated agent ID")
 
 
 class TraceListResponse(BaseModel):

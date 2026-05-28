@@ -159,17 +159,15 @@ async def soft_delete_conversation_by_thread_id(
 async def list_traces(
     db: AsyncSession,
     hours: int,
-    agent_id: str,
     page: int,
     page_size: int,
     user_id: str,
 ) -> tuple[list[Conversation], int]:
-    """List conversations as traces with time/agent filtering and pagination.
+    """List conversations as traces with time filtering and pagination.
 
     Args:
         db: Database session
         hours: Filter to conversations updated within the last N hours
-        agent_id: Agent ID to filter by, or "all" to include every agent
         page: 0-indexed page number
         page_size: Number of items per page
         user_id: User scope filter
@@ -184,9 +182,6 @@ async def list_traces(
         Conversation.updated_at >= time_cutoff,
         Conversation.is_deleted.is_(False),
     )
-
-    if agent_id != "all":
-        base_query = base_query.where(Conversation.agent_id == agent_id)
 
     count_stmt = select(func.count()).select_from(base_query.subquery())
     count_result = await db.execute(count_stmt)
@@ -287,17 +282,17 @@ async def update_conversation_tokens(
     return updated
 
 
-async def get_latest_trace_info(
+async def get_latest_model_name(
     db: AsyncSession,
     thread_id: UUID,
-) -> tuple[str | None, str | None]:
-    """Return (agent_id, model_name) from the most recent trace in a thread.
+) -> str | None:
+    """Return the model_name from the most recent trace in a thread.
 
     Convenience re-export for API layer — delegates to trace crud.
 
     Returns:
-        Tuple of (agent_id, model_name). Both are None if no trace exists.
+        Model name string, or None if no trace exists.
     """
-    from app.crud.trace import get_latest_trace_info as _get
+    from app.crud.trace import get_latest_model_name as _get
 
     return await _get(db, thread_id)

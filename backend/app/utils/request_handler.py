@@ -1,67 +1,53 @@
-"""Request → Agent Parameter Orchestration Layer.
+"""Request → Supervisor Parameter Orchestration Layer.
 
-Convert raw UserInput into the (input, config, context) triple required by create_agent.
-When extending new Agents in the future, simply add the corresponding builder function
-in this module and dispatch by agent_id, no need to modify the routing layer.
+Converts raw UserInput into the (input, config, context) triple required by
+the supervisor agent via ``create_agent()``.
+
+Previously this module dispatched different context builders by ``agent_id``.
+Now there is only the supervisor — the ``file`` field from the former
+ChatbotContext has been merged into ``AgentRuntimeContext`` directly.
 """
 
 import logging
-from typing import Any
+from typing import TypedDict
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
-from app.agents.types import AgentRuntimeContext
-from app.agents.chatbot.types import ChatbotContext
+from app.agents.context import AgentRuntimeContext
 from app.schemas.chat import UserInput
+from app.utils.logging import request_id_context
 
 logger = logging.getLogger(__name__)
 
 
-def build_base_context(user_input: UserInput) -> AgentRuntimeContext:
-    """Build an AgentRuntimeContext from user input.
+class AgentKwargs(TypedDict):
+    """The (input, config, context) triple consumed by supervisor.invoke/astream."""
 
-    Extracted as a standalone function so future agents can either reuse
-    this directly or extend it with agent-specific fields (e.g. RAG agent
-    adding collection_id, research agent adding max_depth).
+    input: dict[str, list[HumanMessage]]
+    config: RunnableConfig
+    context: AgentRuntimeContext
+
+
+def _build_context(user_input: UserInput) -> AgentRuntimeContext:
+    """Build an AgentRuntimeContext from user input.
 
     All fields have safe defaults — the context is always valid even when
     optional UserInput fields are None.
     """
+    custom = user_input.custom_data or {}
     return AgentRuntimeContext(
         user_id=user_input.user_id or "",
         request_id=user_input.request_id or "",
         model_name=user_input.model_name or "",
         thinking_mode=bool(user_input.thinking_mode),
         timezone=user_input.timezone or "Asia/Shanghai",
-    )
-
-
-def build_chatbot_context(user_input: UserInput) -> ChatbotContext:
-    """Build a ChatbotContext — inherits base fields + file for file-Q&A.
-
-    Demonstrates the canonical per-agent builder pattern:
-    1. Call ``build_base_context()`` for shared fields.
-    2. Extract agent-specific fields from ``user_input.custom_data``.
-    3. Return the subclass instance.
-
-    When adding a new agent (RAG, research, etc.), create a similar
-    builder and dispatch from ``build_agent_kwargs()`` below.
-    """
-    base = build_base_context(user_input)
-    custom = user_input.custom_data or {}
-    return ChatbotContext(
-        user_id=base.user_id,
-        request_id=base.request_id,
-        model_name=base.model_name,
-        thinking_mode=base.thinking_mode,
-        timezone=base.timezone,
         file=str(custom.get("file", "")),
     )
 
 
-async def build_agent_kwargs(user_input: UserInput) -> dict[str, Any]:
-    """Convert UserInput to parameters for agent.invoke/astream.
+async def build_agent_kwargs(user_input: UserInput) -> AgentKwargs:
+    """Convert UserInput to parameters for supervisor.invoke/astream.
 
     Two channels for passing runtime data:
 
@@ -90,20 +76,15 @@ async def build_agent_kwargs(user_input: UserInput) -> dict[str, Any]:
         "messages": [human_message],
     }
 
-    # Dispatch context builder by agent_id — extensible for future agents.
-    agent_id = user_input.agent_id
-    if agent_id == "chatbot":
-        context = build_chatbot_context(user_input)
-    else:
-        context = build_base_context(user_input)
+    context = _build_context(user_input)
+
+    # Set request_id context variable so all downstream log records
+    # automatically include it (via RequestIdFilter on root logger).
+    request_id_context.set(user_input.request_id or "-")
 
     logger.info(
-        "[request_id=%s][user_id=%s][thread_id=%s][agent_id=%s] "
-        "build_agent_kwargs: thinking_mode=%s, model_name=%s, has_custom_data=%s",
-        user_input.request_id,
-        user_input.user_id,
+        "build_agent_kwargs: thread_id=%s, thinking_mode=%s, model_name=%s, has_custom_data=%s",
         thread_id,
-        agent_id,
         user_input.thinking_mode,
         user_input.model_name,
         bool(user_input.custom_data),

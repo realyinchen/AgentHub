@@ -32,6 +32,7 @@ RUN chmod +x entrypoint.sh
 EXPOSE 8080
 
 # Run the application via entrypoint script
-# - SQLite users: database auto-initializes on first start (idempotent)
-# - PostgreSQL users: run init script manually via `docker exec` or during CI/CD
+# Database initialization is handled separately — run:
+#   python scripts/init_database.py
+# against a running PostgreSQL instance before starting the app.
 ENTRYPOINT ["./entrypoint.sh"]

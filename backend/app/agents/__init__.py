@@ -1,47 +1,29 @@
-"""Agent registry and chatbot agent exports.
+"""Agent layer — Supervisor + self-registering SubAgent architecture.
 
-All agents in this project use LangChain v1's create_agent API with middleware.
-Each agent module calls register_factory() at module level to declare its
-compile-time factory. reload_agents() compiles all active agents at startup.
+Architecture (LangChain official Single Dispatch Tool pattern):
+    User → Supervisor (checkpointer + dynamic prompt + dynamic model)
+                │
+                ├── list_agents()  (@tool: discover specialists)
+                └── task()         (@tool: delegate to specialist)
 
-See app.agents.registry for the registry infrastructure.
-See app.agents.chatbot for the chatbot agent implementation.
+Sub-agents self-register via ``@register_subagent`` at import time.
+Adding a new subagent only requires a new file in ``subagents/`` —
+no supervisor code or prompt changes.
+
+The supervisor is the *only* compiled agent with a checkpointer — it
+maintains all multi-turn conversation state. Sub-agents are stateless
+one-shot agents called via ``.ainvoke()``.
+
+Startup flow:
+    1. ``build_supervisor(checkpointer, store)`` — called once in lifespan.
+    2. ``get_supervisor()`` — zero-overhead singleton access at request time.
 """
 
-import importlib
-import pkgutil
-
-from app.agents.registry import (
-    AgentNotFoundError,
-    register_factory,
-    reload_agent,
-    reload_agents,
-    get_graph,
-    require_graph,
-    get_metadata,
-    list_metadata,
-    get_ids,
-    get_snapshot_size,
-)
-
-# ── Auto-discover agent modules ────────────────────────────────────────
-# Each agent subpackage (e.g. chatbot/) calls register_factory() at module
-# level. Importing them triggers those side-effects so the factory dict is
-# populated before reload_agents() runs at startup.
-# Non-agent subpackages (e.g. middleware/) are imported harmlessly —
-# they don't call register_factory().
-for _, name, _ in pkgutil.iter_modules(__path__):
-    importlib.import_module(f"{__name__}.{name}")
+from app.agents.supervisor import build_supervisor, get_supervisor
+from app.agents.context import AgentRuntimeContext
 
 __all__ = [
-    "AgentNotFoundError",
-    "register_factory",
-    "reload_agent",
-    "reload_agents",
-    "get_graph",
-    "require_graph",
-    "get_metadata",
-    "list_metadata",
-    "get_ids",
-    "get_snapshot_size",
+    "build_supervisor",
+    "get_supervisor",
+    "AgentRuntimeContext",
 ]

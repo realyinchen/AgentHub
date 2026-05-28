@@ -14,9 +14,6 @@ class Conversation(Base):
     thread_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     user_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
     title: Mapped[str] = mapped_column(String(64), nullable=False)
-    agent_id: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, default="chatbot"
-    )
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now

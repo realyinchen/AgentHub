@@ -38,7 +38,7 @@ async def vectorstore_search(
     """
     Search the vector store for relevant documents.
 
-    This tool searches the configured vector store backend (pgvector/sqlite-vec)
+    This tool searches the configured pgvector vector store backend
     for documents similar to the query text.
     """
     try:

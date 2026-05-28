@@ -16,11 +16,13 @@ import asyncio
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator
-from typing import Any
+from collections.abc import AsyncGenerator, AsyncIterator
+from typing import Protocol, TypedDict, runtime_checkable
 
+from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 
+from app.infra.config import get_settings
 from app.infra.database import get_database
 from app.schemas.chat import UserInput
 from app.utils.async_writer import AsyncWriteQueue
@@ -31,6 +33,35 @@ from app.utils.stream_helpers import resolve_model_name, persist_tokens_and_dag
 from app.utils.token_utils import extract_usage, accumulate_usage, empty_totals
 
 
+@runtime_checkable
+class StreamV3Projection(Protocol):
+    """Protocol for LangGraph v3 stream event projections.
+
+    LangGraph's ``astream_events(version="v3")`` returns a typed proxy that
+    exposes per-projection async iterators (``.messages``, ``.tool_calls``,
+    ``.values``). This Protocol captures the subset used by our consumers.
+    """
+
+    @property
+    def messages(self) -> AsyncIterator: ...
+
+    @property
+    def tool_calls(self) -> AsyncIterator: ...
+
+    @property
+    def values(self) -> AsyncIterator: ...
+
+
+class StreamState(TypedDict):
+    """Mutable state shared across projection consumer coroutines."""
+
+    step_counter: int
+    first_chunk_time: float | None
+    accumulated_tokens: dict[str, int]
+    final_message: BaseMessage | None
+    final_state_messages: list[BaseMessage] | None
+
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,9 +69,9 @@ logger = logging.getLogger(__name__)
 
 
 async def _consume_messages_projection(
-    stream: Any,
+    stream: StreamV3Projection,
     out_queue: asyncio.Queue,
-    state: dict,
+    state: StreamState,
 ) -> None:
     """Consume `stream.messages` projection — token deltas + finalized messages.
 
@@ -102,9 +133,9 @@ async def _consume_messages_projection(
 
 
 async def _consume_tool_calls_projection(
-    stream: Any,
+    stream: StreamV3Projection,
     out_queue: asyncio.Queue,
-    state: dict,
+    state: StreamState,
 ) -> None:
     """Consume `stream.tool_calls` projection — tool execution lifecycle.
 
@@ -154,16 +185,30 @@ async def _consume_tool_calls_projection(
 
 
 async def _consume_values_projection(
-    stream: Any,
+    stream: StreamV3Projection,
     out_queue: asyncio.Queue,
-    state: dict,
+    state: StreamState,
 ) -> None:
-    """Consume `stream.values` to capture final state.messages for SSE message event."""
+    """Consume `stream.values` to capture final state.messages for SSE message event.
+    
+    Also logs any structured_response (Stage 0 T03) for routing observability.
+    """
     async for snapshot in stream.values:
-        # Track latest snapshot — the last one will have the full message list
-        messages = snapshot.get("messages") if isinstance(snapshot, dict) else None
-        if messages:
-            state["final_state_messages"] = messages
+        if isinstance(snapshot, dict):
+            # Stage 0 T03: Log structured routing decision when available
+            sr = snapshot.get("structured_response")
+            if sr is not None:
+                logger.info(
+                    "Stream structured routing: action=%s target_agent=%s reasoning=%s",
+                    getattr(sr, "action", sr.get("action")),
+                    getattr(sr, "target_agent", sr.get("target_agent")),
+                    (getattr(sr, "reasoning", sr.get("reasoning")) or "")[:200],
+                )
+
+            # Track latest snapshot — the last one will have the full message list
+            messages = snapshot.get("messages")
+            if messages:
+                state["final_state_messages"] = messages
 
 
 async def streaming_message_generator(
@@ -202,7 +247,7 @@ async def streaming_message_generator(
 
     # `thread_id` is the only field carried in configurable (checkpointer
     # contract). All other runtime fields live on `context` (AgentRuntimeContext).
-    thread_id_str = config["configurable"]["thread_id"]
+    thread_id_str = config.get("configurable", {}).get("thread_id", "")
     user_id = context.user_id or "unknown"
     request_id = context.request_id or "unknown"
     thread_id = (
@@ -218,7 +263,7 @@ async def streaming_message_generator(
     )
 
     # ── Stream state (mutated by consumer coroutines) ──────────────
-    state = {
+    state: StreamState = {
         "step_counter": 0,
         "first_chunk_time": None,
         "accumulated_tokens": empty_totals(),
@@ -242,6 +287,12 @@ async def streaming_message_generator(
         }
     )
 
+    # ── Resolve stream timeout ────────────────────────────────────
+    settings = get_settings()
+    stream_timeout = (
+        settings.AGENT_STREAM_TIMEOUT if settings.AGENT_STREAM_TIMEOUT > 0 else None
+    )
+
     # ── Run stream + consumers concurrently, drained via queue ─────
     # Event-driven pattern (no polling): use a sentinel to signal completion,
     # ensuring zero latency on token delivery.
@@ -252,52 +303,68 @@ async def streaming_message_generator(
     stream = None
 
     try:
-        # Open v3 event stream
-        stream = await agent.astream_events(
-            kwargs["input"],
-            config=config,
-            context=context,
-            version="v3",
+        # Open v3 event stream (with timeout if configured)
+        async with asyncio.timeout(stream_timeout):
+            stream = await agent.astream_events(
+                kwargs["input"],
+                config=config,
+                context=context,
+                version="v3",
+            )
+
+            # Launch projection consumers concurrently
+            consumer_tasks = [
+                asyncio.create_task(
+                    _consume_messages_projection(stream, out_queue, state)
+                ),
+                asyncio.create_task(
+                    _consume_tool_calls_projection(stream, out_queue, state)
+                ),
+                asyncio.create_task(
+                    _consume_values_projection(stream, out_queue, state)
+                ),
+            ]
+
+            async def _wait_and_signal():
+                """Wait for all projection consumers, then push sentinel to unblock the drain loop.
+
+                Surfaces consumer exceptions via the sentinel value (Exception instance).
+                """
+                try:
+                    await asyncio.gather(*consumer_tasks)
+                    await out_queue.put(_SENTINEL)
+                except Exception as e:
+                    logger.exception(f"Consumer task failed: {e}")
+                    # Push the exception so the drain loop can re-raise / format
+                    await out_queue.put(e)
+
+            completion_task = asyncio.create_task(_wait_and_signal())
+
+            # Drain queue with zero polling latency
+            while True:
+                item = await out_queue.get()
+                if item is _SENTINEL:
+                    # All consumers finished cleanly
+                    break
+                if isinstance(item, Exception):
+                    # Consumer raised — emit error and exit
+                    yield sse_error(
+                        f"Stream error: {type(item).__name__}: {str(item)[:200]}"
+                    )
+                    break
+                yield item
+
+    except asyncio.TimeoutError:
+        logger.error(
+            "Stream timed out after %.0fs: thread_id=%s",
+            stream_timeout,
+            thread_id_str,
         )
-
-        # Launch projection consumers concurrently
-        consumer_tasks = [
-            asyncio.create_task(_consume_messages_projection(stream, out_queue, state)),
-            asyncio.create_task(
-                _consume_tool_calls_projection(stream, out_queue, state)
-            ),
-            asyncio.create_task(_consume_values_projection(stream, out_queue, state)),
-        ]
-
-        async def _wait_and_signal():
-            """Wait for all projection consumers, then push sentinel to unblock the drain loop.
-
-            Surfaces consumer exceptions via the sentinel value (Exception instance).
-            """
-            try:
-                await asyncio.gather(*consumer_tasks)
-                await out_queue.put(_SENTINEL)
-            except Exception as e:
-                logger.exception(f"Consumer task failed: {e}")
-                # Push the exception so the drain loop can re-raise / format
-                await out_queue.put(e)
-
-        completion_task = asyncio.create_task(_wait_and_signal())
-
-        # Drain queue with zero polling latency
-        while True:
-            item = await out_queue.get()
-            if item is _SENTINEL:
-                # All consumers finished cleanly
-                break
-            if isinstance(item, Exception):
-                # Consumer raised — emit error and exit
-                yield sse_error(
-                    f"Stream error: {type(item).__name__}: {str(item)[:200]}"
-                )
-                break
-            yield item
-
+        yield sse_error(
+            f"Request timed out after {stream_timeout:.0f}s. Please try again with a simpler query.",
+            error_type="timeout",
+        )
+        return  # Stop the generator immediately on timeout
     except Exception as e:
         logger.exception(f"Stream setup error: {e}")
         yield sse_error(f"Stream error: {type(e).__name__}: {str(e)[:200]}")
@@ -352,7 +419,6 @@ async def streaming_message_generator(
                     db=session,
                     agent=agent,
                     thread_id=thread_id,
-                    agent_id=user_input.agent_id,
                     request_id=str(request_id),
                     model_name=initial_model,
                     tokens=tokens,

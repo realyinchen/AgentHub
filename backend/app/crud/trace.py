@@ -3,6 +3,9 @@
 Read paths return (dag_data, steps, total_steps) tuples for direct
 deserialization in trace endpoints. Write paths are used by stream/invoke
 to persist DAG at completion time.
+
+Since the architecture now uses a single supervisor agent, the ``agent_id``
+column is always set to the constant ``"supervisor"``.
 """
 
 from uuid import UUID
@@ -11,6 +14,9 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.trace import TraceExecution
+
+# Constant agent_id — there is only one graph now.
+_SUPERVISOR_ID = "supervisor"
 
 
 async def get_latest_dag_and_steps(
@@ -39,24 +45,20 @@ async def get_latest_dag_and_steps(
     return dag, dag.get("steps", []), row.total_steps
 
 
-async def get_latest_trace_info(
+async def get_latest_model_name(
     db: AsyncSession, thread_id: UUID
-) -> tuple[str | None, str | None]:
-    """Return (agent_id, model_name) from the most recent trace in a thread.
+) -> str | None:
+    """Return the model_name from the most recent trace in a thread.
 
-    Used when entering a historical conversation to determine which agent
-    and LLM model were last used. The caller should validate the model
-    against the active models table and fall back to the default if the
-    model is no longer active.
+    Used when entering a historical conversation to determine which LLM model
+    was last used. The caller should validate the model against the active
+    models table and fall back to the default if the model is no longer active.
 
     Returns:
-        Tuple of (agent_id, model_name). Both are None if no trace exists.
+        Model name string, or None if no trace exists.
     """
     stmt = (
-        select(
-            TraceExecution.agent_id,
-            TraceExecution.model_name,
-        )
+        select(TraceExecution.model_name)
         .where(TraceExecution.thread_id == thread_id)
         .order_by(TraceExecution.created_at.desc())
         .limit(1)
@@ -64,14 +66,13 @@ async def get_latest_trace_info(
     result = await db.execute(stmt)
     row = result.one_or_none()
     if row is None:
-        return None, None
-    return row.agent_id, row.model_name
+        return None
+    return row.model_name
 
 
 async def upsert_trace(
     db: AsyncSession,
     thread_id: UUID,
-    agent_id: str,
     request_id: str,
     dag_data: dict,
     total_steps: int,
@@ -87,10 +88,11 @@ async def upsert_trace(
     Uses request_id as the business key — overwrites any previous entry
     for the same request to support idempotent retries.
 
+    agent_id is always ``"supervisor"`` since there is only one graph.
+
     Args:
         db: Database session.
         thread_id: Parent conversation thread.
-        agent_id: Agent type used for this turn.
         request_id: Unique request identifier (business key).
         dag_data: Complete ExecutionDag as a dict.
         total_steps: Number of steps in the DAG.
@@ -110,7 +112,7 @@ async def upsert_trace(
     if existing is not None:
         existing.dag_data = dag_data
         existing.total_steps = total_steps
-        existing.agent_id = agent_id
+        existing.agent_id = _SUPERVISOR_ID
         existing.model_name = model_name
         existing.input_tokens = input_tokens
         existing.cache_read = cache_read
@@ -122,7 +124,7 @@ async def upsert_trace(
 
     row = TraceExecution(
         thread_id=thread_id,
-        agent_id=agent_id,
+        agent_id=_SUPERVISOR_ID,
         request_id=request_id,
         dag_data=dag_data,
         total_steps=total_steps,
