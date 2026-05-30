@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import String, Integer, Boolean, DateTime, ForeignKey, Uuid
+from sqlalchemy import String, Boolean, DateTime, ForeignKey, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infra.database.base import Base
@@ -12,18 +12,19 @@ class Model(Base):
     """
     Model configuration table.
     Users can configure all models in this table.
-    Supports LLM, VLM, and embedding models.
+    Supports LLM and VLM models only.
 
     Fields:
         id: UUID primary key
         provider: e.g. "dashscope", "zai", references providers table
-        model_type: llm, vlm, embedding
-        model_id: full model identifier with provider prefix, e.g. "dashscope/qwen3.5-27b"
+        model_type: llm, vlm
+        model_id: model identifier without provider prefix, e.g. "qwen3.5-32b"
         thinking: whether supports thinking mode
         is_default: default model for this model_type
         is_active: whether this model is active
 
-    Note: model_id is stored as "provider/model_id" format, e.g. "dashscope/qwen3.5-27b"
+    Note: model_id is stored as plain model name, e.g. "qwen3.5-32b".
+          The full litellm model name "provider/model_id" is assembled at runtime.
     Note: API keys are now stored in the providers table
     """
 
@@ -37,16 +38,13 @@ class Model(Base):
     )  # e.g. "dashscope", "zai" - FK to providers table
     model_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="llm"
-    )  # llm, vlm, embedding
+    )  # llm, vlm
     model_id: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
-    )  # e.g. "dashscope/qwen3.5-27b" (with provider prefix)
+    )  # e.g. "qwen3.5-32b" (without provider prefix)
     thinking: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )  # whether supports thinking mode
-    priority: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0
-    )  # fallback priority (higher = preferred)
     is_default: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     created_at: Mapped[datetime] = mapped_column(

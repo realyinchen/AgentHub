@@ -174,6 +174,17 @@ class Settings(BaseSettings):
     SYSTEM_DEFAULT_LLM_API_KEY: Optional[SecretStr] = None
 
     # =========================================================================
+    # System-level Default Embedding (Optional — falls back to LLM API key)
+    # =========================================================================
+    # When the database has no embedding model configured, the system uses
+    # this model as the fallback.  The API key is shared with the system
+    # default LLM (SYSTEM_DEFAULT_LLM_API_KEY).
+    #
+    # SYSTEM_DEFAULT_EMBEDDING_MODEL format: "provider/model-id"
+    #   (e.g. "openai/text-embedding-3-small")
+    SYSTEM_DEFAULT_EMBEDDING_MODEL: Optional[str] = None
+
+    # =========================================================================
     # Computed Fields
     # =========================================================================
 
@@ -182,6 +193,14 @@ class Settings(BaseSettings):
     def is_dev(self) -> bool:
         """Whether running in dev (development/test) mode."""
         return self.MODE == "dev"
+
+    @computed_field
+    @property
+    def system_default_embedding_api_key(self) -> Optional[str]:
+        """Fallback embedding API key — shared with SYSTEM_DEFAULT_LLM_API_KEY."""
+        if self.SYSTEM_DEFAULT_LLM_API_KEY is None:
+            return None
+        return self.SYSTEM_DEFAULT_LLM_API_KEY.get_secret_value()
 
     @computed_field
     @property
@@ -217,6 +236,7 @@ class Settings(BaseSettings):
         "POSTGRES_HOST",
         "POSTGRES_DB",
         "SYSTEM_DEFAULT_LLM_MODEL",
+        "SYSTEM_DEFAULT_EMBEDDING_MODEL",
         mode="before",
     )
     @classmethod
@@ -349,8 +369,6 @@ class Settings(BaseSettings):
         return (
             f"postgresql+asyncpg://{user}:{password}@"
             f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-            f"?application_name={self.POSTGRES_APPLICATION_NAME}"
-            f"&sslmode={self.POSTGRES_SSL_MODE}"
         )
 
     def get_postgres_url(self) -> str:
@@ -364,10 +382,24 @@ class Settings(BaseSettings):
         )
 
     def get_postgres_libpq_url(self) -> str:
-        """Build and return the raw PostgreSQL libpq connection string.
+        """Build and return the PostgreSQL connection string for psycopg 3.
 
-        Returns the postgresql:// URL without driver prefix, suitable for
-        direct psycopg/postgres (libpq) connections.
+        Returns a postgresql+psycopg:// URL suitable for SQLAlchemy
+        connections via the psycopg 3 driver (psycopg-binary).
+        """
+        user, password = self._get_encoded_credentials()
+        return (
+            f"postgresql+psycopg://{user}:{password}@"
+            f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+            f"?sslmode={self.POSTGRES_SSL_MODE}"
+        )
+
+    def get_postgres_conn_string(self) -> str:
+        """Build and return a plain libpq connection string for psycopg 3.
+
+        Returns a postgresql:// URL (no SQLAlchemy driver prefix) suitable
+        for psycopg's native AsyncConnection.connect() and LangGraph's
+        AsyncPostgresSaver / AsyncPostgresStore.
         """
         user, password = self._get_encoded_credentials()
         return (

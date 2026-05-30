@@ -50,7 +50,13 @@ class PGVectorVectorstore:
         return self._store
 
     async def initialize(self) -> None:
-        """Initialize the PGVector store."""
+        """Initialize the PGVector store.
+
+        Tables (langchain_pg_collection, langchain_pg_embedding) are created
+        by init_database.sql ahead of time, so we skip PGVector's automatic
+        CREATE TABLE by using async_mode=True (defers __post_init__) and
+        manually running only the collection creation step.
+        """
         if self._initialized:
             logger.warning("PGVector store already initialized, skipping")
             return
@@ -60,8 +66,24 @@ class PGVectorVectorstore:
             connection=settings.get_postgres_libpq_url(),
             collection_name=_DEFAULT_COLLECTION,
             embeddings=None,  # We'll handle embeddings manually
-            # Embedding dimension is auto-detected when adding documents
+            create_extension=False,  # Extension created manually by DBA
+            async_mode=True,  # Skip __post_init__ (table creation) on init
         )
+
+        # Manually set up the ORM classes (normally done in __post_init__).
+        # We skip create_tables_if_not_exists() because tables already exist
+        # from init_database.sql.
+        from langchain_postgres.vectorstores import _get_embedding_collection_store
+
+        EmbeddingStore, CollectionStore = _get_embedding_collection_store(1024)
+        self._store.CollectionStore = CollectionStore
+        self._store.EmbeddingStore = EmbeddingStore
+
+        # Create the default collection row (INSERT into existing table).
+        # This is a lightweight operation that PGVector normally does after
+        # table creation.  Must use acreate_collection() because async_mode=True.
+        await self._store.acreate_collection()
+
         self._initialized = True
         logger.info("PGVector store initialized (PostgreSQL pgvector extension)")
 

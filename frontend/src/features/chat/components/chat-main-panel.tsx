@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage, ToolCallInfo, AgentProcessSession, MessageStep, ModelInfo } from "@/types"
+import type { LocalChatMessage, ToolCallInfo, ModelInfo } from "@/types"
 import { ModelSelector } from "@/features/chat/components/model-selector"
-import { AgentSelector } from "@/features/chat/components/agent-selector"
 import {
   Alert,
   AlertDescription,
@@ -34,25 +33,19 @@ type ChatMainPanelProps = {
   calledTools: ToolCallInfo[]
   thinkingContent: string // Accumulated thinking content
   messages: LocalChatMessage[]
-  agents: AgentInDB[]
-  selectedAgentId: string
-  processSession?: AgentProcessSession | null // Process session for inline display during streaming
-  messageSequence?: MessageStep[] // Message sequence for historical display
   aiMessageSessionIds?: (string | null)[] // session_id for each AI message (parallel to messages array)
   aiMessageHasSteps?: boolean[] // Whether each AI message has steps (parallel to messages array)
   selectedSessionId?: string | null // Currently selected session ID for sidebar
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
-  onSelectAgent: (agentId: string) => void
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to quoted message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectSession?: (sessionId: string) => void // Select a specific session to view
-  // Model and Agent selection props
+  // Model selection props
   models: ModelInfo[]
   selectedModel: string | null
   onSelectModel: (modelId: string | null) => void
-  onSelectAgentId: (agentId: string) => void
   onOpenModelConfig?: () => void // Open model configuration dialog
   hasAvailableModels?: boolean // Whether there are available models to select from
 }
@@ -74,10 +67,6 @@ export function ChatMainPanel({
   calledTools,
   thinkingContent,
   messages,
-  agents,
-  selectedAgentId,
-  processSession,
-  messageSequence,
   aiMessageSessionIds,
   aiMessageHasSteps,
   selectedSessionId,
@@ -90,7 +79,6 @@ export function ChatMainPanel({
   models,
   selectedModel,
   onSelectModel,
-  onSelectAgentId,
   onOpenModelConfig,
   hasAvailableModels = true,
 }: ChatMainPanelProps) {
@@ -345,7 +333,7 @@ export function ChatMainPanel({
                     // 2. When sidebar shows a specific session: check if sessionId matches
                     // 3. When sidebar shows default (last message, selectedSessionId is null): last AI message is selected
                     const isMessageSelected = message.type === "ai" && (
-                      (isLastAIMessage && isStreaming && processSession?.isActive)
+                      (isLastAIMessage && isStreaming)
                         ? true
                         : selectedSessionId === null
                           ? isLastAIMessage  // Default: show last AI message as selected when no specific session selected
@@ -362,8 +350,6 @@ export function ChatMainPanel({
                         thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
-                        processSession={isLastAIMessage ? processSession : null}
-                        messageSequence={isLastAIMessage ? messageSequence : undefined}
                         sessionId={sessionId}
                         hasSteps={aiMessageHasSteps?.[index]}
                         isSelected={isMessageSelected}
@@ -486,13 +472,6 @@ export function ChatMainPanel({
             </PromptInputBody>
             <PromptInputFooter className="pb-3 justify-between">
               <div className="flex items-center gap-2">
-                {/* Agent selector */}
-                <AgentSelector
-                  agents={agents}
-                  selectedAgentId={selectedAgentId}
-                  onSelectAgent={onSelectAgentId}
-                  disabled={isStreaming || isInitializing || isLoadingConversation}
-                />
                 {/* Model selector - only show if there are available models */}
                 {hasAvailableModels && (
                   <ModelSelector

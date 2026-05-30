@@ -42,7 +42,7 @@ class PostgresStore:
             return
 
         settings = get_settings()
-        conn_string = settings.get_postgres_libpq_url()
+        conn_string = settings.get_postgres_conn_string()
         index_config = await self._try_build_index_config()
 
         if index_config is not None:

@@ -2,6 +2,11 @@
 
 All endpoints read from the persisted ``trace_executions`` table, so trace
 viewing never depends on agent graph compilation or agent liveness.
+
+Exception handling for uncaught errors is delegated to the centralized
+``general_exception_handler`` registered in ``app.api.errors``. Route
+handlers only re-raise ``HTTPException`` (e.g., 404 for not-found resources)
+and let the global handler deal with everything else.
 """
 
 import logging
@@ -69,57 +74,53 @@ async def list_traces(
     Step counts come from the persisted ``trace_executions`` table rather
     than live checkpointer queries — no graph compilation needed.
     """
-    try:
-        convs, total = await chat_crud.list_traces(
-            db,
-            hours=hours,
-            page=page,
-            page_size=page_size,
-            user_id=user_id,
-        )
+    convs, total = await chat_crud.list_traces(
+        db,
+        hours=hours,
+        page=page,
+        page_size=page_size,
+        user_id=user_id,
+    )
 
-        total_pages = (total + page_size - 1) // page_size if total > 0 else 0
-        has_more = (page + 1) * page_size < total
+    total_pages = (total + page_size - 1) // page_size if total > 0 else 0
+    has_more = (page + 1) * page_size < total
 
-        if not convs:
-            return TraceListResponse(
-                items=[],
-                total=total,
-                total_pages=total_pages,
-                page=page,
-                page_size=page_size,
-                has_more=False,
-                filter_hours=hours,
-            )
-
-        # Batch-fetch latest step counts from persisted trace_executions
-        thread_ids = [conv.thread_id for conv in convs]
-        step_counts = await _batch_fetch_step_counts(db, thread_ids)
-
-        items: list[TraceListItem] = []
-        for conv in convs:
-            items.append(
-                TraceListItem(
-                    thread_id=str(conv.thread_id),
-                    title=conv.title or f"Conversation {conv.thread_id}",
-                    total_steps=step_counts.get(conv.thread_id, 0),
-                    total_latency_ms=0,
-                    last_updated=conv.updated_at,
-                )
-            )
-
+    if not convs:
         return TraceListResponse(
-            items=items,
+            items=[],
             total=total,
             total_pages=total_pages,
             page=page,
             page_size=page_size,
-            has_more=has_more,
+            has_more=False,
             filter_hours=hours,
         )
-    except Exception as e:
-        logger.error(f"Error listing traces: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
+
+    # Batch-fetch latest step counts from persisted trace_executions
+    thread_ids = [conv.thread_id for conv in convs]
+    step_counts = await _batch_fetch_step_counts(db, thread_ids)
+
+    items: list[TraceListItem] = []
+    for conv in convs:
+        items.append(
+            TraceListItem(
+                thread_id=str(conv.thread_id),
+                title=conv.title or f"Conversation {conv.thread_id}",
+                total_steps=step_counts.get(conv.thread_id, 0),
+                total_latency_ms=0,
+                last_updated=conv.updated_at,
+            )
+        )
+
+    return TraceListResponse(
+        items=items,
+        total=total,
+        total_pages=total_pages,
+        page=page,
+        page_size=page_size,
+        has_more=has_more,
+        filter_hours=hours,
+    )
 
 
 async def _batch_fetch_step_counts(
@@ -156,24 +157,15 @@ async def get_trace_steps(
 
     Reads from ``trace_executions`` — no graph compilation required.
     """
-    try:
-        await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user_id)
 
-        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
-        if not steps:
-            raise HTTPException(
-                status_code=404, detail="No execution steps found for this thread"
-            )
-
-        return [StepOutput(**s) for s in steps]
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error getting trace steps for thread {thread_id}: {e}", exc_info=True
+    _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+    if not steps:
+        raise HTTPException(
+            status_code=404, detail="No execution steps found for this thread"
         )
-        raise HTTPException(status_code=500, detail=str(e))
+
+    return [StepOutput(**s) for s in steps]
 
 
 @api_router.get("/{thread_id}/dag", response_model=ExecutionDag)
@@ -187,24 +179,15 @@ async def get_trace_dag(
     Reads from ``trace_executions`` table — no graph compilation required.
     Returns the full execution DAG with nodes and edges for visualization.
     """
-    try:
-        await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user_id)
 
-        dag_data, _, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
-        if dag_data is None:
-            raise HTTPException(
-                status_code=404, detail="No execution DAG found for this thread"
-            )
-
-        return ExecutionDag(**dag_data)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error getting trace DAG for thread {thread_id}: {e}", exc_info=True
+    dag_data, _, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+    if dag_data is None:
+        raise HTTPException(
+            status_code=404, detail="No execution DAG found for this thread"
         )
-        raise HTTPException(status_code=500, detail=str(e))
+
+    return ExecutionDag(**dag_data)
 
 
 @api_router.get("/{thread_id}/steps/{step_number}", response_model=StepOutput)
@@ -218,28 +201,18 @@ async def get_trace_step_by_number(
 
     Reads from ``trace_executions`` — no graph compilation required.
     """
-    try:
-        await _verify_trace_owner(db, thread_id, user_id)
-        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
-        if not steps:
-            raise HTTPException(
-                status_code=404, detail="No execution steps found for this thread"
-            )
-
-        for s in steps:
-            if s.get("step_number") == step_number:
-                return StepOutput(**s)
-
-        raise HTTPException(status_code=404, detail="Step not found")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error getting step {step_number} for thread {thread_id}: {e}",
-            exc_info=True,
+    await _verify_trace_owner(db, thread_id, user_id)
+    _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+    if not steps:
+        raise HTTPException(
+            status_code=404, detail="No execution steps found for this thread"
         )
-        raise HTTPException(status_code=500, detail=str(e))
+
+    for s in steps:
+        if s.get("step_number") == step_number:
+            return StepOutput(**s)
+
+    raise HTTPException(status_code=404, detail="Step not found")
 
 
 @api_router.get("/{thread_id}/checkpoints/{checkpoint_id}", response_model=StepOutput)
@@ -253,28 +226,18 @@ async def get_trace_step_by_checkpoint(
 
     Reads from ``trace_executions`` — no graph compilation required.
     """
-    try:
-        await _verify_trace_owner(db, thread_id, user_id)
-        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
-        if not steps:
-            raise HTTPException(
-                status_code=404, detail="No execution steps found for this thread"
-            )
-
-        for s in steps:
-            if s.get("checkpoint_id") == checkpoint_id:
-                return StepOutput(**s)
-
-        raise HTTPException(status_code=404, detail="Checkpoint not found")
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error getting checkpoint {checkpoint_id} for thread {thread_id}: {e}",
-            exc_info=True,
+    await _verify_trace_owner(db, thread_id, user_id)
+    _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+    if not steps:
+        raise HTTPException(
+            status_code=404, detail="No execution steps found for this thread"
         )
-        raise HTTPException(status_code=500, detail=str(e))
+
+    for s in steps:
+        if s.get("checkpoint_id") == checkpoint_id:
+            return StepOutput(**s)
+
+    raise HTTPException(status_code=404, detail="Checkpoint not found")
 
 
 @api_router.get("/{thread_id}/replay", response_model=list[StepOutput])
@@ -289,26 +252,17 @@ async def replay_trace(
 
     Reads from ``trace_executions`` — no graph compilation required.
     """
-    try:
-        await _verify_trace_owner(db, thread_id, user_id)
-        _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
-        if not steps:
-            raise HTTPException(
-                status_code=404, detail="No execution steps found for this thread"
-            )
-
-        result = steps[from_step - 1 : to_step]
-        if not result:
-            raise HTTPException(
-                status_code=404, detail="No steps found in the specified range"
-            )
-
-        return [StepOutput(**s) for s in result]
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(
-            f"Error replaying trace for thread {thread_id}: {e}", exc_info=True
+    await _verify_trace_owner(db, thread_id, user_id)
+    _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+    if not steps:
+        raise HTTPException(
+            status_code=404, detail="No execution steps found for this thread"
         )
-        raise HTTPException(status_code=500, detail=str(e))
+
+    result = steps[from_step - 1 : to_step]
+    if not result:
+        raise HTTPException(
+            status_code=404, detail="No steps found in the specified range"
+        )
+
+    return [StepOutput(**s) for s in result]

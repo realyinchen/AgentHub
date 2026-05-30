@@ -8,7 +8,7 @@ depend on graph compilation or agent liveness.
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from sqlalchemy import BigInteger, JSON, String, DateTime, Integer, Uuid
+from sqlalchemy import BigInteger, ForeignKey, JSON, String, DateTime, Integer, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infra.database import Base
@@ -19,8 +19,9 @@ class TraceExecution(Base):
     __tablename__ = "trace_executions"
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    thread_id: Mapped[UUID] = mapped_column(Uuid, nullable=False, index=True)
-    agent_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    thread_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("conversations.thread_id", ondelete="CASCADE"), nullable=False, index=True
+    )
     request_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     dag_data: Mapped[dict] = mapped_column(
         JSON, nullable=False, comment="Complete ExecutionDag as JSON"

@@ -49,18 +49,17 @@ export type MessageStep = {
   thinking: string | null
 }
 
-export type AgentInDB = {
-  agent_id: string
-  description: string
-  is_active: boolean
-  created_at: string
-  updated_at: string
+export type UserInfo = {
+  id: string
+  name: string
+  gender: "male" | "female"
+  avatar: string
 }
 
 export type ConversationInDB = {
   thread_id: string
+  user_id: string
   title: string
-  agent_id?: string | null
   created_at: string
   updated_at: string
   is_deleted: boolean
@@ -74,10 +73,12 @@ export type ConversationInDB = {
 
 export type UserInput = {
   content: string
-  agent_id: string
-  thread_id?: string | null
+  user_id: string
+  thread_id: string
+  request_id: string
   model_name?: string | null
   thinking_mode?: boolean
+  timezone?: string
   custom_data?: Record<string, unknown> | null
 }
 
@@ -191,28 +192,29 @@ export type StreamEvent =
   }
   | {
     type: "llm"
-    id: string
-    step: number
     content: string
-  }
-  | {
-    type: "tool"
     id: string
-    step: number
-    content: {
-      name: string
-      tool_id: string
-      args?: Record<string, unknown>
-      status: "calling"
-    }
-  }
-  | {
-    type: "tool_result"
-    content: ToolResultEvent
   }
   | {
     type: "message"
     content: ChatMessage
+  }
+  | {
+    type: "tool"
+    content: {
+      name: string
+      tool_id: string
+      args: Record<string, unknown>
+    }
+    id: string
+  }
+  | {
+    type: "tool_result"
+    content: {
+      name: string
+      id: string
+      output: string
+    }
   }
   | {
     type: "usage"
@@ -229,6 +231,7 @@ export type StreamEvent =
   | {
     type: "error"
     content: string
+    error_type?: string
   }
 // ==================== Agent Process Types ====================
 
@@ -296,3 +299,4 @@ export type HistoricalProcessData = {
   messageId: string
   steps?: HistoricalProcessStep[]  // New: ordered steps with type info
 }
+

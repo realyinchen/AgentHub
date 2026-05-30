@@ -1,7 +1,7 @@
 """
 Database initialization script — PostgreSQL only.
 
-Executes SQL files from sql/postgres/ directory in order.
+Executes SQL files from sql/ directory in order.
 
 Usage:
     cd backend
@@ -12,7 +12,6 @@ Configuration via .env:
 """
 
 import os
-import glob
 import sqlalchemy as sa
 from sqlalchemy import text
 from dotenv import load_dotenv
@@ -21,9 +20,6 @@ from pathlib import Path
 load_dotenv()
 
 SQL_DIR = Path(__file__).parent / "sql"
-
-
-# ── PostgreSQL: Sync engine + SQL files ──────────────────────────────────
 
 
 def _build_postgres_url() -> str:
@@ -38,22 +34,21 @@ def _build_postgres_url() -> str:
 
 def _get_sorted_sql_files() -> list[str]:
     """
-    Get PostgreSQL SQL files, sorted by name.
+    Get all .sql files from the sql/ directory, sorted by name.
 
-    Sort order: init_database.sql first, then database_change_001.sql, 002.sql, ...
+    Sort order: init_database.sql first, then change_*.sql files by numeric suffix.
     """
-    sql_subdir = SQL_DIR / "postgres"
-    sql_files = glob.glob(str(sql_subdir / "*.sql"))
+    sql_files = list(SQL_DIR.glob("*.sql"))
     sorted_files = sorted(
         sql_files,
-        key=lambda x: (
-            0 if "init_database.sql" in x else 1,
-            int("".join(filter(str.isdigit, Path(x).stem)))
-            if "change_" in x
+        key=lambda p: (
+            0 if p.name == "init_database.sql" else 1,
+            int("".join(filter(str.isdigit, p.stem)))
+            if "change_" in p.name
             else 9999,
         ),
     )
-    return sorted_files
+    return [str(f) for f in sorted_files]
 
 
 def _execute_sql_file_sync(engine: sa.engine.Engine, file_path: str) -> None:
@@ -66,21 +61,21 @@ def _execute_sql_file_sync(engine: sa.engine.Engine, file_path: str) -> None:
         with engine.connect() as conn:
             with conn.begin():
                 conn.execute(text(sql_content))
-        print(f"  → Success: {Path(file_path).name}")
+        print(f"  -> Success: {Path(file_path).name}")
     except Exception as e:
-        print(f"  → Error in {Path(file_path).name}: {e}")
+        print(f"  -> Error in {Path(file_path).name}: {e}")
 
 
 def _init_postgres() -> None:
     """Initialize PostgreSQL database using SQL files."""
     print("Starting PostgreSQL database schema updates...")
-    print(f"SQL directory: {SQL_DIR / 'postgres'}")
+    print(f"SQL directory: {SQL_DIR}")
 
     engine = sa.create_engine(_build_postgres_url(), echo=False)
     sql_files = _get_sorted_sql_files()
 
     if not sql_files:
-        print("No .sql files found in sql/postgres/ folder.")
+        print("No .sql files found in sql/ folder.")
         return
 
     print(f"Found {len(sql_files)} SQL files:")
@@ -94,12 +89,7 @@ def _init_postgres() -> None:
     print("PostgreSQL database schema is up to date.")
 
 
-# ── Main ────────────────────────────────────────────────────────────────
-
-
 def main():
-    print("Database type: postgres")
-    print("=" * 50)
     _init_postgres()
     print("\nDatabase initialization complete.")
 

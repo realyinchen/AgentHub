@@ -3,6 +3,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 
 from app.agents import init_supervisor
@@ -10,16 +11,10 @@ from app.infra.config import get_settings
 from app.infra.llm.model_manager import get_model_manager
 from app.api.errors import register_exception_handlers
 from app.infra.database import init_all, dispose_all, get_checkpointer, get_store
-from app.api.v1.router import api_router
-from app.utils.logging import RequestIdFilter
+from app.api.v1 import api_router
 
 
 settings = get_settings()
-
-# ── Logging Configuration ──────────────────────────────────────────────
-# Register RequestIdFilter on root logger so every log record automatically
-# carries the request_id from the current contextvar.
-logging.getLogger().addFilter(RequestIdFilter())
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +68,17 @@ app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     description=settings.DESCRIPTION,
+)
+
+# Configure CORS middleware
+# Allow all methods and headers for development. Credentials are not allowed
+# when origins include "*" so we use the configured CORS_ORIGINS.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origins_list,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Register exception handlers for centralized error handling

@@ -1,18 +1,22 @@
-"""Shared post-processing for agent invoke / stream code paths.
+"""Agent execution helpers — model resolution, token extraction, DAG persistence.
 
-Extracted from ``api/v1/chat.py`` and ``api/v1/stream.py`` to eliminate
-~80 lines of duplicated model-fallback + token-persist + DAG-persist logic.
+Shared by both ``/chat/invoke`` and ``/chat/stream`` code paths to eliminate
+duplicated logic for model fallback, token accumulation, and DAG snapshotting.
 
-Usage (invoke path — synchronous with FastAPI db session)::
+Usage (invoke path)::
 
-    from app.utils.stream_helpers import resolve_model_name, persist_tokens_and_dag
+    from app.utils.stream_helpers import (
+        resolve_model_name, empty_totals, extract_usage,
+        accumulate_usage, persist_tokens_and_dag,
+    )
 
     model_name = resolve_model_name(user_input.model_name)
-    # ... run agent ...
-    await persist_tokens_and_dag(
-        db=db, agent=agent, thread_id=..., request_id=...,
-        model_name=model_name, tokens=totals,
-    )
+    totals = empty_totals()
+    # ... run agent, iterate messages ...
+    usage = extract_usage(msg)
+    if usage:
+        accumulate_usage(totals, usage)
+    await persist_tokens_and_dag(db=db, agent=agent, ...)
 
 Usage (stream path — inside AsyncWriteQueue callback)::
 
@@ -29,7 +33,7 @@ Usage (stream path — inside AsyncWriteQueue callback)::
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
 
 from app.infra.llm.model_manager import get_model_manager
 
@@ -38,6 +42,63 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
+
+
+# ── Token utilities ──────────────────────────────────────────────────────────
+
+
+def empty_totals() -> dict[str, int]:
+    """Return a zero-filled token totals dictionary."""
+    return {
+        "input_tokens": 0,
+        "cache_read": 0,
+        "output_tokens": 0,
+        "reasoning": 0,
+        "total_tokens": 0,
+    }
+
+
+def extract_usage(final_message: Any) -> dict | None:
+    """Extract token usage from a finalized AI message.
+
+    Tries ``usage_metadata`` first (preferred), then falls back to
+    ``response_metadata.token_usage``.
+    """
+    if final_message is None:
+        return None
+
+    usage = getattr(final_message, "usage_metadata", None)
+    if usage:
+        return dict(usage)
+
+    resp_meta = getattr(final_message, "response_metadata", None)
+    if resp_meta and isinstance(resp_meta, dict):
+        token_usage = resp_meta.get("token_usage")
+        if token_usage:
+            return {
+                "input_tokens": token_usage.get("prompt_tokens", 0),
+                "output_tokens": token_usage.get("completion_tokens", 0),
+                "total_tokens": token_usage.get("total_tokens", 0),
+            }
+    return None
+
+
+def accumulate_usage(totals: dict[str, int], usage: dict) -> None:
+    """Accumulate per-call *usage* into running *totals* (mutated in-place)."""
+    totals["input_tokens"] += usage.get("input_tokens", 0)
+    totals["output_tokens"] += usage.get("output_tokens", 0)
+    totals["total_tokens"] += usage.get("total_tokens", 0)
+
+    input_details = usage.get("input_token_details")
+    if isinstance(input_details, dict):
+        totals["cache_read"] += input_details.get("cache_read", 0)
+
+    output_details = usage.get("output_token_details")
+    if isinstance(output_details, dict):
+        totals["reasoning"] += output_details.get("reasoning", 0)
+
+
+# ── Model resolution ─────────────────────────────────────────────────────────
 
 
 def resolve_model_name(user_model: str | None) -> str | None:
@@ -55,6 +116,28 @@ def resolve_model_name(user_model: str | None) -> str | None:
         return user_model
     manager = get_model_manager()
     return manager.get_default_llm_id() or manager.get_first_active_llm_id()
+
+
+def log_routing_decision(sr: Any, *, prefix: str = "") -> None:
+    """Log a structured routing decision for observability.
+
+    Handles both Pydantic model and plain dict representations of
+    ``RoutingDecision``.  Shared by invoke and stream code paths.
+
+    Args:
+        sr: The ``structured_response`` value from agent state (may be
+            a Pydantic model, a dict, or *None*).
+        prefix: Optional log message prefix (e.g. ``"Stream "``).
+    """
+    if sr is None:
+        return
+    logger.info(
+        "%sStructured routing: action=%s target_agent=%s reasoning=%s",
+        prefix,
+        getattr(sr, "action", sr.get("action", "") if isinstance(sr, dict) else ""),
+        getattr(sr, "target_agent", sr.get("target_agent", "") if isinstance(sr, dict) else ""),
+        str(getattr(sr, "reasoning", sr.get("reasoning", "") if isinstance(sr, dict) else ""))[:200],
+    )
 
 
 async def persist_tokens_and_dag(
@@ -84,7 +167,7 @@ async def persist_tokens_and_dag(
     """
     from app.crud import chat as chat_crud
     from app.crud import trace as trace_crud
-    from app.observability import DagBuilder
+    from app.services import DagBuilder
 
     thread_id_str = str(thread_id)
 

@@ -6,7 +6,7 @@ import uvicorn
 from dotenv import load_dotenv
 
 from app.infra.config import get_settings
-from app.utils.logging import JsonFormatter
+from app.utils.logging import JsonFormatter, RequestIdFilter
 
 # Load environment variables first
 load_dotenv()
@@ -39,6 +39,12 @@ def configure_logging() -> None:
 
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(settings.LOG_LEVEL)
+
+    # Register RequestIdFilter on the handler so %(request_id)s works
+    # in format strings. Filters must be on handlers, not loggers,
+    # because child-logger records propagate to parent handlers but
+    # NOT through parent logger filters.
+    handler.addFilter(RequestIdFilter())
 
     if settings.LOG_FORMAT == "json":
         handler.setFormatter(JsonFormatter())

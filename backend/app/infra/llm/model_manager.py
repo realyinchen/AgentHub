@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
 
@@ -172,43 +173,40 @@ class ModelManager:
                 decrypted_api_key = decrypt_api_key(provider_config.api_key)
             if provider_config and provider_config.base_url:
                 base_url = provider_config.base_url
+            full_model_id = f"{m.provider}/{m.model_id}"
             litellm_params = {
-                "model": m.model_id,
+                "model": full_model_id,
                 "api_key": decrypted_api_key,
             }
             if base_url:
                 litellm_params["api_base"] = base_url
-            result.append({"model_name": m.model_id, "litellm_params": litellm_params})
+            result.append({"model_name": full_model_id, "litellm_params": litellm_params})
         return result
 
     def _build_fallbacks(self) -> list[dict]:
-        """Build Router fallback rules sorted by priority (descending).
+        """Build Router fallback rules with randomized order.
 
-        Higher priority models only fall back to lower priority models
-        (never reverse). This ensures premium → mid-tier → budget flow.
-        Within the same priority level, models are sorted alphabetically.
+        Within each model_type, every model falls back to all other models
+        of the same type in random order. No priority — any available model
+        can serve as fallback for any other.
         """
         models = list(self._models_cache.values())
         if len(models) < 2:
             return []
 
-        # Sort: priority DESC, then model_id ASC (deterministic tiebreak)
-        sorted_models = sorted(
-            models, key=lambda m: (-getattr(m, "priority", 0), m.model_id)
-        )
-
         by_type: dict[str, list[str]] = {}
-        for m in sorted_models:
+        for m in models:
             if m.is_active:
-                by_type.setdefault(m.model_type, []).append(m.model_id)
+                full_id = f"{m.provider}/{m.model_id}"
+                by_type.setdefault(m.model_type, []).append(full_id)
 
         fallbacks: list[dict] = []
         for model_ids in by_type.values():
             if len(model_ids) > 1:
-                for i, mid in enumerate(model_ids):
-                    others = model_ids[i + 1 :]  # only lower priority
-                    if others:
-                        fallbacks.append({mid: others})
+                for mid in model_ids:
+                    others = [x for x in model_ids if x != mid]
+                    random.shuffle(others)
+                    fallbacks.append({mid: others})
         return fallbacks
 
     # ── Cache refresh ──────────────────────────────────────────────────
@@ -344,8 +342,15 @@ class ModelManager:
             await self.refresh()
 
         target_id = model_id or self._default_embedding_id
+
+        # ── Fallback: use SYSTEM_DEFAULT_EMBEDDING_MODEL from .env ──────
         if target_id is None:
-            return None, None
+            settings = get_settings()
+            target_id = settings.SYSTEM_DEFAULT_EMBEDDING_MODEL
+            if target_id is None:
+                return None, None
+            api_key = settings.system_default_embedding_api_key or ""
+            return target_id, api_key
 
         model_config = self._models_cache.get(target_id)
         if model_config is None:
@@ -373,18 +378,13 @@ class ModelManager:
     ) -> str:
         """Resolve the LiteLLM-compatible embedding model ID.
 
-        LiteLLM expects 'openai/text-embedding-3-small' or
-        'ollama/nomic-embed-text'.  We prefix the provider if it's a known
-        provider and the model_id doesn't already contain a '/'.
+        All model_ids are now stored without provider prefix.
+        We always prefix with provider for LiteLLM compatibility.
+        e.g. "text-embedding-3-small" → "openai/text-embedding-3-small"
         """
         if "/" in model_id:
             return model_id
-
-        # Ollama and vLLM must be prefixed with the provider name for LiteLLM
-        if provider in ("ollama", "vllm"):
-            return f"{provider}/{model_id}"
-
-        return model_id
+        return f"{provider}/{model_id}"
 
     def get_models_count(self) -> int:
         return len(self._models_cache)

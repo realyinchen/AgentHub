@@ -4,7 +4,7 @@ Each sub-agent is compiled with ``create_agent()`` **without** checkpointer
 (stateless by design per LangChain official Subagents pattern). They are
 invoked by the supervisor via ``.ainvoke()`` on a single-turn message.
 
-Sub-agents self-register via ``@register_subagent`` at import time.
+Sub-agents self-register via ``@registry.register()`` at import time.
 Import them here to trigger registration before the supervisor is built.
 
 Design (LangChain v1):

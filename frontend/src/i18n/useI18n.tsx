@@ -209,6 +209,9 @@ const en = {
   // DAG
   "process.noSteps": "No steps to display",
   "process.noStepsHint": "This session has no recorded steps",
+  // User
+  "user.selectPrompt": "Who's using AgentHub?",
+  "user.switchUser": "Switch User",
 } as const
 
 type TranslationKey = keyof typeof en
@@ -418,6 +421,9 @@ const zh: TranslationDictionary = {
   // DAG
   "process.noSteps": "无步骤可展示",
   "process.noStepsHint": "该会话没有记录的步骤",
+  // User
+  "user.selectPrompt": "谁在使用 AgentHub？",
+  "user.switchUser": "切换用户",
 }
 
 const dictionaries = {

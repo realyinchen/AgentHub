@@ -32,7 +32,7 @@ class PostgresCheckpointer:
             return
         settings = get_settings()
         self._cm = AsyncPostgresSaver.from_conn_string(
-            settings.get_postgres_libpq_url()
+            settings.get_postgres_conn_string()
         )
         self._saver = await self._cm.__aenter__()
         await self._saver.setup()

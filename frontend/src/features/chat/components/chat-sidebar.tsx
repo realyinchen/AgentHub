@@ -27,6 +27,8 @@ import agentHubLogo from "@/assets/agenthub.png"
 import { formatUpdatedAt } from "@/features/chat/utils"
 import { useI18n } from "@/i18n"
 
+import type { UserInfo } from "@/types"
+
 type ChatSidebarProps = {
   threadId: string
   conversations: ConversationInDB[]
@@ -38,6 +40,8 @@ type ChatSidebarProps = {
   hasMore?: boolean
   isLoadingMore?: boolean
   onLoadMore?: () => void
+  onSwitchUser?: () => void
+  currentUser?: UserInfo | null
 }
 
 // Search component
@@ -74,6 +78,8 @@ export function ChatSidebar({
   hasMore: hasMoreProp,
   isLoadingMore,
   onLoadMore,
+  onSwitchUser,
+  currentUser,
 }: ChatSidebarProps) {
   const { locale, t } = useI18n()
   const { state, toggleSidebar } = useSidebar()
@@ -278,6 +284,30 @@ export function ChatSidebar({
                     onClick={() => toggleSidebar()}
                   >
                     <ChevronsRight className="size-4" />
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
+
+        {/* User switch button at the bottom */}
+        {onSwitchUser && (
+          <SidebarGroup className="mt-auto pt-2">
+            <SidebarGroupContent>
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    className="cursor-pointer"
+                    tooltip={isCollapsed ? (currentUser?.name ?? t("user.switchUser")) : undefined}
+                    onClick={onSwitchUser}
+                  >
+                    <div className="flex size-6 items-center justify-center rounded-full bg-muted text-xs shrink-0">
+                      {currentUser?.avatar || (currentUser?.gender === "female" ? "👩" : "👨")}
+                    </div>
+                    {!isCollapsed && (
+                      <span className="truncate">{currentUser?.name ?? t("user.switchUser")}</span>
+                    )}
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               </SidebarMenu>
