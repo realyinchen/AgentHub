@@ -3,6 +3,10 @@ PostgreSQL database backend (SQLAlchemy + asyncpg).
 
 Provides the relational database layer for storing user data, conversation history,
 and model configurations.
+
+Best Practice (FastAPI):
+    Use async engine with asyncpg driver for production.
+    Connection pooling with pre-ping for reliability.
 """
 
 from __future__ import annotations

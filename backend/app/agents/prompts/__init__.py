@@ -3,10 +3,11 @@
 This directory contains system prompt templates for each agent, stored as
 Markdown files named by ``agent_id``::
 
-    app/prompts/
+    app/agents/prompts/
     ├── __init__.py
+    ├── agent.md        # Default agent prompt
     ├── chatbot.md      # Chatbot agent prompt
-    ├── rag_agent.md    # RAG agent prompt (future)
+    ├── supervisor.md   # Supervisor agent prompt
     └── ...
 
 Templates are loaded at runtime by ``PromptService`` via
@@ -19,5 +20,5 @@ Do NOT import from this package directly — use the PromptService API::
     from app.agents.middleware.prompt import get_prompt_service
 
     svc = get_prompt_service()
-    prompt = svc.build_system_prompt(agent_id="chatbot", store=store, user_id=user_id)
+    prompt = svc.build_system_prompt(agent_id="agent", timezone="Asia/Shanghai")
 """

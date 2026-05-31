@@ -14,8 +14,8 @@ from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
 from app.schemas.trace import CheckpointInfo, StepOutput
-from app.services.checkpoint import _extract_node_name, _parse_timestamp
-from app.services.parsers import extract_step_from_checkpoint
+from app.utils.checkpoint import _extract_node_name, _parse_timestamp
+from app.utils.parsers import extract_step_from_checkpoint
 
 logger = logging.getLogger(__name__)
 

@@ -28,13 +28,9 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from app.infra.llm.model_manager import get_model_manager
-
-if TYPE_CHECKING:
-    from uuid import UUID
-    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -113,25 +109,7 @@ def resolve_model_name(user_model: str | None) -> str | None:
     return manager.get_default_llm_id() or manager.get_first_active_llm_id()
 
 
-def log_routing_decision(sr: Any, *, prefix: str = "") -> None:
-    """Log a structured routing decision for observability.
-
-    Handles both Pydantic model and plain dict representations of
-    ``RoutingDecision``.  Shared by invoke and stream code paths.
-
-    Args:
-        sr: The ``structured_response`` value from agent state (may be
-            a Pydantic model, a dict, or *None*).
-        prefix: Optional log message prefix (e.g. ``"Stream "``).
-    """
-    if sr is None:
-        return
-    logger.info(
-        "%sStructured routing: action=%s target_agent=%s reasoning=%s",
-        prefix,
-        getattr(sr, "action", sr.get("action", "") if isinstance(sr, dict) else ""),
-        getattr(sr, "target_agent", sr.get("target_agent", "") if isinstance(sr, dict) else ""),
-        str(getattr(sr, "reasoning", sr.get("reasoning", "") if isinstance(sr, dict) else ""))[:200],
-    )
+# Note: log_routing_decision removed — no longer needed since subagent routing was simplified.
+# The agent now uses tools directly without structured routing decisions.
 
 

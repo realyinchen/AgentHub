@@ -1,18 +1,13 @@
-"""Agent layer — Supervisor + self-registering SubAgent architecture.
+"""Agent layer — single Agent directly using tools.
 
-Architecture (LangChain official Single Dispatch Tool pattern):
-    User → Supervisor (checkpointer + dynamic prompt + dynamic model)
+Architecture (simplified):
+    User → Agent (checkpointer + dynamic prompt + dynamic model)
                 │
-                ├── list_agents()  (@tool: discover specialists)
-                └── task()         (@tool: delegate to specialist)
+                ├── get_current_time  (@tool: time queries)
+                └── web_search        (@tool: web search)
 
-Sub-agents self-register via ``@register_subagent`` at import time.
-Adding a new subagent only requires a new file in ``subagents/`` —
-no supervisor code or prompt changes.
-
-The supervisor is the *only* compiled agent with a checkpointer — it
-maintains all multi-turn conversation state. Sub-agents are stateless
-one-shot agents called via ``.ainvoke()``.
+No subagent delegation — tools are injected directly into the agent.
+This eliminates unnecessary LLM calls for routing decisions.
 
 Startup flow:
     1. ``init_supervisor(checkpointer, store)`` — called once in lifespan.

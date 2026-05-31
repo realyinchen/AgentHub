@@ -2,8 +2,11 @@
 PostgreSQL vector store backend (PGVector extension).
 
 Provides semantic search capability using the pgvector PostgreSQL extension.
-Replaces Qdrant with native PostgreSQL vector storage for simplified
-infrastructure (single database for relational + vector data).
+Uses LangChain's official PGEngine + PGVectorStore API for production-ready
+vector storage.
+
+Reference:
+https://docs.langchain.com/oss/python/integrations/vectorstores/index#pgvectorstore
 """
 
 from __future__ import annotations
@@ -14,37 +17,140 @@ from typing import (
     Awaitable,
     Callable,
     Optional,
+    Sequence,
 )
 
-from langchain_postgres import PGVector
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
+from langchain_postgres import PGEngine, PGVectorStore
 
 from app.infra.config import get_settings
+from app.infra.errors import VectorStoreError
 
 logger = logging.getLogger(__name__)
 
-_DEFAULT_COLLECTION = "documents"
+_DEFAULT_TABLE = "langchain_pg_embedding"
+
+
+class LiteLLMEmbeddingsAdapter(Embeddings):
+    """
+    Adapter to use LiteLLM embedding with LangChain's PGVectorStore.
+
+    Wraps the async embedding function from ModelManager into LangChain's
+    Embeddings interface (which expects sync methods).
+
+    Note: PGVectorStore calls embed_documents/embed_query synchronously,
+    so we need to run the async embedding in an event loop.
+    """
+
+    def __init__(
+        self,
+        embed_fn: Callable[[str], Awaitable[list[float]]],
+        embed_batch_fn: Optional[Callable[[Sequence[str]], Awaitable[list[list[float]]]]] = None,
+    ):
+        """Initialize the adapter.
+
+        Args:
+            embed_fn: Async function to embed a single text.
+            embed_batch_fn: Optional async function to embed multiple texts.
+                           If not provided, texts are embedded one by one.
+        """
+        self._embed_fn = embed_fn
+        self._embed_batch_fn = embed_batch_fn
+
+    def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of texts (synchronous wrapper).
+
+        Note: This method is called by PGVectorStore internally.
+        We run the async embedding in a new event loop.
+        """
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None:
+            # We're inside an async context, run in thread pool
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, self._embed_documents_async(texts))
+                return future.result()
+        else:
+            return asyncio.run(self._embed_documents_async(texts))
+
+    async def _embed_documents_async(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of texts asynchronously."""
+        if self._embed_batch_fn:
+            return await self._embed_batch_fn(texts)
+        # Fallback: embed one by one
+        results = []
+        for text in texts:
+            embedding = await self._embed_fn(text)
+            results.append(embedding)
+        return results
+
+    def embed_query(self, text: str) -> list[float]:
+        """Embed a single query text (synchronous wrapper)."""
+        import asyncio
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        async def _get_embedding() -> list[float]:
+            return await self._embed_fn(text)
+
+        if loop is not None:
+            import concurrent.futures
+            with concurrent.futures.ThreadPoolExecutor() as pool:
+                future = pool.submit(asyncio.run, _get_embedding())
+                return future.result()
+        else:
+            return asyncio.run(_get_embedding())
+
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        """Embed a list of texts asynchronously."""
+        return await self._embed_documents_async(texts)
+
+    async def aembed_query(self, text: str) -> list[float]:
+        """Embed a single query text asynchronously."""
+        return await self._embed_fn(text)
 
 
 class PGVectorVectorstore:
     """
-    PGVector vector store backend using LangChain's langchain-postgres.
+    PGVector vector store backend using LangChain's PGVectorStore.
 
     Provides semantic search using the PostgreSQL pgvector extension.
-    All vector data is stored in the same PostgreSQL instance as relational data.
+    Uses the official PGEngine + PGVectorStore API for production readiness.
     """
 
     def __init__(self) -> None:
-        self._store: Optional[PGVector] = None
+        self._store: Optional[PGVectorStore] = None
+        self._engine: Optional[PGEngine] = None
         self._embed_fn: Optional[Callable[[str], Awaitable[list[float]]]] = None
+        self._embed_batch_fn: Optional[Callable[[Sequence[str]], Awaitable[list[list[float]]]]] = None
         self._initialized = False
 
-    def set_embed_fn(self, fn: Callable[[str], Awaitable[list[float]]]) -> None:
-        """Inject text→embedding function (called by factory)."""
+    def set_embed_fn(
+        self,
+        fn: Callable[[str], Awaitable[list[float]]],
+        batch_fn: Optional[Callable[[Sequence[str]], Awaitable[list[list[float]]]]] = None,
+    ) -> None:
+        """Inject text→embedding function (called by factory).
+
+        Args:
+            fn: Async function to embed a single text.
+            batch_fn: Optional async function to embed multiple texts efficiently.
+        """
         self._embed_fn = fn
+        self._embed_batch_fn = batch_fn
 
     @property
-    def store(self) -> PGVector:
+    def store(self) -> PGVectorStore:
         if self._store is None:
             raise RuntimeError("Vectorstore not initialized. Call initialize() first.")
         return self._store
@@ -52,57 +158,80 @@ class PGVectorVectorstore:
     async def initialize(self) -> None:
         """Initialize the PGVector store.
 
-        Tables (langchain_pg_collection, langchain_pg_embedding) are created
-        by init_database.sql ahead of time, so we skip PGVector's automatic
-        CREATE TABLE by using async_mode=True (defers __post_init__) and
-        manually running only the collection creation step.
+        Uses PGEngine.from_connection_string for connection management
+        and PGVectorStore.create async factory method for store creation.
         """
         if self._initialized:
             logger.warning("PGVector store already initialized, skipping")
             return
 
+        if self._embed_fn is None:
+            raise VectorStoreError(
+                "No embedding function configured. "
+                "Call set_embed_fn() before initialize().",
+                operation="initialize",
+            )
+
         settings = get_settings()
-        self._store = PGVector(
-            connection=settings.get_postgres_libpq_url(),
-            collection_name=_DEFAULT_COLLECTION,
-            embeddings=None,  # We'll handle embeddings manually
-            create_extension=False,  # Extension created manually by DBA
-            async_mode=True,  # Skip __post_init__ (table creation) on init
+
+        # Create PGEngine with psycopg connection URL
+        # PGEngine expects postgresql+psycopg:// URL format
+        conn_url = settings.get_postgres_libpq_url()
+
+        try:
+            self._engine = PGEngine.from_connection_string(url=conn_url)
+            logger.info("PGEngine created for PGVectorStore")
+        except Exception as e:
+            raise VectorStoreError(
+                f"Failed to create PGEngine: {e}",
+                operation="initialize",
+            ) from e
+
+        # Create embeddings adapter
+        embeddings = LiteLLMEmbeddingsAdapter(
+            embed_fn=self._embed_fn,
+            embed_batch_fn=self._embed_batch_fn,
         )
 
-        # Manually set up the ORM classes (normally done in __post_init__).
-        # We skip create_tables_if_not_exists() because tables already exist
-        # from init_database.sql.
-        from langchain_postgres.vectorstores import _get_embedding_collection_store
-
-        EmbeddingStore, CollectionStore = _get_embedding_collection_store(1024)
-        self._store.CollectionStore = CollectionStore
-        self._store.EmbeddingStore = EmbeddingStore
-
-        # Create the default collection row (INSERT into existing table).
-        # This is a lightweight operation that PGVector normally does after
-        # table creation.  Must use acreate_collection() because async_mode=True.
-        await self._store.acreate_collection()
+        # Create PGVectorStore (async factory method)
+        try:
+            self._store = await PGVectorStore.create(
+                engine=self._engine,
+                table_name=_DEFAULT_TABLE,
+                embedding_service=embeddings,
+            )
+            logger.info("PGVectorStore initialized with table '%s'", _DEFAULT_TABLE)
+        except Exception as e:
+            raise VectorStoreError(
+                f"Failed to create PGVectorStore: {e}",
+                operation="initialize",
+            ) from e
 
         self._initialized = True
-        logger.info("PGVector store initialized (PostgreSQL pgvector extension)")
 
     async def search(
         self, collection_name: str, query_text: str, limit: int = 5
     ) -> list[dict[str, Any]]:
-        """Search by text (uses injected embed_fn)."""
-        if self._embed_fn is None:
-            raise ValueError(
-                "No embedding function configured. The vectorstore search requires "
-                "an embedding model. Please configure at least one Embedding model."
-            )
+        """Search by text (uses internal embedding_service)."""
         if self._store is None:
-            raise RuntimeError("Vectorstore not initialized")
+            raise VectorStoreError(
+                "Vectorstore not initialized",
+                collection_name=collection_name,
+                operation="search",
+            )
 
-        embedding = await self._embed_fn(query_text)
-        return await self.search_with_embedding(
-            collection_name=collection_name, embedding=embedding, limit=limit
-        )
+        try:
+            results = await self._store.asimilarity_search_with_score(
+                query=query_text,
+                k=limit,
+            )
+            return self._format_results(results)
+        except Exception as e:
+            raise VectorStoreError(
+                f"Vector search failed: {e}",
+                collection_name=collection_name,
+                operation="search",
+            ) from e
 
     async def search_with_embedding(
         self,
@@ -112,15 +241,79 @@ class PGVectorVectorstore:
     ) -> list[dict[str, Any]]:
         """Search by pre-computed embedding vector."""
         if self._store is None:
-            raise RuntimeError("Vectorstore not initialized")
+            raise VectorStoreError(
+                "Vectorstore not initialized",
+                collection_name=collection_name,
+                operation="search_with_embedding",
+            )
 
-        # Note: PGVector.similarity_search_with_score_by_vector works at
-        # collection level; we use metadata to distinguish namespaces
-        results = self._store.similarity_search_with_score_by_vector(
-            embedding=embedding,
-            k=limit,
-        )
+        try:
+            results = await self._store.asimilarity_search_with_score_by_vector(
+                embedding=embedding,
+                k=limit,
+            )
+            return self._format_results(results)
+        except Exception as e:
+            raise VectorStoreError(
+                f"Vector search by embedding failed: {e}",
+                collection_name=collection_name,
+                operation="search_with_embedding",
+            ) from e
 
+    async def add_documents(
+        self,
+        collection_name: str,
+        documents: list[dict[str, Any]],
+        embeddings: list[list[float]],
+    ) -> list[str]:
+        """Add documents with their pre-computed embeddings.
+
+        Note: PGVectorStore will re-embed using its internal embedding_service
+        if we pass Document objects. To use pre-computed embeddings, we need
+        to use add_embeddings method.
+        """
+        if self._store is None:
+            raise VectorStoreError(
+                "Vectorstore not initialized",
+                collection_name=collection_name,
+                operation="add_documents",
+            )
+
+        try:
+            # Convert to LangChain Document format
+            docs = [
+                Document(
+                    page_content=doc.get("content", ""),
+                    metadata={
+                        k: v for k, v in doc.items() if k not in ("content", "embedding")
+                    },
+                )
+                for doc in documents
+            ]
+
+            # Use add_embeddings for pre-computed embeddings
+            ids = await self._store.aadd_embeddings(
+                texts=[doc.page_content for doc in docs],
+                embeddings=embeddings,
+                metadatas=[doc.metadata for doc in docs],
+            )
+
+            logger.info(
+                "Added %d documents to PGVectorStore",
+                len(ids),
+            )
+            return [str(id) for id in ids]
+        except Exception as e:
+            raise VectorStoreError(
+                f"Failed to add documents: {e}",
+                collection_name=collection_name,
+                operation="add_documents",
+            ) from e
+
+    def _format_results(
+        self, results: list[tuple[Document, float]]
+    ) -> list[dict[str, Any]]:
+        """Format LangChain search results to dict format."""
         return [
             {
                 "id": str(doc.metadata.get("id", "")),
@@ -137,46 +330,14 @@ class PGVectorVectorstore:
             for doc, score in results
         ]
 
-    async def add_documents(
-        self,
-        collection_name: str,
-        documents: list[dict[str, Any]],
-        embeddings: list[list[float]],
-    ) -> list[str]:
-        """Add documents with their pre-computed embeddings."""
-        if self._store is None:
-            raise RuntimeError("Vectorstore not initialized")
-
-        # Convert to LangChain Document format
-        docs = [
-            Document(
-                page_content=doc.get("content", ""),
-                metadata={
-                    k: v for k, v in doc.items() if k not in ("content", "embedding")
-                },
-            )
-            for doc in documents
-        ]
-
-        # Use PGVector's add_embeddings method
-        ids = self._store.add_embeddings(
-            text_embeddings=zip(
-                [doc.page_content for doc in docs],
-                embeddings,
-            ),
-            metadatas=[doc.metadata for doc in docs],
-        )
-
-        logger.info(
-            "Added %d documents to PGVector collection '%s'",
-            len(ids),
-            collection_name,
-        )
-        return [str(id) for id in ids]
-
     async def dispose(self) -> None:
-        """Clean up resources (PGVector manages its own connections)."""
+        """Clean up resources.
+
+        Note: PGEngine manages its own connection pool.
+        PGVectorStore doesn't have a separate dispose method.
+        """
         if self._store is not None:
             self._store = None
+            self._engine = None
             self._initialized = False
-            logger.info("PGVector store disposed")
+            logger.info("PGVectorStore disposed")

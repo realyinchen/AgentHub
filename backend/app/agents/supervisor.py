@@ -1,9 +1,15 @@
-"""Supervisor Agent — the single entry point for all user requests.
+"""Agent — the single entry point for all user requests.
 
-Built once at startup via ``SupervisorManager.init()`` during the FastAPI
-lifespan.  Multi-turn conversation state is maintained by the checkpointer
-on the supervisor graph. Sub-agents are stateless one-shot calls via
-``list_agents``/``task`` tools.
+Built once at startup via ``AgentManager.init()`` during the FastAPI
+lifespan. Multi-turn conversation state is maintained by the checkpointer.
+
+Architecture (simplified — no subagent delegation):
+    User → Agent (checkpointer + dynamic prompt + dynamic model)
+                │
+                ├── get_current_time  (@tool: time queries)
+                └── web_search        (@tool: web search)
+
+Tools are injected directly — no list_agents/task delegation overhead.
 """
 
 from __future__ import annotations
@@ -15,7 +21,6 @@ from langchain.agents import create_agent
 from langchain.agents.middleware import (
     ModelRetryMiddleware,
     SummarizationMiddleware,
-    ToolRetryMiddleware,
 )
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph.state import CompiledStateGraph
@@ -24,16 +29,15 @@ from langgraph.store.base import BaseStore
 from app.agents.context import AgentRuntimeContext
 from app.agents.middleware.model import dynamic_model
 from app.agents.middleware.prompt import make_dynamic_prompt
-from app.agents.schemas.routing import RoutingDecision
-from app.core.agent_registry import list_agents, task
 from app.infra.config import get_settings
 from app.infra.llm import get_system_default_llm
+from app.agents.tools import get_current_time, create_web_search
 
 logger = logging.getLogger(__name__)
 
 
-class SupervisorManager:
-    """Controls the lifecycle of the compiled supervisor agent graph.
+class AgentManager:
+    """Controls the lifecycle of the compiled agent graph.
 
     Intended as a module-level singleton: one instance per process, one
     ``init()`` call during FastAPI lifespan, and zero-overhead ``get()``
@@ -42,10 +46,10 @@ class SupervisorManager:
     Usage::
 
         # In lifespan:
-        await supervisor_manager.init(checkpointer, store)
+        await agent_manager.init(checkpointer, store)
 
         # In endpoint handlers:
-        supervisor = supervisor_manager.get()
+        agent = agent_manager.get()
     """
 
     def __init__(self) -> None:
@@ -60,35 +64,32 @@ class SupervisorManager:
         checkpointer: BaseCheckpointSaver,
         store: BaseStore | None = None,
     ) -> CompiledStateGraph:
-        """Build and cache the supervisor agent.
+        """Build and cache the agent.
 
-        Called once during FastAPI lifespan startup.  Idempotent —
+        Called once during FastAPI lifespan startup. Idempotent —
         subsequent calls return the already-built instance.
         """
         if self._instance is not None:
-            logger.warning("Supervisor already initialized — returning existing instance")
+            logger.warning("Agent already initialized — returning existing instance")
             return self._instance
 
         model = get_system_default_llm()
-
-        # Build middleware list dynamically following the official LangChain
-        # middleware order: Pre-processing → Model Selection → Model Retry →
-        # Tool Retry → Post-processing.
-        #
-        # Only the `task` tool is retried because:
-        #   - `task` makes network calls to subagent graphs → benefits from retry
-        #   - `list_agents` is a pure in-memory dict lookup → never needs retry
-        # Per LangChain official docs: "Scope ToolRetryMiddleware to specific
-        # tools rather than retrying everything."
-        #
-        # ModelRetryMiddleware supplements LiteLLM Router's built-in
-        # fallback+retry — they operate at different layers.  Router handles
-        # provider-level failover; ModelRetryMiddleware handles per-call
-        # transient errors with exponential backoff.
         settings = get_settings()
 
+        # Build tools directly (no subagent delegation)
+        tools: list = [get_current_time]
+        try:
+            tools.append(create_web_search())
+        except Exception as exc:
+            logger.warning(
+                "Web search unavailable (%s), agent uses time-only tools",
+                exc,
+            )
+
+        # Build middleware list following the official LangChain middleware order:
+        # Pre-processing → Model Selection → Model Retry → Post-processing.
         middleware: list = [
-            make_dynamic_prompt("supervisor", store=store),
+            make_dynamic_prompt("agent", store=store),  # uses prompts/agent.md
             dynamic_model,
         ]
 
@@ -105,55 +106,44 @@ class SupervisorManager:
                 )
             )
 
-        middleware.extend(
-            [
-                ToolRetryMiddleware(
-                    tools=["task"],
-                    retry_on=(ConnectionError, TimeoutError),
-                    on_failure="continue",
-                ),
-                SummarizationMiddleware(
-                    model=model,
-                    trigger=("tokens", 4000),
-                    keep=("messages", 20),
-                ),
-            ]
+        middleware.append(
+            SummarizationMiddleware(
+                model=model,
+                trigger=("tokens", 4000),
+                keep=("messages", 20),
+            )
         )
 
         self._instance = cast(
             CompiledStateGraph,
             create_agent(
                 model=model,
-                tools=[list_agents, task],
-                system_prompt="",
+                tools=tools,  # ← Direct tool injection
+                system_prompt="",  # dynamic_prompt middleware will override
                 middleware=middleware,
                 checkpointer=checkpointer,
                 store=store,
                 context_schema=AgentRuntimeContext,
-                # Structured Output routing constraint the supervisor produces a validated
-                # RoutingDecision captured in state["structured_response"] instead of
-                # free-form natural language.  Defaults to False (existing behavior).
-                response_format=RoutingDecision,
             ),
         )
-        logger.info("Supervisor agent built and ready")
+        logger.info("Agent built with %d tools: %s", len(tools), [t.name for t in tools])
         return self._instance
 
     def get(self) -> CompiledStateGraph:
-        """Return the cached supervisor graph.
+        """Return the cached agent graph.
 
         Raises:
             RuntimeError: If ``init()`` hasn't been called during lifespan.
         """
         if self._instance is None:
             raise RuntimeError(
-                "Supervisor not built — call supervisor_manager.init() during lifespan startup"
+                "Agent not built — call agent_manager.init() during lifespan startup"
             )
         return self._instance
 
 
 # Module-level singleton — the only instance across the process.
-supervisor_manager = SupervisorManager()
+agent_manager = AgentManager()
 
 
 # ── Convenience aliases for backward compatibility ─────────────────────────
@@ -165,14 +155,14 @@ async def init_supervisor(
     checkpointer: BaseCheckpointSaver,
     store: BaseStore | None = None,
 ) -> CompiledStateGraph:
-    """Build and cache the supervisor agent (called once during lifespan startup)."""
-    return await supervisor_manager.init(checkpointer, store)
+    """Build and cache the agent (called once during lifespan startup)."""
+    return await agent_manager.init(checkpointer, store)
 
 
 def get_supervisor() -> CompiledStateGraph:
-    """Return the cached supervisor graph.
+    """Return the cached agent graph.
 
     Raises:
         RuntimeError: If ``init_supervisor()`` hasn't been called yet.
     """
-    return supervisor_manager.get()
+    return agent_manager.get()

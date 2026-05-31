@@ -5,7 +5,7 @@ Routes:
     POST /chat/stream  — SSE streaming agent response
 
 Invoke logic is inlined directly in the endpoint handler. Streaming logic lives
-in ``_streaming.py`` — a private module with the SSE projection consumers.
+in ``app.utils.streaming`` — the SSE projection consumers module.
 """
 
 from __future__ import annotations
@@ -20,17 +20,18 @@ from langchain_core.messages import AIMessage
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agents import get_supervisor
-from app.api.v1.chat._streaming import ChatStreamingService
 from app.api.v1.dependencies import get_db
+from app.utils.streaming import ChatStreamingService
 from app.infra.config import get_settings
 from app.schemas.chat import ChatMessage, UserInput
-from app.services import AgentExecutionService
+from app.utils.agent_execution import AgentExecutionService
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import langchain_to_chat_message
 from app.utils.stream_helpers import (
     resolve_model_name,
-    empty_totals, extract_usage, accumulate_usage,
-    log_routing_decision,
+    empty_totals,
+    extract_usage,
+    accumulate_usage,
 )
 
 logger = logging.getLogger(__name__)
@@ -82,11 +83,14 @@ async def invoke(
     )
 
     try:
+        response_events: list[tuple[str, Any]] = []
         async with asyncio.timeout(timeout):
-            response_events: list[tuple[str, Any]] = await supervisor.ainvoke(
-                **kwargs,
+            async for mode, chunk in supervisor.astream(
+                kwargs["input"],
+                config=kwargs["config"],
                 stream_mode=["updates", "values"],
-            )
+            ):
+                response_events.append((mode, chunk))
     except TimeoutError:
         raise HTTPException(
             status_code=504,
@@ -100,10 +104,6 @@ async def invoke(
         raise HTTPException(status_code=500, detail="Agent invocation returned no events")
 
     response_type, response = response_events[-1]
-
-    # ── Stage 0 T03: Log structured routing decision when available ─
-    if isinstance(response, dict):
-        log_routing_decision(response.get("structured_response"))
 
     # ── Parse response ────────────────────────────────────────────
     if response_type == "values":

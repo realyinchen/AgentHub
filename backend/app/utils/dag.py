@@ -13,8 +13,8 @@ multi-agent, parallel tool-call, and subgraph scenarios.
 from langgraph.graph.state import CompiledStateGraph
 
 from app.schemas.trace import DagNode, ExecutionDag, StepOutput
-from app.services.checkpoint import CheckpointReader
-from app.services.trace import TraceBuilder
+from app.utils.checkpoint import CheckpointReader
+from app.utils.trace import TraceBuilder
 
 
 class DagBuilder:

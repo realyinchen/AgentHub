@@ -1,4 +1,4 @@
-"""SSE Streaming — LangGraph v3 typed-projection consumer (private module).
+"""SSE Streaming — LangGraph v3 typed-projection consumer.
 
 Wraps the agent's ``astream_events(version="v3")`` output in a
 service class that yields Server-Sent Events (SSE) for the
@@ -21,6 +21,7 @@ retries or swaps models.
 from __future__ import annotations
 
 import asyncio
+import json as _json
 import logging
 import time
 import uuid
@@ -33,13 +34,13 @@ from langgraph.graph.state import CompiledStateGraph
 from app.infra.config import get_settings
 from app.infra.database import get_database
 from app.schemas.chat import UserInput
-from app.services import AgentExecutionService
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import langchain_to_chat_message
 from app.utils.stream_helpers import (
     resolve_model_name,
-    empty_totals, extract_usage, accumulate_usage,
-    log_routing_decision,
+    empty_totals,
+    extract_usage,
+    accumulate_usage,
 )
 
 logger = logging.getLogger(__name__)
@@ -76,9 +77,7 @@ class StreamState(TypedDict):
     final_state_messages: list[BaseMessage] | None
 
 
-# ── SSE formatting helpers (inlined from app.utils.stream_events) ────────────
-
-import json as _json
+# ── SSE formatting helpers ────────────────────────────────────────────────────
 
 
 def sse(data: object) -> str:
@@ -106,7 +105,7 @@ def has_meaningful_content(output: object) -> bool:
     return False
 
 
-# ── AsyncWriteQueue (inlined from app.utils.async_writer) ────────────────────
+# ── AsyncWriteQueue ───────────────────────────────────────────────────────────
 
 
 class AsyncWriteQueue:
@@ -140,13 +139,17 @@ class AsyncWriteQueue:
                             backoff = 0.1 * (2 ** attempt)
                             logger.warning(
                                 "[AsyncWriteQueue] Retry [%s] %d/%d: %s",
-                                name, attempt + 1, max_retries, exc,
+                                name,
+                                attempt + 1,
+                                max_retries,
+                                exc,
                             )
                             await asyncio.sleep(backoff)
                         else:
                             logger.error(
                                 "[AsyncWriteQueue] Failed [%s] (exhausted): %s",
-                                name, exc,
+                                name,
+                                exc,
                             )
                             return None
 
@@ -181,7 +184,7 @@ class AsyncWriteQueue:
         return False
 
 
-# ── Service ─────────────────────────────────────────────────────────────────
+# ── ChatStreamingService ─────────────────────────────────────────────────────
 
 
 class ChatStreamingService:
@@ -399,20 +402,53 @@ class ChatStreamingService:
                     except Exception as e:
                         logger.error(f"Error converting final message: {e}")
 
-            # Unified token + DAG persistence (non-blocking) via service
+            # ── Persist tokens and DAG (non-blocking) ──────────────────────
             tokens = state["accumulated_tokens"]
-            execution_service = AgentExecutionService(self._agent)
 
             async def _persist_tokens_and_dag() -> None:
+                """Persist token usage and execution DAG after stream completes."""
+                from app.crud import chat as chat_crud
+                from app.crud import trace as trace_crud
+                from app.utils.dag import DagBuilder
+
                 db = get_database()
                 async with db.session() as session:
-                    await execution_service.persist(
-                        db=session,
-                        thread_id=thread_id,
-                        request_id=str(request_id),
-                        model_name=initial_model,
-                        tokens=tokens,
-                    )
+                    # Token persistence
+                    if tokens["total_tokens"] > 0:
+                        try:
+                            await chat_crud.update_conversation_tokens(
+                                db=session,
+                                thread_id=thread_id,
+                                input_tokens=tokens["input_tokens"],
+                                cache_read=tokens["cache_read"],
+                                output_tokens=tokens["output_tokens"],
+                                reasoning=tokens["reasoning"],
+                                total_tokens=tokens["total_tokens"],
+                            )
+                        except Exception:
+                            logger.exception(
+                                "Failed to persist token usage for %s", request_id
+                            )
+
+                    # DAG persistence
+                    try:
+                        dag_builder = DagBuilder(self._agent)
+                        dag = await dag_builder.get_execution_dag(thread_id_str)
+                        await trace_crud.upsert_trace(
+                            db=session,
+                            thread_id=thread_id,
+                            request_id=str(request_id),
+                            dag_data=dag.model_dump(),
+                            total_steps=len(dag.steps),
+                            model_name=initial_model,
+                            input_tokens=tokens.get("input_tokens", 0),
+                            cache_read=tokens.get("cache_read", 0),
+                            output_tokens=tokens.get("output_tokens", 0),
+                            reasoning=tokens.get("reasoning", 0),
+                            total_tokens=tokens.get("total_tokens", 0),
+                        )
+                    except Exception:
+                        logger.exception("Failed to persist DAG for %s", request_id)
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
 
@@ -559,16 +595,21 @@ class ChatStreamingService:
         out_queue: asyncio.Queue,
         state: StreamState,
     ) -> None:
-        """Consume ``stream.values`` to capture final state.messages for SSE message event.
-
-        Also logs any ``structured_response`` (Stage 0 T03) for routing observability.
-        """
+        """Consume ``stream.values`` to capture final state.messages for SSE message event."""
         async for snapshot in stream.values:
             if isinstance(snapshot, dict):
-                # Stage 0 T03: Log structured routing decision when available
-                log_routing_decision(snapshot.get("structured_response"), prefix="Stream ")
-
                 # Track latest snapshot — the last one will have the full message list
                 messages = snapshot.get("messages")
                 if messages:
                     state["final_state_messages"] = messages
+
+
+__all__ = [
+    "ChatStreamingService",
+    "AsyncWriteQueue",
+    "StreamState",
+    "StreamV3Projection",
+    "sse",
+    "sse_error",
+    "has_meaningful_content",
+]

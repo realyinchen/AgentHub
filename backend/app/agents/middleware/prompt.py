@@ -32,6 +32,7 @@ import asyncio
 import logging
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -39,8 +40,6 @@ from cachetools import TTLCache
 from langchain.agents.middleware import dynamic_prompt, ModelRequest
 from langchain_core.prompts import ChatPromptTemplate
 from langgraph.store.base import BaseStore
-
-from app.infra.config import get_settings
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +54,10 @@ _TEMPLATE_CACHE_MAX_SIZE = 20
 # =============================================================================
 
 
+# Prompts directory is fixed at /app/agents/prompts
+PROMPTS_DIR = Path("/app/agents/prompts")
+
+
 class PromptService:
     """Assembles system prompts at request time.
 
@@ -64,7 +67,7 @@ class PromptService:
     """
 
     def __init__(self) -> None:
-        self._prompts_dir = get_settings().prompts_dir
+        self._prompts_dir = PROMPTS_DIR
 
         # TTLCache for parsed ChatPromptTemplate objects loaded from MD files.
         # We cache the ChatPromptTemplate (not the rendered string) so that each
@@ -164,12 +167,12 @@ class PromptService:
 
     # ── Core: prompt assembly ──────────────────────────────────────────────
 
-    def build_system_prompt(
+    async def build_system_prompt_async(
         self,
         agent_id: str,
         timezone: str = "Asia/Shanghai",
     ) -> str:
-        """Assemble a system prompt from MD template with time context.
+        """Assemble a system prompt from MD template with time context (async version).
 
         The assembled prompt is::
 
@@ -185,7 +188,37 @@ class PromptService:
         Raises:
             KeyError: If ``agent_id`` has no template in any source.
         """
-        template = asyncio.run(self._load_template(agent_id))
+        template = await self._load_template(agent_id)
+        time_context = self._build_time_context(timezone)
+        messages = template.format_messages(**time_context)
+        return str(messages[0].content)
+
+    def build_system_prompt(
+        self,
+        agent_id: str,
+        timezone: str = "Asia/Shanghai",
+    ) -> str:
+        """Assemble a system prompt from MD template with time context (sync version).
+
+        Note: This method uses the cached template directly (no async I/O).
+        Templates must be preloaded via ``preload_md_templates()`` during startup.
+
+        Args:
+            agent_id: Agent identifier (must have an MD file in cache).
+            timezone: IANA timezone for time-context substitution.
+
+        Returns:
+            Fully-assembled system prompt string.
+
+        Raises:
+            KeyError: If ``agent_id`` has no template in cache.
+        """
+        if agent_id not in self._template_cache:
+            raise KeyError(
+                f"Prompt '{agent_id}' not in cache. "
+                f"Call preload_md_templates() during startup or use build_system_prompt_async()."
+            )
+        template = self._template_cache[agent_id]
         time_context = self._build_time_context(timezone)
         messages = template.format_messages(**time_context)
         return str(messages[0].content)

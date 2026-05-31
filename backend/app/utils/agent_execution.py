@@ -5,7 +5,7 @@ an agent completes its response. Used by both invoke and stream paths.
 
 Usage (invoke path)::
 
-    from app.services import AgentExecutionService
+    from app.utils.agent_execution import AgentExecutionService
 
     service = AgentExecutionService(supervisor)
     await service.persist(
@@ -90,7 +90,7 @@ class AgentExecutionService:
         """
         from app.crud import chat as chat_crud
         from app.crud import trace as trace_crud
-        from app.services import DagBuilder
+        from app.utils.dag import DagBuilder
 
         thread_id_str = str(thread_id)
 

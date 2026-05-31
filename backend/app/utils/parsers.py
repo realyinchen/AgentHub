@@ -2,7 +2,7 @@
 Pure parsing utilities for LangChain message content extraction.
 
 All functions are stateless and side-effect-free, making them easy to test
-and reuse across the services layer.
+and reuse across the codebase.
 """
 
 from typing import Any, Optional

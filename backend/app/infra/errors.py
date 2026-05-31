@@ -143,3 +143,88 @@ class AgentError(AgentHubError):
     ):
         self.agent_name = agent_name
         super().__init__(message, detail=detail)
+
+
+# =============================================================================
+# Database Errors
+# =============================================================================
+
+
+class DatabaseError(AgentHubError):
+    """Raised for database connection or operation failures.
+
+    Covers SQLAlchemy engine/session errors, connection pool exhaustion,
+    and general relational database issues.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        operation: str = "",
+        detail: dict[str, Any] | None = None,
+    ):
+        self.operation = operation
+        super().__init__(message, detail=detail)
+
+
+class VectorStoreError(AgentHubError):
+    """Raised for vector store operation failures.
+
+    Covers embedding generation failures, vector search errors,
+    and document indexing issues in PGVector.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        collection_name: str = "",
+        operation: str = "",
+        detail: dict[str, Any] | None = None,
+    ):
+        self.collection_name = collection_name
+        self.operation = operation
+        super().__init__(message, detail=detail)
+
+
+class CheckpointerError(AgentHubError):
+    """Raised for LangGraph checkpointer operation failures.
+
+    Covers checkpoint save/load errors, thread state persistence issues,
+    and AsyncPostgresSaver connection failures.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        thread_id: str = "",
+        operation: str = "",
+        detail: dict[str, Any] | None = None,
+    ):
+        self.thread_id = thread_id
+        self.operation = operation
+        super().__init__(message, detail=detail)
+
+
+class StoreError(AgentHubError):
+    """Raised for LangGraph Store (long-term memory) operation failures.
+
+    Covers cross-session memory persistence errors, vector index issues,
+    and AsyncPostgresStore connection failures.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        namespace: tuple[str, ...] | None = None,
+        key: str = "",
+        operation: str = "",
+        detail: dict[str, Any] | None = None,
+    ):
+        self.namespace = namespace
+        self.key = key
+        self.operation = operation
+        super().__init__(message, detail=detail)

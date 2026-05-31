@@ -4,6 +4,9 @@ PostgreSQL Store backend (LangGraph AsyncPostgresStore).
 Provides long-term memory (cross-session, cross-thread) with optional
 vector semantic search. Enables agents to remember user preferences
 and facts across conversations.
+
+Reference:
+https://docs.langchain.com/oss/python/langchain/long-term-memory
 """
 
 from __future__ import annotations
@@ -20,6 +23,7 @@ from langgraph.store.postgres.aio import AsyncPostgresStore
 from langgraph.store.postgres.base import PostgresIndexConfig
 
 from app.infra.config import get_settings
+from app.infra.errors import StoreError
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +41,11 @@ class PostgresStore:
         self._cm: AsyncContextManager[AsyncPostgresStore] | None = None
 
     async def initialize(self) -> None:
+        """Initialize the store connection and create tables.
+
+        Uses AsyncPostgresStore.from_conn_string context manager pattern
+        with optional vector index for semantic search.
+        """
         if self._store is not None:
             logger.warning("Store already initialized, skipping")
             return
@@ -45,23 +54,29 @@ class PostgresStore:
         conn_string = settings.get_postgres_conn_string()
         index_config = await self._try_build_index_config()
 
-        if index_config is not None:
-            self._cm = AsyncPostgresStore.from_conn_string(
-                conn_string, index=index_config
-            )
-            logger.info(
-                "PostgreSQL Store initialized with vector index (dims=%d)",
-                index_config.get("dims", 0),
-            )
-        else:
-            self._cm = AsyncPostgresStore.from_conn_string(conn_string)
-            logger.info(
-                "PostgreSQL Store initialized without vector index "
-                "(no embedding model configured)"
-            )
+        try:
+            if index_config is not None:
+                self._cm = AsyncPostgresStore.from_conn_string(
+                    conn_string, index=index_config
+                )
+                logger.info(
+                    "PostgreSQL Store initialized with vector index (dims=%d)",
+                    index_config.get("dims", 0),
+                )
+            else:
+                self._cm = AsyncPostgresStore.from_conn_string(conn_string)
+                logger.info(
+                    "PostgreSQL Store initialized without vector index "
+                    "(no embedding model configured)"
+                )
 
-        self._store = await self._cm.__aenter__()
-        await self._store.setup()
+            self._store = await self._cm.__aenter__()
+            await self._store.setup()
+        except Exception as e:
+            raise StoreError(
+                f"Failed to initialize store: {e}",
+                operation="initialize",
+            ) from e
 
     async def _try_build_index_config(self) -> Optional[PostgresIndexConfig]:
         """Build vector-search index config if an embedding model is available."""
@@ -116,8 +131,12 @@ class PostgresStore:
             return 1536
 
     def get_store(self) -> AsyncPostgresStore:
+        """Return the LangGraph-compatible store."""
         if self._store is None:
-            raise RuntimeError("Store not initialized. Call initialize() first.")
+            raise StoreError(
+                "Store not initialized. Call initialize() first.",
+                operation="get_store",
+            )
         return self._store
 
     async def aput(
@@ -127,13 +146,25 @@ class PostgresStore:
         value: dict,
         index: Optional[list[str]] = None,
     ) -> None:
+        """Store a value in the given namespace."""
         if self._store is None:
-            raise RuntimeError("Store not initialized")
+            raise StoreError(
+                "Store not initialized",
+                namespace=namespace,
+                key=key,
+                operation="aput",
+            )
         await self._store.aput(namespace, key, value, index=index)
 
     async def aget(self, namespace: tuple[str, ...], key: str) -> Optional[dict]:
+        """Retrieve a value by namespace and key."""
         if self._store is None:
-            raise RuntimeError("Store not initialized")
+            raise StoreError(
+                "Store not initialized",
+                namespace=namespace,
+                key=key,
+                operation="aget",
+            )
         item = await self._store.aget(namespace, key)
         return None if item is None else item.value
 
@@ -144,8 +175,13 @@ class PostgresStore:
         limit: int = 10,
         filter: Optional[dict] = None,
     ) -> list[dict]:
+        """Search for items in the store."""
         if self._store is None:
-            raise RuntimeError("Store not initialized")
+            raise StoreError(
+                "Store not initialized",
+                namespace=namespace_prefix,
+                operation="asearch",
+            )
         items = await self._store.asearch(
             namespace_prefix, query=query, limit=limit, filter=filter
         )
@@ -162,8 +198,14 @@ class PostgresStore:
         ]
 
     async def adelete(self, namespace: tuple[str, ...], key: str) -> None:
+        """Delete an item from the store."""
         if self._store is None:
-            raise RuntimeError("Store not initialized")
+            raise StoreError(
+                "Store not initialized",
+                namespace=namespace,
+                key=key,
+                operation="adelete",
+            )
         await self._store.adelete(namespace, key)
 
     async def dispose(self) -> None:

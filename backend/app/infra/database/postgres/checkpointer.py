@@ -3,6 +3,9 @@ PostgreSQL checkpointer backend (LangGraph AsyncPostgresSaver).
 
 Provides short-term memory for LangGraph agents. Saves conversation state
 (think of it as "saving the game") so agents can resume from previous turns.
+
+Reference:
+https://docs.langchain.com/oss/python/langgraph/persistence#checkpointer-libraries
 """
 
 from __future__ import annotations
@@ -15,6 +18,7 @@ from typing import (
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
 from app.infra.config import get_settings
+from app.infra.errors import CheckpointerError
 
 logger = logging.getLogger(__name__)
 
@@ -27,23 +31,40 @@ class PostgresCheckpointer:
         self._cm: AsyncContextManager[AsyncPostgresSaver] | None = None
 
     async def initialize(self) -> None:
+        """Initialize the checkpointer connection and create tables.
+
+        Uses AsyncPostgresSaver.from_conn_string context manager pattern
+        as recommended by LangGraph documentation.
+        """
         if self._saver is not None:
             logger.warning("Checkpointer already initialized, skipping")
             return
+
         settings = get_settings()
-        self._cm = AsyncPostgresSaver.from_conn_string(
-            settings.get_postgres_conn_string()
-        )
-        self._saver = await self._cm.__aenter__()
-        await self._saver.setup()
-        logger.info("PostgreSQL checkpointer initialized")
+        try:
+            self._cm = AsyncPostgresSaver.from_conn_string(
+                settings.get_postgres_conn_string()
+            )
+            self._saver = await self._cm.__aenter__()
+            await self._saver.setup()
+            logger.info("PostgreSQL checkpointer initialized")
+        except Exception as e:
+            raise CheckpointerError(
+                f"Failed to initialize checkpointer: {e}",
+                operation="initialize",
+            ) from e
 
     def get_saver(self) -> AsyncPostgresSaver:
+        """Return the LangGraph-compatible checkpoint saver."""
         if self._saver is None:
-            raise RuntimeError("Checkpointer not initialized. Call initialize() first.")
+            raise CheckpointerError(
+                "Checkpointer not initialized. Call initialize() first.",
+                operation="get_saver",
+            )
         return self._saver
 
     async def dispose(self) -> None:
+        """Dispose the checkpointer connection."""
         if self._cm is not None:
             try:
                 await self._cm.__aexit__(None, None, None)
