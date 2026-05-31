@@ -1,14 +1,17 @@
-"""Agent execution helpers — model resolution, token extraction, DAG persistence.
+"""Agent execution helpers — model resolution, token extraction.
 
 Shared by both ``/chat/invoke`` and ``/chat/stream`` code paths to eliminate
-duplicated logic for model fallback, token accumulation, and DAG snapshotting.
+duplicated logic for model fallback and token accumulation.
 
-Usage (invoke path)::
+For token + DAG persistence, use ``AgentExecutionService`` from ``app.services``.
+
+Usage::
 
     from app.utils.stream_helpers import (
         resolve_model_name, empty_totals, extract_usage,
-        accumulate_usage, persist_tokens_and_dag,
+        accumulate_usage,
     )
+    from app.services import AgentExecutionService
 
     model_name = resolve_model_name(user_input.model_name)
     totals = empty_totals()
@@ -16,18 +19,10 @@ Usage (invoke path)::
     usage = extract_usage(msg)
     if usage:
         accumulate_usage(totals, usage)
-    await persist_tokens_and_dag(db=db, agent=agent, ...)
 
-Usage (stream path — inside AsyncWriteQueue callback)::
-
-    async def _persist():
-        database = get_database()
-        async with database.session() as session:
-            await persist_tokens_and_dag(
-                db=session, agent=agent, thread_id=..., request_id=...,
-                model_name=model_name, tokens=tokens,
-            )
-    write_queue.add("persist", _persist())
+    # Persist via service
+    service = AgentExecutionService(agent)
+    await service.persist(db=db, thread_id=thread_id, ...)
 """
 
 from __future__ import annotations
@@ -140,68 +135,3 @@ def log_routing_decision(sr: Any, *, prefix: str = "") -> None:
     )
 
 
-async def persist_tokens_and_dag(
-    db: AsyncSession,
-    *,
-    agent,  # CompiledStateGraph
-    thread_id: UUID,
-    request_id: str,
-    model_name: str | None,
-    tokens: dict[str, int],
-) -> None:
-    """Persist token usage + execution DAG after an agent response.
-
-    Both operations are wrapped in try/except so that a failure in one
-    (e.g. DAG construction) never prevents the other from completing.
-
-    Args:
-        db: An active async database session (not auto-committed inside
-            this function — the caller owns transaction boundaries).
-        agent: The compiled LangGraph agent used for DAG reconstruction.
-        thread_id: Conversation thread identifier.
-        request_id: Unique request identifier for this invocation.
-        model_name: Resolved model name (or *None*).
-        tokens: An ``empty_totals()``-shaped dict with
-            ``input_tokens / cache_read / output_tokens / reasoning /
-            total_tokens``.
-    """
-    from app.crud import chat as chat_crud
-    from app.crud import trace as trace_crud
-    from app.services import DagBuilder
-
-    thread_id_str = str(thread_id)
-
-    # ── Token persistence ────────────────────────────────────────────
-    if tokens["total_tokens"] > 0:
-        try:
-            await chat_crud.update_conversation_tokens(
-                db=db,
-                thread_id=thread_id,
-                input_tokens=tokens["input_tokens"],
-                cache_read=tokens["cache_read"],
-                output_tokens=tokens["output_tokens"],
-                reasoning=tokens["reasoning"],
-                total_tokens=tokens["total_tokens"],
-            )
-        except Exception:
-            logger.exception("Failed to persist token usage for %s", request_id)
-
-    # ── DAG persistence ──────────────────────────────────────────────
-    try:
-        dag_builder = DagBuilder(agent)
-        dag = await dag_builder.get_execution_dag(thread_id_str)
-        await trace_crud.upsert_trace(
-            db=db,
-            thread_id=thread_id,
-            request_id=str(request_id),
-            dag_data=dag.model_dump(),
-            total_steps=len(dag.steps),
-            model_name=model_name,
-            input_tokens=tokens.get("input_tokens", 0),
-            cache_read=tokens.get("cache_read", 0),
-            output_tokens=tokens.get("output_tokens", 0),
-            reasoning=tokens.get("reasoning", 0),
-            total_tokens=tokens.get("total_tokens", 0),
-        )
-    except Exception:
-        logger.exception("Failed to persist DAG for %s", request_id)

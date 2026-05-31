@@ -2,13 +2,31 @@
 
 ## Current Focus
 
-**PR-A Complete** (May 22, 2026)
+**Phase 3 验证完成** (May 30, 2026)
 
-Working through the 20-item TODO from the architecture review (`backend/TODO.md`). PR-A (zero-risk safety deletions) is complete. Next: PR-B (delete `CheckpointTraceReader` facade + fix `stream.py` private attribute access).
+经过 LangChain v1 官方文档对照和代码分析，确认当前架构已经符合最佳实践：
+- `build_agent_kwargs()` 是纯工具函数，无 DB 依赖
+- 对话历史由 LangGraph Checkpointer 自动管理
+- Context 传递符合 `context_schema` 模式
+
+下一步：**Phase 4 — Supervisor StateGraph 迁移**
+
+### Phase 3 验证结论（2026-05-30）
+
+1. **`build_agent_kwargs()` 已经是纯工具函数**
+   - 无 DB 依赖，无副作用
+   - 正确使用 `context` 传递业务数据
+   - 符合 LangChain v1 `context_schema` 模式
+
+2. **对话历史由 LangGraph Checkpointer 自动管理**
+   - `thread_id` 通过 `config["configurable"]` 传给 checkpointer
+   - 无需手动加载历史消息
+
+3. **业务数据通过 context 传递**
+   - `AgentRuntimeContext` dataclass 包含 user_id, request_id, model_name, thinking_mode
+   - middleware 通过 `request.runtime.context.<field>` 访问
 
 ### P3 Changes Summary
-
-**Model Architecture Reorganization** (May 20, 2026)
 
 1. **`model_manager.py` — removed per-request LLM caching**
    - Deleted `_llm_cache` (was caching `ChatLiteLLMRouter` instances per model+thinking_mode)

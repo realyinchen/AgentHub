@@ -18,6 +18,7 @@ from typing import cast
 
 from langchain.agents import create_agent
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.store.base import BaseStore
 
 from app.agents.context import AgentRuntimeContext
 from app.agents.middleware.model import dynamic_model
@@ -32,7 +33,7 @@ def create_subagent(
     *,
     tools: list,
     system_prompt: str,
-    store: object | None = None,
+    store: BaseStore | None = None,
 ) -> CompiledStateGraph:
     """Build a stateless one-shot sub-agent with shared middleware.
 
@@ -48,8 +49,9 @@ def create_subagent(
             ``make_dynamic_prompt`` middleware overrides this at runtime
             with a rendered prompt from the DB (or this fallback if the DB
             has no override).
-        store: Optional ``BaseStore`` for long-term memory (passed through
-            to ``create_agent()``).
+        store: Optional ``BaseStore`` for long-term memory. When provided:
+            - Passed to ``create_agent(store=...)`` for runtime injection
+            - Passed to ``make_dynamic_prompt(store=...)`` for prompt enrichment
 
     Returns:
         A compiled ``CompiledStateGraph`` ready for ``.ainvoke()``.
@@ -60,6 +62,7 @@ def create_subagent(
             model=get_system_default_llm(),
             tools=tools,
             system_prompt=system_prompt,
+            store=store,
             middleware=[
                 make_dynamic_prompt(name, store=store),
                 dynamic_model,

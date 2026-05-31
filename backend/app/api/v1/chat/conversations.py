@@ -31,6 +31,7 @@ from app.crud.chat import (
 )
 from app.infra.llm.model_manager import get_model_manager
 from app.infra.llm.system import get_system_default_llm
+from app.utils.stream_helpers import resolve_model_name
 from app.schemas.chat import (
     ConversationCreate,
     ConversationInDB,

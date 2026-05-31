@@ -33,10 +33,11 @@ from langgraph.graph.state import CompiledStateGraph
 from app.infra.config import get_settings
 from app.infra.database import get_database
 from app.schemas.chat import UserInput
+from app.services import AgentExecutionService
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import langchain_to_chat_message
 from app.utils.stream_helpers import (
-    resolve_model_name, persist_tokens_and_dag,
+    resolve_model_name,
     empty_totals, extract_usage, accumulate_usage,
     log_routing_decision,
 )
@@ -398,15 +399,15 @@ class ChatStreamingService:
                     except Exception as e:
                         logger.error(f"Error converting final message: {e}")
 
-            # ── Unified token + DAG persistence (non-blocking) ─────────
+            # Unified token + DAG persistence (non-blocking) via service
             tokens = state["accumulated_tokens"]
+            execution_service = AgentExecutionService(self._agent)
 
             async def _persist_tokens_and_dag() -> None:
                 db = get_database()
                 async with db.session() as session:
-                    await persist_tokens_and_dag(
+                    await execution_service.persist(
                         db=session,
-                        agent=self._agent,
                         thread_id=thread_id,
                         request_id=str(request_id),
                         model_name=initial_model,

@@ -173,3 +173,68 @@
 ### 7. 上下文统一
 - `context` 参数传递运行时数据（`user_id` / `request_id` / `fallback_events`）
 - `config["configurable"]` 只保留 LangGraph 需要的 `thread_id`
+
+---
+
+## 后端重构计划 Phase 1-4（2026-05-30）
+
+依据 `docs/TODO.md` 的分层架构整改计划。
+
+### Phase 1: 代码清理 ✅ 完成（2026-05-30）
+| # | Issue | 操作 |
+|---|-------|------|
+| **Step 1** | 删除 `GET /agents` API + `schemas/agent.py` | 消除暴露内部细节的死代码端点 |
+| **Step 2** | 整合 `interrupt_message.py` → `schemas/chat.py` | 减少 schema 跨模块耦合 |
+| **Step 3** | 统一模型 fallback 入口 | `resolve_model_name()` 单一入口 |
+
+#### Phase 1 收益
+- 消除 1 处死代码端点 + 2 个冗余模块文件
+- 模型降级逻辑统一
+
+### Phase 2: 服务层提取 ✅ 完成（2026-05-30）
+| # | Issue | 操作 |
+|---|-------|------|
+| **Step 4** | 创建 `AgentExecutionService` | 新建 `services/agent_execution.py`，封装 token + DAG 持久化 |
+| **Step 4b** | 移除 `persist_tokens_and_dag()` | 从 `utils/stream_helpers.py` 删除，迁移到服务层 |
+| **Step 4c** | 更新 API 层调用 | `run.py` / `_streaming.py` 改用 `AgentExecutionService` |
+| **Step 5** | `create_subagent()` 支持 `store` | 添加 `store: BaseStore | None = None` 参数 |
+
+#### Phase 2 收益
+- `persist_tokens_and_dag()` 从工具函数层迁移到服务层
+- invoke/stream 两路径复用同一服务
+- SubAgent 支持长期记忆注入
+- 符合 LangChain `create_agent` 最佳实践
+
+### Phase 3: 渐进重构 ✅ 已验证完成（2026-05-30）
+| # | Issue | 操作 |
+|---|-------|------|
+| **Step 6** | 拆分 `build_agent_kwargs()` | **已验证无需修改** — 当前架构已符合 LangChain v1 最佳实践 |
+
+#### Phase 3 验证结论
+
+经过 LangChain 官方文档对照和代码分析：
+
+1. **`build_agent_kwargs()` 已经是纯工具函数**
+   - 无 DB 依赖，无副作用
+   - 正确使用 `context` 传递业务数据（而非 `config["configurable"]`）
+   - 符合 LangChain v1 `context_schema` 模式
+
+2. **对话历史由 LangGraph Checkpointer 自动管理**
+   - TODO.md 原计划的 "get_or-create conversation, load history" 由 LangGraph 内置处理
+   - `thread_id` 通过 `config["configurable"]` 传给 checkpointer
+   - 无需手动加载历史消息
+
+3. **业务数据通过 context 传递**
+   - `user_id`, `request_id`, `model_name`, `thinking_mode` 在 `AgentRuntimeContext` dataclass
+   - middleware 通过 `request.runtime.context.<field>` 访问
+   - 符合官方推荐模式
+
+#### Phase 3 收益
+- 确认架构符合 LangChain v1 最佳实践
+- 避免不必要的重构开销
+- 代码简洁，职责清晰
+
+### Phase 4: Supervisor StateGraph 迁移（待执行）
+| # | Issue | 操作 |
+|---|-------|------|
+| **Step 7-13** | Supervisor → 手写 StateGraph | 自定义 tool loop、超时控制、HITL；feature flag 灰度 |

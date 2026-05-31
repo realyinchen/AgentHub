@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -24,12 +23,12 @@ from app.agents import get_supervisor
 from app.api.v1.chat._streaming import ChatStreamingService
 from app.api.v1.dependencies import get_db
 from app.infra.config import get_settings
-from app.schemas.agent import AgentInfo, AgentsResponse
 from app.schemas.chat import ChatMessage, UserInput
+from app.services import AgentExecutionService
 from app.utils.request_handler import build_agent_kwargs
 from app.utils.message_utils import langchain_to_chat_message
 from app.utils.stream_helpers import (
-    resolve_model_name, persist_tokens_and_dag,
+    resolve_model_name,
     empty_totals, extract_usage, accumulate_usage,
     log_routing_decision,
 )
@@ -130,10 +129,10 @@ async def invoke(
                     if usage:
                         accumulate_usage(totals, usage)
 
-    # ── Unified token + DAG persistence ───────────────────────────
-    await persist_tokens_and_dag(
+    # Unified token + DAG persistence via service
+    execution_service = AgentExecutionService(supervisor)
+    await execution_service.persist(
         db=db,
-        agent=supervisor,
         thread_id=user_input.thread_id,
         request_id=user_input.request_id,
         model_name=initial_model,
@@ -170,35 +169,3 @@ async def stream(user_input: UserInput) -> StreamingResponse:
     )
 
 
-@api_router.get("/agents", response_model=AgentsResponse)
-async def list_agents(
-    active_only: bool = True,
-    limit: int = 10,
-    offset: int = 0,
-) -> AgentsResponse:
-    """List available agents.
-
-    Currently returns a static list with the supervisor agent.
-    This can be extended to support multiple agent types in the future.
-    """
-    # Currently we only have one agent (supervisor)
-    # This is a static response that can be expanded later
-    agents = [
-        AgentInfo(
-            agent_id="supervisor",
-            description="Main supervisor agent that routes tasks to specialized sub-agents",
-            is_active=True,
-            created_at=datetime.now(UTC),
-            updated_at=datetime.now(UTC),
-        )
-    ]
-
-    # Filter by active status if requested
-    if active_only:
-        agents = [a for a in agents if a.is_active]
-
-    # Apply pagination
-    total = len(agents)
-    agents = agents[offset:offset + limit]
-
-    return AgentsResponse(agents=agents, total=total)
