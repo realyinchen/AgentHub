@@ -29,9 +29,7 @@ from app.crud.chat import (
     update_conversation_by_thread_id,
     get_latest_model_name,
 )
-from app.infra.llm.model_manager import get_model_manager
-from app.infra.llm.system import get_system_default_llm
-from app.utils.stream_helpers import resolve_model_name
+from app.infra.llm import get_model_manager, get_system_llm
 from app.schemas.chat import (
     ConversationCreate,
     ConversationInDB,
@@ -132,13 +130,13 @@ async def get_conversation_info(
         manager = get_model_manager()
         if not manager.is_model_active(model_name):
             model_name = (
-                manager.get_default_llm_id() or manager.get_first_active_llm_id()
+                manager.default_llm_id or manager.get_first_active_llm_id()
             )
             model_fallback = True
     else:
         manager = get_model_manager()
         model_name = (
-            manager.get_default_llm_id() or manager.get_first_active_llm_id()
+            manager.default_llm_id or manager.get_first_active_llm_id()
         )
 
     return ConversationInfoResponse(
@@ -213,7 +211,7 @@ async def generate_title(
     should not block the user flow.
     """
     try:
-        llm = get_system_default_llm()
+        llm = get_system_llm()
 
         # Truncate user input to limit injection surface
         truncated_user_msg = request.user_message[:200]

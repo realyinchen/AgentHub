@@ -11,14 +11,10 @@ https://docs.langchain.com/oss/python/integrations/vectorstores/index#pgvectorst
 
 from __future__ import annotations
 
+import asyncio
 import logging
-from typing import (
-    Any,
-    Awaitable,
-    Callable,
-    Optional,
-    Sequence,
-)
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Awaitable, Callable, Optional, Sequence
 
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -46,7 +42,9 @@ class LiteLLMEmbeddingsAdapter(Embeddings):
     def __init__(
         self,
         embed_fn: Callable[[str], Awaitable[list[float]]],
-        embed_batch_fn: Optional[Callable[[Sequence[str]], Awaitable[list[list[float]]]]] = None,
+        embed_batch_fn: Optional[
+            Callable[[Sequence[str]], Awaitable[list[list[float]]]]
+        ] = None,
     ):
         """Initialize the adapter.
 
@@ -59,13 +57,7 @@ class LiteLLMEmbeddingsAdapter(Embeddings):
         self._embed_batch_fn = embed_batch_fn
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
-        """Embed a list of texts (synchronous wrapper).
-
-        Note: This method is called by PGVectorStore internally.
-        We run the async embedding in a new event loop.
-        """
-        import asyncio
-
+        """Embed a list of texts (synchronous wrapper)."""
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -73,8 +65,7 @@ class LiteLLMEmbeddingsAdapter(Embeddings):
 
         if loop is not None:
             # We're inside an async context, run in thread pool
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
+            with ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, self._embed_documents_async(texts))
                 return future.result()
         else:
@@ -93,8 +84,6 @@ class LiteLLMEmbeddingsAdapter(Embeddings):
 
     def embed_query(self, text: str) -> list[float]:
         """Embed a single query text (synchronous wrapper)."""
-        import asyncio
-
         try:
             loop = asyncio.get_running_loop()
         except RuntimeError:
@@ -104,8 +93,7 @@ class LiteLLMEmbeddingsAdapter(Embeddings):
             return await self._embed_fn(text)
 
         if loop is not None:
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor() as pool:
+            with ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, _get_embedding())
                 return future.result()
         else:
@@ -132,20 +120,19 @@ class PGVectorVectorstore:
         self._store: Optional[PGVectorStore] = None
         self._engine: Optional[PGEngine] = None
         self._embed_fn: Optional[Callable[[str], Awaitable[list[float]]]] = None
-        self._embed_batch_fn: Optional[Callable[[Sequence[str]], Awaitable[list[list[float]]]]] = None
+        self._embed_batch_fn: Optional[
+            Callable[[Sequence[str]], Awaitable[list[list[float]]]]
+        ] = None
         self._initialized = False
 
     def set_embed_fn(
         self,
         fn: Callable[[str], Awaitable[list[float]]],
-        batch_fn: Optional[Callable[[Sequence[str]], Awaitable[list[list[float]]]]] = None,
+        batch_fn: Optional[
+            Callable[[Sequence[str]], Awaitable[list[list[float]]]]
+        ] = None,
     ) -> None:
-        """Inject text→embedding function (called by factory).
-
-        Args:
-            fn: Async function to embed a single text.
-            batch_fn: Optional async function to embed multiple texts efficiently.
-        """
+        """Inject text→embedding function (called by factory)."""
         self._embed_fn = fn
         self._embed_batch_fn = batch_fn
 
@@ -156,11 +143,7 @@ class PGVectorVectorstore:
         return self._store
 
     async def initialize(self) -> None:
-        """Initialize the PGVector store.
-
-        Uses PGEngine.from_connection_string for connection management
-        and PGVectorStore.create async factory method for store creation.
-        """
+        """Initialize the PGVector store."""
         if self._initialized:
             logger.warning("PGVector store already initialized, skipping")
             return
@@ -173,9 +156,6 @@ class PGVectorVectorstore:
             )
 
         settings = get_settings()
-
-        # Create PGEngine with psycopg connection URL
-        # PGEngine expects postgresql+psycopg:// URL format
         conn_url = settings.get_postgres_libpq_url()
 
         try:
@@ -266,12 +246,7 @@ class PGVectorVectorstore:
         documents: list[dict[str, Any]],
         embeddings: list[list[float]],
     ) -> list[str]:
-        """Add documents with their pre-computed embeddings.
-
-        Note: PGVectorStore will re-embed using its internal embedding_service
-        if we pass Document objects. To use pre-computed embeddings, we need
-        to use add_embeddings method.
-        """
+        """Add documents with their pre-computed embeddings."""
         if self._store is None:
             raise VectorStoreError(
                 "Vectorstore not initialized",
@@ -285,7 +260,9 @@ class PGVectorVectorstore:
                 Document(
                     page_content=doc.get("content", ""),
                     metadata={
-                        k: v for k, v in doc.items() if k not in ("content", "embedding")
+                        k: v
+                        for k, v in doc.items()
+                        if k not in ("content", "embedding")
                     },
                 )
                 for doc in documents
@@ -298,10 +275,7 @@ class PGVectorVectorstore:
                 metadatas=[doc.metadata for doc in docs],
             )
 
-            logger.info(
-                "Added %d documents to PGVectorStore",
-                len(ids),
-            )
+            logger.info("Added %d documents to PGVectorStore", len(ids))
             return [str(id) for id in ids]
         except Exception as e:
             raise VectorStoreError(
@@ -331,11 +305,7 @@ class PGVectorVectorstore:
         ]
 
     async def dispose(self) -> None:
-        """Clean up resources.
-
-        Note: PGEngine manages its own connection pool.
-        PGVectorStore doesn't have a separate dispose method.
-        """
+        """Clean up resources."""
         if self._store is not None:
             self._store = None
             self._engine = None

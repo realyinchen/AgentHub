@@ -4,53 +4,48 @@ Database / Vectorstore / Checkpointer / Store factory (singletons).
 All business code calls these ``get_xxx()`` functions. All components use
 PostgreSQL + pgvector exclusively.
 
-Thread/coroutine safety:
-    Singleton creation uses asyncio.Lock (init is now async). This is safe
-    because every caller is in the async context (FastAPI handlers + lifespan).
-
-    ``get_xxx()`` are sync to keep the call sites simple — they only return
-    pre-created singletons. The actual creation happens inside ``init_xxx()``,
-    which is called from the FastAPI lifespan before any request is served.
+Lifecycle:
+    - ``init_all()`` is called during FastAPI startup (lifespan).
+    - ``dispose_all()`` is called during FastAPI shutdown.
+    - ``get_xxx()`` returns pre-created singletons (sync, no async lock needed).
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Awaitable, Callable
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from app.infra.database.postgres import (
-    PostgresCheckpointer,
-    PostgresDatabase,
-    PostgresStore,
-    PGVectorVectorstore,
-)
+from app.infra.database.database import PostgresDatabase
+from app.infra.database.vectorstore import PGVectorVectorstore
+from app.infra.database.checkpointer import PostgresCheckpointer
+from app.infra.database.store import PostgresStore
 
 logger = logging.getLogger(__name__)
 
+# Singleton instances (created during startup, accessed via get_xxx())
 _db_instance: PostgresDatabase | None = None
 _vs_instance: PGVectorVectorstore | None = None
 _cp_instance: PostgresCheckpointer | None = None
 _store_instance: PostgresStore | None = None
 
-_init_lock = asyncio.Lock()
+
+# ── Embedding function for Vectorstore ──────────────────────────────────────
 
 
-
-
-# ── Embedding function (lazy-resolves the current embedding model) ──────────
-def _get_embed_fn():
+def _get_embed_fn() -> Callable[[str], Awaitable[list[float]]]:
     """Build a text→embedding async function backed by ModelManager.
 
     The function resolves the current embedding model on EVERY call, so a
     vectorstore created before any embedding model is configured still works
-    once one is added. Raises ValueError if no model is configured at call time.
+    once one is added.
     """
 
     async def embed_fn(text: str) -> list[float]:
         import litellm
-        from app.infra.llm.model_manager import get_model_manager
+        from app.infra.llm import get_model_manager
 
         model_id, api_key = await get_model_manager().get_embedding_model()
         if model_id is None:
@@ -66,29 +61,31 @@ def _get_embed_fn():
     return embed_fn
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Public accessors (sync — return pre-created singletons)
-# ─────────────────────────────────────────────────────────────────────────────
+# ── Public accessors (sync — return pre-created singletons) ──────────────────
 
 
 def get_database() -> PostgresDatabase:
     """Return the database singleton."""
     if _db_instance is None:
-        raise RuntimeError("Database not initialized — call init_database() during startup")
+        raise RuntimeError("Database not initialized — call init_all() during startup")
     return _db_instance
 
 
 def get_vectorstore() -> PGVectorVectorstore:
     """Return the vectorstore singleton."""
     if _vs_instance is None:
-        raise RuntimeError("Vectorstore not initialized — call init_vectorstore() during startup")
+        raise RuntimeError(
+            "Vectorstore not initialized — call init_all() during startup"
+        )
     return _vs_instance
 
 
 def get_checkpointer() -> PostgresCheckpointer:
     """Return the checkpointer singleton."""
     if _cp_instance is None:
-        raise RuntimeError("Checkpointer not initialized — call init_checkpointer() during startup")
+        raise RuntimeError(
+            "Checkpointer not initialized — call init_all() during startup"
+        )
     return _cp_instance
 
 
@@ -102,86 +99,57 @@ def get_saver() -> BaseCheckpointSaver:
     return get_checkpointer().get_saver()
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Lifecycle: init / dispose (called by FastAPI lifespan)
-# ─────────────────────────────────────────────────────────────────────────────
-
-
-async def init_database() -> None:
-    """Initialize the database singleton (idempotent)."""
-    global _db_instance
-    async with _init_lock:
-        if _db_instance is not None:
-            return
-        instance = PostgresDatabase()
-        await instance.initialize()
-        _db_instance = instance
-        logger.info("Database initialized: postgres")
-
-
-async def init_vectorstore() -> None:
-    """Initialize the vectorstore singleton (idempotent) with embedding function."""
-    global _vs_instance
-    async with _init_lock:
-        if _vs_instance is not None:
-            return
-        instance = PGVectorVectorstore()
-        instance.set_embed_fn(_get_embed_fn())
-        await instance.initialize()
-        _vs_instance = instance
-        logger.info("Vectorstore initialized: pgvector (with embedding function)")
-
-
-async def init_checkpointer() -> None:
-    """Initialize the checkpointer singleton (idempotent)."""
-    global _cp_instance
-    async with _init_lock:
-        if _cp_instance is not None:
-            return
-        instance = PostgresCheckpointer()
-        await instance.initialize()
-        _cp_instance = instance
-        logger.info("Checkpointer initialized: postgres")
-
-
-async def init_store() -> None:
-    """Initialize the long-term Store singleton (idempotent).
-
-    Uses AsyncPostgresStore for persistent long-term memory with
-    optional vector search.
-    """
-    global _store_instance
-    async with _init_lock:
-        if _store_instance is not None:
-            return
-        instance = PostgresStore()
-        await instance.initialize()
-        _store_instance = instance
-        logger.info("Store initialized: postgres")
+# ── Lifecycle: init / dispose (called by FastAPI lifespan) ───────────────────
 
 
 async def init_all() -> None:
-    """Initialize every backend component. Called during FastAPI startup."""
-    await init_database()
-    await init_vectorstore()
-    await init_checkpointer()
-    await init_store()
+    """Initialize all database components. Called during FastAPI startup.
+
+    Order: database first (others may depend on it), then vectorstore,
+    checkpointer, store in parallel.
+    """
+    global _db_instance, _vs_instance, _cp_instance, _store_instance
+
+    # Database must be initialized first
+    _db_instance = PostgresDatabase()
+    await _db_instance.initialize()
+    logger.info("Database initialized: postgres")
+
+    # Initialize vectorstore with embedding function
+    _vs_instance = PGVectorVectorstore()
+    _vs_instance.set_embed_fn(_get_embed_fn())
+    await _vs_instance.initialize()
+    logger.info("Vectorstore initialized: pgvector (with embedding function)")
+
+    # Initialize checkpointer and store in parallel
+    async def _init_checkpointer() -> None:
+        global _cp_instance
+        _cp_instance = PostgresCheckpointer()
+        await _cp_instance.initialize()
+        logger.info("Checkpointer initialized: postgres")
+
+    async def _init_store() -> None:
+        global _store_instance
+        _store_instance = PostgresStore()
+        await _store_instance.initialize()
+        logger.info("Store initialized: postgres")
+
+    await asyncio.gather(_init_checkpointer(), _init_store())
 
 
 async def dispose_all() -> None:
-    """Dispose every backend. Called during FastAPI shutdown.
+    """Dispose all database components. Called during FastAPI shutdown.
 
-    Dispose order: vectorstore → checkpointer → store → database (last,
+    Order: vectorstore → checkpointer → store → database (last,
     in case other backends depend on it).
     """
     global _db_instance, _vs_instance, _cp_instance, _store_instance
 
-    async with _init_lock:
-        vs, cp, db = _vs_instance, _cp_instance, _db_instance
-        store = _store_instance
-        _vs_instance = _cp_instance = _store_instance = _db_instance = None
+    # Clear singleton references first
+    vs, cp, store, db = _vs_instance, _cp_instance, _store_instance, _db_instance
+    _vs_instance = _cp_instance = _store_instance = _db_instance = None
 
-    # Dispose outside the lock to avoid holding it during slow operations.
+    # Dispose in reverse order
     if vs is not None:
         try:
             await vs.dispose()
@@ -217,10 +185,6 @@ __all__ = [
     "get_checkpointer",
     "get_store",
     "get_saver",
-    "init_database",
-    "init_vectorstore",
-    "init_checkpointer",
-    "init_store",
     "init_all",
     "dispose_all",
 ]

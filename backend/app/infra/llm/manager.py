@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import random
 from functools import lru_cache
 from typing import TYPE_CHECKING, Optional
 
@@ -44,6 +43,50 @@ logger = logging.getLogger(__name__)
 
 # Enable JSON schema validation for litellm
 litellm.enable_json_schema_validation = True
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Provider-specific extra_body builder for thinking-mode control
+# ─────────────────────────────────────────────────────────────────────────────
+
+def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
+    """Build provider-specific `extra_body` for thinking-mode control.
+
+    Each provider has a different mechanism for enabling/disabling
+    reasoning/thinking mode.
+
+    IMPORTANT: When `thinking_enabled=False`, we MUST explicitly disable
+    reasoning to prevent LiteLLM from auto-enabling it based on model name.
+
+    Supported providers:
+        - DashScope (Alibaba Cloud): `enable_thinking: bool`
+        - ZhipuAI (zai):             `thinking: {type: enabled|disabled}`
+        - DeepSeek:                  no extra params (R1 reasons by design)
+        - OpenAI:                    `reasoning_effort: medium` for o1/o3 when on
+        - Others:                    no params
+
+    Args:
+        provider: Provider name (e.g. "dashscope", "zai", "openai").
+        thinking_enabled: Whether to enable thinking/reasoning mode.
+
+    Returns:
+        Dict to pass as `extra_body` to LiteLLM.
+    """
+    p = provider.lower()
+    if p == "dashscope":
+        return {"enable_thinking": thinking_enabled}
+    if p == "zai":
+        return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
+    if p == "deepseek":
+        return {}
+    if p == "openai":
+        return {"reasoning_effort": "medium"} if thinking_enabled else {}
+    return {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ModelManager
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 class ModelManager:
@@ -88,6 +131,14 @@ class ModelManager:
         if self._router_lock is None:
             self._router_lock = asyncio.Lock()
         return self._router_lock
+
+    @property
+    def router(self) -> Optional[Router]:
+        """Get the pre-built LiteLLM Router (must call refresh() first).
+
+        Returns None if no models exist or Router hasn't been built yet.
+        """
+        return self._router
 
     # ── Router lifecycle ───────────────────────────────────────────────
 
@@ -135,24 +186,6 @@ class ModelManager:
             self._router_ready = True
             return self._router
 
-    def get_router_sync(self) -> Optional[Router]:
-        """Synchronously get the pre-built Router (lifespan must have called refresh()).
-
-        Unlike ``get_router()``, this does NOT trigger async refresh — it
-        assumes ``manager.refresh()`` was already called during app startup
-        (see ``main.py``).  Returns None if no models exist or Router hasn't
-        been built yet.
-        """
-        if self._router_ready and self._router is not None:
-            return self._router
-        # Fall through to async path — but this is a sync method, so log a warning.
-        # Callers should ensure refresh() was called first.
-        logger.warning(
-            "get_router_sync() called but Router not ready. "
-            "Ensure ModelManager.refresh() was called during startup."
-        )
-        return self._router
-
     def _build_model_list(self) -> list[dict]:
         """Build LiteLLM Router model_list from cached models/providers.
 
@@ -184,11 +217,10 @@ class ModelManager:
         return result
 
     def _build_fallbacks(self) -> list[dict]:
-        """Build Router fallback rules with randomized order.
+        """Build Router fallback rules.
 
         Within each model_type, every model falls back to all other models
-        of the same type in random order. No priority — any available model
-        can serve as fallback for any other.
+        of the same type. LiteLLM Router handles intelligent ordering.
         """
         models = list(self._models_cache.values())
         if len(models) < 2:
@@ -205,7 +237,6 @@ class ModelManager:
             if len(model_ids) > 1:
                 for mid in model_ids:
                     others = [x for x in model_ids if x != mid]
-                    random.shuffle(others)
                     fallbacks.append({mid: others})
         return fallbacks
 
@@ -301,8 +332,17 @@ class ModelManager:
                 )
         return result
 
-    def get_default_llm_id(self) -> Optional[str]:
+    @property
+    def default_llm_id(self) -> Optional[str]:
         return self._default_llm_id
+
+    @property
+    def default_vlm_id(self) -> Optional[str]:
+        return self._default_vlm_id
+
+    @property
+    def default_embedding_id(self) -> Optional[str]:
+        return self._default_embedding_id
 
     def is_model_active(self, model_id: str) -> bool:
         """Check if a model is present in the cache and marked active."""
@@ -317,12 +357,6 @@ class ModelManager:
             ):
                 return str(m.model_id)
         return None
-
-    def get_default_vlm_id(self) -> Optional[str]:
-        return self._default_vlm_id
-
-    def get_default_embedding_id(self) -> Optional[str]:
-        return self._default_embedding_id
 
     async def get_embedding_model(self, model_id: Optional[str] = None):
         """Return (litellm_model_id, api_key) for use with litellm.aembedding().

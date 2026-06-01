@@ -11,9 +11,7 @@ https://docs.langchain.com/oss/python/langgraph/persistence#checkpointer-librari
 from __future__ import annotations
 
 import logging
-from typing import (
-    AsyncContextManager,
-)
+from typing import AsyncContextManager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 

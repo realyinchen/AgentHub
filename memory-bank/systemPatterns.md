@@ -1,6 +1,6 @@
 # System Patterns
 
-## Updated 4-Layer Architecture (Post-Phase 2)
+## 4-Layer Architecture
 ```
 app/
 ├── infra/              # Layer 1: Infrastructure (config, database, llm, cache, tools)
@@ -9,21 +9,37 @@ app/
 └── api/                # Layer 4: HTTP Interface (FastAPI routes)
 ```
 
-- **New Infra Layer**: `app/infra/` contains all low-level infrastructure (config, database, llm, cache, tools)
-- **New Middleware Layer**: `app/middleware/` contains all dynamic injectors (prompt, memory, model)
-- **Agent Layer**: `app/agents/` now uses `create_agent()` + middleware chain pattern
+- **Infra Layer**: `app/infra/` contains all low-level infrastructure (config, database, llm, cache, tools)
+- **Middleware Layer**: `app/middleware/` contains all dynamic injectors (prompt, memory, model)
+- **Agent Layer**: `app/agents/` uses `create_agent()` + middleware chain pattern
 - **app/support DELETED**: Entire directory removed; functionality migrated to middleware and infra/tools
 
-## Factory Pattern (Updated)
+## Factory Pattern (Simplified)
 - `app/infra/database/factory.py` provides singleton instances: `get_database()`, `get_vectorstore()`, `get_checkpointer()`, `get_store()`
+- Single `init_all()` function for all database components (called during FastAPI startup)
+- Single `dispose_all()` function for cleanup (called during FastAPI shutdown)
+- No Protocol-based interfaces — direct concrete implementations for PostgreSQL only
 - `app/infra/llm/model_manager.py`: ModelProvider singleton
 - `app/infra/cache/manager.py`: CacheManager singleton
 - `app/middleware/prompt/service.py`: PromptService singleton
 
-## Interface-Based Design
-- `app/infra/database/interfaces.py`: DatabaseInterface, VectorstoreInterface, CheckpointerInterface, StoreInterface
-- Business code never imports backend implementations directly
-- Tools now in `app/infra/tools/` with BaseToolExecutor abstract base class
+## Database Layer (Simplified)
+```
+app/infra/database/
+├── __init__.py          # Public API exports
+├── base.py              # SQLAlchemy DeclarativeBase
+├── database.py          # PostgreSQL engine/session management
+├── vectorstore.py       # PGVector vector storage
+├── checkpointer.py      # LangGraph checkpointing (short-term memory)
+├── store.py             # LangGraph Store (long-term memory)
+└── factory.py           # Singleton factory functions
+```
+
+**Key simplifications:**
+- Removed `postgres/` subdirectory (flat structure)
+- Removed `protocols.py` (no unnecessary abstraction)
+- Removed per-component init functions (use `init_all()` only)
+- Removed async locks (FastAPI lifespan guarantees single-call initialization)
 
 ## Key Technical Decisions (Phase 2 Additions)
 
@@ -175,105 +191,25 @@ Middleware
 - **Long-term memory**: Store instance passed to create_agent → accessible via `request.runtime.store`
 
 ## Design Patterns in Use
-- **Abstract Factory**: `interfaces.py` + `factory.py` + `backends/`
 - **Singleton**: Factory caches instances in module-level variables
 - **Context Manager**: `session()` yields session with auto-commit/rollback
-- **Strategy**: Backend implementations are interchangeable via config
 - **Middleware Chain**: Sequential dynamic injection before model calls
 - **Lazy Initialization**: Tools initialized on first use with graceful fallback
 
 ## Database Abstraction Documentation
-- Full database abstraction architecture documentation (design principles, three-layer architecture, interface definitions, factory pattern, backend comparison, score semantics, ORM compatibility, etc.) is now in `README.md` (English) and `README.zh.md` (Chinese)
-- The standalone `memory-bank/database-abstraction.md` has been removed — its content was merged into the README files to keep documentation centralized and bilingual
+- Full database abstraction architecture documentation is in `README.md` (English) and `README.zh.md` (Chinese)
+- PostgreSQL-only implementation (no multi-backend abstraction)
 
-## Database Layer Improvements (v2)
+## PostgreSQL Production Standards
 
-### 1. SQLite Shared Engine Pattern
-
-**Problem**: Multiple SQLite backends (database, vectorstore, checkpointer, store) each creating their own engine caused:
-- Multiple connections competing for file locks
-- Frequent "database is locked" errors
-
-**Solution**: All SQLite backends share a single `AsyncEngine` instance via `shared_engine.py`:
-
-```
-SqliteDatabase      ↘
-SqliteVecVectorstore → get_shared_sqlite_engine() → Single AsyncEngine
-SqliteCheckpointer  ↗
-SqliteStore         ↗
-```
-
-**Key points**:
-- Engine creation: `shared_engine.get_shared_sqlite_engine()` globally unique
-- Initialization: Each backend calls `initialize()` but doesn't duplicate engine creation
-- Disposal: `dispose_all()` calls `dispose_shared_sqlite_engine()` centrally at the end
-
-### 2. Safe Initialization with Retry Logic
-
-**Problem**: Race conditions during concurrent access + transient connection failures
-
-**Solution**: Separate `get_{component}_initialized()` async wrappers with:
-- Async locks (`_db_init_lock`, etc.) to prevent concurrent initialization
-- Exponential backoff retry: `1s → 2s → 4s`
-- Max 3 retries before giving up
-
+### Connection Pool Configuration
 ```python
-async def _retry_initialize(component_name, initialize_func, max_retries=3, base_delay=1.0):
-    """Retry wrapper for initialization with exponential backoff."""
+# backend/app/infra/config.py
+POSTGRES_MIN_CONNECTIONS_PER_POOL=2      # Min pool size
+POSTGRES_MAX_CONNECTIONS_PER_POOL=10     # Max pool size
 ```
 
-**Protects against**:
-- Database container startup delay
-- Temporary network interruptions
-- Race conditions during app startup
-
-### 3. LangChain Embeddings Standardization
-
-**Problem**: Original `Callable[str, list[float]]` was not compatible with LangChain ecosystem
-
-**Solution**: Use LangChain `Embeddings` interface uniformly:
-
-```python
-# factory.py
-def _get_embed_inst():
-    """Returns LangChain-compatible Embeddings instance"""
-    from app.infra.llm.lite_embeddings import LiteEmbeddings
-    return LiteEmbeddings()
-
-# Vectorstore / Store set_embed_fn accepts Embeddings object
-instance.set_embed_fn(_get_embed_inst())
-```
-
-**Benefits**:
-- ✅ Directly compatible with LangGraph Store `embeddings` parameter
-- ✅ Supports standard `embed_documents` and `embed_query` methods
-- ✅ Seamless switching between embedding providers
-
-### 4. Semantic Search for Store
-
-**Key insight**: LangGraph Store defaults to CRUD-only — **semantic search requires explicit embedding function configuration**
-
-**Implementation**: Embedding function injected during store creation:
-```python
-instance = cls()
-instance.set_embed_fn(_get_embed_inst())  # <-- Enables semantic search!
-_st_instance = instance
-```
-
-**Without embedding function**:
-- ❌ `search()` method unusable
-- ❌ No natural language query support
-- ❌ Store degenerates to simple key-value storage
-
-**With embedding function**:
-- ✅ Similarity-ranked semantic search
-- ✅ Metadata filtering via `filter` parameter
-- ✅ Cross-namespace knowledge retrieval
-
-### 5. Session Semantics Standardization
-
-Two distinct session contexts with clear semantics:
-
+### Session Semantics
 ```python
 @asynccontextmanager
 async def session(self) -> AsyncGenerator[AsyncSession, None]:
@@ -281,53 +217,16 @@ async def session(self) -> AsyncGenerator[AsyncSession, None]:
     session = self._session_factory()
     try:
         yield session
-        await session.commit()  # FastAPI standard: explicit commit
+        await session.commit()
     except Exception:
         await session.rollback()
         raise
     finally:
         await session.close()
-
-@asynccontextmanager
-async def session_readonly(self) -> AsyncGenerator[AsyncSession, None]:
-    """Read-only session: WAL optimization enabled, auto-rollback on exit"""
-    session = self._session_factory()
-    try:
-        await session.execute(text("PRAGMA journal_mode=WAL"))  # SQLite concurrency
-        yield session
-    finally:
-        await session.rollback()  # Read-only: no commit needed
-        await session.close()
 ```
 
-**Clear Semantics**:
-- `session()`: Read-write operations, **auto-commits when exiting context**
-- `session_readonly()`: Read-only operations, auto-rollback when exiting
-
-### 6. Parallel Initialization Optimization
-
-**Startup sequence optimized**:
-```
-Before: database → vectorstore → checkpointer → store (serial)
-After:  database [serial] → vectorstore || checkpointer || store [parallel]
-```
-
-**Implementation**:
-```python
-async def init_all() -> None:
-    await init_database()  # First, others may depend on it
-    await asyncio.gather(  # Then the rest in parallel
-        init_vectorstore(),
-        init_checkpointer(),
-        init_store(),
-    )
-```
-
-### 7. Fixed _VS_BACKENDS Mapping
-
-**Correction**: Qdrant backend moved from `postgres/qdrant` to its own directory:
-```python
-_VS_BACKENDS = {
-    "qdrant": "app.infra.database.backends.qdrant.vectorstore.QdrantVectorstore",
-    "sqlite_vec": "app.infra.database.backends.sqlite.vectorstore.SqliteVecVectorstore",
-}
+### LangChain/LangGraph Integration
+- Uses official `AsyncPostgresSaver.from_conn_string()` for checkpointing
+- Uses official `AsyncPostgresStore.from_conn_string()` for long-term memory
+- Uses official `PGEngine` + `PGVectorStore` for vector storage
+- Embedding function injected via `LiteLLMEmbeddingsAdapter` (LangChain `Embeddings` interface)

@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import get_db
 from app.crud import model as model_crud
 from app.crud import provider as provider_crud
-from app.infra.llm.model_manager import get_model_manager
+from app.infra.llm import get_model_manager
 from app.schemas.model import (
     ModelCreate,
     ModelInfo,

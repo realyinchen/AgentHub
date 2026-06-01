@@ -30,9 +30,13 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from app.infra.llm.model_manager import get_model_manager
-
 logger = logging.getLogger(__name__)
+
+
+def _get_model_manager():
+    """Lazy import to avoid circular imports."""
+    from app.infra.llm.manager import get_model_manager
+    return get_model_manager()
 
 
 # ── Token utilities ──────────────────────────────────────────────────────────
@@ -105,8 +109,8 @@ def resolve_model_name(user_model: str | None) -> str | None:
     """
     if user_model:
         return user_model
-    manager = get_model_manager()
-    return manager.get_default_llm_id() or manager.get_first_active_llm_id()
+    manager = _get_model_manager()
+    return manager.default_llm_id or manager.get_first_active_llm_id()
 
 
 # Note: log_routing_decision removed — no longer needed since subagent routing was simplified.

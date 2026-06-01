@@ -12,12 +12,7 @@ https://docs.langchain.com/oss/python/langchain/long-term-memory
 from __future__ import annotations
 
 import logging
-from typing import (
-    AsyncContextManager,
-    Optional,
-    Sequence,
-    cast,
-)
+from typing import AsyncContextManager, Optional, Sequence, cast
 
 from langgraph.store.postgres.aio import AsyncPostgresStore
 from langgraph.store.postgres.base import PostgresIndexConfig

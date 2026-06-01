@@ -14,11 +14,7 @@ from __future__ import annotations
 import json
 import logging
 from contextlib import asynccontextmanager
-from typing import (
-    Any,
-    AsyncGenerator,
-    Optional,
-)
+from typing import Any, AsyncGenerator, Optional
 
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
@@ -106,8 +102,3 @@ class PostgresDatabase:
             self._engine = None
             self._session_factory = None
             logger.info("PostgreSQL database engine disposed")
-
-
-# Type alias for type-checking. LangGraph's Store also uses the same
-# libpq connection string, so we can reuse the same settings.
-PostgresStoreDatabase = PostgresDatabase

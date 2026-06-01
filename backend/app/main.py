@@ -8,7 +8,7 @@ from fastapi.routing import APIRoute
 
 from app.agents import init_supervisor
 from app.infra.config import get_settings
-from app.infra.llm.model_manager import get_model_manager
+from app.infra.llm import get_model_manager
 from app.api.errors import register_exception_handlers
 from app.infra.database import init_all, dispose_all, get_checkpointer, get_store
 from app.api.v1 import api_router
