@@ -8,13 +8,11 @@ Routes:
     DELETE /models/{model_id}               — Delete a model
     GET    /models/providers                — List all providers
     PATCH  /models/providers/{provider_name}— Update provider API key / base URL
+    GET    /models/thinking-mode            — Thinking-mode availability status
 """
-
-from __future__ import annotations
 
 import logging
 import uuid
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,6 +26,7 @@ from app.schemas.model import (
     ModelInfo,
     ModelsResponse,
     ModelUpdateRequest,
+    ThinkingModeStatus,
 )
 from app.schemas.provider import (
     ProviderInfo,
@@ -39,60 +38,6 @@ from app.utils.crypto import encrypt_api_key
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/models", tags=["Models"])
-
-
-# ── helpers ──────────────────────────────────────────────────────────────────
-
-
-def get_first_model_by_type(models: list, model_type: str) -> Optional[str]:
-    """Get the first model of a specific type from a sorted list.
-
-    Models are already sorted by provider (alphabetically), then by model_id.
-    Returns the model_id of the first matching model, or None if not found.
-    """
-    for model in models:
-        if model.model_type == model_type:
-            return model.model_id
-    return None
-
-
-def _build_models_response(models: list) -> ModelsResponse:
-    """Build ModelsResponse from model list.
-
-    Optimized to extract default models from the list instead of additional
-    DB queries. Default model selection logic:
-    - If a model has is_default=True, use that
-    - Otherwise, use the first model of that type (sorted alphabetically by provider)
-    """
-    model_infos = [ModelInfo.model_validate(m) for m in models]
-
-    default_llm_id: Optional[str] = None
-    default_vlm_id: Optional[str] = None
-    default_embedding_id: Optional[str] = None
-
-    for m in models:
-        if getattr(m, "is_default", False):
-            model_type = getattr(m, "model_type", "llm")
-            if model_type == "llm" and default_llm_id is None:
-                default_llm_id = str(m.model_id)
-            elif model_type == "vlm" and default_vlm_id is None:
-                default_vlm_id = str(m.model_id)
-            elif model_type == "embedding" and default_embedding_id is None:
-                default_embedding_id = str(m.model_id)
-
-    if default_llm_id is None:
-        default_llm_id = get_first_model_by_type(models, "llm")
-    if default_vlm_id is None:
-        default_vlm_id = get_first_model_by_type(models, "vlm")
-    if default_embedding_id is None:
-        default_embedding_id = get_first_model_by_type(models, "embedding")
-
-    return ModelsResponse(
-        models=model_infos,
-        default_llm=default_llm_id,
-        default_vlm=default_vlm_id,
-        default_embedding=default_embedding_id,
-    )
 
 
 # ── Model CRUD ───────────────────────────────────────────────────────────────
@@ -112,8 +57,7 @@ async def get_available_models(
     With ``?include_inactive=true``: returns all models (for configuration page).
     Models are sorted by provider (alphabetically), then by model_id.
     """
-    models = await model_crud.get_all_models(db, active_only=not include_inactive)
-    return _build_models_response(models)
+    return await model_crud.get_models_response(db, active_only=not include_inactive)
 
 
 @api_router.post("", response_model=ModelInfo, status_code=status.HTTP_201_CREATED)
@@ -252,3 +196,14 @@ async def update_provider(
 
     await get_model_manager().refresh()
     return _provider_to_info(updated)
+
+
+# ── Thinking mode ─────────────────────────────────────────────────────────────
+
+
+@api_router.get("/thinking-mode", response_model=ThinkingModeStatus)
+async def get_thinking_mode_status() -> ThinkingModeStatus:
+    """Check if thinking mode is available."""
+    return ThinkingModeStatus(
+        available=get_model_manager().is_thinking_mode_available()
+    )

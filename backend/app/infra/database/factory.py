@@ -5,21 +5,26 @@ All business code calls these ``get_xxx()`` functions. All components use
 PostgreSQL + pgvector exclusively.
 
 Lifecycle:
-    - ``init_all()`` is called during FastAPI startup (lifespan).
-    - ``dispose_all()`` is called during FastAPI shutdown.
+    - ``init_database()`` is called during FastAPI startup (lifespan).
+    - ``dispose_database()`` is called during FastAPI shutdown.
     - ``get_xxx()`` returns pre-created singletons (sync, no async lock needed).
-"""
 
-from __future__ import annotations
+Embedding functions are provided by infra.llm.embedding module (singleton
+LiteLLMEmbeddings instance created at startup).
+
+Multi-table vectorstore support:
+    - ``get_vectorstore(table_name)`` returns instance for specific collection.
+    - Default table: "langchain_pg_embedding"
+    - Additional tables are lazily initialized on first access.
+"""
 
 import asyncio
 import logging
-from typing import Awaitable, Callable
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
 from app.infra.database.database import PostgresDatabase
-from app.infra.database.vectorstore import PGVectorVectorstore
+from app.infra.database.vectorstore import PGVectorVectorstore, _DEFAULT_TABLE
 from app.infra.database.checkpointer import PostgresCheckpointer
 from app.infra.database.store import PostgresStore
 
@@ -27,38 +32,11 @@ logger = logging.getLogger(__name__)
 
 # Singleton instances (created during startup, accessed via get_xxx())
 _db_instance: PostgresDatabase | None = None
-_vs_instance: PGVectorVectorstore | None = None
 _cp_instance: PostgresCheckpointer | None = None
 _store_instance: PostgresStore | None = None
 
-
-# ── Embedding function for Vectorstore ──────────────────────────────────────
-
-
-def _get_embed_fn() -> Callable[[str], Awaitable[list[float]]]:
-    """Build a text→embedding async function backed by ModelManager.
-
-    The function resolves the current embedding model on EVERY call, so a
-    vectorstore created before any embedding model is configured still works
-    once one is added.
-    """
-
-    async def embed_fn(text: str) -> list[float]:
-        import litellm
-        from app.infra.llm import get_model_manager
-
-        model_id, api_key = await get_model_manager().get_embedding_model()
-        if model_id is None:
-            raise ValueError(
-                "No embedding model configured. "
-                "Please configure at least one Embedding model in settings."
-            )
-        response = await litellm.aembedding(
-            model=model_id, input=[text], api_key=api_key
-        )
-        return response.data[0]["embedding"]
-
-    return embed_fn
+# Multi-table vectorstore cache: table_name -> PGVectorVectorstore instance
+_vs_instances: dict[str, PGVectorVectorstore] = {}
 
 
 # ── Public accessors (sync — return pre-created singletons) ──────────────────
@@ -67,24 +45,75 @@ def _get_embed_fn() -> Callable[[str], Awaitable[list[float]]]:
 def get_database() -> PostgresDatabase:
     """Return the database singleton."""
     if _db_instance is None:
-        raise RuntimeError("Database not initialized — call init_all() during startup")
+        raise RuntimeError(
+            "Database not initialized — call init_database() during startup"
+        )
     return _db_instance
 
 
-def get_vectorstore() -> PGVectorVectorstore:
-    """Return the vectorstore singleton."""
-    if _vs_instance is None:
+def get_vectorstore(table_name: str = _DEFAULT_TABLE) -> PGVectorVectorstore:
+    """Return the vectorstore instance for the specified table.
+
+    Args:
+        table_name: PostgreSQL table name for storing vectors.
+                   Defaults to 'langchain_pg_embedding'.
+
+    Returns:
+        PGVectorVectorstore instance bound to the specified table.
+
+    Note:
+        Default table is initialized during startup. Additional tables
+        are lazily initialized on first access (requires async context).
+        For lazy initialization, use get_or_create_vectorstore() instead.
+    """
+    if table_name not in _vs_instances:
+        if table_name == _DEFAULT_TABLE:
+            raise RuntimeError(
+                "Default vectorstore not initialized — call init_database() during startup"
+            )
+        # For non-default tables, suggest using async version
         raise RuntimeError(
-            "Vectorstore not initialized — call init_all() during startup"
+            f"Vectorstore table '{table_name}' not initialized. "
+            f"Use get_or_create_vectorstore() for lazy initialization."
         )
-    return _vs_instance
+    return _vs_instances[table_name]
+
+
+async def get_or_create_vectorstore(
+    table_name: str = _DEFAULT_TABLE,
+) -> PGVectorVectorstore:
+    """Get or create vectorstore instance for the specified table.
+
+    Lazily initializes vectorstore for tables other than the default.
+    The default table is initialized during startup via init_database().
+
+    Args:
+        table_name: PostgreSQL table name for storing vectors.
+
+    Returns:
+        PGVectorVectorstore instance bound to the specified table.
+    """
+    if table_name in _vs_instances:
+        return _vs_instances[table_name]
+
+    # Lazily create new vectorstore instance
+    from app.infra.llm import get_embeddings
+
+    logger.info("Lazily initializing vectorstore for table '%s'", table_name)
+    vs = PGVectorVectorstore(table_name=table_name)
+    vs.set_embed_fn(embeddings=get_embeddings())
+    await vs.initialize()
+
+    _vs_instances[table_name] = vs
+    logger.info("Vectorstore initialized for table '%s'", table_name)
+    return vs
 
 
 def get_checkpointer() -> PostgresCheckpointer:
     """Return the checkpointer singleton."""
     if _cp_instance is None:
         raise RuntimeError(
-            "Checkpointer not initialized — call init_all() during startup"
+            "Checkpointer not initialized — call init_database() during startup"
         )
     return _cp_instance
 
@@ -102,24 +131,31 @@ def get_saver() -> BaseCheckpointSaver:
 # ── Lifecycle: init / dispose (called by FastAPI lifespan) ───────────────────
 
 
-async def init_all() -> None:
+async def init_database() -> None:
     """Initialize all database components. Called during FastAPI startup.
 
     Order: database first (others may depend on it), then vectorstore,
     checkpointer, store in parallel.
+
+    Note: Embedding functions are provided by infra.llm.embedding module.
+    Call init_embedding_model() in main.py lifespan BEFORE init_database() to
+    ensure embedding functions are available.
     """
-    global _db_instance, _vs_instance, _cp_instance, _store_instance
+    global _db_instance, _cp_instance, _store_instance, _vs_instances
 
     # Database must be initialized first
     _db_instance = PostgresDatabase()
     await _db_instance.initialize()
     logger.info("Database initialized: postgres")
 
-    # Initialize vectorstore with embedding function
-    _vs_instance = PGVectorVectorstore()
-    _vs_instance.set_embed_fn(_get_embed_fn())
-    await _vs_instance.initialize()
-    logger.info("Vectorstore initialized: pgvector (with embedding function)")
+    # Initialize default vectorstore with embedding functions from infra.llm
+    from app.infra.llm import get_embeddings
+
+    default_vs = PGVectorVectorstore(table_name=_DEFAULT_TABLE)
+    default_vs.set_embed_fn(embeddings=get_embeddings())
+    await default_vs.initialize()
+    _vs_instances[_DEFAULT_TABLE] = default_vs
+    logger.info("Vectorstore initialized: pgvector (table=%s)", _DEFAULT_TABLE)
 
     # Initialize checkpointer and store in parallel
     async def _init_checkpointer() -> None:
@@ -137,26 +173,30 @@ async def init_all() -> None:
     await asyncio.gather(_init_checkpointer(), _init_store())
 
 
-async def dispose_all() -> None:
+async def dispose_database() -> None:
     """Dispose all database components. Called during FastAPI shutdown.
 
-    Order: vectorstore → checkpointer → store → database (last,
+    Order: vectorstores → checkpointer → store → database (last,
     in case other backends depend on it).
     """
-    global _db_instance, _vs_instance, _cp_instance, _store_instance
+    global _db_instance, _cp_instance, _store_instance, _vs_instances
 
     # Clear singleton references first
-    vs, cp, store, db = _vs_instance, _cp_instance, _store_instance, _db_instance
-    _vs_instance = _cp_instance = _store_instance = _db_instance = None
+    vs_instances = _vs_instances.copy()
+    _vs_instances.clear()
 
-    # Dispose in reverse order
-    if vs is not None:
+    cp, store, db = _cp_instance, _store_instance, _db_instance
+    _cp_instance = _store_instance = _db_instance = None
+
+    # Dispose all vectorstores
+    for table_name, vs in vs_instances.items():
         try:
             await vs.dispose()
-            logger.info("Vectorstore disposed")
+            logger.info("Vectorstore disposed (table=%s)", table_name)
         except Exception as e:
-            logger.warning("Error disposing vectorstore: %s", e)
+            logger.warning("Error disposing vectorstore (table=%s): %s", table_name, e)
 
+    # Dispose checkpointer
     if cp is not None:
         try:
             await cp.dispose()
@@ -164,6 +204,7 @@ async def dispose_all() -> None:
         except Exception as e:
             logger.warning("Error disposing checkpointer: %s", e)
 
+    # Dispose store
     if store is not None:
         try:
             await store.dispose()
@@ -171,6 +212,7 @@ async def dispose_all() -> None:
         except Exception as e:
             logger.warning("Error disposing store: %s", e)
 
+    # Dispose database (last)
     if db is not None:
         try:
             await db.dispose()
@@ -182,9 +224,10 @@ async def dispose_all() -> None:
 __all__ = [
     "get_database",
     "get_vectorstore",
+    "get_or_create_vectorstore",
     "get_checkpointer",
     "get_store",
     "get_saver",
-    "init_all",
-    "dispose_all",
+    "init_database",
+    "dispose_database",
 ]

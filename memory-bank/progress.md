@@ -238,3 +238,338 @@
 | # | Issue | 操作 |
 |---|-------|------|
 | **Step 7-13** | Supervisor → 手写 StateGraph | 自定义 tool loop、超时控制、HITL；feature flag 灰度 |
+
+---
+
+## Embedding 模块重构 ✅ 完成（2026-06-01）
+
+### 背景
+原 `database/factory.py` 中的 `_get_embed_fn()` 每次调用都创建新的 embedding 相关逻辑，且 embedding 配置散落在多处。
+
+### 重构目标
+1. **单例模式**：系统启动时创建一个 `LiteLLMEmbeddings` 实例，之后重复使用
+2. **零运行时开销**：`get_embed_fn()` 直接返回缓存的函数引用
+3. **符合 LangChain 接口**：实现 `Embeddings` 标准接口，可直接传给 PGVectorStore
+
+### 实施内容
+
+| # | 文件 | 操作 |
+|---|------|------|
+| **1** | `infra/llm/embedding.py` | 新增：`LiteLLMEmbeddings` 类 + 单例管理函数 |
+| **2** | `infra/llm/__init__.py` | 导出 embedding API |
+| **3** | `main.py` | lifespan 中调用 `init_embedding_model()` |
+| **4** | `database/factory.py` | 移除 `_get_embed_fn()`，改用 `get_embeddings()` |
+| **5** | `database/vectorstore.py` | 重写：支持 `Embeddings` 实例注入 |
+| **6** | `database/store.py` | 重写：使用 `get_embeddings()` 构建 index config |
+| **7** | `requirements.txt` | 添加 `litellm==1.83.14` |
+
+### 架构设计
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    启动时初始化（lifespan）                       │
+│                                                                 │
+│   init_embedding_model()                                        │
+│       ↓                                                         │
+│   _embeddings_instance = LiteLLMEmbeddings(model, api_key)     │
+│       ↓                                                         │
+│   缓存在模块级变量中                                             │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│                    运行时使用                                    │
+│                                                                 │
+│   get_embeddings()      → 返回 LiteLLMEmbeddings 实例          │
+│   get_embed_fn()        → 返回 embeddings.aembed_query 方法    │
+│   get_embed_batch_fn()  → 返回 embeddings.aembed_documents 方法│
+│                                                                 │
+│   零开销：直接返回模块级引用，无函数对象创建                      │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### LiteLLMEmbeddings 类
+
+```python
+class LiteLLMEmbeddings(Embeddings):
+    """LangChain Embeddings 接口实现"""
+    
+    def __init__(self, model: str, api_key: str | None = None):
+        self.model = model
+        self.api_key = api_key
+    
+    async def aembed_query(self, text: str) -> list[float]:
+        """单个文本 embedding"""
+        response = await litellm.aembedding(
+            model=self.model, input=[text], api_key=self.api_key
+        )
+        return response.data[0]["embedding"]
+    
+    async def aembed_documents(self, texts: list[str]) -> list[list[float]]:
+        """批量文本 embedding"""
+        response = await litellm.aembedding(
+            model=self.model, input=texts, api_key=self.api_key
+        )
+        return [item["embedding"] for item in response.data]
+```
+
+### 配置来源
+
+```env
+# .env
+SYSTEM_DEFAULT_EMBEDDING_MODEL=openai/text-embedding-3-small
+EMBEDDING_DIMENSION=1536
+SYSTEM_DEFAULT_LLM_API_KEY=sk-xxx  # 共享 API key
+```
+
+### 关键收益
+
+| 指标 | 重构前 | 重构后 |
+|------|--------|--------|
+| Embedding 实例创建 | 每次调用 `get_embed_fn()` | 启动时一次 |
+| 函数对象创建 | 每次调用都创建新闭包 | 缓存模块级引用 |
+| GC 压力 | 持续产生临时对象 | 无额外 GC |
+| 接口一致性 | 自定义函数签名 | LangChain `Embeddings` 标准接口 |
+| PGVectorStore 集成 | 需要适配器 | 直接传入 `Embeddings` 实例 |
+
+### 验证结果
+```
+✅ Embedding module imports OK
+✅ Database module imports OK
+```
+
+---
+
+## infra/llm 模块重构 ✅ 完成（2026-06-01）
+
+### 背景
+用户需求：
+1. **系统级默认 LLM 和 Embedding**：从 `.env` 加载，用于会话摘要、memory 语义检索、标题生成等辅助任务，不得更改
+2. **Embedding 一旦初始化不可变更**：直接影响 RAG 等语义检索功能
+3. **providers/models 表配置**：用户可在页面设置默认 LLM/VLM，是否开启思考模式
+4. **完全依赖 LiteLLM Router**：实现 fallback，全部使用默认参数，能简则简
+5. **动态模型选择**：通过 LangChain 的 `wrap_model_call` 实现
+
+### 重构内容
+
+| # | 文件 | 操作 |
+|---|------|------|
+| **1** | `infra/config.py` | 删除 `MODEL_RETRY_*` 5 个配置项（~20 行） |
+| **2** | `infra/llm/manager.py` | 简化 Router 使用默认参数；删除 `_default_embedding_id`、`get_embedding_model()` 等相关代码（~78 行） |
+| **3** | `infra/llm/factory.py` | 从 manager.py 移入 `build_extra_body()`；重构 `get_system_llm()` 为模块级单例模式（`init_system_llm()` + `get_system_llm()`）；删除 `temperature` 参数 |
+| **4** | `agents/supervisor.py` | 移除 `ModelRetryMiddleware`，Fallback 由 LiteLLM Router 处理 |
+| **5** | `main.py` | 更新启动顺序：`init_all() → init_system_llm() → init_embedding_model() → get_model_manager().refresh() → init_supervisor()` |
+| **6** | `infra/llm/__init__.py` | 新增导出 `init_system_llm` |
+
+### 架构变更
+
+**重构前**：
+```
+ModelManager:
+  - _default_llm_id / _default_vlm_id / _default_embedding_id
+  - get_llm() / get_embedding_model()
+  - build_extra_body()
+
+factory.py:
+  - get_llm(temperature=0)  # 暴露 temperature
+  - get_system_llm()  # @lru_cache 单例
+```
+
+**重构后**：
+```
+manager.py:
+  - _default_llm_id / _default_vlm_id  # 无 embedding
+  - get_model() / refresh()
+  - Router 使用默认参数
+
+factory.py:
+  - build_extra_body()  # 从 manager 移入
+  - init_system_llm()  # 启动时调用
+  - get_system_llm()   # 返回单例，未初始化抛 RuntimeError
+  - get_llm(model_id, thinking_mode)  # 无 temperature，固定为 0
+```
+
+### 启动顺序
+
+```python
+# main.py lifespan
+await init_all()           # PostgreSQL + PGVector + Checkpointer + Store
+init_system_llm()          # System LLM from .env (单例)
+init_embedding_model()     # Embedding from .env (单例)
+await get_model_manager().refresh()  # DB 模型配置 + Router
+await init_supervisor()    # Agent 创建，使用 get_system_llm()
+```
+
+### 配置来源
+
+```
+系统级 LLM:     .env (SYSTEM_DEFAULT_LLM_MODEL + SYSTEM_DEFAULT_LLM_API_KEY)
+系统级 Embedding: .env (SYSTEM_DEFAULT_EMBEDDING_MODEL + EMBEDDING_DIMENSION)
+运行时 LLM:     DB (providers + models 表) + LiteLLM Router fallback
+```
+
+### Fallback/Retry 策略
+
+- **完全依赖 LiteLLM Router**：`Router(model_list, fallbacks)`
+- **删除 ModelRetryMiddleware**：不再需要自定义 retry middleware
+- **同类型互备**：`_build_fallbacks()` 构建同 model_type 内的互备关系
+
+### 关键收益
+
+| 指标 | 重构前 | 重构后 |
+|------|--------|--------|
+| MODEL_RETRY_* 配置 | 5 个 | 0 |
+| Router 参数 | `num_retries=2, retry_after=1, timeout=...` | 默认参数 |
+| embedding 配置来源 | DB + .env 双轨 | 仅 .env |
+| temperature 参数 | 暴露给调用方 | 内部固定为 0 |
+| get_system_llm | @lru_cache 语义不明 | 模块级单例，显式 init |
+
+### 验证结果
+```
+✅ All imports successful
+✅ No circular imports
+✅ No syntax errors
+```
+
+---
+
+## infra/llm 公共 API 简化 ✅ 完成（2026-06-01）
+
+### 背景
+根据单例设计原则重新审视 LLM 模块，简化公共 API。
+
+### 新的公共 API
+
+```python
+# 对外暴露的 API
+init_models()                          # 合并所有初始化
+get_system_llm()                       # 无入参，返回默认 LLM
+get_llm(model_id, thinking=False)      # 入参: "provider/model_id", thinking bool
+
+# Embedding API（不变）
+get_embeddings()
+get_embedding_dimension()
+get_embed_fn()
+get_embed_batch_fn()
+
+# Internal API（保留给特定模块使用）
+get_model_manager()
+```
+
+### 重构内容
+
+| # | 文件 | 操作 |
+|---|------|------|
+| **1** | `manager.py` | 添加 `_build_extra_body()` + `_init_system_llm()` + `get_system_llm()` + `get_llm()` + `init_models()` |
+| **2** | `factory.py` | 简化为 deprecation shim（236 行 → 29 行） |
+| **3** | `__init__.py` | 简化导出，保留 `get_model_manager` 作为 Internal API |
+| **4** | `main.py` | lifespan 简化为 `await init_models()` |
+
+### 新架构
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                    infra/llm Public API                             │
+│                                                                      │
+│  init_models()                                                       │
+│    ├── System LLM (from .env, singleton)                            │
+│    ├── Embedding (from .env, singleton)                             │
+│    └── DB Models → LiteLLM Router (with fallbacks)                  │
+│                                                                      │
+│  get_system_llm() → ChatLiteLLM                                      │
+│    └── Used for: compile-time default, summarization, titles        │
+│                                                                      │
+│  get_llm(model_id, thinking) → ChatLiteLLMRouter                     │
+│    └── Uses shared Router + per-request extra_body                  │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+### 验证结果
+```
+✅ Main module imports successful
+✅ All API endpoints work correctly
+```
+
+---
+
+## infra 模块 API 简化 ✅ 完成（2026-06-01）
+
+### 背景
+用户需求：infra 层作为资源层，不应暴露太多接口给外部。外部只需要获取资源的方法。
+
+### 重构内容
+
+| # | 文件 | 操作 |
+|---|------|------|
+| | **1** | `infra/database/factory.py` | 重命名 `init_all` → `init_database`，`dispose_all` → `dispose_database` |
+| | **2** | `infra/database/__init__.py` | 更新导出名称 |
+| | **3** | `main.py` | 更新调用 |
+| | **4** | `infra/llm/__init__.py` | 移除 `get_model_manager`、`LiteLLMEmbeddings`、`init_embedding_model` 导出 |
+| | **5** | `infra/llm/factory.py` | 删除废弃的重定向文件 |
+| | **6** | `infra/__init__.py` | 新增顶层门面，统一资源入口 |
+
+### 新的 infra 公共 API
+
+```python
+# infra/__init__.py — 顶层门面
+
+# Configuration
+get_settings()
+
+# Errors
+AgentHubError
+
+# Database Lifecycle
+init_database()
+dispose_database()
+
+# Database Resources
+get_database()
+get_vectorstore()
+get_checkpointer()
+get_store()
+get_saver()
+Base
+
+# LLM Lifecycle
+init_models()
+
+# LLM Resources
+get_system_llm()
+get_llm(model_id, thinking_mode)
+
+# Embedding Resources
+get_embeddings()
+get_embedding_dimension()
+get_embed_fn()
+get_embed_batch_fn()
+```
+
+### 架构设计原则
+
+1. **资源层只暴露 getter 函数**
+   - 不暴露实现类（如 `LiteLLMEmbeddings`、`ModelManager`）
+   - 不暴露内部初始化函数（如 `init_embedding_model`）
+
+2. **生命周期函数语义化命名**
+   - `init_database()` / `dispose_database()` 代替模糊的 `init_all()`
+   - 清晰表明操作对象
+
+3. **顶层门面统一入口**
+   - 业务代码可以从 `from app.infra import ...` 导入所有资源
+   - 子模块 `infra/database`、`infra/llm` 仍可单独导入
+
+### 关键收益
+
+| 指标 | 重构前 | 重构后 |
+|------|--------|--------|
+| infra/llm 导出项 | 10 个（含内部 API） | 7 个（纯公共 API） |
+| infra 顶层门面 | 无 | 1 个统一入口 |
+| 生命周期函数命名 | `init_all` 模糊 | `init_database` 语义化 |
+| 废弃文件 | `factory.py` 重定向 | 已删除 |
+
+### 验证结果
+```
+✅ All imports successful
+✅ main.py lifespan works correctly
+✅ No breaking changes for business code
+```

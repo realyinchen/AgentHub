@@ -2,6 +2,19 @@ import asyncio
 import logging
 import sys
 
+# Set Compatible event loop policy on Windows Systems.
+# On Windows systems, the default ProactorEventLoop can cause issues with
+# certain async database drivers like psycopg (PostgreSQL driver).
+# The WindowsSelectorEventLoopPolicy provides better compatibility and prevents
+# "RuntimeError: Event loop is closed" errors when working with database connections.
+# This MUST be set before any async operations, including module imports that may
+# create event loops (especially important for uvicorn --reload mode where child
+# processes re-import modules but don't run __main__ block).
+# Refer to the documentation for more information.
+# https://www.psycopg.org/psycopg3/docs/advanced/async.html#asynchronous-operations
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 import uvicorn
 from dotenv import load_dotenv
 
@@ -51,8 +64,7 @@ def configure_logging() -> None:
     else:
         handler.setFormatter(
             logging.Formatter(
-                "%(asctime)s %(levelname)-8s [%(name)s] "
-                "[request_id=%(request_id)s] %(message)s"
+                "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
             )
         )
 
@@ -67,30 +79,15 @@ def configure_logging() -> None:
     logging.getLogger("langchain").setLevel(logging.WARNING)
     logging.getLogger("langgraph").setLevel(logging.WARNING)
 
-    logger = logging.getLogger(__name__)
-    logger.info(
-        "Logging configured: format=%s, level=%s, mode=%s",
-        settings.LOG_FORMAT,
-        settings.LOG_LEVEL,
-        settings.MODE,
-    )
-
 
 if __name__ == "__main__":
     # Configure logging before importing app modules so all loggers
     # inherit the correct format.
     configure_logging()
 
-    # Set Compatible event loop policy on Windows Systems.
-    # On Windows systems, the default ProactorEventLoop can cause issues with
-    # certain async database drivers like psycopg (PostgreSQL driver).
-    # The WindowsSelectorEventLoopPolicy provides better compatibility and prevents
-    # "RuntimeError: Event loop is closed" errors when working with database connections.
-    # This needs to be set before running the application server.
-    # Refer to the documentation for more information.
-    # https://www.psycopg.org/psycopg3/docs/advanced/async.html#asynchronous-operations
-    if sys.platform == "win32":
-        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+    # Note: Windows event loop policy is set at module level (see top of file)
+    # to ensure it applies in uvicorn --reload mode where child processes
+    # re-import modules but don't run this __main__ block.
 
     uvicorn.run(
         "app.main:app",

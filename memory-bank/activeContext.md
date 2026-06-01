@@ -2,70 +2,68 @@
 
 ## Current Focus
 
-**架构重构完成** (May 31, 2026)
+**Supervisor Agent 简化重构完成** (June 2, 2026)
 
-完成 AgentHub 后端项目架构重构，精简代码并优化目录结构。
+基于 LangChain v1 官方最佳实践，简化 Agent 和 Middleware 代码，保持生产级特性（TTLCache、启动预加载）。
 
-## Recent Changes (2026-05-31 重构)
+## Recent Changes (2026-06-02 重构)
 
 ### 已完成的重构步骤：
 
-1. **Step 1 [P0]**: 移动 `_streaming.py` → `utils/streaming.py`
-   - 统一 SSE streaming 逻辑到 utils 层
+1. **简化 `middleware/prompt.py`** (328行 → ~140行, -57%)
+   - 移除 `PromptService` 类，改用模块级函数和变量
+   - 保留 TTLCache (5分钟过期) — 提示词修改后自动生效
+   - 保留 asyncio.Lock — 防止并发文件 I/O
+   - 保留 `preload_templates()` — 启动时预加载零延迟
+   - 移除 `make_dynamic_prompt()` 工厂，直接定义 `@dynamic_prompt` 函数
 
-2. **Step 2 [P1]**: 移动 `infra/tools/` → `agents/tools/`
-   - 工具属于 Agent 层，放入 `app/agents/tools/`
-   - 包含：time.py, web.py, execute_sql_query.py, vectorstore_retriever.py
+2. **简化 `supervisor.py`** (126行 → ~75行, -40%)
+   - 移除 `AgentManager` 类，改用模块级单例
+   - 导出 `init_agent()` 和 `get_agent()` 函数
+   - 添加 `is_ready()` 检查函数
 
-3. **Step 3 [P2]**: 移动 `prompts/` → `agents/prompts/`
-   - Prompt 模板属于 Agent 层，放入 `app/agents/prompts/`
-   - 包含：agent.md, chatbot.md, supervisor.md
+3. **更新所有引用**
+   - `agents/__init__.py` — 导出新 API
+   - `main.py` — lifespan 调用 `preload_templates()` + `init_agent()`
+   - `api/v1/chat/run.py` — 使用 `get_agent()`
 
-4. **Step 4 [P3]**: 删除 `services/` 目录，功能分散到 `utils/`
-   - checkpoint.py → utils/checkpoint.py
-   - trace.py → utils/trace.py  
-   - dag.py → utils/dag.py
-   - parsers.py → utils/parsers.py
-   - agent_execution.py → utils/agent_execution.py
+### 代码量对比：
 
-5. **Step 5 [P4]**: 清理 API 层残留业务逻辑
-   - 更新所有 import 路径
-   - 移除废弃的 `log_routing_decision` 调用
+| 文件 | 重构前 | 重构后 | 变化 |
+|------|--------|--------|------|
+| `middleware/prompt.py` | 328行 | ~140行 | -57% |
+| `supervisor.py` | 126行 | ~75行 | -40% |
+| **Agent 相关总计** | **454行** | **~215行** | **-53%** |
 
-### 新的目录结构：
+### 保留的生产特性：
+
+- ✅ TTLCache (5分钟) — 提示词修改无需重启
+- ✅ asyncio.Lock — 防止并发文件 I/O
+- ✅ 启动预加载 — 首次请求零延迟
+- ✅ SummarizationMiddleware — 多轮对话历史压缩
+- ✅ 动态模型切换 — per-request model override
+
+### 新的文件结构：
 
 ```
-backend/app/
-├── api/              # API层 - 纯路由
-│   └── v1/chat/      # Chat endpoints
-├── agents/           # Agent层 - 业务核心
-│   ├── supervisor.py # 主 Agent 入口
-│   ├── context.py    # Runtime context
-│   ├── middleware/   # Agent middleware
-│   ├── prompts/      # Prompt 模板 (MD)
-│   └── tools/        # Agent tools
-├── infra/            # 基础设施层
-│   ├── config.py     # 配置
-│   ├── database/     # 数据库抽象
-│   └── llm/          # LLM 管理
-├── utils/            # 工具层 - 无业务逻辑
-│   ├── streaming.py  # SSE streaming
-│   ├── checkpoint.py # Checkpoint reader
-│   ├── trace.py      # Trace builder
-│   ├── dag.py        # DAG builder
-│   └── parsers.py    # Message parsers
-├── schemas/          # Pydantic 模型
-├── models/           # SQLAlchemy ORM
-├── crud/             # CRUD 操作
-└── core/             # 应用核心
+backend/app/agents/
+├── __init__.py          # 导出 init_agent, get_agent, is_ready
+├── supervisor.py        # ~75行 (简化)
+├── context.py           # 33行 (不变)
+├── middleware/
+│   ├── __init__.py
+│   ├── prompt.py        # ~140行 (大简化)
+│   └── model.py         # 86行 (不变)
+├── prompts/
+│   └── supervisor.md    # 不变
+└── tools/               # 不变
 ```
 
-### 重构收益
+## Active Decisions
 
-- **更清晰的分层**: API → Agent → Infra/Utils
-- **更少的抽象层**: services/ 删除，功能下沉到 utils
-- **更好的内聚性**: tools 和 prompts 归属 Agent 层
-- **所有 API 接口和 Agent 功能完全保留**
+- **不使用 LangGraph v0 `build_standard_agent_graph`** — 已迁移到 LangChain v1 `create_agent`
+- **Middleware 使用官方装饰器模式** — `@dynamic_prompt`, `@wrap_model_call`
+- **提示词缓存策略** — TTLCache 5分钟过期，适合 A/B 测试和紧急修复场景
 
 ## Active Branches
 

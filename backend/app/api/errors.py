@@ -12,8 +12,6 @@ Architecture
 - **Registration** — Convenience function to wire handlers into a FastAPI app
 """
 
-from __future__ import annotations
-
 import logging
 from typing import Any
 

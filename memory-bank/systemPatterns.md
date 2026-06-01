@@ -10,7 +10,7 @@ app/
 ```
 
 - **Infra Layer**: `app/infra/` contains all low-level infrastructure (config, database, llm, cache, tools)
-- **Middleware Layer**: `app/middleware/` contains all dynamic injectors (prompt, memory, model)
+- **Middleware Layer**: `app/agents/middleware/` contains all dynamic injectors (prompt, model)
 - **Agent Layer**: `app/agents/` uses `create_agent()` + middleware chain pattern
 - **app/support DELETED**: Entire directory removed; functionality migrated to middleware and infra/tools
 
@@ -21,7 +21,6 @@ app/
 - No Protocol-based interfaces — direct concrete implementations for PostgreSQL only
 - `app/infra/llm/model_manager.py`: ModelProvider singleton
 - `app/infra/cache/manager.py`: CacheManager singleton
-- `app/middleware/prompt/service.py`: PromptService singleton
 
 ## Database Layer (Simplified)
 ```
@@ -35,11 +34,57 @@ app/infra/database/
 └── factory.py           # Singleton factory functions
 ```
 
+**Public API:**
+- `get_database()` → PostgresDatabase singleton
+- `get_vectorstore()` → PGVectorVectorstore singleton
+- `get_checkpointer()` → PostgresCheckpointer singleton
+- `get_store()` → PostgresStore | None
+- `get_saver()` → BaseCheckpointSaver
+- `init_database()` / `dispose_database()` for lifecycle
+
 **Key simplifications:**
 - Removed `postgres/` subdirectory (flat structure)
 - Removed `protocols.py` (no unnecessary abstraction)
 - Removed per-component init functions (use `init_all()` only)
 - Removed async locks (FastAPI lifespan guarantees single-call initialization)
+
+## LLM Layer (Simplified)
+```
+app/infra/llm/
+├── __init__.py          # Public API exports (ONLY getters)
+├── manager.py           # Internal: ModelManager, Router, cache
+└── embedding.py         # Internal: LiteLLMEmbeddings
+```
+
+**Public API (minimal interface):**
+```python
+# Lifecycle
+init_models() -> None
+
+# Chat models
+get_system_llm() -> ChatLiteLLM           # System-level LLM from .env
+get_llm(model_id, thinking_mode) -> Runnable  # Per-request LLM with Router
+
+# Embedding (for LangGraph Store / VectorStore)
+get_embeddings() -> Embeddings | None     # LangChain Embeddings interface
+get_embedding_dimension() -> int | None   # Vector dimension
+
+# Cache management
+refresh_model_cache() -> None             # Call after model/provider CRUD
+```
+
+**Internal (not exposed):**
+- `ModelManager` class - implementation detail
+- `LiteLLMEmbeddings` class - implementation detail
+- `get_model_manager()` - internal function
+- `get_embed_fn()` / `get_embed_batch_fn()` - removed (redundant)
+
+**Design principles:**
+- Only expose getter functions, not implementation classes
+- `get_embeddings()` provides full `Embeddings` interface (aembed_query, aembed_documents)
+- Cache refresh encapsulated in `refresh_model_cache()` - no need to know about ModelManager
+- LangGraph Store uses: `embed: Callable[[Sequence[str]], list[list[float]]]`
+- PGVectorStore uses: `embedding_service: Embeddings`
 
 ## Key Technical Decisions (Phase 2 Additions)
 
@@ -64,8 +109,8 @@ agent = create_agent(
 ### Middleware Chain Pattern
 ```
 [Before Model Call]
-    chatbot_dynamic_prompt(@dynamic_prompt)
-        ↓ Builds system prompt from MD file + time context + user memory
+    supervisor_prompt(@dynamic_prompt)
+        ↓ Builds system prompt from MD file + time context
     dynamic_model(@wrap_model_call)
         ↓ Overrides model_name, thinking_mode from context
         ↓ Executes actual model call
@@ -98,15 +143,17 @@ request.runtime.context  ← accessed by middleware
 
 ### Prompt: External-Only Principle
 - **NO hardcoded templates anywhere in Python code**
-- All prompts live in external files: `data/prompts/<agent_id>.md`
-- PromptService reads from MD files, no builtin fallback dictionary
+- All prompts live in external files: `/app/agents/prompts/<agent_id>.md`
+- TTLCache (5 min) for template caching — prompts auto-refresh after edits
+- `preload_templates()` called at startup for zero first-request latency
 - `@dynamic_prompt` middleware injects at runtime (not compile time)
 
 ### Model: Dynamic Override Pattern
-- Default model from `ModelManager.get_default_llm_id()`
+- Default model from `ModelManager.default_llm_id` property
 - Per-request override via `context.model_name` (read by `dynamic_model` middleware)
 - Thinking mode also controlled via `context.thinking_mode`
 - Same agent can use different models for different requests
+- Cache refresh via `refresh_model_cache()` after model/provider CRUD operations
 
 ### Tool: Lazy Initialization Pattern
 ```python
@@ -164,31 +211,28 @@ async with db.session_readonly() as session:
 ## Component Relationships (Updated)
 ```
 main.py (lifespan)
-  └─ init_all() → init_database() + init_vectorstore() + init_checkpointer() + init_store()
-  └─ dispose_all()
+  └─ init_database() + init_models() + preload_templates() + init_agent()
 
 API routes
-  └─ ChatHandler.handle_input()
+  └─ get_agent() → CompiledStateGraph singleton
        └─ UserInput validation (user_id, model_name, thinking_mode)
-       └─ AgentRegistry.get("chatbot") → create_agent instance
        └─ agent.astream_events(..., context=context)
             └─ [middleware chain]
-                 └─ chatbot_dynamic_prompt: builds system prompt
+                 └─ supervisor_prompt: builds system prompt from MD + time context
                  └─ dynamic_model: overrides model params
             └─ Tool execution: get_current_time, web_search
             └─ Streaming events to SSE response
 
-Middleware
-  └─ PromptService: reads MD files, injects time context
-  └─ MemoryManager: interfaces with Store for long-term memory
-  └─ dynamic_model: reads context, overrides model params
+Middleware (module-level functions)
+  └─ supervisor_prompt (@dynamic_prompt): loads MD template with TTLCache
+  └─ dynamic_model (@wrap_model_call): reads context, overrides model params
 ```
 
 ## Critical Implementation Paths (Updated)
 - **Chat flow**: API → UserInput validation → context dict → agent.astream_events → middleware chain → SSE stream
-- **Prompt injection**: `@dynamic_prompt` middleware → PromptService.build_system_prompt → MD file + time context + memory
+- **Prompt injection**: `@dynamic_prompt` middleware → _get_template (TTLCache) → MD file + time context
 - **Model override**: `@wrap_model_call` middleware → reads context.model_name → overrides model params
-- **Long-term memory**: Store instance passed to create_agent → accessible via `request.runtime.store`
+- **Agent lifecycle**: `init_agent(checkpointer, store)` called once in lifespan, `get_agent()` for request-time access
 
 ## Design Patterns in Use
 - **Singleton**: Factory caches instances in module-level variables

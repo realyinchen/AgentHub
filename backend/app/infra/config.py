@@ -1,9 +1,3 @@
-import os
-
-# Disable LiteLLM remote model cost map fetch to avoid SSL timeout errors
-# This must be set BEFORE importing litellm anywhere in the codebase
-os.environ["LITELLM_LOCAL_MODEL_COST_MAP"] = "True"
-
 import logging
 from functools import lru_cache
 from pathlib import Path
@@ -113,29 +107,6 @@ class Settings(BaseSettings):
     # sequential tool calls.  Set to 0 to disable.
     # Recommended: 300 (5 minutes) for production.
     AGENT_STREAM_TIMEOUT: float = Field(default=300.0, ge=0)
-
-    # =========================================================================
-    # ModelRetryMiddleware — LLM Call Retry
-    # =========================================================================
-    # When enabled, failed model calls are automatically retried with
-    # exponential backoff.  This is a *supplement* to LiteLLM Router's
-    # built-in fallback + retry — they operate at different layers
-    # (middleware vs Router).  LiteLLM Router handles provider-level
-    # failover; ModelRetryMiddleware handles per-call transient errors.
-    MODEL_RETRY_ENABLED: bool = True
-
-    # Maximum retry attempts after the initial call.
-    MODEL_RETRY_MAX_RETRIES: int = Field(default=3, ge=1, le=10)
-
-    # Exponential backoff multiplier.  Each retry waits:
-    #   MODEL_RETRY_INITIAL_DELAY * (MODEL_RETRY_BACKOFF_FACTOR ** retry_number)
-    MODEL_RETRY_BACKOFF_FACTOR: float = Field(default=2.0, ge=0.0)
-
-    # Initial delay in seconds before the first retry.
-    MODEL_RETRY_INITIAL_DELAY: float = Field(default=1.0, ge=0.0)
-
-    # Maximum delay in seconds between retries (caps exponential growth).
-    MODEL_RETRY_MAX_DELAY: float = Field(default=60.0, ge=0.0)
 
     # =========================================================================
     # LiteLLM Router — Per-Call Timeout

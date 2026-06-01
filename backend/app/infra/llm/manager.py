@@ -1,26 +1,29 @@
-"""ModelManager — model cache, router orchestration, and LLM instance access.
+"""ModelManager — model cache and router orchestration.
 
-Caches:
-    - all active model configs (`_models_cache: model_id → Model`)
-    - all providers with API keys (`_providers_cache: provider → Provider`)
-    - default model IDs per type (llm / vlm / embedding)
-    - one LiteLLM Router (with fallback list) built from the model cache
+This module provides the ModelManager class that manages:
+    - Model/provider configuration cached from database
+    - LiteLLM Router for runtime model switching with fallback support
+    - Default model IDs per type (llm / vlm)
 
-Hot-reload: call `await manager.refresh()` after any model/provider CRUD operation.
-Thread-safety: an `asyncio.Lock` guards Router rebuilds (lazily created per-instance).
+Public API:
+    - get_model_manager(): Get the ModelManager singleton
+    - manager.refresh(): Refresh cache after model/provider CRUD operations
+    - manager.get_model_info_list(): Get cached models for API responses
+    - manager.router: Access the LiteLLM Router for factory use
 
-Fallback / retry is handled by the LiteLLM Router's built-in `fallbacks`
-and `num_retries` — no custom middleware needed.
-
-Runtime model switching is handled by `app.agents.middleware.model.model_middleware`
-(via `@wrap_model_call` reading `context.model_name`), which calls
-`app.infra.llm.factory.get_llm()` to obtain a per-request LLM instance.
-
-Application-scoped singleton is obtained via ``get_model_manager()`` (cached
-with ``@lru_cache``).
+Architecture:
+    ┌─────────────────────────────────────────────────────────────────────┐
+    │                      Model Manager                                   │
+    │                                                                      │
+    │  Cache (from DB):                                                    │
+    │    ├── _models_cache: model_id → Model                              │
+    │    ├── _providers_cache: provider → Provider                        │
+    │    └── _default_llm_id / _default_vlm_id                            │
+    │                                                                      │
+    │  Router (built from cache):                                          │
+    │    └── LiteLLM Router with fallback list                             │
+    └─────────────────────────────────────────────────────────────────────┘
 """
-
-from __future__ import annotations
 
 import asyncio
 import logging
@@ -32,7 +35,6 @@ from litellm.router import Router
 
 from app.crud import model as model_crud
 from app.crud import provider as provider_crud
-from app.infra.config import get_settings
 from app.infra.database import get_database
 from app.utils.crypto import decrypt_api_key
 
@@ -46,45 +48,6 @@ litellm.enable_json_schema_validation = True
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Provider-specific extra_body builder for thinking-mode control
-# ─────────────────────────────────────────────────────────────────────────────
-
-def build_extra_body(provider: str, thinking_enabled: bool) -> dict:
-    """Build provider-specific `extra_body` for thinking-mode control.
-
-    Each provider has a different mechanism for enabling/disabling
-    reasoning/thinking mode.
-
-    IMPORTANT: When `thinking_enabled=False`, we MUST explicitly disable
-    reasoning to prevent LiteLLM from auto-enabling it based on model name.
-
-    Supported providers:
-        - DashScope (Alibaba Cloud): `enable_thinking: bool`
-        - ZhipuAI (zai):             `thinking: {type: enabled|disabled}`
-        - DeepSeek:                  no extra params (R1 reasons by design)
-        - OpenAI:                    `reasoning_effort: medium` for o1/o3 when on
-        - Others:                    no params
-
-    Args:
-        provider: Provider name (e.g. "dashscope", "zai", "openai").
-        thinking_enabled: Whether to enable thinking/reasoning mode.
-
-    Returns:
-        Dict to pass as `extra_body` to LiteLLM.
-    """
-    p = provider.lower()
-    if p == "dashscope":
-        return {"enable_thinking": thinking_enabled}
-    if p == "zai":
-        return {"thinking": {"type": "enabled" if thinking_enabled else "disabled"}}
-    if p == "deepseek":
-        return {}
-    if p == "openai":
-        return {"reasoning_effort": "medium"} if thinking_enabled else {}
-    return {}
-
-
-# ─────────────────────────────────────────────────────────────────────────────
 # ModelManager
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -95,7 +58,7 @@ class ModelManager:
     Caches:
         - all active model configs (`_models_cache: model_id → Model`)
         - all providers with API keys (`_providers_cache: provider → Provider`)
-        - default model IDs per type (llm / vlm / embedding)
+        - default model IDs per type (llm / vlm)
         - one LiteLLM Router (with fallback list) built from the model cache
 
     Hot-reload: call `await manager.refresh()` after any model/provider CRUD
@@ -111,7 +74,6 @@ class ModelManager:
         self._providers_cache: dict = {}
         self._default_llm_id: Optional[str] = None
         self._default_vlm_id: Optional[str] = None
-        self._default_embedding_id: Optional[str] = None
         self._initialized: bool = False
 
         self._router: Optional[Router] = None
@@ -164,20 +126,14 @@ class ModelManager:
             fallbacks = self._build_fallbacks()
 
             if model_list:
-                settings = get_settings()
-                timeout = settings.LLM_REQUEST_TIMEOUT if settings.LLM_REQUEST_TIMEOUT > 0 else None
                 self._router = Router(
                     model_list=model_list,
                     fallbacks=fallbacks if fallbacks else [],
-                    num_retries=2,
-                    retry_after=1,
-                    timeout=timeout,
                 )
                 logger.info(
-                    "LiteLLM Router initialized with %d models, %d fallback rules, timeout=%s",
+                    "LiteLLM Router initialized with %d models, %d fallback rules",
                     len(model_list),
                     len(fallbacks),
-                    f"{timeout}s" if timeout else "disabled",
                 )
             else:
                 self._router = None
@@ -213,7 +169,9 @@ class ModelManager:
             }
             if base_url:
                 litellm_params["api_base"] = base_url
-            result.append({"model_name": full_model_id, "litellm_params": litellm_params})
+            result.append(
+                {"model_name": full_model_id, "litellm_params": litellm_params}
+            )
         return result
 
     def _build_fallbacks(self) -> list[dict]:
@@ -267,7 +225,6 @@ class ModelManager:
 
         new_default_llm: Optional[str] = None
         new_default_vlm: Optional[str] = None
-        new_default_embedding: Optional[str] = None
         for m in models:
             if not getattr(m, "is_default", False):
                 continue
@@ -276,8 +233,6 @@ class ModelManager:
                 new_default_llm = str(m.model_id)
             elif mt == "vlm":
                 new_default_vlm = str(m.model_id)
-            elif mt == "embedding":
-                new_default_embedding = str(m.model_id)
 
         # Atomic swap under lock — readers see either old or new, never partial
         async with self.router_lock:
@@ -285,7 +240,6 @@ class ModelManager:
             self._models_cache = new_models
             self._default_llm_id = new_default_llm
             self._default_vlm_id = new_default_vlm
-            self._default_embedding_id = new_default_embedding
             self._initialized = True
 
             # Invalidate Router so it gets rebuilt from new caches
@@ -340,10 +294,6 @@ class ModelManager:
     def default_vlm_id(self) -> Optional[str]:
         return self._default_vlm_id
 
-    @property
-    def default_embedding_id(self) -> Optional[str]:
-        return self._default_embedding_id
-
     def is_model_active(self, model_id: str) -> bool:
         """Check if a model is present in the cache and marked active."""
         m = self._models_cache.get(model_id)
@@ -357,68 +307,6 @@ class ModelManager:
             ):
                 return str(m.model_id)
         return None
-
-    async def get_embedding_model(self, model_id: Optional[str] = None):
-        """Return (litellm_model_id, api_key) for use with litellm.aembedding().
-
-        Resolves the embedding model from the cache (or the configured default)
-        and returns the LiteLLM-compatible model ID string and decrypted API key.
-
-        Args:
-            model_id: Optional model identifier. If None, uses the default
-                      embedding model from settings/cache.
-
-        Returns:
-            (model_id, api_key) tuple — model_id is the LiteLLM-compatible
-            string, api_key is the credential for the provider.
-        """
-        if not self._initialized:
-            await self.refresh()
-
-        target_id = model_id or self._default_embedding_id
-
-        # ── Fallback: use SYSTEM_DEFAULT_EMBEDDING_MODEL from .env ──────
-        if target_id is None:
-            settings = get_settings()
-            target_id = settings.SYSTEM_DEFAULT_EMBEDDING_MODEL
-            if target_id is None:
-                return None, None
-            api_key = settings.system_default_embedding_api_key or ""
-            return target_id, api_key
-
-        model_config = self._models_cache.get(target_id)
-        if model_config is None:
-            logger.warning("Embedding model '%s' not found in cache", target_id)
-            return None, None
-
-        provider = model_config.provider
-        provider_config = self._providers_cache.get(provider)
-        api_key = ""
-        if provider_config and provider_config.api_key:
-            api_key = decrypt_api_key(provider_config.api_key)
-
-        # Build the LiteLLM-compatible model ID
-        litellm_model_id = self._resolve_embedding_model_id(
-            target_id,
-            provider,
-            getattr(provider_config, "base_url", None) if provider_config else None,
-        )
-
-        return litellm_model_id, api_key
-
-    @staticmethod
-    def _resolve_embedding_model_id(
-        model_id: str, provider: str, base_url: Optional[str] = None
-    ) -> str:
-        """Resolve the LiteLLM-compatible embedding model ID.
-
-        All model_ids are now stored without provider prefix.
-        We always prefix with provider for LiteLLM compatibility.
-        e.g. "text-embedding-3-small" → "openai/text-embedding-3-small"
-        """
-        if "/" in model_id:
-            return model_id
-        return f"{provider}/{model_id}"
 
     def get_models_count(self) -> int:
         return len(self._models_cache)

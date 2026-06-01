@@ -1,4 +1,3 @@
-
 """Domain-specific error hierarchy for AgentHub.
 
 These exceptions enable the API layer to map error causes to appropriate
@@ -16,8 +15,6 @@ Usage::
     except SomeToolError:
         raise ToolError(tool_name="search", original_error=e)
 """
-
-from __future__ import annotations
 
 from typing import Any
 

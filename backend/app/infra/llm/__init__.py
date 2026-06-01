@@ -1,28 +1,53 @@
 """LLM infrastructure package.
 
-Consolidates all LLM management into two clearly separated modules:
-    - manager.py:  ModelManager (cache, router, config access) + build_extra_body
-    - factory.py:  get_llm() + get_system_llm() — unified LLM factory
-
 Public API:
-    - ModelManager:           model cache, router, thinking-mode queries
-    - get_model_manager:      DI accessor for ModelManager
-    - get_llm:                create ChatLiteLLMRouter (per-request, with fallback)
-    - get_system_llm:         system-level always-available LLM (from .env),
-                              used by agents at compile time and all internal
-                              LLM calls (summarization, memory, titles, ...)
+    Lifecycle:
+        - init_models(): Initialize all models (call during lifespan startup)
 
-Backward compatibility:
-    - get_system_default_llm: alias for get_system_llm (deprecated)
+    System LLM (from .env):
+        - get_system_llm(): Get system-level default LLM singleton
+                           Used for: summarization, title generation, compile-time default
+
+    Runtime LLM:
+        - get_llm(model_id, thinking_mode): Get a ChatLiteLLMRouter for runtime model switching
+                                           Models configured in DB (providers + models tables)
+
+    Embedding (from .env):
+        - get_embeddings(): Return LiteLLMEmbeddings instance (LangChain Embeddings interface)
+                           Dimension: settings.EMBEDDING_DIMENSION
+
+    Model Manager:
+        - get_model_manager(): Get the ModelManager singleton for cache access
+        - Use manager.refresh() to refresh cache after CRUD operations
+
+Configuration sources:
+    - System LLM:     .env (SYSTEM_DEFAULT_LLM_MODEL)
+    - Embedding:      .env (SYSTEM_DEFAULT_EMBEDDING_MODEL, EMBEDDING_DIMENSION)
+    - Runtime models: DB (providers + models tables) — /api/v1/models CRUD
+
+Model info for frontend:
+    - GET /api/v1/models — Returns all models with: is_active, is_default, thinking, etc.
+    - No need to call infra.llm functions directly for model info.
+
+Note: Internal implementation classes (LiteLLMEmbeddings, ModelManager) and
+helper functions (_resolve_model_id, _get_default_llm_id, etc.) are not exposed.
+Business code should only use the getter functions above.
 """
 
-from app.infra.llm.factory import get_llm, get_system_llm, get_system_default_llm
-from app.infra.llm.manager import ModelManager, get_model_manager
+import logging
+
+from app.infra.llm.embedding import get_embeddings
+from app.infra.llm.factory import get_llm
+from app.infra.llm.manager import get_model_manager
+from app.infra.llm.resolver import resolve_model_name
+from app.infra.llm.system_llm import get_system_llm
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
-    "ModelManager",
-    "get_model_manager",
-    "get_llm",
     "get_system_llm",
-    "get_system_default_llm",  # backward compatibility
+    "get_llm",
+    "get_embeddings",
+    "get_model_manager",
+    "resolve_model_name",
 ]

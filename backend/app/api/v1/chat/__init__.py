@@ -2,7 +2,7 @@
 
 Aggregates sub-routers for:
     run.py           — POST /chat/invoke + /chat/stream
-    conversations.py — /chat/conversations CRUD + title + thinking-mode
+    conversations.py — /chat/conversations CRUD + title
     history.py       — GET /chat/history/{thread_id}
     stats.py         — GET /chat/conversations/{id}/stats + /requests/{rid}/stats
 """

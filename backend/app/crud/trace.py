@@ -4,19 +4,25 @@ Read paths return (dag_data, steps, total_steps) tuples for direct
 deserialization in trace endpoints. Write paths are used by stream/invoke
 to persist DAG at completion time.
 
-Since the architecture now uses a single supervisor agent, the ``agent_id``
-column is always set to the constant ``"supervisor"``.
+Persistence Function:
+    ``persist_agent_trace`` — Unified token + DAG persistence after agent response.
 """
 
+import logging
 from uuid import UUID
+
+from langgraph.graph.state import CompiledStateGraph
+
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.crud import chat as chat_crud
 from app.models.trace import TraceExecution
+from app.utils.dag import DagBuilder
 
-# Constant agent_id — there is only one graph now.
-_SUPERVISOR_ID = "supervisor"
+
+logger = logging.getLogger(__name__)
 
 
 async def get_latest_dag_and_steps(
@@ -45,9 +51,7 @@ async def get_latest_dag_and_steps(
     return dag, dag.get("steps", []), row.total_steps
 
 
-async def get_latest_model_name(
-    db: AsyncSession, thread_id: UUID
-) -> str | None:
+async def get_latest_model_name(db: AsyncSession, thread_id: UUID) -> str | None:
     """Return the model_name from the most recent trace in a thread.
 
     Used when entering a historical conversation to determine which LLM model
@@ -88,8 +92,6 @@ async def upsert_trace(
     Uses request_id as the business key — overwrites any previous entry
     for the same request to support idempotent retries.
 
-    agent_id is always ``"supervisor"`` since there is only one graph.
-
     Args:
         db: Database session.
         thread_id: Parent conversation thread.
@@ -112,7 +114,6 @@ async def upsert_trace(
     if existing is not None:
         existing.dag_data = dag_data
         existing.total_steps = total_steps
-        existing.agent_id = _SUPERVISOR_ID
         existing.model_name = model_name
         existing.input_tokens = input_tokens
         existing.cache_read = cache_read
@@ -124,7 +125,6 @@ async def upsert_trace(
 
     row = TraceExecution(
         thread_id=thread_id,
-        agent_id=_SUPERVISOR_ID,
         request_id=request_id,
         dag_data=dag_data,
         total_steps=total_steps,
@@ -138,3 +138,71 @@ async def upsert_trace(
     db.add(row)
     await db.flush()
     return row
+
+
+async def persist_agent_trace(
+    db: AsyncSession,
+    agent: CompiledStateGraph,
+    *,
+    thread_id: UUID,
+    request_id: str,
+    model_name: str | None,
+    tokens: dict[str, int],
+) -> None:
+    """Persist token usage and execution DAG after an agent response.
+
+    Unified persistence function that handles:
+    1. Token usage update to conversations table
+    2. DAG snapshot upsert to trace_executions table
+
+    Both operations are wrapped in independent try/except blocks so that
+    a failure in one (e.g. DAG construction) never prevents the other
+    from completing.
+
+    Args:
+        db: An active async database session (not auto-committed inside
+            this function — the caller owns transaction boundaries).
+        agent: A compiled LangGraph agent used for DAG reconstruction.
+        thread_id: Conversation thread identifier.
+        request_id: Unique request identifier for this invocation.
+        model_name: Resolved model name (or None).
+        tokens: A dict with keys: input_tokens, cache_read, output_tokens,
+            reasoning, total_tokens.
+    """
+
+    thread_id_str = str(thread_id)
+
+    # Token persistence
+    if tokens["total_tokens"] > 0:
+        try:
+            await chat_crud.update_conversation_tokens(
+                db=db,
+                thread_id=thread_id,
+                input_tokens=tokens["input_tokens"],
+                cache_read=tokens["cache_read"],
+                output_tokens=tokens["output_tokens"],
+                reasoning=tokens["reasoning"],
+                total_tokens=tokens["total_tokens"],
+            )
+        except Exception:
+            logger.exception("Failed to persist token usage for %s", request_id)
+
+    # DAG persistence
+    try:
+        dag_builder = DagBuilder(agent)
+        dag = await dag_builder.get_execution_dag(thread_id_str)
+        await upsert_trace(
+            db=db,
+            thread_id=thread_id,
+            request_id=str(request_id),
+            dag_data=dag.model_dump(),
+            total_steps=len(dag.steps),
+            model_name=model_name,
+            input_tokens=tokens.get("input_tokens", 0),
+            cache_read=tokens.get("cache_read", 0),
+            output_tokens=tokens.get("output_tokens", 0),
+            reasoning=tokens.get("reasoning", 0),
+            total_tokens=tokens.get("total_tokens", 0),
+        )
+    except Exception:
+        logger.exception("Failed to persist DAG for %s", request_id)

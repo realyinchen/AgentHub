@@ -19,8 +19,6 @@ Usage::
     root_logger.addFilter(RequestIdFilter())
 """
 
-from __future__ import annotations
-
 import contextvars
 import json
 import logging

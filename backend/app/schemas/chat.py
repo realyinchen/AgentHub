@@ -9,9 +9,12 @@ Trace / observability schemas live in ``app.schemas.trace``.
 """
 
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Any, Literal
+from typing import Any, Literal, cast, overload
 from uuid import UUID
 from datetime import datetime, timezone
+
+from langchain_core.messages import BaseMessage
+from langchain_core.messages import content as types
 
 from app.schemas.trace import StepOutput
 
@@ -236,15 +239,6 @@ class DailyStatsItem(BaseModel):
     total_tokens: int = Field(default=0, description="Total tokens consumed")
 
 
-# ── Thinking mode ───────────────────────────────────────────────────────────
-
-
-class ThinkingModeStatus(BaseModel):
-    """Response for GET /chat/thinking-mode."""
-
-    available: bool = Field(description="Whether thinking mode is available")
-
-
 # ── Title schemas ───────────────────────────────────────────────────────────
 
 
@@ -272,11 +266,6 @@ class TitleGenerateResponse(BaseModel):
 
 
 # ── Human-in-the-Loop Interrupt Message ───────────────────────────────────────
-
-
-from langchain_core.messages import BaseMessage
-from langchain_core.messages import content as types
-from typing import Any, Literal, cast, overload
 
 
 class InterruptMessage(BaseMessage):

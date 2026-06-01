@@ -1,8 +1,9 @@
-"""SSE Streaming — LangGraph v3 typed-projection consumer.
+"""SSE Streaming Service — ChatStreamingService business logic.
 
-Wraps the agent's ``astream_events(version="v3")`` output in a
-service class that yields Server-Sent Events (SSE) for the
-``/chat/stream`` endpoint.
+This module contains the business logic for streaming agent responses via SSE.
+Moved from utils/sse.py to follow layer separation:
+- Services layer: business logic (ChatStreamingService)
+- Utils layer: helper functions (sse, sse_error, AsyncWriteQueue)
 
 Architecture:
     - **Projection consumers** run as concurrent ``asyncio.Task`` instances,
@@ -18,173 +19,36 @@ middleware (``app.agents.middleware.model``) — this service never
 retries or swaps models.
 """
 
-from __future__ import annotations
-
 import asyncio
-import json as _json
 import logging
 import time
 import uuid
-from collections.abc import AsyncGenerator, AsyncIterator, Awaitable
-from typing import Protocol, TypedDict
+from collections.abc import AsyncGenerator
 
-from langchain_core.messages import BaseMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from app.infra.config import get_settings
 from app.infra.database import get_database
+from app.infra.llm.resolver import resolve_model_name
 from app.schemas.chat import UserInput
-from app.utils.request_handler import build_agent_kwargs
-from app.utils.message_utils import langchain_to_chat_message
-from app.utils.stream_helpers import (
-    resolve_model_name,
+from app.utils.sse import (
+    AsyncWriteQueue,
+    StreamState,
+    StreamV3Projection,
+    sse,
+    sse_error,
+    has_meaningful_content,
+)
+from app.utils.request import build_agent_kwargs
+from app.utils.message import (
     empty_totals,
     extract_usage,
     accumulate_usage,
+    langchain_to_chat_message,
 )
 
+
 logger = logging.getLogger(__name__)
-
-
-# ── Protocols & shared state ────────────────────────────────────────────────
-
-
-class StreamV3Projection(Protocol):
-    """Protocol for LangGraph v3 stream event projections.
-
-    LangGraph's ``astream_events(version="v3")`` returns a typed proxy that
-    exposes per-projection async iterators (``.messages``, ``.tool_calls``,
-    ``.values``). This Protocol captures the subset used by our consumers.
-    """
-
-    @property
-    def messages(self) -> AsyncIterator: ...
-
-    @property
-    def tool_calls(self) -> AsyncIterator: ...
-
-    @property
-    def values(self) -> AsyncIterator: ...
-
-
-class StreamState(TypedDict):
-    """Mutable state shared across projection consumer coroutines."""
-
-    step_counter: int
-    first_chunk_time: float | None
-    accumulated_tokens: dict[str, int]
-    final_message: BaseMessage | None
-    final_state_messages: list[BaseMessage] | None
-
-
-# ── SSE formatting helpers ────────────────────────────────────────────────────
-
-
-def sse(data: object) -> str:
-    """Format data as a Server-Sent Event message."""
-    return f"data: {_json.dumps(data, ensure_ascii=False)}\n\n"
-
-
-def sse_error(content: str, error_type: str = "error") -> str:
-    """Format an error as a Server-Sent Event message."""
-    return sse({"type": "error", "content": content, "error_type": error_type})
-
-
-def has_meaningful_content(output: object) -> bool:
-    """Return whether a LangChain message output contains user-visible text."""
-    if output is None:
-        return False
-    content = getattr(output, "content", "")
-    if isinstance(content, str):
-        return bool(content.strip())
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                if block.get("text", "").strip():
-                    return True
-    return False
-
-
-# ── AsyncWriteQueue ───────────────────────────────────────────────────────────
-
-
-class AsyncWriteQueue:
-    """Safe async write queue for SSE streaming — eliminates first-token jitter.
-
-    Writes (e.g. DB persistence) are fire-and-forget during streaming, then
-    awaited at the end. Concurrency is capped via a semaphore; retries use
-    exponential backoff.
-
-    Usage::
-
-        queue = AsyncWriteQueue()
-        queue.add("persist", _persist_tokens())
-        # ... yield SSE events ...
-        await queue.wait_all()
-    """
-
-    def __init__(self, max_concurrent: int = 8, timeout: float | None = None) -> None:
-        self._tasks: list[asyncio.Task] = []
-        self._semaphore = asyncio.Semaphore(max_concurrent)
-        self._default_timeout = timeout
-
-    def add(self, name: str, coro: Awaitable, max_retries: int = 3) -> None:
-        async def _task():
-            async with self._semaphore:
-                for attempt in range(max_retries):
-                    try:
-                        return await coro
-                    except Exception as exc:
-                        if attempt < max_retries - 1:
-                            backoff = 0.1 * (2 ** attempt)
-                            logger.warning(
-                                "[AsyncWriteQueue] Retry [%s] %d/%d: %s",
-                                name,
-                                attempt + 1,
-                                max_retries,
-                                exc,
-                            )
-                            await asyncio.sleep(backoff)
-                        else:
-                            logger.error(
-                                "[AsyncWriteQueue] Failed [%s] (exhausted): %s",
-                                name,
-                                exc,
-                            )
-                            return None
-
-        self._tasks.append(asyncio.create_task(_task()))
-
-    async def wait_all(self, timeout: float | None = None) -> None:
-        if not self._tasks:
-            return
-        actual_timeout = timeout or self._default_timeout
-        try:
-            if actual_timeout:
-                await asyncio.wait_for(
-                    asyncio.gather(*self._tasks, return_exceptions=True),
-                    timeout=actual_timeout,
-                )
-            else:
-                await asyncio.gather(*self._tasks, return_exceptions=True)
-            logger.debug("[AsyncWriteQueue] Completed %d writes", len(self._tasks))
-        except asyncio.TimeoutError:
-            logger.warning(
-                "[AsyncWriteQueue] Timeout (%ss), writes continue in background",
-                actual_timeout,
-            )
-        finally:
-            self._tasks.clear()
-
-    async def __aenter__(self) -> "AsyncWriteQueue":
-        return self
-
-    async def __aexit__(self, exc_type: object, exc_val: object, exc_tb: object) -> bool:
-        await self.wait_all()
-        return False
-
-
-# ── ChatStreamingService ─────────────────────────────────────────────────────
 
 
 class ChatStreamingService:
@@ -206,7 +70,7 @@ class ChatStreamingService:
     def __init__(self, agent: CompiledStateGraph) -> None:
         self._agent = agent
 
-    # ── Public API ────────────────────────────────────────────────────────
+    # ── Public API ────────────────────────────────────────────────
 
     async def generate(self, user_input: UserInput) -> AsyncGenerator[str, None]:
         """Generate SSE events from agent execution using LangChain v3 event streaming.
@@ -221,7 +85,7 @@ class ChatStreamingService:
         Yields:
             SSE-formatted strings (e.g. ``"data: {...}\\n\\n"``).
         """
-        # ── Validate model availability ────────────────────────────────
+        # ── Validate model availability ────────────────────────────
         initial_model = resolve_model_name(user_input.model_name)
         if not initial_model:
             logger.error("No models available for streaming")
@@ -234,7 +98,7 @@ class ChatStreamingService:
         if not user_input.model_name:
             user_input = user_input.model_copy(update={"model_name": initial_model})
 
-        # ── Build agent invocation kwargs ──────────────────────────────
+        # ── Build agent invocation kwargs ──────────────────────────
         kwargs = await build_agent_kwargs(user_input)
         config = kwargs["config"]
         context = kwargs["context"]
@@ -258,7 +122,7 @@ class ChatStreamingService:
             initial_model,
         )
 
-        # ── Stream state (mutated by consumer coroutines) ──────────────
+        # ── Stream state (mutated by consumer coroutines) ──────────
         state: StreamState = {
             "step_counter": 0,
             "first_chunk_time": None,
@@ -269,10 +133,10 @@ class ChatStreamingService:
         started_at = time.perf_counter()
         write_queue = AsyncWriteQueue()
 
-        # ── Send SSE prelude to flush through proxies ──────────────────
+        # ── Send SSE prelude to flush through proxies ──────────────
         yield f": {' ' * 2048}\n\n"
 
-        # ── Emit initial human step ────────────────────────────────────
+        # ── Emit initial human step ────────────────────────────────
         state["step_counter"] += 1
         yield sse(
             {
@@ -283,15 +147,13 @@ class ChatStreamingService:
             }
         )
 
-        # ── Resolve stream timeout ────────────────────────────────────
+        # ── Resolve stream timeout ─────────────────────────────────
         settings = get_settings()
         stream_timeout = (
-            settings.AGENT_STREAM_TIMEOUT
-            if settings.AGENT_STREAM_TIMEOUT > 0
-            else None
+            settings.AGENT_STREAM_TIMEOUT if settings.AGENT_STREAM_TIMEOUT > 0 else None
         )
 
-        # ── Run stream + consumers concurrently, drained via queue ─────
+        # ── Run stream + consumers concurrently, drained via queue ─
         out_queue: asyncio.Queue = asyncio.Queue()
         _SENTINEL = object()
         consumer_tasks: list[asyncio.Task] = []
@@ -316,9 +178,7 @@ class ChatStreamingService:
                     asyncio.create_task(
                         self._consume_tool_calls(stream, out_queue, state)
                     ),
-                    asyncio.create_task(
-                        self._consume_values(stream, out_queue, state)
-                    ),
+                    asyncio.create_task(self._consume_values(stream, out_queue, state)),
                 ]
 
                 async def _wait_and_signal():
@@ -327,7 +187,7 @@ class ChatStreamingService:
                         await asyncio.gather(*consumer_tasks)
                         await out_queue.put(_SENTINEL)
                     except Exception as e:
-                        logger.exception(f"Consumer task failed: {e}")
+                        logger.exception("Consumer task failed: %s", e)
                         await out_queue.put(e)
 
                 completion_task = asyncio.create_task(_wait_and_signal())
@@ -357,7 +217,7 @@ class ChatStreamingService:
             return
 
         except Exception as e:
-            logger.exception(f"Stream setup error: {e}")
+            logger.exception("Stream setup error: %s", e)
             yield sse_error(f"Stream error: {type(e).__name__}: {str(e)[:200]}")
 
         finally:
@@ -389,70 +249,38 @@ class ChatStreamingService:
                     continue
                 yield item
 
-            # ── Emit final assembled message ───────────────────────────
+            # ── Emit final assembled message ───────────────────────
             final_messages = state.get("final_state_messages")
             if final_messages:
                 last = final_messages[-1]
                 if hasattr(last, "content") and last.content:
                     try:
                         chat_msg = langchain_to_chat_message(last)
-                        yield sse(
-                            {"type": "message", "content": chat_msg.model_dump()}
-                        )
+                        yield sse({"type": "message", "content": chat_msg.model_dump()})
                     except Exception as e:
-                        logger.error(f"Error converting final message: {e}")
+                        logger.error("Error converting final message: %s", e)
 
-            # ── Persist tokens and DAG (non-blocking) ──────────────────────
+            # ── Persist tokens and DAG (non-blocking) ──────────────
             tokens = state["accumulated_tokens"]
 
             async def _persist_tokens_and_dag() -> None:
                 """Persist token usage and execution DAG after stream completes."""
-                from app.crud import chat as chat_crud
-                from app.crud import trace as trace_crud
-                from app.utils.dag import DagBuilder
+                from app.crud.trace import persist_agent_trace
 
                 db = get_database()
                 async with db.session() as session:
-                    # Token persistence
-                    if tokens["total_tokens"] > 0:
-                        try:
-                            await chat_crud.update_conversation_tokens(
-                                db=session,
-                                thread_id=thread_id,
-                                input_tokens=tokens["input_tokens"],
-                                cache_read=tokens["cache_read"],
-                                output_tokens=tokens["output_tokens"],
-                                reasoning=tokens["reasoning"],
-                                total_tokens=tokens["total_tokens"],
-                            )
-                        except Exception:
-                            logger.exception(
-                                "Failed to persist token usage for %s", request_id
-                            )
-
-                    # DAG persistence
-                    try:
-                        dag_builder = DagBuilder(self._agent)
-                        dag = await dag_builder.get_execution_dag(thread_id_str)
-                        await trace_crud.upsert_trace(
-                            db=session,
-                            thread_id=thread_id,
-                            request_id=str(request_id),
-                            dag_data=dag.model_dump(),
-                            total_steps=len(dag.steps),
-                            model_name=initial_model,
-                            input_tokens=tokens.get("input_tokens", 0),
-                            cache_read=tokens.get("cache_read", 0),
-                            output_tokens=tokens.get("output_tokens", 0),
-                            reasoning=tokens.get("reasoning", 0),
-                            total_tokens=tokens.get("total_tokens", 0),
-                        )
-                    except Exception:
-                        logger.exception("Failed to persist DAG for %s", request_id)
+                    await persist_agent_trace(
+                        db=session,
+                        agent=self._agent,
+                        thread_id=thread_id,
+                        request_id=request_id,
+                        model_name=initial_model,
+                        tokens=tokens,
+                    )
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
 
-            # ── Performance log ────────────────────────────────────────
+            # ── Performance log ────────────────────────────────────
             if state["first_chunk_time"] is not None:
                 logger.info(
                     "Stream completed: first_chunk=%.1fms, total=%.1fms",
@@ -492,9 +320,7 @@ class ChatStreamingService:
             # Stream reasoning deltas (thinking models)
             async for delta in message.reasoning:
                 if delta:
-                    await out_queue.put(
-                        sse({"type": "reasoning", "content": delta})
-                    )
+                    await out_queue.put(sse({"type": "reasoning", "content": delta}))
 
             # Finalized message arrives last
             final = message.output
@@ -507,8 +333,11 @@ class ChatStreamingService:
             if usage:
                 accumulate_usage(state["accumulated_tokens"], usage)
                 logger.info(
-                    f"[{node_name}] Token usage: input={usage.get('input_tokens', 0)}, "
-                    f"output={usage.get('output_tokens', 0)}, total={usage.get('total_tokens', 0)}"
+                    "[%s] Token usage: input=%d, output=%d, total=%d",
+                    node_name,
+                    usage.get("input_tokens", 0),
+                    usage.get("output_tokens", 0),
+                    usage.get("total_tokens", 0),
                 )
                 await out_queue.put(
                     sse(
@@ -575,7 +404,7 @@ class ChatStreamingService:
             try:
                 await call.output
             except Exception as e:
-                logger.warning(f"Tool {tool_name} raised: {e}")
+                logger.warning("Tool %s raised: %s", tool_name, e)
 
             # Tool end
             await out_queue.put(
@@ -602,14 +431,3 @@ class ChatStreamingService:
                 messages = snapshot.get("messages")
                 if messages:
                     state["final_state_messages"] = messages
-
-
-__all__ = [
-    "ChatStreamingService",
-    "AsyncWriteQueue",
-    "StreamState",
-    "StreamV3Projection",
-    "sse",
-    "sse_error",
-    "has_meaningful_content",
-]

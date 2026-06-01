@@ -1,15 +1,15 @@
-"""
-PostgreSQL Store backend (LangGraph AsyncPostgresStore).
+"""PostgreSQL Store backend (LangGraph AsyncPostgresStore).
 
 Provides long-term memory (cross-session, cross-thread) with optional
 vector semantic search. Enables agents to remember user preferences
 and facts across conversations.
 
+Embedding functions are provided by infra.llm.embedding module (singleton
+LiteLLMEmbeddings instance created at startup).
+
 Reference:
 https://docs.langchain.com/oss/python/langchain/long-term-memory
 """
-
-from __future__ import annotations
 
 import logging
 from typing import AsyncContextManager, Optional, Sequence, cast
@@ -47,7 +47,7 @@ class PostgresStore:
 
         settings = get_settings()
         conn_string = settings.get_postgres_conn_string()
-        index_config = await self._try_build_index_config()
+        index_config = await self._build_index_config()
 
         try:
             if index_config is not None:
@@ -73,57 +73,30 @@ class PostgresStore:
                 operation="initialize",
             ) from e
 
-    async def _try_build_index_config(self) -> Optional[PostgresIndexConfig]:
+    async def _build_index_config(self) -> Optional[PostgresIndexConfig]:
         """Build vector-search index config if an embedding model is available."""
-        try:
-            from app.infra.llm.model_manager import get_model_manager
+        from app.infra.llm import get_embeddings
 
-            model_id, _ = await get_model_manager().get_embedding_model()
-            if model_id is None:
-                return None
+        settings = get_settings()
 
-            dims = await self._probe_embedding_dims()
-
-            async def embed_texts(texts: Sequence[str]) -> list[list[float]]:
-                import litellm
-                from app.infra.llm.model_manager import get_model_manager as _gmm
-
-                m_id, api_key = await _gmm().get_embedding_model()
-                if m_id is None:
-                    raise ValueError("No embedding model configured")
-                response = await litellm.aembedding(
-                    model=m_id, input=list(texts), api_key=api_key
-                )
-                return [item["embedding"] for item in response.data]
-
-            return cast(
-                PostgresIndexConfig,
-                {"dims": dims, "embed": embed_texts, "fields": ["$"]},
-            )
-        except Exception as e:
-            logger.warning(
-                "Failed to build Store vector index config: %s. "
-                "Store will operate without semantic search.",
-                e,
+        embeddings = get_embeddings()
+        if embeddings is None:
+            logger.info(
+                "No embedding model configured, Store will operate without semantic search"
             )
             return None
 
-    async def _probe_embedding_dims(self) -> int:
-        """Detect embedding dimensions by calling the embedding model."""
-        try:
-            import litellm
-            from app.infra.llm.model_manager import get_model_manager
+        async def embed_texts(texts: Sequence[str]) -> list[list[float]]:
+            return await embeddings.aembed_documents(list(texts))
 
-            model_id, api_key = await get_model_manager().get_embedding_model()
-            if model_id is None:
-                return 1536
-            response = await litellm.aembedding(
-                model=model_id, input=["probe"], api_key=api_key
-            )
-            return len(response.data[0]["embedding"])
-        except Exception as e:
-            logger.warning("Could not probe embedding dims, defaulting to 1536: %s", e)
-            return 1536
+        return cast(
+            PostgresIndexConfig,
+            {
+                "dims": settings.EMBEDDING_DIMENSION,
+                "embed": embed_texts,
+                "fields": ["$"],
+            },
+        )
 
     def get_store(self) -> AsyncPostgresStore:
         """Return the LangGraph-compatible store."""
@@ -204,12 +177,31 @@ class PostgresStore:
         await self._store.adelete(namespace, key)
 
     async def dispose(self) -> None:
-        if self._cm is not None:
+        """Dispose the store connection.
+
+        Uses graceful cleanup: attempts normal exit first, then forced cleanup
+        on any remaining resources. Safe to call multiple times.
+        """
+        if self._cm is None:
+            return
+
+        # Clear references first to prevent reuse during cleanup
+        cm = self._cm
+        self._store = None
+        self._cm = None
+
+        try:
+            await cm.__aexit__(None, None, None)
+            logger.info("PostgreSQL Store disposed")
+        except Exception as e:
+            # Log but don't raise - cleanup should be best-effort
+            logger.warning("Error disposing Store (cleanup continued): %s", e)
+            # Ensure resources are released even on error
             try:
-                await self._cm.__aexit__(None, None, None)
-            except Exception as e:
-                logger.warning("Error disposing Store: %s", e)
+                # Force cleanup with exception context
+                exc_info = (type(e), e, e.__traceback__)
+                await cm.__aexit__(*exc_info)
+            except Exception:
+                pass  # Ignore nested cleanup errors
             finally:
-                self._store = None
-                self._cm = None
-                logger.info("PostgreSQL Store disposed")
+                logger.info("PostgreSQL Store disposed (with cleanup warnings)")

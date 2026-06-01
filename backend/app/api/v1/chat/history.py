@@ -4,8 +4,6 @@ Route (under parent prefix /chat):
     GET /history/{thread_id}  — Conversation history + step sequence for sidebar
 """
 
-from __future__ import annotations
-
 import logging
 from uuid import UUID
 
@@ -14,12 +12,12 @@ from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents import get_supervisor
+from app.agents import get_agent
 from app.api.v1.dependencies import get_db
 from app.crud import trace as trace_crud
 from app.schemas.chat import ChatHistory, ChatMessage
 from app.schemas.trace import StepOutput
-from app.utils.message_utils import (
+from app.utils.message import (
     collect_tool_calls_for_final_response,
     langchain_to_chat_message,
 )
@@ -38,7 +36,7 @@ async def history(
     if not thread_id:
         return ChatHistory(messages=[], message_sequence=[])
 
-    supervisor = get_supervisor()
+    supervisor = get_agent()
 
     # Get message steps from persisted DAG for sidebar (no graph needed)
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)

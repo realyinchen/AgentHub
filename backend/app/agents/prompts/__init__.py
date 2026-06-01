@@ -5,8 +5,8 @@ Markdown files named by ``agent_id``::
 
     app/agents/prompts/
     ├── __init__.py
-    ├── agent.md        # Default agent prompt
-    ├── chatbot.md      # Chatbot agent prompt
+    ├── navigator.md    # Navigator agent prompt
+    ├── rag.md          # RAG agent prompt
     ├── supervisor.md   # Supervisor agent prompt
     └── ...
 

@@ -1,4 +1,4 @@
-"""Conversation CRUD, title, and thinking-mode endpoints.
+"""Conversation CRUD and title endpoints.
 
 Routes (all under parent prefix /chat):
     GET    /conversations                         — List conversations (paginated, user-scoped)
@@ -8,10 +8,7 @@ Routes (all under parent prefix /chat):
     GET    /conversations/{id}/title              — Get conversation title
     PATCH  /conversations/{id}/title              — Set/update conversation title
     POST   /conversations/{id}/title/generate     — Auto-generate title via LLM
-    GET    /thinking-mode                         — Thinking-mode availability status
 """
-
-from __future__ import annotations
 
 import logging
 from uuid import UUID
@@ -35,7 +32,6 @@ from app.schemas.chat import (
     ConversationInDB,
     ConversationInfoResponse,
     ConversationUpdate,
-    ThinkingModeStatus,
     TitleGenerateRequest,
     TitleGenerateResponse,
 )
@@ -125,19 +121,14 @@ async def get_conversation_info(
     model_name = await get_latest_model_name(db, thread_id)
 
     # Validate model is still active
+    manager = get_model_manager()
     model_fallback = False
     if model_name:
-        manager = get_model_manager()
         if not manager.is_model_active(model_name):
-            model_name = (
-                manager.default_llm_id or manager.get_first_active_llm_id()
-            )
+            model_name = manager.default_llm_id or manager.get_first_active_llm_id()
             model_fallback = True
     else:
-        manager = get_model_manager()
-        model_name = (
-            manager.default_llm_id or manager.get_first_active_llm_id()
-        )
+        model_name = manager.default_llm_id or manager.get_first_active_llm_id()
 
     return ConversationInfoResponse(
         model_name=model_name,
@@ -262,14 +253,3 @@ async def generate_title(
         if len(request.user_message) > 30:
             fallback += "..."
         return TitleGenerateResponse(title=fallback)
-
-
-# ── Thinking mode ─────────────────────────────────────────────────────────────
-
-
-@api_router.get("/thinking-mode", response_model=ThinkingModeStatus)
-async def get_thinking_mode_status() -> ThinkingModeStatus:
-    """Check if thinking mode is available."""
-    return ThinkingModeStatus(
-        available=get_model_manager().is_thinking_mode_available()
-    )

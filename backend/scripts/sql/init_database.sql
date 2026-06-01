@@ -127,17 +127,18 @@ CREATE TABLE IF NOT EXISTS public.langchain_pg_collection (
 
 -- 6. langchain_pg_embedding table (PGVector — vector embeddings)
 -- The vector dimension must match the embedding model output.
+-- Schema matches langchain-postgres v2 PGVectorStore expectations.
 CREATE TABLE IF NOT EXISTS public.langchain_pg_embedding (
-    id             VARCHAR PRIMARY KEY,
-    collection_id  UUID REFERENCES public.langchain_pg_collection(uuid) ON DELETE CASCADE,
-    embedding      vector(1024),
-    document       VARCHAR,
-    cmetadata      JSONB
+    langchain_id      VARCHAR PRIMARY KEY,
+    collection_id     UUID REFERENCES public.langchain_pg_collection(uuid) ON DELETE CASCADE,
+    embedding         vector(1024),
+    content           VARCHAR,
+    langchain_metadata  JSONB
 );
 
 -- GIN index for JSONB metadata queries on embeddings
-CREATE INDEX IF NOT EXISTS ix_cmetadata_gin
-    ON public.langchain_pg_embedding USING gin (cmetadata jsonb_path_ops);
+CREATE INDEX IF NOT EXISTS ix_langchain_metadata_gin
+    ON public.langchain_pg_embedding USING gin (langchain_metadata jsonb_path_ops);
 
 -- Analyze tables after index creation for query planner
 ANALYZE public.conversations;

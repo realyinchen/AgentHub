@@ -1,40 +1,41 @@
 """Utility functions and helpers for AgentHub.
 
 This package contains pure utilities with no business logic:
-- streaming: SSE streaming service for FastAPI
-- stream_helpers: Token counting and model resolution
+- request: Agent parameter building (build_agent_kwargs)
+- sse: SSE streaming utilities for FastAPI
+- message: Message parsing and token utilities
 - checkpoint: LangGraph checkpoint history reader
 - trace: Execution trace builder
 - dag: Execution DAG builder
-- parsers: Message parsing utilities
-- agent_execution: Token + DAG persistence service
+
+Note: ChatStreamingService moved to app.services.streaming.py (P1).
 """
 
-from app.utils.streaming import ChatStreamingService, AsyncWriteQueue
-from app.utils.stream_helpers import (
+from app.utils.request import build_agent_kwargs, AgentKwargs
+from app.utils.sse import AsyncWriteQueue
+from app.utils.message import (
     empty_totals,
     extract_usage,
     accumulate_usage,
-    resolve_model_name,
+    langchain_to_chat_message,
 )
 from app.utils.checkpoint import CheckpointReader
 from app.utils.trace import TraceBuilder
 from app.utils.dag import DagBuilder
-from app.utils.agent_execution import AgentExecutionService
 
 __all__ = [
-    # Streaming
-    "ChatStreamingService",
+    # Request building
+    "build_agent_kwargs",
+    "AgentKwargs",
+    # Streaming utilities
     "AsyncWriteQueue",
-    # Token helpers
+    # Message & Token helpers
     "empty_totals",
     "extract_usage",
     "accumulate_usage",
-    "resolve_model_name",
+    "langchain_to_chat_message",
     # Checkpoint & Trace
     "CheckpointReader",
     "TraceBuilder",
     "DagBuilder",
-    # Persistence
-    "AgentExecutionService",
 ]

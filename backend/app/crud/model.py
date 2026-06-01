@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.models.model import Model
+from app.schemas.model import ModelInfo, ModelsResponse
 
 
 # ==================== Model CRUD ====================
@@ -181,3 +182,69 @@ async def deactivate_model(db: AsyncSession, model_id: str) -> Optional[Model]:
     await db.flush()
     await db.refresh(model)
     return model
+
+
+# ==================== Response Builders ====================
+
+
+def get_first_model_by_type(models: list[Model], model_type: str) -> Optional[str]:
+    """Get the first model of a specific type from a sorted list.
+
+    Models are already sorted by provider (alphabetically), then by model_id.
+    Returns the model_id of the first matching model, or None if not found.
+    """
+    for model in models:
+        if model.model_type == model_type:
+            return model.model_id
+    return None
+
+
+def build_models_response(models: list[Model]) -> ModelsResponse:
+    """Build ModelsResponse from model list.
+
+    Optimized to extract default models from the list instead of additional
+    DB queries. Default model selection logic:
+    - If a model has is_default=True, use that
+    - Otherwise, use the first model of that type (sorted alphabetically by provider)
+    """
+    model_infos = [ModelInfo.model_validate(m) for m in models]
+
+    default_llm_id: Optional[str] = None
+    default_vlm_id: Optional[str] = None
+    default_embedding_id: Optional[str] = None
+
+    for m in models:
+        if getattr(m, "is_default", False):
+            model_type = getattr(m, "model_type", "llm")
+            if model_type == "llm" and default_llm_id is None:
+                default_llm_id = str(m.model_id)
+            elif model_type == "vlm" and default_vlm_id is None:
+                default_vlm_id = str(m.model_id)
+            elif model_type == "embedding" and default_embedding_id is None:
+                default_embedding_id = str(m.model_id)
+
+    if default_llm_id is None:
+        default_llm_id = get_first_model_by_type(models, "llm")
+    if default_vlm_id is None:
+        default_vlm_id = get_first_model_by_type(models, "vlm")
+    if default_embedding_id is None:
+        default_embedding_id = get_first_model_by_type(models, "embedding")
+
+    return ModelsResponse(
+        models=model_infos,
+        default_llm=default_llm_id,
+        default_vlm=default_vlm_id,
+        default_embedding=default_embedding_id,
+    )
+
+
+async def get_models_response(
+    db: AsyncSession,
+    active_only: bool = True,
+) -> ModelsResponse:
+    """Get models and build response in one call.
+
+    Convenience function that combines get_all_models and build_models_response.
+    """
+    models = await get_all_models(db, active_only=active_only)
+    return build_models_response(models)

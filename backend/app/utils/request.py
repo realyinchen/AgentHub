@@ -1,11 +1,10 @@
-"""Request → Supervisor Parameter Orchestration Layer.
+"""Request → Agent parameter orchestration.
 
 Converts raw UserInput into the (input, config, context) triple required by
 the supervisor agent via ``create_agent()``.
 
-Previously this module dispatched different context builders by ``agent_id``.
-Now there is only the supervisor — the ``file`` field from the former
-ChatbotContext has been merged into ``AgentRuntimeContext`` directly.
+This is a pure utility module with no side effects or external dependencies
+beyond LangChain types and schemas.
 """
 
 import logging

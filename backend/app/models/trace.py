@@ -20,7 +20,10 @@ class TraceExecution(Base):
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
     thread_id: Mapped[UUID] = mapped_column(
-        Uuid, ForeignKey("conversations.thread_id", ondelete="CASCADE"), nullable=False, index=True
+        Uuid,
+        ForeignKey("conversations.thread_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     request_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
     dag_data: Mapped[dict] = mapped_column(

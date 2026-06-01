@@ -1,10 +1,8 @@
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, Literal
-
-
 
 
 # ==================== Mixin: Mutable Fields ====================
@@ -125,3 +123,12 @@ class TestConnectionResponse(BaseModel):
 
     success: bool
     message: str
+
+
+# ==================== Thinking Mode ====================
+
+
+class ThinkingModeStatus(BaseModel):
+    """Response for GET /models/thinking-mode."""
+
+    available: bool = Field(description="Whether thinking mode is available")

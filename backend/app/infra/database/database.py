@@ -9,8 +9,6 @@ Best Practice (FastAPI):
     Connection pooling with pre-ping for reliability.
 """
 
-from __future__ import annotations
-
 import json
 import logging
 from contextlib import asynccontextmanager
@@ -62,6 +60,7 @@ class PostgresDatabase:
             pool_timeout=30,
             pool_recycle=3600,
             pool_pre_ping=True,
+            pool_use_lifo=True,  # Production: idle connections reused first
             json_serializer=_json_serializer,
         )
 

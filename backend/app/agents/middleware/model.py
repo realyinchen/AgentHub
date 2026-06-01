@@ -18,8 +18,9 @@ from typing import Callable, cast
 from langchain.agents.middleware import wrap_model_call, ModelRequest, ModelResponse
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from app.infra.llm import get_llm
-
+# Lazy import to avoid circular dependency:
+# infra.llm.manager → utils.crypto → utils → utils.streaming → utils.request_handler →
+# agents.context → agents → agents.supervisor → agents.middleware.model → infra.llm.manager
 logger = logging.getLogger(__name__)
 
 
@@ -68,6 +69,9 @@ def dynamic_model(
         model_name,
         thinking_mode,
     )
+
+    # Lazy import to avoid circular dependency at module load time.
+    from app.infra.llm import get_llm
 
     # Create a new LLM instance via the Router (with built-in fallback + retry).
     # ChatLiteLLMRouter is a Runnable; override() accepts it as a model.

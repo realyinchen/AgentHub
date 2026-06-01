@@ -8,8 +8,6 @@ Reference:
 https://docs.langchain.com/oss/python/langgraph/persistence#checkpointer-libraries
 """
 
-from __future__ import annotations
-
 import logging
 from typing import AsyncContextManager
 
@@ -62,13 +60,31 @@ class PostgresCheckpointer:
         return self._saver
 
     async def dispose(self) -> None:
-        """Dispose the checkpointer connection."""
-        if self._cm is not None:
+        """Dispose the checkpointer connection.
+
+        Uses graceful cleanup: attempts normal exit first, then forced cleanup
+        on any remaining resources. Safe to call multiple times.
+        """
+        if self._cm is None:
+            return
+
+        # Clear references first to prevent reuse during cleanup
+        cm = self._cm
+        self._saver = None
+        self._cm = None
+
+        try:
+            await cm.__aexit__(None, None, None)
+            logger.info("PostgreSQL checkpointer disposed")
+        except Exception as e:
+            # Log but don't raise - cleanup should be best-effort
+            logger.warning("Error disposing checkpointer (cleanup continued): %s", e)
+            # Ensure resources are released even on error
             try:
-                await self._cm.__aexit__(None, None, None)
-            except Exception as e:
-                logger.warning("Error disposing checkpointer: %s", e)
+                # Force cleanup with exception context
+                exc_info = (type(e), e, e.__traceback__)
+                await cm.__aexit__(*exc_info)
+            except Exception:
+                pass  # Ignore nested cleanup errors
             finally:
-                self._saver = None
-                self._cm = None
-                logger.info("PostgreSQL checkpointer disposed")
+                logger.info("PostgreSQL checkpointer disposed (with cleanup warnings)")

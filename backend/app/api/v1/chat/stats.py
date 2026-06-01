@@ -5,8 +5,6 @@ Routes (under parent prefix /chat):
     GET /conversations/{thread_id}/stats   — Per-conversation cumulative token stats
 """
 
-from __future__ import annotations
-
 import logging
 from uuid import UUID
 

@@ -15,7 +15,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.schemas.trace import CheckpointInfo, StepOutput
 from app.utils.checkpoint import _extract_node_name, _parse_timestamp
-from app.utils.parsers import extract_step_from_checkpoint
+from app.utils.message import extract_step_from_checkpoint
 
 logger = logging.getLogger(__name__)
 
