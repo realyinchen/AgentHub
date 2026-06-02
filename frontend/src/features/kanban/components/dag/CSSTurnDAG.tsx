@@ -333,7 +333,7 @@ function DAGNodeCard({ data }: { data: DAGNodeData }) {
 }
 
 // ============================================================================
-// Human Node — Gray
+// Human Node — Gray Blue
 // ============================================================================
 
 function HumanCard({ data: _data }: { data: { type: 'human'; content: string; stepNumber: number } }) {
@@ -341,23 +341,24 @@ function HumanCard({ data: _data }: { data: { type: 'human'; content: string; st
   return (
     <div
       style={{
-        background: 'var(--dag-bg-panel)',
-        border: '1px solid var(--dag-node-user-border)',
-        borderRadius: '10px',
-        padding: '12px 16px',
+        background: 'var(--dag-node-human-bg)',
+        border: '1px solid var(--dag-node-human-border)',
+        borderRadius: '8px',
+        padding: '8px 12px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
       }}
     >
       <div className="flex items-center gap-2">
         <div
-          className="flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0"
+          className="flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0"
           style={{
-            background: 'var(--dag-node-user-light)',
-            border: '1px solid var(--dag-node-user-border)',
+            background: 'var(--dag-node-human-border)',
+            opacity: 0.3,
           }}
         >
-          <span className="text-xs" style={{ color: 'var(--dag-node-user)' }}>👤</span>
+          <span className="text-xs" style={{ color: 'var(--dag-node-human-text)' }}>👤</span>
         </div>
-        <span className="text-sm font-medium truncate" style={{ color: 'var(--dag-node-user)' }}>
+        <span className="text-xs font-medium truncate" style={{ color: 'var(--dag-node-human-text)' }}>
           {t('process.user')}
         </span>
       </div>
@@ -366,51 +367,54 @@ function HumanCard({ data: _data }: { data: { type: 'human'; content: string; st
 }
 
 // ============================================================================
-// AI Node — Blue
+// AI Node — Blue (or Green for Final)
 // ============================================================================
 
 function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFinal: boolean; toolCalls?: { name: string }[] | null; thinking?: string | null } }) {
   const { t } = useI18n();
-  const borderColor = data.isFinal ? 'var(--dag-success-border)' : 'var(--dag-node-ai-border)';
-  const iconBg = data.isFinal ? 'var(--dag-success-light)' : 'var(--dag-node-ai-light)';
-  const iconColor = data.isFinal ? 'var(--dag-success)' : 'var(--dag-node-ai)';
+  
+  // Use different colors for final vs non-final AI nodes
+  const bgColor = data.isFinal ? 'var(--dag-node-final-bg)' : 'var(--dag-node-ai-bg)';
+  const borderColor = data.isFinal ? 'var(--dag-node-final-border)' : 'var(--dag-node-ai-border)';
+  const textColor = data.isFinal ? 'var(--dag-node-final-text)' : 'var(--dag-node-ai-text)';
   const icon = data.isFinal ? '✅' : '🤖';
 
   return (
     <div
       style={{
-        background: 'var(--dag-bg-panel)',
+        background: bgColor,
         border: `1px solid ${borderColor}`,
-        borderRadius: '10px',
-        padding: '12px 16px',
+        borderRadius: '8px',
+        padding: '8px 12px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
       }}
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <div
-            className="flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0"
+            className="flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0"
             style={{
-              background: iconBg,
-              border: `1px solid ${borderColor}`,
+              background: borderColor,
+              opacity: 0.3,
             }}
           >
             <span className="text-xs">{icon}</span>
           </div>
-          <span className="text-sm font-medium truncate" style={{ color: iconColor }}>
+          <span className="text-xs font-medium truncate" style={{ color: textColor }}>
             {data.modelName || t('process.ai')}
           </span>
         </div>
         {data.isFinal && (
           <span
             className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
-            style={{ background: 'var(--dag-success-light)', color: 'var(--dag-success)' }}
+            style={{ background: 'var(--dag-node-final-bg)', color: 'var(--dag-node-final-border)', fontWeight: 500 }}
           >
             {t('process.final')}
           </span>
         )}
       </div>
       {(data.toolCalls && data.toolCalls.length > 0) && (
-        <div className="text-xs mt-1.5 text-muted-foreground">
+        <div className="text-xs mt-1.5" style={{ color: textColor, opacity: 0.7 }}>
           🔧 {data.toolCalls.length} {t('process.toolCalls')}
         </div>
       )}
@@ -448,7 +452,7 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
 
   const statusColor = {
     pending: 'var(--dag-text-dim)',
-    running: 'var(--dag-node-tool)',
+    running: 'var(--dag-node-tool-text)',
     success: 'var(--dag-success)',
     error: 'var(--dag-error)',
   }[status];
@@ -456,29 +460,30 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
   return (
     <div
       style={{
-        background: 'var(--dag-bg-panel)',
+        background: 'var(--dag-node-tool-bg)',
         border: '1px solid var(--dag-node-tool-border)',
-        borderRadius: '10px',
-        padding: '12px 16px',
+        borderRadius: '8px',
+        padding: '8px 12px',
+        boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
       }}
     >
       <div className="flex items-center gap-2">
         <div
-          className="flex items-center justify-center w-6 h-6 rounded-md flex-shrink-0"
+          className="flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0"
           style={{
-            background: 'var(--dag-node-tool-light)',
-            border: '1px solid var(--dag-node-tool-border)',
+            background: 'var(--dag-node-tool-border)',
+            opacity: 0.3,
           }}
         >
           <span className="text-xs">🔧</span>
         </div>
-        <span className="text-sm font-medium truncate" style={{ color: 'var(--dag-text-primary)' }}>
+        <span className="text-xs font-medium truncate" style={{ color: 'var(--dag-node-tool-text)' }}>
           {data.toolName}
         </span>
       </div>
-      <div className="flex items-center gap-1.5 mt-1.5">
+      <div className="flex items-center gap-1.5 mt-1">
         <span className="text-xs" style={{ color: statusColor }}>{statusIcon}</span>
-        <span className="text-xs text-muted-foreground">{statusText}</span>
+        <span className="text-xs" style={{ color: 'var(--dag-node-tool-text)', opacity: 0.7 }}>{statusText}</span>
       </div>
     </div>
   );

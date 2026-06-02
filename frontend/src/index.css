@@ -113,38 +113,59 @@
 
   --token-track: #E5E7EB;
 
-  /* DAG Node Colors - Light Theme */
-  --dag-bg-main: #FAFAFA;
+  /* DAG Colors - Light Theme */
+  --dag-bg-main: #EEF2F6;
   --dag-bg-panel: #FFFFFF;
-  --dag-border: rgba(0, 0, 0, 0.08);
+  --dag-border: rgba(0, 0, 0, 0.16);
   --dag-text-primary: #1A1A1A;
   --dag-text-secondary: #666666;
   --dag-text-dim: #999999;
 
-  --dag-node-user: #6B7280;
-  --dag-node-user-light: rgba(107, 114, 128, 0.1);
-  --dag-node-user-border: rgba(107, 114, 128, 0.3);
+  /* Human Node - Gray Blue */
+  --dag-node-human-bg: #F1F5F9;
+  --dag-node-human-border: #94A3B8;
+  --dag-node-human-text: #475569;
+
+  /* AI Node - Blue */
+  --dag-node-ai-bg: #EFF6FF;
+  --dag-node-ai-border: #3B82F6;
+  --dag-node-ai-text: #1D4ED8;
+
+  /* AI Final Node - Green */
+  --dag-node-final-bg: #F0FDF4;
+  --dag-node-final-border: #22C55E;
+  --dag-node-final-text: #16A34A;
+
+  /* Tool Node - Purple */
+  --dag-node-tool-bg: #FAF5FF;
+  --dag-node-tool-border: #A855F7;
+  --dag-node-tool-text: #7E22CE;
+
+  /* Legacy variables for compatibility */
+  --dag-node-user: #64748B;
+  --dag-node-user-light: #F1F5F9;
+  --dag-node-user-border: #94A3B8;
 
   --dag-node-ai: #3B82F6;
-  --dag-node-ai-light: rgba(59, 130, 246, 0.1);
-  --dag-node-ai-border: rgba(59, 130, 246, 0.4);
+  --dag-node-ai-light: #EFF6FF;
+  --dag-node-ai-border: #3B82F6;
 
-  --dag-node-tool: #A78BFA;
-  --dag-node-tool-light: rgba(167, 139, 250, 0.08);
-  --dag-node-tool-border: rgba(167, 139, 250, 0.25);
+  --dag-node-tool: #A855F7;
+  --dag-node-tool-light: #FAF5FF;
+  --dag-node-tool-border: #A855F7;
 
   --dag-node-subagent-from: #3B82F6;
   --dag-node-subagent-to: #06B6D4;
 
   --dag-success: #22C55E;
-  --dag-success-light: rgba(34, 197, 94, 0.1);
-  --dag-success-border: rgba(34, 197, 94, 0.4);
+  --dag-success-light: #F0FDF4;
+  --dag-success-border: #22C55E;
 
   --dag-error: #EF4444;
-  --dag-error-light: rgba(239, 68, 68, 0.1);
-  --dag-error-border: rgba(239, 68, 68, 0.5);
+  --dag-error-light: #FEF2F2;
+  --dag-error-border: #EF4444;
 
-  --dag-edge: rgba(0, 0, 0, 0.15);
+  --dag-edge: rgba(0, 0, 0, 0.25);
 }
 
 .dark {
@@ -256,38 +277,59 @@
 
   --token-track: rgba(255, 255, 255, 0.08);
 
-  /* DAG Node Colors - Dark Theme */
-  --dag-bg-main: #0B0F17;
-  --dag-bg-panel: #111826;
-  --dag-border: rgba(255, 255, 255, 0.06);
+  /* DAG Colors - Dark Theme */
+  --dag-bg-main: #0A0E17;
+  --dag-bg-panel: #1A2332;
+  --dag-border: rgba(255, 255, 255, 0.14);
   --dag-text-primary: #E6EDF3;
   --dag-text-secondary: #9FB0C3;
   --dag-text-dim: #6B7A90;
 
-  --dag-node-user: #9FB0C3;
-  --dag-node-user-light: rgba(159, 176, 195, 0.1);
-  --dag-node-user-border: rgba(159, 176, 195, 0.3);
+  /* Human Node - Silver Gray */
+  --dag-node-human-bg: #1E293B;
+  --dag-node-human-border: #64748B;
+  --dag-node-human-text: #CBD5E1;
 
-  --dag-node-ai: #5B8CFF;
-  --dag-node-ai-light: rgba(91, 140, 255, 0.12);
-  --dag-node-ai-border: rgba(91, 140, 255, 0.4);
+  /* AI Node - Blue */
+  --dag-node-ai-bg: #172554;
+  --dag-node-ai-border: #60A5FA;
+  --dag-node-ai-text: #93C5FD;
 
-  --dag-node-tool: #A78BFA;
-  --dag-node-tool-light: rgba(167, 139, 250, 0.08);
-  --dag-node-tool-border: rgba(167, 139, 250, 0.25);
+  /* AI Final Node - Green */
+  --dag-node-final-bg: #052E16;
+  --dag-node-final-border: #4ADE80;
+  --dag-node-final-text: #86EFAC;
 
-  --dag-node-subagent-from: #5B8CFF;
-  --dag-node-subagent-to: #06B6D4;
+  /* Tool Node - Purple */
+  --dag-node-tool-bg: #3B1D5C;
+  --dag-node-tool-border: #C084FC;
+  --dag-node-tool-text: #D8B4FE;
 
-  --dag-success: #22C55E;
-  --dag-success-light: rgba(34, 197, 94, 0.12);
-  --dag-success-border: rgba(34, 197, 94, 0.4);
+  /* Legacy variables for compatibility */
+  --dag-node-user: #94A3B8;
+  --dag-node-user-light: #1E293B;
+  --dag-node-user-border: #64748B;
 
-  --dag-error: #EF4444;
-  --dag-error-light: rgba(239, 68, 68, 0.12);
-  --dag-error-border: rgba(239, 68, 68, 0.5);
+  --dag-node-ai: #60A5FA;
+  --dag-node-ai-light: #172554;
+  --dag-node-ai-border: #60A5FA;
 
-  --dag-edge: rgba(255, 255, 255, 0.15);
+  --dag-node-tool: #C084FC;
+  --dag-node-tool-light: #3B1D5C;
+  --dag-node-tool-border: #C084FC;
+
+  --dag-node-subagent-from: #60A5FA;
+  --dag-node-subagent-to: #22D3EE;
+
+  --dag-success: #4ADE80;
+  --dag-success-light: #052E16;
+  --dag-success-border: #4ADE80;
+
+  --dag-error: #F87171;
+  --dag-error-light: #450A0A;
+  --dag-error-border: #F87171;
+
+  --dag-edge: rgba(255, 255, 255, 0.25);
 }
 
 @theme inline {

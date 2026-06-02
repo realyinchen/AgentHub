@@ -39,9 +39,11 @@ export function TurnDAGSidebar({
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
   // Get turn steps for the selected session
+  // Pass isStreaming to trigger refetch when streaming ends
   const { steps, loading, error } = useTurnSteps(
     threadId ?? undefined,
-    sessionId ?? undefined
+    sessionId ?? undefined,
+    isStreaming
   )
 
   // Determine if we have valid steps to display

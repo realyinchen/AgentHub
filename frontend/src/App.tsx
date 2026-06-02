@@ -1545,7 +1545,7 @@ function App() {
 
           {/* Middle Section: Turn DAG Sidebar */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {!isInitializing && (
+            {!isInitializing && threadId && messages.length > 0 && (
               <TurnDAGSidebar
                 threadId={threadId || null}
                 sessionId={selectedSessionId}

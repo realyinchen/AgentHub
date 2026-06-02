@@ -156,14 +156,16 @@ async def get_trace_steps(
     """Get all execution steps for a specific thread from persisted DAG.
 
     Reads from ``trace_executions`` — no graph compilation required.
+
+    Returns an empty list if the conversation exists but has no trace yet
+    (e.g., new conversation before first agent response).
     """
     await _verify_trace_owner(db, thread_id, user_id)
 
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
+    # Return empty list for new conversations without trace data yet
     if not steps:
-        raise HTTPException(
-            status_code=404, detail="No execution steps found for this thread"
-        )
+        return []
 
     return [StepOutput(**s) for s in steps]
 

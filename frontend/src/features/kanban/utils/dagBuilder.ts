@@ -12,10 +12,61 @@
 
 import type { LayoutNode, LayoutEdge, DAGResult, MessageStepRaw } from '../types/dag';
 
-const LAYER_GAP_Y = 140;  // Vertical gap between layers
-const PARALLEL_GAP = 200; // Horizontal gap for parallel tools
-const NODE_WIDTH = 140;
-const NODE_HEIGHT = 60;
+const LAYER_GAP_Y = 100;  // Vertical gap between layers (reduced for compact layout)
+const PARALLEL_GAP = 160; // Horizontal gap for parallel tools (reduced)
+
+// Dynamic node sizing constraints
+const NODE_MIN_WIDTH = 80;
+const NODE_MAX_WIDTH = 180;
+const NODE_MIN_HEIGHT = 36;
+const NODE_MAX_HEIGHT = 60;
+const CHAR_WIDTH_APPROX = 7; // Approximate width per character
+const PADDING_X = 24; // Horizontal padding inside node
+
+/**
+ * Calculate node size based on content
+ */
+function calculateNodeSize(type: 'human' | 'ai' | 'tool', data: { 
+  content?: string; 
+  modelName?: string | null; 
+  toolName?: string;
+  toolCalls?: { name: string }[] | null;
+}): { width: number; height: number } {
+  let textLength = 0;
+  
+  switch (type) {
+    case 'human':
+      textLength = 6; // Just "用户" - fixed small width
+      break;
+    case 'ai':
+      // AI node shows model name + optional tool call count
+      textLength = Math.max(
+        (data.modelName?.length || 3), // "AI" fallback
+        data.toolCalls && data.toolCalls.length > 0 
+          ? `${data.toolCalls.length} tools`.length 
+          : 0
+      );
+      break;
+    case 'tool':
+      textLength = (data.toolName?.length || 8) + 4; // tool name + status indicator
+      break;
+  }
+  
+  // Calculate width with constraints
+  const calculatedWidth = Math.max(NODE_MIN_WIDTH, textLength * CHAR_WIDTH_APPROX + PADDING_X);
+  const width = Math.min(NODE_MAX_WIDTH, calculatedWidth);
+  
+  // Height based on node type (compact layout)
+  let height = NODE_MIN_HEIGHT;
+  if (type === 'ai' && data.toolCalls && data.toolCalls.length > 0) {
+    height = NODE_MIN_HEIGHT + 16; // Extra height for tool call indicator line
+  } else if (type === 'tool') {
+    height = NODE_MIN_HEIGHT + 14; // Extra height for status line
+  }
+  height = Math.min(NODE_MAX_HEIGHT, height);
+  
+  return { width, height };
+}
 
 /**
  * Build DAG from message steps.
@@ -173,13 +224,14 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
     if (layer.type === 'human') {
       const step = stepMap.get(layer.stepNumbers[0])!;
       const nodeId = `human-${step.step_number}`;
+      const size = calculateNodeSize('human', { content: step.content || '' });
       nodes.push({
         id: nodeId,
         data: { type: 'human', content: step.content || '', stepNumber: step.step_number },
         x: 0,
         y: currentY,
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
+        width: size.width,
+        height: size.height,
       });
       currentY += LAYER_GAP_Y;
     }
@@ -187,6 +239,10 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
       const step = stepMap.get(layer.stepNumbers[0])!;
       const isFinal = !step.tool_calls || step.tool_calls.length === 0;
       const nodeId = `ai-${step.step_number}`;
+      const size = calculateNodeSize('ai', {
+        modelName: step.model_name,
+        toolCalls: step.tool_calls ?? undefined,
+      });
       nodes.push({
         id: nodeId,
         data: {
@@ -200,8 +256,8 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
         },
         x: 0,
         y: currentY,
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
+        width: size.width,
+        height: size.height,
       });
       currentY += LAYER_GAP_Y;
     }
@@ -212,6 +268,7 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
       layer.toolInfos.forEach((toolInfo, idx) => {
         const stepNum = layer.stepNumbers[idx] ?? layer.stepNumbers[0];
         const nodeId = `tool-${stepNum}-${idx}`;
+        const size = calculateNodeSize('tool', { toolName: toolInfo.toolName });
         nodes.push({
           id: nodeId,
           data: {
@@ -224,8 +281,8 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
           },
           x: startX + idx * PARALLEL_GAP,
           y: currentY,
-          width: NODE_WIDTH,
-          height: NODE_HEIGHT,
+          width: size.width,
+          height: size.height,
         });
         toolIndex++;
       });

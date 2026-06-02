@@ -101,6 +101,10 @@ def get_llm(
     if model_config is None:
         raise ValueError(f"Model '{model_id}' not found in database.")
 
+    # Build full model_id with provider prefix (required by LiteLLM Router)
+    # The Router's model_list uses "provider/model_id" format for model_name
+    full_model_id = f"{model_config.provider}/{short_model_id}"
+
     router = manager.router
     if router is None:
         raise ValueError("No LiteLLM Router available. Ensure models are configured.")
@@ -116,7 +120,7 @@ def get_llm(
     # forwarded to the LiteLLM Router on every completion call.
     llm = ChatLiteLLMRouter(
         router=router,
-        model_name=model_id,
+        model_name=full_model_id,
         temperature=0,
         streaming=True,
         drop_params=True,

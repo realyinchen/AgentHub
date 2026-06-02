@@ -122,9 +122,9 @@ export type ModelInfo = {
 }
 
 export type ModelCreate = {
-  provider: string
+  provider: string  // e.g. "dashscope", "zai", "openai"
   model_type: ModelType
-  model_id: string  // format: "provider/model_name", e.g. "dashscope/qwen3.5-27b"
+  model_id: string  // Model name WITHOUT provider prefix, e.g. "qwen3.5-27b" (NOT "dashscope/qwen3.5-27b")
   thinking?: boolean
   is_default?: boolean
   is_active?: boolean

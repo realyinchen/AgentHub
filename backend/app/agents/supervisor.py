@@ -76,7 +76,7 @@ async def init_agent(
     # Note: Fallback/retry is handled by LiteLLM Router, no ModelRetryMiddleware needed.
     middleware: list = [
         supervisor_prompt,  # @dynamic_prompt: loads MD template + time context
-        dynamic_model,  # @wrap_model_call: runtime model switching
+        dynamic_model,  # DynamicModelMiddleware: runtime model switching (sync + async)
         SummarizationMiddleware(
             model=model,
             trigger=("tokens", 4000),

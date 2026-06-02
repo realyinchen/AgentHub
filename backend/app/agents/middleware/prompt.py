@@ -33,7 +33,11 @@ from langchain.agents.middleware import dynamic_prompt, ModelRequest
 
 _CACHE_TTL = 300  # 5 minutes — aligns with LangSmith SDK default
 _CACHE_MAXSIZE = 20
-_PROMPTS_DIR = Path("/app/agents/prompts")
+
+# Dynamic path detection: Docker uses /app, local dev uses relative path
+_DOCKER_PROMPTS_DIR = Path("/app/agents/prompts")
+_LOCAL_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
+_PROMPTS_DIR = _DOCKER_PROMPTS_DIR if _DOCKER_PROMPTS_DIR.exists() else _LOCAL_PROMPTS_DIR
 
 # ── Module-level cache + lock ───────────────────────────────────────────────
 

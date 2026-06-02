@@ -1,12 +1,12 @@
-"""Dynamic model selection middleware using LangChain v1's @wrap_model_call.
+"""Dynamic model selection middleware using LangChain v1's AgentMiddleware.
 
 Enables per-request model switching by reading model_name and thinking_mode
 from the runtime context. Uses the LiteLLM Router (via factory.get_llm())
 so fallback + retry are automatically handled — no separate fallback
 middleware needed.
 
-Follows the official LangChain v1 pattern:
-https://docs.langchain.com/oss/python/langchain/agents#dynamic-model
+Follows the official LangChain v1 pattern for async middleware:
+https://docs.langchain.com/oss/python/langchain/middleware/custom#class-based-middleware
 
 For runtime model switching via context:
 https://docs.langchain.com/oss/python/deepagents/models#select-a-model-at-runtime
@@ -15,7 +15,7 @@ https://docs.langchain.com/oss/python/deepagents/models#select-a-model-at-runtim
 import logging
 from typing import Callable, cast
 
-from langchain.agents.middleware import wrap_model_call, ModelRequest, ModelResponse
+from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.language_models.chat_models import BaseChatModel
 
 # Lazy import to avoid circular dependency:
@@ -24,10 +24,7 @@ from langchain_core.language_models.chat_models import BaseChatModel
 logger = logging.getLogger(__name__)
 
 
-@wrap_model_call
-def dynamic_model(
-    request: ModelRequest, handler: Callable[[ModelRequest], ModelResponse]
-) -> ModelResponse:
+class DynamicModelMiddleware(AgentMiddleware):
     """Dynamically select model based on runtime context.
 
     Reads ``model_name`` and ``thinking_mode`` from the runtime context (set by
@@ -46,41 +43,74 @@ def dynamic_model(
     If no ``model_name`` is found in context, falls through to the default
     model configured at agent creation time.
 
-    Args:
-        request: The model request with runtime context
-        handler: The next handler in the middleware chain
+    This class implements both sync (wrap_model_call) and async (awrap_model_call)
+    methods to support both invocation contexts, following the official LangChain
+    middleware pattern.
 
-    Returns:
-        ModelResponse from the selected model
+    See: https://docs.langchain.com/oss/python/langchain/middleware/custom#class-based-middleware
     """
-    if request.runtime is None or request.runtime.context is None:
-        return handler(request)
 
-    # Extract model config from the dataclass context (attribute access only).
-    ctx = request.runtime.context
-    model_name = getattr(ctx, "model_name", None)
-    if not model_name:
-        return handler(request)
+    def _get_model_override(self, request: ModelRequest) -> BaseChatModel | None:
+        """Extract model from context and create new LLM instance.
 
-    thinking_mode = bool(getattr(ctx, "thinking_mode", False))
+        Returns None if no override is needed.
+        """
+        if request.runtime is None or request.runtime.context is None:
+            return None
 
-    logger.debug(
-        "dynamic_model: switching to model=%s thinking_mode=%s",
-        model_name,
-        thinking_mode,
-    )
+        # Extract model config from the dataclass context (attribute access only).
+        ctx = request.runtime.context
+        model_name = getattr(ctx, "model_name", None)
+        if not model_name:
+            return None
 
-    # Lazy import to avoid circular dependency at module load time.
-    from app.infra.llm import get_llm
+        thinking_mode = bool(getattr(ctx, "thinking_mode", False))
 
-    # Create a new LLM instance via the Router (with built-in fallback + retry).
-    # ChatLiteLLMRouter is a Runnable; override() accepts it as a model.
-    model: BaseChatModel = cast(
-        BaseChatModel,
-        get_llm(
-            model_id=model_name,
-            thinking_mode=thinking_mode,
-        ),
-    )
+        logger.debug(
+            "dynamic_model: switching to model=%s thinking_mode=%s",
+            model_name,
+            thinking_mode,
+        )
 
-    return handler(request.override(model=model))
+        # Lazy import to avoid circular dependency at module load time.
+        from app.infra.llm import get_llm
+
+        # Create a new LLM instance via the Router (with built-in fallback + retry).
+        # ChatLiteLLMRouter is a Runnable; override() accepts it as a model.
+        return cast(
+            BaseChatModel,
+            get_llm(
+                model_id=model_name,
+                thinking_mode=thinking_mode,
+            ),
+        )
+
+    def wrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        """Sync version: dynamically select model based on runtime context."""
+        model = self._get_model_override(request)
+        if model is None:
+            return handler(request)
+        return handler(request.override(model=model))
+
+    async def awrap_model_call(
+        self,
+        request: ModelRequest,
+        handler: Callable[[ModelRequest], ModelResponse],
+    ) -> ModelResponse:
+        """Async version: dynamically select model based on runtime context.
+
+        Called when the agent is invoked in an async context (e.g., astream(), ainvoke()).
+        Note: The handler returns a coroutine in async context despite type hint showing ModelResponse.
+        """
+        model = self._get_model_override(request)
+        if model is None:
+            return await handler(request)  # type: ignore[misc]
+        return await handler(request.override(model=model))  # type: ignore[misc]
+
+
+# Module-level singleton instance for convenience
+dynamic_model = DynamicModelMiddleware()

@@ -5,6 +5,7 @@ import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogContent,
+  AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
@@ -34,6 +35,9 @@ export function ErrorAlertDialog({
               {state.message}
             </AlertDialogTitle>
           </div>
+          <AlertDialogDescription className="sr-only">
+            错误提示对话框
+          </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter className="justify-center">
           <AlertDialogAction>确定</AlertDialogAction>

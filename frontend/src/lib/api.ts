@@ -264,7 +264,7 @@ export async function streamChat(
 // ── Thinking mode ─────────────────────────────────────────────────────────────
 
 export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
-  return requestJson<{ available: boolean }>("/chat/thinking-mode")
+  return requestJson<{ available: boolean }>("/models/thinking-mode")
 }
 
 // ── Model API ─────────────────────────────────────────────────────────────────
@@ -286,11 +286,22 @@ export async function getAllModels(): Promise<ModelsResponse> {
 
 /**
  * Create a new model
+ * Note: model_id should be the model name WITHOUT provider prefix.
+ * If user provides "provider/model_name", it will be automatically normalized to "model_name".
  */
 export async function createModel(data: ModelCreate): Promise<ModelInfo> {
+  // Normalize model_id: strip provider prefix if present
+  let normalizedModelId = data.model_id
+  if (normalizedModelId.startsWith(`${data.provider}/`)) {
+    normalizedModelId = normalizedModelId.slice(data.provider.length + 1)
+  }
+
   return requestJson<ModelInfo>("/models", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      model_id: normalizedModelId,
+    }),
   })
 }
 

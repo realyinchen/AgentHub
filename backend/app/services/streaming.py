@@ -280,6 +280,10 @@ class ChatStreamingService:
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
 
+            # Wait for pending DB writes BEFORE sending [DONE]
+            # This ensures trace data is persisted before the frontend queries for steps
+            await write_queue.wait_all()
+
             # ── Performance log ────────────────────────────────────
             if state["first_chunk_time"] is not None:
                 logger.info(
@@ -289,9 +293,6 @@ class ChatStreamingService:
                 )
 
             yield "data: [DONE]\n\n"
-
-            # Wait for pending DB writes
-            await write_queue.wait_all()
 
     # ── Projection consumers (private) ─────────────────────────────────────
 

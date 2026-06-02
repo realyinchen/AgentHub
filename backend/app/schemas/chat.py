@@ -130,7 +130,26 @@ class ChatHistory(BaseModel):
     )
 
 
+class ConversationCreate(BaseModel):
+    """Schema for creating a conversation.
+
+    user_id comes from query parameter, not request body.
+    """
+
+    thread_id: UUID = Field(
+        description="The thread ID of the conversation.",
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
+    title: str = Field(
+        description="The title of the conversation",
+        examples=["Hello"],
+        min_length=1,
+        max_length=64,
+    )
+
+
 class Conversation(BaseModel):
+    """Full conversation schema for responses."""
     thread_id: UUID = Field(
         description="The thread ID of the conversation.",
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
@@ -145,12 +164,6 @@ class Conversation(BaseModel):
         min_length=1,
         max_length=64,
     )
-
-
-class ConversationCreate(Conversation):
-    """Schema for creating a conversation. Server-side fields are set automatically."""
-
-    pass
 
 
 class ConversationUpdate(BaseModel):

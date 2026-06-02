@@ -1,6 +1,6 @@
 # AgentHub Backend API 接口文档
 
-> 自动生成于 2026-05-29 | 基于 FastAPI 路由扫描 + 前端 API 调用分析
+> 自动生成于 2026-06-02 | 基于 FastAPI 路由扫描 + 源码分析
 
 ---
 
@@ -11,7 +11,8 @@
 - [3. Chat 模块](#3-chat-模块)
 - [4. Models 模块](#4-models-模块)
 - [5. Traces 模块](#5-traces-模块)
-- [6. 前端 API 使用矩阵](#6-前端-api-使用矩阵)
+- [6. 数据模型汇总](#6-数据模型汇总)
+- [7. 前端 API 使用矩阵](#7-前端-api-使用矩阵)
 
 ---
 
@@ -20,15 +21,17 @@
 | 模块 | 路由前缀 | Endpoint 数量 |
 |------|---------|--------------|
 | Health | `/` | 1 |
-| Chat | `/api/v1/chat` | 12 |
-| Models | `/api/v1/models` | 8 |
-| Traces | `/api/v1/traces` | 4 |
+| Chat | `/api/v1/chat` | 11 |
+| Models | `/api/v1/models` | 6 |
+| Traces | `/api/v1/traces` | 6 |
 
-**总计：25 个 Endpoint**
+**总计：24 个 Endpoint**
 
 **认证方式：** 当前版本无全局认证中间件（通过 `user_id` 参数区分用户）。
 
 **全局错误处理：** `app.api.errors.register_exception_handlers` 集中注册。
+
+**API 前缀：** `/api/v1`
 
 ---
 
@@ -50,15 +53,13 @@
 
 **源文件：**
 - `backend/app/api/v1/chat/run.py` — 流式/非流式对话
-- `backend/app/api/v1/chat/conversation.py` — 会话 CRUD
-- `backend/app/api/v1/chat/title.py` — 标题生成
+- `backend/app/api/v1/chat/conversations.py` — 会话 CRUD + 标题管理
+- `backend/app/api/v1/chat/history.py` — 对话历史
 - `backend/app/api/v1/chat/stats.py` — 统计数据
-- `backend/app/api/v1/chat/thinking_mode.py` — 思考模式
-- `backend/app/api/v1/chat/agents.py` — Agent 列表
 
 ---
 
-### 3.1 `POST /api/v1/chat/run/stream`
+### 3.1 `POST /api/v1/chat/stream`
 
 **描述：** SSE 流式运行 Agent 对话。前端通过 `fetch` + `ReadableStream` 消费。
 
@@ -70,7 +71,7 @@
 | `user_id` | `string` | ✅ | — | 用户 ID（长期记忆与个性化） |
 | `thread_id` | `UUID` | ✅ | — | 会话线程 ID（多轮对话） |
 | `request_id` | `string` | ✅ | — | 请求 ID（追踪与幂等性） |
-| `model_name` | `string \| null` | ❌ | `null` | 指定模型名 |
+| `model_name` | `string \| null` | ❌ | `null` | 指定模型名 (e.g. `qwen3.5-27b`) |
 | `thinking_mode` | `bool` | ❌ | `false` | 启用思考模式 |
 | `timezone` | `string` | ❌ | `"Asia/Shanghai"` | IANA 时区 |
 | `custom_data` | `dict \| null` | ❌ | `null` | 自定义数据（如引用消息） |
@@ -90,27 +91,45 @@
 
 **响应：** `text/event-stream`，每条格式 `data: <JSON>\n\n`
 
-**StreamEvent 类型：**
+**SSE Event 类型：**
 
 | type | 描述 |
 |------|------|
+| `step` | 执行步骤（human/ai_thinking/tool_call/tool_result） |
 | `token` | LLM 逐 token 输出 |
-| `llm` | LLM 单步完整响应 |
-| `tool` | 工具调用开始 |
-| `tool_result` | 工具调用结果 |
-| `message` | 完整消息（含 metadata） |
+| `reasoning` | 思考模式推理增量 |
 | `usage` | Token 用量统计 |
+| `message` | 完整消息（含 metadata） |
 | `error` | 错误信息 |
 
-**涉及的 Agent：** Supervisor Agent → 子 Agent（Chatbot 等），`app.agents.supervisor.init_supervisor`
+**示例 SSE 流：**
+```
+: [2048 spaces for proxy flush]
 
-**关键实现：** `app.api.v1.chat._streaming.stream_agent_response()`, `app.utils.stream_helpers`
+data: {"type": "step", "step": 1, "action": "human", "content": "..."}
 
-**前端调用：** `api.streamChat()`
+data: {"type": "token", "content": "Hello"}
+
+data: {"type": "reasoning", "content": "Let me think..."}
+
+data: {"type": "step", "step": 2, "action": "ai_thinking", "status": "thinking..."}
+
+data: {"type": "step", "step": 3, "action": "tool_call", "name": "web_search", "status": "calling"}
+
+data: {"type": "usage", "content": {"node": "model", "usage": {"input_tokens": 100, "output_tokens": 50}}}
+
+data: {"type": "message", "content": {...}}
+
+data: [DONE]
+```
+
+**涉及的 Agent：** Supervisor Agent (单一入口)，`app.agents.supervisor`
+
+**关键实现：** `app.services.streaming.ChatStreamingService`, `app.utils.sse`
 
 ---
 
-### 3.2 `POST /api/v1/chat/run/invoke`
+### 3.2 `POST /api/v1/chat/invoke`
 
 **描述：** 非流式运行 Agent 对话，返回完整响应。
 
@@ -130,7 +149,7 @@
 }
 ```
 
-**前端调用：** `api.invokeChat()`
+**关键实现：** `app.services.chat.ChatService.invoke()`
 
 ---
 
@@ -143,8 +162,10 @@
 | 字段 | 类型 | 必填 | 默认值 | 描述 |
 |------|------|------|--------|------|
 | `user_id` | `string` | ✅ | — | 用户 ID |
-| `limit` | `int` | ❌ | `50` | 返回数量上限 |
+| `limit` | `int` | ❌ | `20` | 返回数量上限 (1-100) |
 | `offset` | `int` | ❌ | `0` | 分页偏移量 |
+
+**响应头：** `X-Total-Count: 100`
 
 **响应 `list[ConversationInDB]`：**
 ```json
@@ -153,8 +174,8 @@
     "thread_id": "f47ac10b-...",
     "user_id": "user-123",
     "title": "北京天气查询",
-    "created_at": "2026-05-29T00:00:00Z",
-    "updated_at": "2026-05-29T08:00:00Z",
+    "created_at": "2026-06-01T00:00:00Z",
+    "updated_at": "2026-06-02T00:00:00Z",
     "is_deleted": false,
     "input_tokens": 150,
     "cache_read": 0,
@@ -165,50 +186,46 @@
 ]
 ```
 
-**前端调用：** `api.listConversations()`
+---
+
+### 3.4 `POST /api/v1/chat/conversations`
+
+**描述：** 创建新会话。
+
+**Query 参数：** `user_id` (string, 必填)
+
+**请求体 `ConversationCreate`：**
+```json
+{
+  "thread_id": "f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c",
+  "user_id": "user-123",
+  "title": "新对话"
+}
+```
+
+**响应：** `ConversationInDB`
 
 ---
 
-### 3.4 `GET /api/v1/chat/conversations/{thread_id}`
+### 3.5 `DELETE /api/v1/chat/conversations/{thread_id}`
 
-**描述：** 获取指定会话的聊天历史（消息 + 执行序列）。
+**描述：** 软删除会话。
 
 **Path 参数：** `thread_id` (UUID)
 
 **Query 参数：** `user_id` (string, 必填)
 
-**响应 `ChatHistory`：**
-```json
-{
-  "messages": [
-    { "type": "human", "content": "...", "tool_calls": [], ... },
-    { "type": "ai", "content": "...", "tool_calls": [], ... }
-  ],
-  "message_sequence": [
-    {
-      "step_number": 1,
-      "message_type": "ai",
-      "content": "...",
-      "timestamp": "2026-05-29T08:00:00Z",
-      "message_id": "msg-001",
-      "checkpoint_id": "1f0e3f...",
-      "node_name": "chatbot",
-      "ai_metadata": { "thinking": null, "tool_calls": null, "model_name": "qwen3.5-27b" },
-      "tool_metadata": null
-    }
-  ]
-}
-```
-
-**前端调用：** `api.getChatHistory()`
+**响应：** `204 No Content`
 
 ---
 
-### 3.5 `GET /api/v1/chat/conversation-info/{thread_id}`
+### 3.6 `GET /api/v1/chat/conversations/{thread_id}/info`
 
-**描述：** 获取会话的模型信息（判断是否发生模型回退）。
+**描述：** 获取会话的模型信息（判断是否发生模型回退）。用于历史对话进入时恢复模型。
 
 **Path 参数：** `thread_id` (UUID)
+
+**Query 参数：** `user_id` (string, 必填)
 
 **响应 `ConversationInfoResponse`：**
 ```json
@@ -220,96 +237,107 @@
 
 - `model_fallback`: `true` 表示原模型已停用，回退到了默认模型
 
-**前端调用：** `api.getConversationInfo()`
+---
+
+### 3.7 `GET /api/v1/chat/conversations/{thread_id}/title`
+
+**描述：** 获取会话标题。
+
+**Path 参数：** `thread_id` (UUID)
+
+**Query 参数：** `user_id` (string, 必填)
+
+**响应：** `ConversationInDB | null`
 
 ---
 
-### 3.6 `PATCH /api/v1/chat/conversations/{thread_id}`
+### 3.8 `PATCH /api/v1/chat/conversations/{thread_id}/title`
 
-**描述：** 部分更新会话（标题、软删除标记）。
+**描述：** 更新会话标题。
 
 **Path 参数：** `thread_id` (UUID)
 
 **Query 参数：** `user_id` (string, 必填)
 
 **请求体 `ConversationUpdate`：**
-
-| 字段 | 类型 | 必填 | 描述 |
-|------|------|------|------|
-| `title` | `string \| null` | ❌ | 新标题 (1-64 字符) |
-| `is_deleted` | `bool \| null` | ❌ | 软删除标记 |
+```json
+{
+  "title": "新标题"
+}
+```
 
 **响应：** `ConversationInDB`
 
-**前端调用：** `api.updateConversation()`
-
 ---
 
-### 3.7 `DELETE /api/v1/chat/conversations/{thread_id}`
+### 3.9 `POST /api/v1/chat/conversations/{thread_id}/title/generate`
 
-**描述：** 硬删除会话。
+**描述：** 自动生成会话标题。使用系统默认 LLM 生成。
 
 **Path 参数：** `thread_id` (UUID)
 
-**Query 参数：** `user_id` (string, 必填)
-
-**响应：** `204 No Content`
-
-**前端调用：** `api.deleteConversation()`
-
----
-
-### 3.8 `POST /api/v1/chat/title`
-
-**描述：** 自动生成会话标题。
-
 **请求体 `TitleGenerateRequest`：**
-
-| 字段 | 类型 | 必填 | 描述 |
-|------|------|------|------|
-| `user_message` | `string` | ✅ | 用户消息 |
-| `ai_response` | `string \| null` | ❌ | AI 回复（可选上下文） |
+```json
+{
+  "user_message": "今天北京的天气怎么样？",
+  "ai_response": "北京今天晴，25°C..."  // 可选
+}
+```
 
 **响应 `TitleGenerateResponse`：**
 ```json
-{ "title": "北京天气查询" }
+{
+  "title": "北京天气查询"
+}
 ```
-
-**前端调用：** `api.generateTitle()`
 
 ---
 
-### 3.9 `GET /api/v1/chat/thinking-mode`
+### 3.10 `GET /api/v1/chat/history/{thread_id}`
 
-**描述：** 检查是否支持思考模式。
+**描述：** 获取指定会话的聊天历史（消息 + 执行序列）。
 
-**响应 `ThinkingModeStatus`：**
+**Path 参数：** `thread_id` (UUID)
+
+**响应 `ChatHistory`：**
 ```json
-{ "available": true }
+{
+  "messages": [
+    { "type": "human", "content": "...", "tool_calls": [], "custom_data": {} },
+    { "type": "ai", "content": "...", "tool_calls": [], "custom_data": { "tool_info": [...] } }
+  ],
+  "message_sequence": [
+    {
+      "step_number": 1,
+      "message_type": "human",
+      "content": "...",
+      "timestamp": "2026-06-01T00:00:00Z",
+      "message_id": "msg-001",
+      "checkpoint_id": "1f0e3f...",
+      "node_name": "human",
+      "ai_metadata": null,
+      "tool_metadata": null
+    },
+    {
+      "step_number": 2,
+      "message_type": "ai",
+      "content": "...",
+      "timestamp": "2026-06-01T00:00:01Z",
+      "message_id": "msg-002",
+      "checkpoint_id": "2f1e4g...",
+      "node_name": "model",
+      "ai_metadata": {
+        "thinking": "Let me search...",
+        "tool_calls": [{"name": "web_search", "args": {"query": "weather"}}],
+        "model_name": "qwen3.5-27b"
+      },
+      "tool_metadata": null
+    }
+  ]
+}
 ```
 
-**前端调用：** `api.getThinkingModeStatus()` → `hooks/use-thinking-mode.ts`
-
----
-
-### 3.10 `GET /api/v1/chat/agents`
-
-**描述：** 获取活跃 Agent 列表。
-
-**响应 `list[AgentInDB]`：**
-```json
-[
-  {
-    "agent_id": "chatbot",
-    "description": "通用聊天助手",
-    "is_active": true,
-    "created_at": "2026-01-01T00:00:00Z",
-    "updated_at": "2026-01-01T00:00:00Z"
-  }
-]
-```
-
-**前端调用：** `api.listAgents()`
+**关键实现：** `app.api.v1.chat.history.history()`
 
 ---
 
@@ -328,7 +356,7 @@
 ```json
 [
   {
-    "date": "2026-05-29",
+    "date": "2026-06-01",
     "conversation_count": 12,
     "input_tokens": 1500,
     "cache_read": 200,
@@ -338,8 +366,6 @@
   }
 ]
 ```
-
-**前端调用：** `api.getDailyStats()`
 
 ---
 
@@ -351,9 +377,7 @@
 
 **Query 参数：** `user_id` (string, 必填)
 
-**响应：** `ConversationInDB`
-
-**前端调用：** `api.getConversationStats()`
+**响应：** `ConversationInDB`（包含 token 字段）
 
 ---
 
@@ -361,15 +385,19 @@
 
 **路由前缀：** `/api/v1/models`
 
-**源文件：**
-- `backend/app/api/v1/models/models.py` — 模型 CRUD
-- `backend/app/api/v1/models/providers.py` — 提供商管理
+**源文件：** `backend/app/api/v1/models.py`
 
 ---
 
 ### 4.1 `GET /api/v1/models`
 
 **描述：** 获取所有模型 + 默认模型。
+
+**Query 参数：**
+
+| 字段 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `include_inactive` | `bool` | ❌ | `false` | 是否包含禁用模型 |
 
 **响应 `ModelsResponse`：**
 ```json
@@ -379,22 +407,19 @@
       "id": "uuid-001",
       "provider": "dashscope",
       "model_type": "llm",
-      "model_id": "dashscope/qwen3.5-27b",
+      "model_id": "qwen3.5-27b",
       "thinking": true,
-      "priority": 10,
       "is_default": true,
       "is_active": true,
-      "created_at": "2026-01-01T00:00:00Z",
-      "updated_at": "2026-01-01T00:00:00Z"
+      "created_at": "2026-06-01T00:00:00Z",
+      "updated_at": "2026-06-01T00:00:00Z"
     }
   ],
-  "default_llm": "uuid-001",
-  "default_vlm": "uuid-002",
-  "default_embedding": "uuid-003"
+  "default_llm": "dashscope/qwen3.5-27b",
+  "default_vlm": null,
+  "default_embedding": null
 }
 ```
-
-**前端调用：** `hooks/use-models.ts` → `getAvailableModels()`
 
 ---
 
@@ -407,30 +432,34 @@
 | 字段 | 类型 | 必填 | 默认值 | 描述 |
 |------|------|------|--------|------|
 | `provider` | `string` | ✅ | — | 提供商 (e.g. `dashscope`, `zai`) |
-| `model_type` | `"llm" \| "vlm" \| "embedding"` | ❌ | `"llm"` | 模型类型 |
-| `model_id` | `string` | ✅ | — | 模型 ID (含 provider 前缀) |
+| `model_type` | `"llm" \| "vlm"` | ❌ | `"llm"` | 模型类型 |
+| `model_id` | `string` | ✅ | — | 模型 ID (不含 provider 前缀) |
 | `thinking` | `bool` | ❌ | `false` | 支持思考模式 |
-| `priority` | `int` | ❌ | `0` | 优先级 |
 | `is_default` | `bool` | ❌ | `false` | 设为默认 |
 | `is_active` | `bool` | ❌ | `true` | 启用状态 |
 
-**响应：** `ModelInDB`
-
-**前端调用：** `api.createModel()`
+**响应：** `201 Created` + `ModelInfo`
 
 ---
 
 ### 4.3 `PATCH /api/v1/models/{model_id}`
 
-**描述：** 部分更新模型配置。
+**描述：** 部分更新模型配置。设置 `is_default: true` 可将该模型设为默认。
 
-**Path 参数：** `model_id` (string, UUID)
+**Path 参数：** `model_id` (UUID)
 
-**请求体 `ModelUpdateRequest`：** 所有字段可选 (`provider`, `model_type`, `model_id`, `thinking`, `is_default`, `is_active`)
+**请求体 `ModelUpdateRequest`：**
 
-**响应：** `ModelInDB`
+| 字段 | 类型 | 必填 | 描述 |
+|------|------|------|------|
+| `model_id` | `string \| null` | ❌ | 新模型 ID |
+| `provider` | `string \| null` | ❌ | 提供商 |
+| `model_type` | `"llm" \| "vlm" \| null` | ❌ | 模型类型 |
+| `thinking` | `bool \| null` | ❌ | 支持思考模式 |
+| `is_default` | `bool \| null` | ❌ | 设为默认 |
+| `is_active` | `bool \| null` | ❌ | 启用状态 |
 
-**前端调用：** `api.updateModel()`
+**响应：** `ModelInfo`
 
 ---
 
@@ -438,49 +467,13 @@
 
 **描述：** 删除模型配置。
 
-**Path 参数：** `model_id` (string, UUID)
+**Path 参数：** `model_id` (UUID)
 
-**响应：** 成功消息
-
-**前端调用：** `api.deleteModel()`
+**响应：** `204 No Content`
 
 ---
 
-### 4.5 `PATCH /api/v1/models/{model_id}/set-default`
-
-**描述：** 设置某类型模型的默认值。
-
-**Path 参数：** `model_id` (string, UUID)
-
-**响应：** `ModelInDB`
-
-**前端调用：** `api.setDefaultModel()`
-
----
-
-### 4.6 `POST /api/v1/models/test-connection`
-
-**描述：** 测试模型连接。
-
-**请求体 `TestConnectionRequest`：**
-
-| 字段 | 类型 | 必填 | 描述 |
-|------|------|------|------|
-| `provider` | `string` | ✅ | 提供商 |
-| `model_id` | `string` | ✅ | 模型 ID |
-| `api_key` | `string` | ✅ | API 密钥 |
-| `model_type` | `"llm" \| "vlm" \| "embedding"` | ❌ | 模型类型 |
-
-**响应 `TestConnectionResponse`：**
-```json
-{ "success": true, "message": "Connection successful" }
-```
-
-**前端调用：** `api.testModelConnection()`
-
----
-
-### 4.7 `GET /api/v1/models/providers`
+### 4.5 `GET /api/v1/models/providers`
 
 **描述：** 获取所有提供商及其配置状态。
 
@@ -493,34 +486,43 @@
       "has_api_key": true,
       "base_url": null,
       "is_openai_compatible": false,
-      "created_at": "2026-01-01T00:00:00Z",
-      "updated_at": "2026-01-01T00:00:00Z"
+      "created_at": "2026-06-01T00:00:00Z",
+      "updated_at": "2026-06-01T00:00:00Z"
     }
   ]
 }
 ```
 
-**前端调用：** `api.getProviders()`
-
 ---
 
-### 4.8 `PUT /api/v1/models/providers/{provider}`
+### 4.6 `PATCH /api/v1/models/providers/{provider_name}`
 
 **描述：** 更新提供商配置（API Key, Base URL）。
 
-**Path 参数：** `provider` (string)
+**Path 参数：** `provider_name` (string)
 
 **请求体 `ProviderUpdateRequest`：**
 
 | 字段 | 类型 | 必填 | 描述 |
 |------|------|------|------|
 | `provider` | `string` | ✅ | 提供商名 |
-| `api_key` | `string \| null` | ❌ | API 密钥（自动加密） |
+| `api_key` | `string \| null` | ❌ | API 密钥（自动加密存储） |
 | `base_url` | `string \| null` | ❌ | OpenAI-Compatible Base URL |
 
 **响应：** `ProviderInfo`
 
-**前端调用：** `api.updateProvider()`
+---
+
+### 4.7 `GET /api/v1/models/thinking-mode`
+
+**描述：** 检查是否支持思考模式。
+
+**响应 `ThinkingModeStatus`：**
+```json
+{
+  "available": true
+}
+```
 
 ---
 
@@ -528,7 +530,9 @@
 
 **路由前缀：** `/api/v1/traces`
 
-**源文件：** `backend/app/api/v1/traces/`
+**源文件：** `backend/app/api/v1/traces.py`
+
+**数据来源：** 所有端点从持久化的 `trace_executions` 表读取，不依赖 graph 编译。
 
 ---
 
@@ -541,9 +545,9 @@
 | 字段 | 类型 | 必填 | 默认值 | 描述 |
 |------|------|------|--------|------|
 | `page` | `int` | ❌ | `0` | 页码（0-indexed） |
-| `page_size` | `int` | ❌ | `20` | 每页条数 |
-| `filter_hours` | `int` | ❌ | `24` | 时间过滤（小时） |
-| `user_id` | `string \| null` | ❌ | `null` | 按用户过滤 |
+| `page_size` | `int` | ❌ | `10` | 每页条数 (1-100) |
+| `hours` | `int` | ❌ | `24` | 时间过滤（小时，1-168） |
+| `user_id` | `string` | ✅ | — | 按用户过滤 |
 
 **响应 `TraceListResponse`：**
 ```json
@@ -553,53 +557,60 @@
       "thread_id": "f47ac10b-...",
       "title": "北京天气查询",
       "total_steps": 5,
-      "total_latency_ms": 3200,
-      "last_updated": "2026-05-29T08:00:00Z"
+      "total_latency_ms": 0,
+      "last_updated": "2026-06-02T08:00:00Z"
     }
   ],
   "total": 42,
-  "total_pages": 3,
+  "total_pages": 5,
   "page": 0,
-  "page_size": 20,
+  "page_size": 10,
   "has_more": true,
   "filter_hours": 24
 }
 ```
 
-**前端调用：** `api.listTraces()` → `features/kanban/`
-
 ---
 
-### 5.2 `GET /api/v1/traces/{thread_id}`
+### 5.2 `GET /api/v1/traces/{thread_id}/steps`
 
-**描述：** 获取指定会话的完整 Trace 执行记录。
+**描述：** 获取指定会话的所有执行步骤。
 
 **Path 参数：** `thread_id` (UUID)
 
-**响应 `ExecutionTrace`：**
-```json
-{
-  "thread_id": "f47ac10b-...",
-  "steps": [
-    {
-      "step_number": 1,
-      "message_type": "ai",
-      "content": "...",
-      "timestamp": "2026-05-29T08:00:00Z",
-      "message_id": "msg-001",
-      "checkpoint_id": "1f0e3f...",
-      "node_name": "chatbot",
-      "ai_metadata": { "thinking": null, "tool_calls": null, "model_name": "qwen3.5-27b" },
-      "tool_metadata": null
-    }
-  ],
-  "total_steps": 5,
-  "first_step_at": "2026-05-29T08:00:00Z",
-  "last_step_at": "2026-05-29T08:00:03Z"
-}
-```
+**Query 参数：** `user_id` (string, 必填)
 
-**前端调用：** `api.getTrace()`
+**响应 `list[StepOutput]`：**
+```json
+[
+  {
+    "step_number": 1,
+    "message_type": "human",
+    "content": "What is the weather?",
+    "timestamp": "2026-06-02T08:00:00Z",
+    "message_id": "msg-001",
+    "checkpoint_id": "1f0e3f...",
+    "node_name": "human",
+    "ai_metadata": null,
+    "tool_metadata": null
+  },
+  {
+    "step_number": 2,
+    "message_type": "ai",
+    "content": "The weather is sunny.",
+    "timestamp": "2026-06-02T08:00:01Z",
+    "message_id": "msg-002",
+    "checkpoint_id": "2f1e4g...",
+    "node_name": "model",
+    "ai_metadata": {
+      "thinking": null,
+      "tool_calls": null,
+      "model_name": "qwen3.5-27b"
+    },
+    "tool_metadata": null
+  }
+]
+```
 
 ---
 
@@ -609,6 +620,8 @@
 
 **Path 参数：** `thread_id` (UUID)
 
+**Query 参数：** `user_id` (string, 必填)
+
 **响应 `ExecutionDag`：**
 ```json
 {
@@ -617,9 +630,9 @@
     {
       "node_id": "node-1",
       "step_number": 1,
-      "node_name": "chatbot",
-      "title": "Chatbot Response",
-      "message_type": "ai",
+      "node_name": "human",
+      "title": "User Input",
+      "message_type": "human",
       "step": { ... }
     }
   ],
@@ -629,110 +642,190 @@
 }
 ```
 
-**前端调用：** `api.getTraceDag()`
+---
+
+### 5.4 `GET /api/v1/traces/{thread_id}/steps/{step_number}`
+
+**描述：** 按步骤号获取特定步骤。
+
+**Path 参数：**
+- `thread_id` (UUID)
+- `step_number` (int)
+
+**Query 参数：** `user_id` (string, 必填)
+
+**响应：** `StepOutput`
 
 ---
 
-### 5.4 `GET /api/v1/traces/{thread_id}/checkpoints`
+### 5.5 `GET /api/v1/traces/{thread_id}/checkpoints/{checkpoint_id}`
 
-**描述：** 获取会话的 LangGraph Checkpoint 列表。
+**描述：** 按 Checkpoint ID 获取特定步骤。
+
+**Path 参数：**
+- `thread_id` (UUID)
+- `checkpoint_id` (string)
+
+**Query 参数：** `user_id` (string, 必填)
+
+**响应：** `StepOutput`
+
+---
+
+### 5.6 `GET /api/v1/traces/{thread_id}/replay`
+
+**描述：** 回放指定范围的执行步骤。
 
 **Path 参数：** `thread_id` (UUID)
 
-**响应 `list[CheckpointInfo]`：**
-```json
-[
-  {
-    "checkpoint_id": "1f0e3f...",
-    "thread_id": "f47ac10b-...",
-    "parent_checkpoint_id": null,
-    "node_name": "chatbot",
-    "timestamp": "2026-05-29T08:00:00Z",
-    "message_count": 1,
-    "last_message_type": "ai",
-    "has_next": true,
-    "next_nodes": ["chatbot"]
-  }
+**Query 参数：**
+
+| 字段 | 类型 | 必填 | 默认值 | 描述 |
+|------|------|------|--------|------|
+| `from_step` | `int` | ❌ | `1` | 起始步骤 (≥1) |
+| `to_step` | `int \| null` | ❌ | `null` | 结束步骤 |
+| `user_id` | `string` | ✅ | — | 用户 ID |
+
+**响应：** `list[StepOutput]`
+
+---
+
+## 6. 数据模型汇总
+
+### 6.1 请求模型
+
+| 模型 | 用途 | 源文件 |
+|------|------|--------|
+| `UserInput` | Agent 调用请求 | `app.schemas.chat` |
+| `ConversationCreate` | 创建对话 | `app.schemas.chat` |
+| `ConversationUpdate` | 更新对话 | `app.schemas.chat` |
+| `TitleGenerateRequest` | 生成标题 | `app.schemas.chat` |
+| `ModelCreate` | 创建模型 | `app.schemas.model` |
+| `ModelUpdateRequest` | 更新模型 | `app.schemas.model` |
+| `ProviderUpdateRequest` | 更新 Provider | `app.schemas.provider` |
+
+### 6.2 响应模型
+
+| 模型 | 用途 | 源文件 |
+|------|------|--------|
+| `ChatMessage` | 单条消息 | `app.schemas.chat` |
+| `ChatHistory` | 对话历史 + 步骤序列 | `app.schemas.chat` |
+| `ConversationInDB` | 对话详情 | `app.schemas.chat` |
+| `ConversationInfoResponse` | 对话信息（模型） | `app.schemas.chat` |
+| `TitleGenerateResponse` | 生成的标题 | `app.schemas.chat` |
+| `DailyStatsItem` | 每日统计 | `app.schemas.chat` |
+| `ModelsResponse` | 模型列表 | `app.schemas.model` |
+| `ModelInfo` | 模型详情 | `app.schemas.model` |
+| `ProvidersResponse` | Provider 列表 | `app.schemas.provider` |
+| `ProviderInfo` | Provider 详情 | `app.schemas.provider` |
+| `ThinkingModeStatus` | 思考模式状态 | `app.schemas.model` |
+| `TraceListResponse` | 追踪列表 | `app.schemas.trace` |
+| `StepOutput` | 执行步骤 | `app.schemas.trace` |
+| `ExecutionDag` | 执行 DAG | `app.schemas.trace` |
+
+---
+
+## 7. 前端 API 使用矩阵
+
+### 7.1 Chat 模块调用
+
+| Endpoint | 前端模块/组件 |
+|----------|-------------|
+| `POST /chat/stream` | 核心对话组件 (流式) |
+| `POST /chat/invoke` | 核心对话组件 (非流式备用) |
+| `GET /chat/conversations` | 侧边栏会话列表 |
+| `POST /chat/conversations` | 创建新对话 |
+| `DELETE /chat/conversations/{thread_id}` | 会话删除 |
+| `GET /chat/conversations/{thread_id}/info` | 模型回退提示 |
+| `GET /chat/conversations/{thread_id}/title` | 获取标题 |
+| `PATCH /chat/conversations/{thread_id}/title` | 标题编辑 |
+| `POST /chat/conversations/{thread_id}/title/generate` | 自动标题生成 |
+| `GET /chat/history/{thread_id}` | 历史消息加载 |
+| `GET /chat/stats/daily` | 统计仪表盘 |
+| `GET /chat/conversations/{thread_id}/stats` | 会话 Token 详情 |
+
+### 7.2 Models 模块调用
+
+| Endpoint | 前端模块/组件 |
+|----------|-------------|
+| `GET /models` | 模型选择器、模型管理面板 |
+| `POST /models` | 模型管理面板 |
+| `PATCH /models/{model_id}` | 模型编辑 |
+| `DELETE /models/{model_id}` | 模型删除 |
+| `GET /models/providers` | 提供商列表 |
+| `PATCH /models/providers/{provider}` | 提供商配置 |
+| `GET /models/thinking-mode` | 思考模式状态 |
+
+### 7.3 Traces 模块调用
+
+| Endpoint | 前端模块/组件 |
+|----------|-------------|
+| `GET /traces` | 看板视图 |
+| `GET /traces/{thread_id}/steps` | Trace 详情页 |
+| `GET /traces/{thread_id}/dag` | DAG 可视化 |
+| `GET /traces/{thread_id}/steps/{step_number}` | 单步详情 |
+| `GET /traces/{thread_id}/checkpoints/{checkpoint_id}` | Checkpoint 详情 |
+| `GET /traces/{thread_id}/replay` | Trace 回放 |
+
+---
+
+## 8. 架构说明
+
+### 8.1 服务层设计
+
+```
+API Route (FastAPI)
+    │
+    ├── UserInput validation (Pydantic v2)
+    │
+    ▼
+Service Layer
+    │
+    ├── ChatService / ChatStreamingService
+    │       ├── build_agent_kwargs() → config + context
+    │       └── Agent execution + persistence
+    │
+    ▼
+Agent Layer (LangChain v1)
+    │
+    ├── create_agent(middleware=[...])
+    │       ├── @dynamic_prompt → MD 模板 + 时间上下文
+    │       ├── @wrap_model_call → 运行时模型切换
+    │       └── SummarizationMiddleware → 多轮对话压缩
+    │
+    └── LiteLLM Router → Fallback + Retry
+```
+
+### 8.2 中间件链
+
+```python
+middleware = [
+    supervisor_prompt,      # @dynamic_prompt: MD模板 + TTLCache
+    dynamic_model,          # @wrap_model_call: 运行时模型切换
+    SummarizationMiddleware(  # 多轮对话历史压缩
+        model=get_system_llm(),
+        trigger=("tokens", 4000),
+        keep=("messages", 20),
+    ),
 ]
 ```
 
-**前端调用：** `api.getTraceCheckpoints()`
+### 8.3 SSE 流式处理
+
+```
+agent.astream_events(version="v3")
+    │
+    ├── .messages projection → token deltas
+    ├── .tool_calls projection → tool lifecycle
+    └── .values projection → final state
+    │
+    ▼
+AsyncIO Queue (sentinel-based)
+    │
+    ▼
+SSE Stream Response
+```
 
 ---
 
-## 6. 前端 API 使用矩阵
-
-**API 层：** `frontend/src/lib/api.ts`
-
-### 6.1 Chat 模块调用
-
-| Endpoint | API 函数 | 前端模块/组件 |
-|----------|----------|-------------|
-| `POST /chat/run/stream` | `streamChat()` | `features/chat/` 核心对话组件 |
-| `POST /chat/run/invoke` | `invokeChat()` | `features/chat/` (非流式备用) |
-| `GET /chat/conversations` | `listConversations()` | 侧边栏会话列表 |
-| `GET /chat/conversations/{thread_id}` | `getChatHistory()` | 历史消息加载 |
-| `GET /chat/conversation-info/{thread_id}` | `getConversationInfo()` | 模型回退提示 |
-| `PATCH /chat/conversations/{thread_id}` | `updateConversation()` | 标题编辑/软删除 |
-| `DELETE /chat/conversations/{thread_id}` | `deleteConversation()` | 会话删除 |
-| `POST /chat/title` | `generateTitle()` | 自动标题生成 |
-| `GET /chat/thinking-mode` | `getThinkingModeStatus()` | `hooks/use-thinking-mode.ts` |
-| `GET /chat/agents` | `listAgents()` | Agent 选择器 |
-| `GET /chat/stats/daily` | `getDailyStats()` | 统计仪表盘 |
-| `GET /chat/conversations/{thread_id}/stats` | `getConversationStats()` | 会话 Token 详情 |
-
-### 6.2 Models 模块调用
-
-| Endpoint | API 函数 | 前端模块/组件 |
-|----------|----------|-------------|
-| `GET /models` | `getAvailableModels()` | `hooks/use-models.ts` (模型选择器) |
-| `POST /models` | `createModel()` | 模型管理面板 |
-| `PATCH /models/{model_id}` | `updateModel()` | 模型编辑 |
-| `DELETE /models/{model_id}` | `deleteModel()` | 模型删除 |
-| `PATCH /models/{model_id}/set-default` | `setDefaultModel()` | 设置默认模型 |
-| `POST /models/test-connection` | `testModelConnection()` | 连接测试 |
-| `GET /models/providers` | `getProviders()` | 提供商列表 |
-| `PUT /models/providers/{provider}` | `updateProvider()` | 提供商配置 |
-
-### 6.3 Traces 模块调用
-
-| Endpoint | API 函数 | 前端模块/组件 |
-|----------|----------|-------------|
-| `GET /traces` | `listTraces()` | `features/kanban/` 看板视图 |
-| `GET /traces/{thread_id}` | `getTrace()` | Trace 详情页 |
-| `GET /traces/{thread_id}/dag` | `getTraceDag()` | DAG 可视化 |
-| `GET /traces/{thread_id}/checkpoints` | `getTraceCheckpoints()` | Checkpoint 调试 |
-
-### 6.4 前端类型定义
-
-**文件：** `frontend/src/types.ts`
-
-| 类型 | 对应后端 Schema | 用途 |
-|------|---------------|------|
-| `UserInput` | `app.schemas.chat.UserInput` | 对话请求 |
-| `ChatMessage` | `app.schemas.chat.ChatMessage` | 聊天消息 |
-| `ChatHistory` | `app.schemas.chat.ChatHistory` | 历史记录 |
-| `ConversationInDB` | `app.schemas.chat.ConversationInDB` | 会话信息 |
-| `ModelInfo` | `app.schemas.model.ModelInfo` | 模型信息 |
-| `ModelsResponse` | `app.schemas.model.ModelsResponse` | 模型列表响应 |
-| `ProviderInfo` | `app.schemas.provider.ProviderInfo` | 提供商信息 |
-| `StreamEvent` | (SSE 事件联合类型) | 流式事件解析 |
-| `MessageStep` | `app.schemas.trace.StepOutput` | 执行步骤 |
-
-### 6.5 关键前端 Hooks
-
-| Hook | 文件 | 调用的 API |
-|------|------|-----------|
-| `useModels()` | `hooks/use-models.ts` | `GET /models` |
-| `useThinkingMode()` | `hooks/use-thinking-mode.ts` | `GET /chat/thinking-mode` |
-
-### 6.6 关键前端 Feature 模块
-
-| 模块 | 目录 | 主要 API |
-|------|------|---------|
-| Chat 对话 | `features/chat/` | `streamChat`, `getChatHistory`, `listConversations`, `generateTitle` |
-| Kanban 看板 | `features/kanban/` | `listTraces`, `getTrace`, `getTraceDag` |
-
----
-
-> **文档版本：** v1.0 | **后端路由文件：** `backend/app/api/v1/chat/`, `backend/app/api/v1/models/`, `backend/app/api/v1/traces/` | **前端 API 层：** `frontend/src/lib/api.ts`
+> **文档版本：** v2.0 | **后端路由文件：** `backend/app/api/v1/` | **架构参考：** `memory-bank/systemPatterns.md`

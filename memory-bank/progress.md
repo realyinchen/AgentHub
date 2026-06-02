@@ -573,3 +573,199 @@ get_embed_batch_fn()
 ✅ main.py lifespan works correctly
 ✅ No breaking changes for business code
 ```
+
+---
+
+## 模型创建 model_id 格式修复 ✅ 完成（2026-06-02）
+
+### 背景
+用户在前端创建模型时，如果 `model_id` 包含 provider 前缀（如 `zai/glm-5.1`），会导致 LiteLLM Router 初始化失败：
+```
+litellm.BadRequestError: LLM Provider NOT provided. You passed model=zai/zai/glm-5.1
+```
+
+### 根因分析
+1. 前端 `ModelCreate` 类型注释说明 `model_id` 格式为 `"provider/model_name"`
+2. 后端 `ModelBase` schema 期望 `model_id` 是纯模型名 `"model_name"`（不带 provider 前缀）
+3. `manager.py` 中 `full_model_id = f"{m.provider}/{m.model_id}"` 会重复添加 provider 前缀
+
+### 修复内容
+
+| # | 文件 | 操作 |
+|---|------|------|
+| **1** | `backend/app/api/v1/models.py` | 在 `create_model()` 中自动去除 `model_id` 的 provider 前缀 |
+| **2** | `backend/app/infra/llm/manager.py` | `_build_model_list()` 和 `_build_fallbacks()` 中添加防御性前缀去除 |
+| **3** | `frontend/src/types.ts` | 更新 `ModelCreate.model_id` 注释，明确说明不应包含 provider 前缀 |
+
+### 修复策略
+
+**三层防御**：
+1. **API 层**：创建模型时自动清理 `model_id`，确保存储到数据库的是纯模型名
+2. **Manager 层**：构建 LiteLLM Router 时再次检查并清理，防止脏数据
+3. **类型注释**：更新前端注释，明确告知用户正确的格式
+
+### 关键代码变更
+
+```python
+# backend/app/api/v1/models.py
+@api_router.post("", response_model=ModelInfo, status_code=status.HTTP_201_CREATED)
+async def create_model(...):
+    # Normalize model_id: strip provider prefix if present
+    normalized_model_id = model_data.model_id
+    if normalized_model_id.startswith(f"{model_data.provider}/"):
+        normalized_model_id = normalized_model_id[len(f"{model_data.provider}/") :]
+```
+
+```python
+# backend/app/infra/llm/manager.py
+def _build_model_list(self) -> list[dict]:
+    # Normalize model_id: strip provider prefix if present
+    normalized_model_id = m.model_id
+    if normalized_model_id.startswith(f"{m.provider}/"):
+        normalized_model_id = normalized_model_id[len(f"{m.provider}/") :]
+```
+
+```typescript
+// frontend/src/types.ts
+export type ModelCreate = {
+  provider: string  // e.g. "dashscope", "zai", "openai"
+  model_type: ModelType
+  model_id: string  // Model name WITHOUT provider prefix, e.g. "qwen3.5-27b" (NOT "dashscope/qwen3.5-27b")
+  // ...
+}
+```
+
+### 关键收益
+
+| 场景 | 修复前 | 修复后 |
+|------|--------|--------|
+| 用户输入 `zai/glm-5.1` | 500 错误 | 自动修正为 `glm-5.1` |
+| 脏数据存入 DB | 导致 Router 初始化失败 | Manager 层防御性处理 |
+| 类型注释误导 | 注释说格式是 `provider/model` | 注释明确说明不带前缀 |
+
+---
+
+## Agent Middleware 异步支持修复 ✅ 完成（2026-06-02）
+
+### 背景
+后端报错：
+```
+NotImplementedError: Asynchronous implementation of awrap_model_call is not available. 
+You are likely encountering this error because you defined only the sync version (wrap_model_call) 
+and invoked your agent in an asynchronous context (e.g., using `astream()` or `ainvoke()`).
+```
+
+### 根因分析
+1. `middleware/model.py` 使用了 `@wrap_model_call` 装饰器（同步版本）
+2. 流式服务 `streaming.py` 使用 `astream_events()` 异步调用
+3. LangChain 在异步上下文中会尝试调用 `awrap_model_call`，但装饰器版本只生成了同步实现
+
+### 修复内容
+
+| # | 文件 | 操作 |
+|---|------|------|
+| **1** | `agents/middleware/model.py` | 从装饰器方式改为类继承 `AgentMiddleware`，同时实现 `wrap_model_call` 和 `awrap_model_call` |
+
+### 新架构
+
+```python
+class DynamicModelMiddleware(AgentMiddleware):
+    """Dynamically select model based on runtime context.
+    
+    Implements both sync and async versions per LangChain official pattern.
+    """
+    
+    def _get_model_override(self, request: ModelRequest) -> BaseChatModel | None:
+        """Extract model from context and create new LLM instance."""
+        ...
+    
+    def wrap_model_call(self, request, handler) -> ModelResponse:
+        """Sync version."""
+        model = self._get_model_override(request)
+        if model is None:
+            return handler(request)
+        return handler(request.override(model=model))
+
+    async def awrap_model_call(self, request, handler) -> ModelResponse:
+        """Async version - called in async context (astream, ainvoke)."""
+        model = self._get_model_override(request)
+        if model is None:
+            return await handler(request)  # type: ignore[misc]
+        return await handler(request.override(model=model))  # type: ignore[misc]
+
+
+# Module-level singleton instance
+dynamic_model = DynamicModelMiddleware()
+```
+
+### 关键决策
+
+**为什么选择类继承而非异步装饰器？**
+
+根据 LangChain 官方文档：
+> "When to use classes: Defining both sync and async implementations for the same hook"
+
+类继承方式可以：
+1. 同时支持同步和异步调用上下文
+2. 未来扩展更方便（可添加其他 hooks）
+3. 符合 `SummarizationMiddleware` 的使用模式
+
+### 关键收益
+
+| 指标 | 修复前 | 修复后 |
+|------|--------|--------|
+| 异步调用支持 | ❌ NotImplementedError | ✅ 正常工作 |
+| 同步调用支持 | ✅ | ✅ |
+| 代码模式 | 装饰器（仅同步） | 类继承（双版本） |
+| 官方模式遵循 | 部分 | 完全符合 |
+
+---
+
+## LiteLLM Router model_id 匹配修复 ✅ 完成（2026-06-02）
+
+### 背景
+前端传入的 `model_name` 不带 provider 前缀（如 `glm-5.1`），但 LiteLLM Router 注册的 `model_name` 是带前缀的（如 `zai/glm-5.1`），导致 Router 找不到模型。
+
+### 错误日志
+```
+litellm.BadRequestError: You passed in model=glm-5.1. 
+There are no healthy deployments for this model
+No fallback model group found for original model_group=glm-5.1
+```
+
+### 根因分析
+1. `_build_model_list()` 注册 `model_name: "provider/model_id"`
+2. `factory.get_llm()` 创建 `ChatLiteLLMRouter(model_name=model_id)` 使用的是不带前缀的 `model_id`
+3. LiteLLM Router 按 `model_name` 匹配，找不到 `glm-5.1`
+
+### 修复内容
+
+| # | 文件 | 操作 |
+|---|------|------|
+| **1** | `infra/llm/factory.py` | 在创建 `ChatLiteLLMRouter` 时，使用 `full_model_id = f"{model_config.provider}/{short_model_id}"` |
+
+### 修复代码
+```python
+# factory.py
+def get_llm(model_id: str, thinking_mode: bool = False) -> Runnable:
+    # ...
+    model_config = manager.get_model(short_model_id)
+    
+    # Build full model_id with provider prefix (required by LiteLLM Router)
+    full_model_id = f"{model_config.provider}/{short_model_id}"
+    
+    llm = ChatLiteLLMRouter(
+        router=router,
+        model_name=full_model_id,  # ← 使用完整 ID
+        ...
+    )
+```
+
+### 关键收益
+
+| 指标 | 修复前 | 修复后 |
+|------|--------|--------|
+| 前端传参 | `glm-5.1` | `glm-5.1`（无需改变） |
+| Router 匹配 | ❌ 找不到模型 | ✅ 自动补全前缀 |
+| 向后兼容 | - | ✅ 支持带/不带前缀两种格式 |
+| 改动范围 | - | 仅 `factory.py` 一处 |
