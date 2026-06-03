@@ -5,8 +5,12 @@
 # backend-only deployments where you manage the frontend separately.
 #
 # Prerequisites:
-# - Running PostgreSQL instance with pgvector extension
-# - Configure POSTGRES_HOST, POSTGRES_PORT in .env
+# - Copy .env.example to .env
+# - Edit POSTGRES_HOST to point to your PostgreSQL instance
+
+networks:
+  backend-network:
+    driver: bridge
 
 services:
   backend:
@@ -17,7 +21,7 @@ services:
     container_name: agenthub-backend
     restart: unless-stopped
     env_file:
-      - /app/agenthub/backend/.env
+      - .env
     environment:
       # Override for container environment
       HOST: 0.0.0.0

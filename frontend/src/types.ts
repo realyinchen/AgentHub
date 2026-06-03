@@ -112,7 +112,7 @@ export type ProviderUpdate = {
 
 // ==================== Model Types ====================
 
-export type ModelType = "llm" | "vlm"
+export type ModelType = "llm" | "vlm" | "embedding"
 
 export type ModelInfo = {
   id: string  // UUID primary key
