@@ -108,7 +108,9 @@ class ChatService:
         try:
             before_state = await self._agent.aget_state(config)
             configurable = before_state.config.get("configurable")
-            before_checkpoint_id = configurable.get("checkpoint_id") if configurable else None
+            before_checkpoint_id = (
+                configurable.get("checkpoint_id") if configurable else None
+            )
             before_message_count = len(before_state.values.get("messages", []))
             logger.debug(
                 "Before execution: checkpoint_id=%s, message_count=%d",

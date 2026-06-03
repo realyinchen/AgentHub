@@ -7,7 +7,7 @@ import {
   PencilIcon,
   QuoteIcon,
 } from "lucide-react"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
@@ -228,6 +228,16 @@ export function ChatMessageItem({
   const displayThinkingContent = thinkingContent || historicalThinking || ""
   const hasThinkingContent = Boolean(displayThinkingContent)
 
+  // Ref for thinking content container - auto-scroll during streaming
+  const thinkingContentRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll thinking content to bottom when content grows during streaming
+  useEffect(() => {
+    if (isStreaming && thinkingContent && thinkingContentRef.current) {
+      thinkingContentRef.current.scrollTop = thinkingContentRef.current.scrollHeight
+    }
+  }, [isStreaming, thinkingContent])
+
   // Merge calledTools from streaming with stored tool_info from history
   // For streaming messages, use calledTools; for history messages, use stored tool_info
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
@@ -361,7 +371,7 @@ export function ChatMessageItem({
                   {t("message.thinking") || "Thinking..."}
                 </span>
               </div>
-              <div className="whitespace-pre-wrap break-words text-muted-foreground max-h-48 overflow-y-auto">
+              <div ref={thinkingContentRef} className="whitespace-pre-wrap break-words text-muted-foreground max-h-48 overflow-y-auto">
                 {thinkingContent}
               </div>
             </div>
@@ -375,8 +385,8 @@ export function ChatMessageItem({
                   const isCalling = tool.status === "calling"
                   const isCompleted = tool.status === "completed"
                   return (
-                    <div 
-                      key={tool.id || `tool-${toolIndex}`} 
+                    <div
+                      key={tool.id || `tool-${toolIndex}`}
                       className={cn(
                         "flex items-center gap-2 animate-in slide-in-from-left-2 duration-200",
                         toolIndex === allTools.length - 1 && isCalling && "bg-primary/5 -mx-1 px-1 rounded"

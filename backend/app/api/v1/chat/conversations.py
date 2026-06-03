@@ -234,10 +234,28 @@ async def generate_title(
         # Unified LLM invocation via LangChain (appears in LangSmith traces)
         resp = await llm.ainvoke(messages)
 
-        content = resp.content
-        if not isinstance(content, str):
-            content = str(content) if content else ""
-        title = content.strip() if content else ""
+        # Extract text content - handle thinking/reasoning blocks safely
+        # Models with thinking mode may return content blocks instead of plain text:
+        # [{'type': 'reasoning', 'reasoning': '...'}, {'type': 'text', 'text': '...'}]
+        raw_content = resp.content
+        if isinstance(raw_content, str):
+            text_content = raw_content
+        elif isinstance(raw_content, list):
+            # Extract text from content blocks, skip reasoning/thinking blocks
+            text_parts = []
+            for block in raw_content:
+                if isinstance(block, dict):
+                    block_type = block.get("type", "")
+                    if block_type == "text":
+                        text_parts.append(block.get("text", ""))
+                    # Skip 'reasoning', 'thinking', 'tool_call' etc. blocks
+                elif isinstance(block, str):
+                    text_parts.append(block)
+            text_content = "".join(text_parts)
+        else:
+            text_content = str(raw_content) if raw_content else ""
+
+        title = text_content.strip() if text_content else ""
         if title.startswith('"') and title.endswith('"'):
             title = title[1:-1]
         elif title.startswith("'") and title.endswith("'"):

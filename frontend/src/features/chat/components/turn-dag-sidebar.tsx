@@ -2,9 +2,7 @@
  * TurnDAGSidebar - Displays execution DAG for a turn in the sidebar
  * Shows CSSTurnDAG in compact mode, with expandable dialog for full view
  * 
- * Can display DAG by either:
- * - sessionId: for latest turn or session-based viewing
- * - requestId: for historical message DAG viewing
+ * Displays DAG by requestId - each request corresponds to one AI message turn.
  */
 
 import { useState, useEffect } from "react"
@@ -19,9 +17,8 @@ import {
 
 import CSSTurnDAG from "@/features/kanban/components/dag/CSSTurnDAG"
 import { SciFiLoader } from "@/components/ai/neural-network-loader"
-import { useTurnSteps } from "@/features/kanban/hooks/useTurnSteps"
 import { useI18n } from "@/i18n"
-import type { MessageStep } from "@/types"
+import type { MessageStepRaw } from "@/features/kanban/types/dag"
 import { getCurrentUserId } from "@/lib/api"
 
 // API base URL - same origin
@@ -30,19 +27,15 @@ const API_BASE_URL = "/api/v1"
 interface TurnDAGSidebarProps {
   /** Current thread ID */
   threadId: string | null
-  /** Current session ID (turn) */
-  sessionId: string | null
   /** Whether currently streaming */
   isStreaming: boolean
-  /** Message sequence for history view */
-  messageSequence?: MessageStep[]
-  /** Request ID for viewing historical DAG */
+  /** Request ID for viewing DAG (each request = one AI turn) */
   requestId?: string | null
 }
 
 // Hook to fetch DAG by request_id
 function useDagByRequestId(threadId: string | null, requestId: string | null | undefined) {
-  const [steps, setSteps] = useState<MessageStep[]>([])
+  const [steps, setSteps] = useState<MessageStepRaw[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -96,50 +89,32 @@ function useDagByRequestId(threadId: string | null, requestId: string | null | u
 
 export function TurnDAGSidebar({
   threadId,
-  sessionId,
   isStreaming,
-  messageSequence: _messageSequence,
   requestId,
 }: TurnDAGSidebarProps) {
   const { t } = useI18n()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  // Use request_id if provided, otherwise use session-based steps
-  const dagByRequestId = useDagByRequestId(threadId, requestId)
-  const sessionSteps = useTurnSteps(
-    threadId ?? undefined,
-    sessionId ?? undefined,
-    isStreaming
-  )
-
-  // Choose data source based on whether requestId is provided
-  const rawSteps = requestId ? dagByRequestId.steps : sessionSteps.steps
-  const rawLoading = requestId ? dagByRequestId.loading : sessionSteps.loading
-  const error = requestId ? dagByRequestId.error : sessionSteps.error
+  // Fetch DAG by request_id
+  const { steps: fetchedSteps, loading: fetchedLoading, error } = useDagByRequestId(threadId, requestId)
 
   // IMPORTANT: During streaming, always show loading state
   // - Don't show stale data from previous turn
   // - Only fetch and display DAG after streaming ends
-  // 流式期间不展示旧数据，始终显示loading
-  const steps = isStreaming ? [] : rawSteps
-  const loading = isStreaming || rawLoading
+  const steps = isStreaming ? [] : fetchedSteps
+  const loading = isStreaming || fetchedLoading
 
   // Determine if we have valid steps to display
   const hasSteps = steps.length > 0
-  const isLoading = loading
 
   // Dialog steps: use same steps, no loading state for dialog
   const dialogSteps = steps
 
   // Calculate step count for header
   const stepCount = steps.length
-  const toolCallCount = steps.filter(s => s.message_type === 'tool').length
-  const hasThinking = steps.some(s =>
-    s.message_type === 'ai' && s.thinking && s.thinking.trim().length > 0
-  )
 
   // Loading state - use SciFiLoader animation
-  if (isLoading) {
+  if (loading) {
     return (
       <div
         className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden backdrop-blur-sm shadow-lg"
@@ -261,27 +236,11 @@ export function TurnDAGSidebar({
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {t("process.executionSteps") || "Execution Steps"}
-              <span className="text-sm font-normal text-muted-foreground">
-                ({stepCount} steps)
-              </span>
             </DialogTitle>
           </DialogHeader>
 
           <div className="flex-1 overflow-auto">
             <CSSTurnDAG steps={dialogSteps} compact={false} className="w-full min-h-[400px]" />
-          </div>
-
-          {/* Summary footer for dialog */}
-          <div className="flex items-center gap-4 text-xs text-muted-foreground pt-2 border-t border-border/50">
-            <span>{stepCount} steps</span>
-            <span>·</span>
-            <span>{toolCallCount} tool calls</span>
-            {hasThinking && (
-              <>
-                <span>·</span>
-                <span>thinking</span>
-              </>
-            )}
           </div>
         </DialogContent>
       </Dialog>

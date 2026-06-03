@@ -12,60 +12,43 @@
 
 import type { LayoutNode, LayoutEdge, DAGResult, MessageStepRaw } from '../types/dag';
 
-const LAYER_GAP_Y = 100;  // Vertical gap between layers (reduced for compact layout)
-const PARALLEL_GAP = 160; // Horizontal gap for parallel tools (reduced)
+const LAYER_GAP_Y = 100;  // Vertical gap between layers
+const TOOL_NODE_GAP = 40; // Horizontal gap between parallel tool nodes
 
-// Dynamic node sizing constraints
-const NODE_MIN_WIDTH = 80;
-const NODE_MAX_WIDTH = 180;
-const NODE_MIN_HEIGHT = 36;
-const NODE_MAX_HEIGHT = 60;
-const CHAR_WIDTH_APPROX = 7; // Approximate width per character
-const PADDING_X = 24; // Horizontal padding inside node
+// Node sizing constants
+const HUMAN_NODE_WIDTH = 80;
+const AI_NODE_WIDTH = 80;
+const TOOL_NODE_MIN_WIDTH = 100;
+const NODE_HEIGHT = 44;  // Single line node
+const TOOL_NODE_HEIGHT = 58;  // Two lines for tool nodes
+const CHAR_WIDTH_APPROX = 8; // Approximate width per character for tool names (more accurate)
+const PADDING_X = 40; // Horizontal padding inside node (extra space for safety)
 
 /**
  * Calculate node size based on content
  */
-function calculateNodeSize(type: 'human' | 'ai' | 'tool', data: { 
-  content?: string; 
-  modelName?: string | null; 
+function calculateNodeSize(type: 'human' | 'ai' | 'tool', data: {
+  content?: string;
+  modelName?: string | null;
   toolName?: string;
   toolCalls?: { name: string }[] | null;
 }): { width: number; height: number } {
-  let textLength = 0;
-  
   switch (type) {
     case 'human':
-      textLength = 6; // Just "用户" - fixed small width
-      break;
+      // Fixed size for human node
+      return { width: HUMAN_NODE_WIDTH, height: NODE_HEIGHT };
     case 'ai':
-      // AI node shows model name + optional tool call count
-      textLength = Math.max(
-        (data.modelName?.length || 3), // "AI" fallback
-        data.toolCalls && data.toolCalls.length > 0 
-          ? `${data.toolCalls.length} tools`.length 
-          : 0
-      );
-      break;
+      // Fixed size for AI node - just show "AI"
+      return { width: AI_NODE_WIDTH, height: NODE_HEIGHT };
     case 'tool':
-      textLength = (data.toolName?.length || 8) + 4; // tool name + status indicator
-      break;
+      // Dynamic width based on tool name - no max limit, show full name
+      const toolNameLength = data.toolName?.length || 8;
+      const calculatedWidth = toolNameLength * CHAR_WIDTH_APPROX + PADDING_X;
+      const width = Math.max(TOOL_NODE_MIN_WIDTH, calculatedWidth);
+      return { width, height: TOOL_NODE_HEIGHT };
+    default:
+      return { width: 100, height: NODE_HEIGHT };
   }
-  
-  // Calculate width with constraints
-  const calculatedWidth = Math.max(NODE_MIN_WIDTH, textLength * CHAR_WIDTH_APPROX + PADDING_X);
-  const width = Math.min(NODE_MAX_WIDTH, calculatedWidth);
-  
-  // Height based on node type (compact layout)
-  let height = NODE_MIN_HEIGHT;
-  if (type === 'ai' && data.toolCalls && data.toolCalls.length > 0) {
-    height = NODE_MIN_HEIGHT + 16; // Extra height for tool call indicator line
-  } else if (type === 'tool') {
-    height = NODE_MIN_HEIGHT + 14; // Extra height for status line
-  }
-  height = Math.min(NODE_MAX_HEIGHT, height);
-  
-  return { width, height };
 }
 
 /**
@@ -156,14 +139,14 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
         let matchingResult = resultSteps.find(
           r => r.tool_call_id && tc.id && r.tool_call_id === tc.id
         );
-        
+
         // Fallback: match by tool name if tool_call_id is empty/missing
         if (!matchingResult && tc.name) {
           matchingResult = resultSteps.find(
             r => r.tool_name && r.tool_name === tc.name
           );
         }
-        
+
         toolInfos.push({
           toolName: tc.name,
           toolArgs: tc.args && Object.keys(tc.args).length > 0 ? tc.args : null,
@@ -278,13 +261,25 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
       currentY += LAYER_GAP_Y;
     }
     else if (layer.type === 'tools' && layer.toolInfos) {
-      const count = layer.toolInfos.length;
-      const startX = -((count - 1) * PARALLEL_GAP) / 2;
+      // Calculate sizes for all tools first to determine proper positioning
+      const toolSizes = layer.toolInfos.map(toolInfo =>
+        calculateNodeSize('tool', { toolName: toolInfo.toolName })
+      );
+
+      // Calculate total width of all tools including gaps
+      const totalWidth = toolSizes.reduce((sum, size, idx) => {
+        return sum + size.width + (idx < toolSizes.length - 1 ? TOOL_NODE_GAP : 0);
+      }, 0);
+
+      // Start position: center the entire group
+      let currentX = -totalWidth / 2;
 
       layer.toolInfos.forEach((toolInfo, idx) => {
         const stepNum = layer.stepNumbers[idx] ?? layer.stepNumbers[0];
         const nodeId = `tool-${stepNum}-${idx}`;
-        const size = calculateNodeSize('tool', { toolName: toolInfo.toolName });
+        const size = toolSizes[idx];
+
+        // Position node centered at currentX + half its width
         nodes.push({
           id: nodeId,
           data: {
@@ -295,11 +290,14 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
             index: toolIndex,
             stepNumber: stepNum,
           },
-          x: startX + idx * PARALLEL_GAP,
+          x: currentX,
           y: currentY,
           width: size.width,
           height: size.height,
         });
+
+        // Move to next position
+        currentX += size.width + TOOL_NODE_GAP;
         toolIndex++;
       });
       currentY += LAYER_GAP_Y;

@@ -37,7 +37,9 @@ _CACHE_MAXSIZE = 20
 # Dynamic path detection: Docker uses /app, local dev uses relative path
 _DOCKER_PROMPTS_DIR = Path("/app/agents/prompts")
 _LOCAL_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
-_PROMPTS_DIR = _DOCKER_PROMPTS_DIR if _DOCKER_PROMPTS_DIR.exists() else _LOCAL_PROMPTS_DIR
+_PROMPTS_DIR = (
+    _DOCKER_PROMPTS_DIR if _DOCKER_PROMPTS_DIR.exists() else _LOCAL_PROMPTS_DIR
+)
 
 # ── Module-level cache + lock ───────────────────────────────────────────────
 

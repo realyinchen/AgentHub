@@ -78,31 +78,31 @@ interface DonutChartProps {
 
 function DonutChart({ inputTokens, outputTokens, totalTokens }: DonutChartProps) {
   const { t } = useI18n()
-  
+
   // Calculate percentages
   const inputPercentage = totalTokens > 0 ? (inputTokens / totalTokens) * 100 : 0
   const outputPercentage = totalTokens > 0 ? (outputTokens / totalTokens) * 100 : 0
-  
+
   // SVG parameters
   const size = 140
   const strokeWidth = 16
   const radius = (size - strokeWidth) / 2
   const circumference = 2 * Math.PI * radius
   const center = size / 2
-  
+
   // Calculate stroke dash arrays
   // Input arc (starts from top, goes clockwise)
   const inputDash = (inputPercentage / 100) * circumference
   // Output arc (continues after input)
   const outputDash = (outputPercentage / 100) * circumference
-  
+
   // Rotation to start from top (-90 degrees)
   const rotation = -90
 
   return (
     <div className="relative flex items-center justify-center">
       {/* Circular background container */}
-      <div 
+      <div
         className="rounded-full overflow-hidden"
         style={{ width: size, height: size }}
       >
@@ -121,7 +121,7 @@ function DonutChart({ inputTokens, outputTokens, totalTokens }: DonutChartProps)
             stroke="var(--token-track)"
             strokeWidth={strokeWidth}
           />
-          
+
           {/* Input tokens arc (blue) */}
           {inputTokens > 0 && (
             <circle
@@ -136,7 +136,7 @@ function DonutChart({ inputTokens, outputTokens, totalTokens }: DonutChartProps)
               className="transition-all duration-500 ease-out"
             />
           )}
-          
+
           {/* Output tokens arc (purple) */}
           {outputTokens > 0 && (
             <circle
@@ -154,7 +154,7 @@ function DonutChart({ inputTokens, outputTokens, totalTokens }: DonutChartProps)
           )}
         </svg>
       </div>
-      
+
       {/* Center content */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-xs text-muted-foreground">{t("token.total")}</span>
@@ -261,7 +261,7 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
       const response = await fetch(`/api/v1/chat/stats/daily?days=7`)
       if (response.ok) {
         const data = await response.json()
-        
+
         // Create a map from the API response
         const dataMap = new Map<string, DailyStat>()
         data.forEach((d: any) => {
@@ -273,7 +273,7 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
             output_tokens: d.output_tokens ?? 0,
           })
         })
-        
+
         // Fill in missing dates with zero values
         const past7Days = generatePastDays(7)
         const filledData: DailyStat[] = past7Days.map(date => {
@@ -285,7 +285,7 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
             output_tokens: 0,
           }
         })
-        
+
         setDailyStats(filledData)
       }
     } catch (error) {
@@ -318,15 +318,15 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
   }, [isFlipped])
 
   // Calculate percentages for display
-  const inputPercentage = tokens.total_tokens > 0 
-    ? ((tokens.input_tokens / tokens.total_tokens) * 100).toFixed(1) 
+  const inputPercentage = tokens.total_tokens > 0
+    ? ((tokens.input_tokens / tokens.total_tokens) * 100).toFixed(1)
     : "0"
-  const outputPercentage = tokens.total_tokens > 0 
-    ? ((tokens.output_tokens / tokens.total_tokens) * 100).toFixed(1) 
+  const outputPercentage = tokens.total_tokens > 0
+    ? ((tokens.output_tokens / tokens.total_tokens) * 100).toFixed(1)
     : "0"
 
   // Prepare chart data - memoized to prevent unnecessary re-renders
-  const chartData = useMemo(() => 
+  const chartData = useMemo(() =>
     dailyStats.map(d => ({
       date: formatDate(d.date),
       input_tokens: d.input_tokens,
@@ -382,20 +382,20 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
               outputTokens={tokens.output_tokens}
               totalTokens={tokens.total_tokens}
             />
-            
+
             {/* Legend - only show percentages */}
             <div className="mt-4 flex items-center gap-6 text-xs">
               <div className="flex items-center gap-1.5">
-                <div 
-                  className="size-2.5 rounded-sm" 
+                <div
+                  className="size-2.5 rounded-sm"
                   style={{ backgroundColor: 'var(--token-input)' }}
                 />
                 <span className="text-muted-foreground">{t("token.input")}</span>
                 <span className="font-medium text-foreground">{inputPercentage}%</span>
               </div>
               <div className="flex items-center gap-1.5">
-                <div 
-                  className="size-2.5 rounded-sm" 
+                <div
+                  className="size-2.5 rounded-sm"
                   style={{ backgroundColor: 'var(--token-output)' }}
                 />
                 <span className="text-muted-foreground">{t("token.output")}</span>

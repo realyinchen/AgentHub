@@ -33,16 +33,12 @@ type ChatMainPanelProps = {
   calledTools: ToolCallInfo[]
   thinkingContent: string // Accumulated thinking content
   messages: LocalChatMessage[]
-  aiMessageSessionIds?: (string | null)[] // session_id for each AI message (parallel to messages array)
-  aiMessageHasSteps?: boolean[] // Whether each AI message has steps (parallel to messages array)
-  selectedSessionId?: string | null // Currently selected session ID for sidebar
   selectedRequestId?: string | null // Currently selected request_id for DAG viewing
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to quoted message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
-  onSelectSession?: (sessionId: string) => void // Select a specific session to view
   onSelectRequestId?: (requestId: string | null) => void // Select request_id for DAG viewing
   // Model selection props
   models: ModelInfo[]
@@ -69,16 +65,12 @@ export function ChatMainPanel({
   calledTools,
   thinkingContent,
   messages,
-  aiMessageSessionIds,
-  aiMessageHasSteps,
-  selectedSessionId,
   selectedRequestId,
   onSendMessage,
   onStopStreaming,
   onEditMessage,
   onJumpToMessage,
   onToggleSidebarProcess,
-  onSelectSession,
   onSelectRequestId,
   models,
   selectedModel,
@@ -330,21 +322,17 @@ export function ChatMainPanel({
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const isLastAIMessage = index === messages.length - 1 && message.type === "ai"
-                    const sessionId = aiMessageSessionIds?.[index]
 
-                    // Determine if this message is "selected" (its steps are shown in sidebar):
+                    // Determine if this message is "selected" (its DAG is shown in sidebar):
                     // 1. During streaming, the last AI message is always "selected" 
                     // 2. When user clicks a brain icon, selectedRequestId is set - check if this message's request_id matches
-                    // 3. When sidebar shows a specific session: check if sessionId matches
-                    // 4. When sidebar shows default (selectedSessionId and selectedRequestId are null): last AI message is selected
+                    // 3. When sidebar shows default (selectedRequestId is null): last AI message with request_id is selected
                     const isMessageSelected = message.type === "ai" && (
                       (isLastAIMessage && isStreaming)
                         ? true
                         : selectedRequestId !== null
                           ? message.request_id === selectedRequestId  // User clicked this message's brain icon
-                          : selectedSessionId !== null
-                            ? sessionId === selectedSessionId  // Specific session selected
-                            : isLastAIMessage  // Default: show last AI message as selected
+                          : isLastAIMessage && Boolean(message.request_id)  // Default: show last AI message with request_id
                     )
 
                     return (
@@ -357,8 +345,6 @@ export function ChatMainPanel({
                         thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
-                        sessionId={sessionId}
-                        hasSteps={aiMessageHasSteps?.[index]}
                         isSelected={isMessageSelected}
                         onEditMessage={onEditMessage}
                         editDisabled={isStreaming || isComposerDisabled}
@@ -366,7 +352,6 @@ export function ChatMainPanel({
                         quoteDisabled={isStreaming || isComposerDisabled}
                         onJumpToMessage={onJumpToMessage}
                         onToggleSidebarProcess={onToggleSidebarProcess}
-                        onSelectSession={onSelectSession}
                         onSelectRequestId={onSelectRequestId}
                       />
                     )

@@ -112,7 +112,7 @@ export type ProviderUpdate = {
 
 // ==================== Model Types ====================
 
-export type ModelType = "llm" | "vlm" | "embedding"
+export type ModelType = "llm" | "vlm"
 
 export type ModelInfo = {
   id: string  // UUID primary key
@@ -246,70 +246,4 @@ export type StreamEvent =
     content: string
     error_type?: string
   }
-// ==================== Agent Process Types ====================
-
-/**
- * Single step in agent execution process.
- * Used to track thinking and tool calls during streaming.
- * 
- * Types:
- * - human: User message
- * - thinking: LLM reasoning/thinking content
- * - tool_call: Tool invocation with args and result
- * - ai_response: Final AI response with content and optional thinking
- */
-export type AgentProcessStep = {
-  id: string
-  type: "human" | "thinking" | "tool_call" | "ai_response"
-  content: string | ToolCallEvent
-  timestamp: number
-  status?: "running" | "done"
-  // For tool_call steps, store the result when completed
-  result?: string
-  // For ai_response steps, store thinking content if available
-  thinking?: string
-}
-
-/**
- * Agent execution session for real-time process display.
- * Active during streaming, cleared after streaming ends.
- */
-export type AgentProcessSession = {
-  threadId: string
-  agentId: string
-  steps: AgentProcessStep[]
-  isActive: boolean
-  startTime: number
-  endTime?: number
-}
-
-/**
- * View mode for sidebar process panel.
- */
-export type ProcessViewMode = "streaming" | "history"
-
-/**
- * Single step in historical process data.
- * Used to preserve the order and type of each step.
- */
-export type HistoricalProcessStep = {
-  id: string
-  type: "human" | "thinking" | "tool_call" | "ai_response"
-  content: string  // Thinking content or tool name
-  args?: Record<string, unknown>  // Tool arguments (for tool_call type)
-  result?: string  // Tool result (for tool_call type)
-  thinking?: string  // For ai_response steps
-  order: number  // Step order index
-}
-
-/**
- * Data to display in sidebar when viewing historical process.
- * Supports both legacy format (single thinking + tool calls) and new format (ordered steps).
- */
-export type HistoricalProcessData = {
-  thinkingContent: string  // Legacy: combined thinking content
-  toolCalls: ToolCallInfo[]  // Legacy: tool calls
-  messageId: string
-  steps?: HistoricalProcessStep[]  // New: ordered steps with type info
-}
 

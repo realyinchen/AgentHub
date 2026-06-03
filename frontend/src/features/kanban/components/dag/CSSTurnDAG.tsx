@@ -52,8 +52,10 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
   const zoomOut = useCallback(() => setScale(s => Math.max(s - 0.15, 0.3)), []);
   const resetZoom = useCallback(() => setScale(1), []);
 
-  // Auto-scale for compact mode: calculate scale to fit container both width AND height
+  // Auto-scale for compact mode: calculate scale to fill container both width AND height
   const [autoScale, setAutoScale] = useState(1);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
+
   useEffect(() => {
     if (compact && containerRef.current) {
       const calculateAutoScale = () => {
@@ -61,19 +63,30 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
         const containerHeight = containerRef.current?.clientHeight || 200;
         const dagWidth = bbox.width || 400;
         const dagHeight = bbox.height || 300;
-        // Leave some padding and ensure scale fits both dimensions
-        const scaleX = Math.min(1, (containerWidth - 20) / dagWidth);
-        const scaleY = Math.min(1, (containerHeight - 20) / dagHeight);
-        const calculatedScale = Math.min(scaleX, scaleY);
-        setAutoScale(Math.max(0.2, calculatedScale));
+        // No padding - fill the container completely
+        const scaleX = containerWidth / dagWidth;
+        const scaleY = containerHeight / dagHeight;
+        // Use the smaller scale to ensure DAG fits, allow larger scaling
+        const calculatedScale = Math.min(scaleX, scaleY, 4.0);
+        setAutoScale(Math.max(0.5, calculatedScale));
       };
 
       calculateAutoScale();
 
-      // Recalculate on resize
-      const handleResize = () => calculateAutoScale();
-      window.addEventListener('resize', handleResize);
-      return () => window.removeEventListener('resize', handleResize);
+      // Use ResizeObserver for better container size detection
+      if (resizeObserverRef.current) {
+        resizeObserverRef.current.disconnect();
+      }
+      resizeObserverRef.current = new ResizeObserver(() => {
+        calculateAutoScale();
+      });
+      resizeObserverRef.current.observe(containerRef.current);
+
+      return () => {
+        if (resizeObserverRef.current) {
+          resizeObserverRef.current.disconnect();
+        }
+      };
     }
   }, [compact, bbox.width, bbox.height]);
 
@@ -111,20 +124,22 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
         ref={containerRef}
         className={`relative ${className}`}
         style={{
-          height: compact ? '100%' : (isFullscreen ? '100vh' : Math.max(280, Math.min(500, bbox.height * effectiveScale + 80))),
+          height: compact ? '100%' : (isFullscreen ? '100vh' : Math.max(280, Math.min(500, bbox.height * effectiveScale + 120))),
           background: 'var(--dag-bg-main)',
           borderRadius: '12px',
           border: '1px solid var(--dag-border)',
-          overflow: compact ? 'hidden' : 'auto',
+          overflow: compact ? 'hidden' : 'hidden',
+          position: 'relative',
         }}
       >
         {/* Zoom controls - hidden in compact mode */}
         {!compact && (
           <div
-            className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-lg z-10"
+            className="absolute top-3 right-3 flex items-center gap-1 px-2 py-1 rounded-lg"
             style={{
               background: 'var(--dag-bg-panel)',
               border: '1px solid var(--dag-border)',
+              zIndex: 50,
             }}
           >
             <button
@@ -162,10 +177,10 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
 
         {/* Canvas area - centered in compact mode, scrollable otherwise */}
         <div
-          className={compact ? 'w-full h-full' : 'w-full overflow-auto'}
+          className={compact ? 'w-full h-full' : 'w-full overflow-auto dag-scroll-container'}
           style={{
             height: '100%',
-            ...(compact ? { display: 'flex', alignItems: 'center', justifyContent: 'center' } : { paddingTop: '40px' }),
+            ...(compact ? { display: 'flex', alignItems: 'center', justifyContent: 'center' } : { paddingTop: '44px', paddingBottom: '44px' }),
           }}
         >
           <div
@@ -195,15 +210,15 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
               <defs>
                 <marker
                   id="dag-arrow"
-                  markerWidth="10"
-                  markerHeight="7"
-                  refX="9"
-                  refY="3.5"
+                  markerWidth="8"
+                  markerHeight="6"
+                  refX="7"
+                  refY="3"
                   orient="auto"
                   markerUnits="strokeWidth"
                 >
                   <polygon
-                    points="0 0, 10 3.5, 0 7"
+                    points="0 0, 8 3, 0 6"
                     fill="var(--dag-edge)"
                   />
                 </marker>
@@ -218,21 +233,39 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
                 const tx = targetNode.x + offsetX + targetNode.width / 2;
                 const ty = targetNode.y + offsetY;
 
+                // Calculate orthogonal path with rounded corners
+                // Use fixed vertical segments for cleaner look
+                const verticalGap = 30; // Distance before horizontal turn
+                const cornerRadius = 6;
+
+                let pathD: string;
+
+                if (Math.abs(sx - tx) < 1) {
+                  // Direct vertical line (same x position)
+                  pathD = `M ${sx},${sy} L ${tx},${ty}`;
+                } else {
+                  // Orthogonal path with rounded corners
+                  // Go down from source, then horizontal at midpoint, then down to target
+                  const turnY1 = sy + verticalGap;
+
+                  pathD = `M ${sx},${sy} ` +
+                    `L ${sx},${turnY1 - cornerRadius} ` +
+                    `Q ${sx},${turnY1} ${sx + (tx > sx ? cornerRadius : -cornerRadius)},${turnY1} ` +
+                    `L ${tx - (tx > sx ? cornerRadius : -cornerRadius)},${turnY1} ` +
+                    `Q ${tx},${turnY1} ${tx},${turnY1 + cornerRadius} ` +
+                    `L ${tx},${ty - cornerRadius * 2} ` +
+                    `Q ${tx},${ty} ${tx},${ty}`;
+                }
+
                 return (
-                  <line
+                  <path
                     key={edge.id}
-                    x1={sx}
-                    y1={sy}
-                    x2={tx}
-                    y2={ty}
+                    d={pathD}
+                    fill="none"
                     stroke="var(--dag-edge)"
-                    strokeWidth={2}
+                    strokeWidth={1.5}
                     markerEnd="url(#dag-arrow)"
-                    strokeDasharray="5 5"
-                    opacity={0.6}
-                    style={{
-                      animation: `edgeFlow 1s linear infinite`,
-                    }}
+                    opacity={0.5}
                   />
                 );
               })}
@@ -248,7 +281,7 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
                   key={node.id}
                   onClick={() => onNodeClick(node.data)}
                   className="absolute cursor-pointer"
-                    style={{
+                  style={{
                     left: x,
                     top: y,
                     width: node.width,
@@ -262,7 +295,7 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
                     e.currentTarget.style.transform = 'translateY(0)';
                   }}
                 >
-                  <DAGNodeCard data={node.data} />
+                  <DAGNodeCard data={node.data} width={node.width} />
                 </div>
               );
             })}
@@ -272,7 +305,7 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
         {/* Summary footer - hidden in compact mode */}
         {!compact && (
           <div
-            className="absolute bottom-2 left-2 flex items-center gap-2 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
+            className="absolute bottom-3 left-3 flex items-center gap-2 text-xs px-3 py-1.5 rounded-md z-10 text-muted-foreground"
             style={{
               background: 'var(--dag-bg-panel)',
               border: '1px solid var(--dag-border)',
@@ -318,14 +351,14 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
 // Individual node card renderer
 // ============================================================================
 
-function DAGNodeCard({ data }: { data: DAGNodeData }) {
+function DAGNodeCard({ data, width }: { data: DAGNodeData; width: number }) {
   switch (data.type) {
     case 'human':
       return <HumanCard data={data} />;
     case 'ai':
       return <AICard data={data} />;
     case 'tool':
-      return <ToolCard data={data} />;
+      return <ToolCard data={data} width={width} />;
     case 'subagent':
       return <SubAgentCard data={data} />;
     default:
@@ -372,8 +405,6 @@ function HumanCard({ data: _data }: { data: { type: 'human'; content: string; st
 // ============================================================================
 
 function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFinal: boolean; toolCalls?: { name: string }[] | null; thinking?: string | null } }) {
-  const { t } = useI18n();
-  
   // Use different colors for final vs non-final AI nodes
   const bgColor = data.isFinal ? 'var(--dag-node-final-bg)' : 'var(--dag-node-ai-bg)';
   const borderColor = data.isFinal ? 'var(--dag-node-final-border)' : 'var(--dag-node-ai-border)';
@@ -386,39 +417,16 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
         background: bgColor,
         border: `1px solid ${borderColor}`,
         borderRadius: '8px',
-        padding: '8px 12px',
+        padding: '10px 14px',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
       }}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          <div
-            className="flex items-center justify-center w-5 h-5 rounded-md flex-shrink-0"
-            style={{
-              background: borderColor,
-              opacity: 0.3,
-            }}
-          >
-            <span className="text-xs">{icon}</span>
-          </div>
-          <span className="text-xs font-medium truncate" style={{ color: textColor }}>
-            {data.modelName || t('process.ai')}
-          </span>
-        </div>
-        {data.isFinal && (
-          <span
-            className="text-xs px-1.5 py-0.5 rounded flex-shrink-0"
-            style={{ background: 'var(--dag-node-final-bg)', color: 'var(--dag-node-final-border)', fontWeight: 500 }}
-          >
-            {t('process.final')}
-          </span>
-        )}
+      <div className="flex items-center justify-center gap-2">
+        <span className="text-sm">{icon}</span>
+        <span className="text-xs font-medium" style={{ color: textColor }}>
+          AI
+        </span>
       </div>
-      {(data.toolCalls && data.toolCalls.length > 0) && (
-        <div className="text-xs mt-1.5" style={{ color: textColor, opacity: 0.7 }}>
-          🔧 {data.toolCalls.length} {t('process.toolCalls')}
-        </div>
-      )}
     </div>
   );
 }
@@ -427,7 +435,7 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
 // Tool Node — Purple
 // ============================================================================
 
-function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput: string | null } }) {
+function ToolCard({ data, width }: { data: { type: 'tool'; toolName: string; toolOutput: string | null }; width: number }) {
   const { t } = useI18n();
   const status = !data.toolOutput
     ? 'pending'
@@ -466,6 +474,8 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
         borderRadius: '8px',
         padding: '8px 12px',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
+        width: width,
+        overflow: 'hidden',
       }}
     >
       <div className="flex items-center gap-2">
@@ -478,7 +488,7 @@ function ToolCard({ data }: { data: { type: 'tool'; toolName: string; toolOutput
         >
           <span className="text-xs">🔧</span>
         </div>
-        <span className="text-xs font-medium truncate" style={{ color: 'var(--dag-node-tool-text)' }}>
+        <span className="text-xs font-medium" style={{ color: 'var(--dag-node-tool-text)' }}>
           {data.toolName}
         </span>
       </div>

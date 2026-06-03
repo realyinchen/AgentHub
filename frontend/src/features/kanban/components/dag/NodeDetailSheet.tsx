@@ -225,7 +225,7 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
         </SheetHeader>
 
         <div
-          className="mt-4 space-y-4 overflow-y-auto max-h-[calc(100vh-10rem)] px-1 pb-4"
+          className="mt-4 space-y-4 overflow-y-auto max-h-[calc(100vh-10rem)] px-1 pb-4 dag-scroll-container"
         >
           {/* Input Section */}
           {input && (

@@ -60,7 +60,7 @@ export function useTurnSteps(
 
     // Generate a unique key for this request
     const requestKey = `${threadId}:${sessionId || 'all'}`;
-    
+
     // Skip if already fetched this exact data (prevent duplicate calls)
     if (lastFetchedKeyRef.current === requestKey) {
       return;
@@ -93,7 +93,7 @@ export function useTurnSteps(
           if (!cancelled) {
             // Empty array is valid - means no trace data yet (new conversation)
             // Filter by sessionId if provided
-            const filteredSteps = sessionId 
+            const filteredSteps = sessionId
               ? data.filter(step => step.session_id === sessionId)
               : data;
             setSteps(filteredSteps);

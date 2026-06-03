@@ -86,7 +86,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_models_model_id ON public.models(model_id)
 
 -- 4. trace_executions table (persisted DAG snapshots for offline trace viewing)
 -- Each row = one agent invocation (user→agent turn), identified by request_id.
--- Contains per-request token usage, model used, and the full ExecutionDag.
+-- Contains model used and the full ExecutionDag.
 CREATE TABLE IF NOT EXISTS public.trace_executions (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     thread_id       UUID NOT NULL REFERENCES public.conversations(thread_id) ON DELETE CASCADE,
@@ -94,12 +94,6 @@ CREATE TABLE IF NOT EXISTS public.trace_executions (
     model_name      VARCHAR(128),              -- LLM model used for this turn
     dag_data        JSONB NOT NULL,             -- Complete ExecutionDag as JSONB
     total_steps     INTEGER NOT NULL DEFAULT 0,
-    -- Per-request token usage
-    input_tokens    BIGINT NOT NULL DEFAULT 0,
-    cache_read      BIGINT NOT NULL DEFAULT 0,
-    output_tokens   BIGINT NOT NULL DEFAULT 0,
-    reasoning       BIGINT NOT NULL DEFAULT 0,
-    total_tokens    BIGINT NOT NULL DEFAULT 0,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

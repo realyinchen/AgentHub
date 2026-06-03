@@ -8,7 +8,7 @@ depend on graph compilation or agent liveness.
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from sqlalchemy import BigInteger, ForeignKey, JSON, String, DateTime, Integer, Uuid
+from sqlalchemy import ForeignKey, JSON, String, DateTime, Integer, Uuid
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infra.database import Base
@@ -35,10 +35,6 @@ class TraceExecution(Base):
     total_steps: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, comment="Number of steps in this turn"
     )
-    # Per-request token usage
-    input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    total_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now
     )

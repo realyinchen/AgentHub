@@ -578,6 +578,37 @@
     --step-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 50%, transparent);
     scrollbar-color: var(--step-scrollbar-thumb) transparent;
   }
+
+  /* DAG scroll area - dark mode compatible */
+  .dag-scroll-container {
+    --dag-scrollbar-thumb: color-mix(in oklab, var(--dag-text-secondary) 50%, transparent);
+    --dag-scrollbar-track: var(--dag-bg-main);
+    scrollbar-width: thin;
+    scrollbar-color: var(--dag-scrollbar-thumb) var(--dag-scrollbar-track);
+  }
+
+  .dag-scroll-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: var(--dag-scrollbar-track);
+  }
+
+  .dag-scroll-container::-webkit-scrollbar-track,
+  .dag-scroll-container::-webkit-scrollbar-corner {
+    background: var(--dag-scrollbar-track);
+    border: 0;
+  }
+
+  .dag-scroll-container::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--dag-scrollbar-thumb);
+  }
+
+  .dag-scroll-container:hover {
+    --dag-scrollbar-thumb: color-mix(in oklab, var(--dag-text-secondary) 70%, transparent);
+    scrollbar-color: var(--dag-scrollbar-thumb) var(--dag-scrollbar-track);
+  }
 }
 
 /* Agent process panel animations */

@@ -5,7 +5,7 @@ deserialization in trace endpoints. Write paths are used by stream/invoke
 to persist DAG at completion time.
 
 Persistence Function:
-    ``persist_agent_trace`` — Unified token + DAG persistence after agent response.
+    ``persist_agent_trace`` — Token + DAG persistence after agent response.
 """
 
 import logging
@@ -51,9 +51,7 @@ async def get_latest_dag_and_steps(
     return dag, dag.get("steps", []), row.total_steps
 
 
-async def get_dag_by_request_id(
-    db: AsyncSession, request_id: str
-) -> dict | None:
+async def get_dag_by_request_id(db: AsyncSession, request_id: str) -> dict | None:
     """Return the DAG data for a specific request_id.
 
     Args:
@@ -121,9 +119,6 @@ async def upsert_trace(
     dag_data: dict,
     total_steps: int,
     model_name: str | None = None,
-    input_tokens: int = 0,
-    output_tokens: int = 0,
-    total_tokens: int = 0,
 ) -> TraceExecution:
     """Insert or update a trace execution for the given request_id.
 
@@ -137,9 +132,6 @@ async def upsert_trace(
         dag_data: Complete ExecutionDag as a dict.
         total_steps: Number of steps in the DAG.
         model_name: LLM model name used for this turn.
-        input_tokens: Per-request input tokens.
-        output_tokens: Per-request output tokens.
-        total_tokens: Per-request total tokens.
     """
     stmt = select(TraceExecution).where(
         TraceExecution.request_id == request_id,
@@ -151,9 +143,6 @@ async def upsert_trace(
         existing.dag_data = dag_data
         existing.total_steps = total_steps
         existing.model_name = model_name
-        existing.input_tokens = input_tokens
-        existing.output_tokens = output_tokens
-        existing.total_tokens = total_tokens
         await db.flush()
         return existing
 
@@ -163,9 +152,6 @@ async def upsert_trace(
         dag_data=dag_data,
         total_steps=total_steps,
         model_name=model_name,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
-        total_tokens=total_tokens,
     )
     db.add(row)
     await db.flush()
@@ -214,7 +200,7 @@ async def persist_agent_trace(
 
     thread_id_str = str(thread_id)
 
-    # Token persistence
+    # Token persistence - update conversations table
     if tokens["total_tokens"] > 0:
         try:
             await chat_crud.update_conversation_tokens(
@@ -243,9 +229,6 @@ async def persist_agent_trace(
             dag_data=dag.model_dump(),
             total_steps=len(dag.steps),
             model_name=model_name,
-            input_tokens=tokens.get("input_tokens", 0),
-            output_tokens=tokens.get("output_tokens", 0),
-            total_tokens=tokens.get("total_tokens", 0),
         )
     except Exception:
         logger.exception("Failed to persist DAG for %s", request_id)

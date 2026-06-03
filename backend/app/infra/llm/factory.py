@@ -78,7 +78,9 @@ def get_llm(
     # Get API key (decrypted)
     api_key = manager.get_api_key(model_config.provider)
     if not api_key:
-        raise ValueError(f"No API key available for provider '{model_config.provider}'.")
+        raise ValueError(
+            f"No API key available for provider '{model_config.provider}'."
+        )
 
     # Get base_url (optional)
     base_url = manager.get_base_url(model_config.provider)
@@ -108,7 +110,7 @@ def get_llm(
         "streaming": True,
         "drop_params": True,
     }
-    
+
     if base_url:
         litellm_params["api_base"] = base_url
 

@@ -29,7 +29,6 @@ import type {
   ChatMessage,
   ConversationInDB,
   LocalChatMessage,
-  MessageStep,
   StreamEvent,
   ToolCallEvent,
   ToolCallInfo,
@@ -135,111 +134,9 @@ function App() {
   const [calledTools, setCalledTools] = useState<ToolCallInfo[]>([])
   const [thinkingContent, setThinkingContent] = useState("") // Accumulated thinking content
 
-  // Message sequence from backend - all messages as steps for sidebar
-  const [messageSequence, setMessageSequence] = useState<MessageStep[]>([])
   // Toggle for showing/hiding the sidebar process panel
   const [showSidebarProcess, setShowSidebarProcess] = useState(true)
 
-  // Compute aiMessageSessionIds - must be before early return for hooks order
-  const aiMessageSessionIds = useMemo(() => {
-    // Build a map of message index to session_id
-    // Each AI message should have a corresponding session_id from messageSequence
-    if (!messageSequence || messageSequence.length === 0) {
-      return []
-    }
-
-    // Get all unique session_ids from messageSequence in order
-    // Each session represents one round of conversation (one AI message)
-    const sessionIdsFromSequence = [...new Set(messageSequence.map(s => s.session_id))]
-
-    // For each message in messages array, determine its session_id
-    // AI messages have session_id from messageSequence
-    // User messages have null
-    const sessionIds: (string | null)[] = []
-    messages.forEach((msg, index) => {
-      if (msg.type === "ai") {
-        // Find the corresponding session_id from messageSequence
-        // The sessions in messageSequence are in order, matching the AI messages
-        const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
-        sessionIds.push(sessionIdsFromSequence[aiIndex] || null)
-      } else {
-        sessionIds.push(null)
-      }
-    })
-
-    return sessionIds
-  }, [messageSequence, messages])
-
-  // Compute aiMessageHasSteps - must be before early return for hooks order
-  const aiMessageHasSteps = useMemo(() => {
-    // For each message, determine if it has steps based on its session_id
-    const hasSteps: boolean[] = []
-
-    // Pre-compute which sessions have steps
-    const sessionsWithSteps = new Set<string>()
-    if (messageSequence && messageSequence.length > 0) {
-      messageSequence.forEach(step => {
-        if (step.message_type === "tool" || (step.message_type === "ai" && step.thinking?.trim())) {
-          sessionsWithSteps.add(step.session_id)
-        }
-      })
-    }
-
-    // Get session IDs for each message (same logic as aiMessageSessionIds)
-    const getSessionId = (msgIndex: number): string | null => {
-      const msg = messages[msgIndex]
-      if (msg?.type !== "ai") return null
-
-      // Get all unique session_ids from messageSequence in order
-      // Each session represents one round of conversation (one AI message)
-      const sessionIdsFromSequence = messageSequence
-        ? [...new Set(messageSequence.map(s => s.session_id))]
-        : []
-
-      const aiIndex = messages.slice(0, msgIndex + 1).filter(m => m.type === "ai").length - 1
-      return sessionIdsFromSequence[aiIndex] || null
-    }
-
-    messages.forEach((msg, index) => {
-      if (msg.type !== "ai") {
-        hasSteps.push(false)
-        return
-      }
-
-      // Check 1: Does message have process_steps from streaming?
-      const processSteps = msg.custom_data?.process_steps
-      if (Array.isArray(processSteps) && processSteps.length > 0) {
-        hasSteps.push(true)
-        return
-      }
-
-      // Check 2: Does message have tool calls?
-      if (msg.tool_calls && msg.tool_calls.length > 0) {
-        hasSteps.push(true)
-        return
-      }
-
-      // Check 3: Does message have thinking content?
-      if (msg.custom_data?.thinking || msg.response_metadata?.thinking || msg.reasoning_content) {
-        hasSteps.push(true)
-        return
-      }
-
-      // Check 4: Does the message's session have steps?
-      const sessionId = getSessionId(index)
-      if (sessionId && sessionsWithSteps.has(sessionId)) {
-        hasSteps.push(true)
-        return
-      }
-
-      hasSteps.push(false)
-    })
-
-    return hasSteps
-  }, [messageSequence, messages])
-
-
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   // Selected request_id for viewing historical DAG
   const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null)
 
@@ -390,27 +287,18 @@ function App() {
           setMessages(
             historyResult.value.messages.map((message) => toLocalMessage(message)),
           )
-          // Set message sequence for sidebar
-          const sequence = historyResult.value.message_sequence || []
-          setMessageSequence(sequence)
-
-          // Auto-select the latest session (last session_id in sequence)
-          if (sequence && sequence.length > 0) {
-            // Get all unique session_ids in order they appear
-            const sessionIds = [...new Set(sequence.map(step => step.session_id))]
-            // Select the last session (most recent turn)
-            if (sessionIds.length > 0) {
-              setSelectedSessionId(sessionIds[sessionIds.length - 1])
-            } else {
-              setSelectedSessionId(null)
-            }
+          // Auto-select the latest request_id (from last AI message)
+          const lastAiMessage = historyResult.value.messages
+            .filter((m: ChatMessage) => m.type === "ai")
+            .pop()
+          if (lastAiMessage?.request_id) {
+            setSelectedRequestId(lastAiMessage.request_id)
           } else {
-            setSelectedSessionId(null)
+            setSelectedRequestId(null)
           }
         } else {
           setMessages([])
-          setMessageSequence([])
-          setSelectedSessionId(null)
+          setSelectedRequestId(null)
         }
 
         if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -449,12 +337,11 @@ function App() {
     setThreadId("")
     writeThreadIdToUrl(null)
     setMessages([])
-    setMessageSequence([]) // Clear message sequence for new conversation
     setConversationTitleState(defaultConversationTitle)
     setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
     setAppError(null)
-    setSelectedSessionId(null)
+    setSelectedRequestId(null)
   }, [writeThreadIdToUrl, defaultConversationTitle])
 
   const createStreamingPlaceholder = useCallback(() => {
@@ -721,7 +608,7 @@ function App() {
       }
 
       setAppError(null)
-      setSelectedSessionId(null) // Reset to show latest session after streaming ends
+      setSelectedRequestId(null) // Reset to show latest request after streaming ends
       setMessages((previous) => [
         ...previous,
         toLocalMessage(
@@ -833,7 +720,7 @@ function App() {
               if (message.type === "ai") {
                 const hasContent = message.content && message.content.trim().length > 0
                 const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
-                
+
                 // If this is an intermediate message (has tool_calls but no meaningful content),
                 // don't add it to messages - just track tool calls
                 if (hasToolCalls && !hasContent) {
@@ -841,7 +728,7 @@ function App() {
                   // Don't add to messages array - tool info is already tracked via calledTools
                   return
                 }
-                
+
                 // Only stop thinking if we have content and no pending tool calls
                 if (hasContent && !hasToolCalls) {
                   setIsAgentThinking(false)
@@ -960,25 +847,14 @@ function App() {
         streamingPlaceholderIdRef.current = null
         abortControllerRef.current = null
 
-        // Fetch updated message sequence from backend for sidebar persistence
-        // This ensures the sidebar shows correct data after streaming ends
-        try {
-          const historyResult = await getHistory(targetThreadId)
-          if (historyResult.message_sequence) {
-            const sequence = historyResult.message_sequence
-            setMessageSequence(sequence)
-
-            // Auto-select the latest session (last session_id in sequence)
-            if (sequence && sequence.length > 0) {
-              const sessionIds = [...new Set(sequence.map(step => step.session_id))]
-              if (sessionIds.length > 0) {
-                setSelectedSessionId(sessionIds[sessionIds.length - 1])
-              }
-            }
+        // Auto-select the latest request_id from messages
+        setMessages((currentMessages) => {
+          const lastAiMessage = currentMessages.filter(m => m.type === "ai" && m.request_id).pop()
+          if (lastAiMessage?.request_id) {
+            setSelectedRequestId(lastAiMessage.request_id)
           }
-        } catch {
-          // Ignore errors when fetching message sequence
-        }
+          return currentMessages
+        })
       }
     },
     [
@@ -1037,7 +913,7 @@ function App() {
       setMessages([...previousMessages, editedUserMessage, aiPlaceholder])
 
       setAppError(null)
-      setSelectedSessionId(null) // Reset to show latest session after streaming ends
+      setSelectedRequestId(null) // Reset to show latest request after streaming ends
       setIsStreaming(true)
 
       const controller = new AbortController()
@@ -1089,7 +965,7 @@ function App() {
               if (message.type === "ai") {
                 const hasContent = message.content && message.content.trim().length > 0
                 const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
-                
+
                 // If this is an intermediate message (has tool_calls but no meaningful content),
                 // don't add it to messages - just track tool calls
                 if (hasToolCalls && !hasContent) {
@@ -1097,7 +973,7 @@ function App() {
                   // Don't add to messages array - tool info is already tracked via calledTools
                   return
                 }
-                
+
                 if (hasContent && !hasToolCalls) {
                   setIsAgentThinking(false)
                   setActiveToolCall(null)
@@ -1184,24 +1060,14 @@ function App() {
         streamingPlaceholderIdRef.current = null
         abortControllerRef.current = null
 
-        // Fetch updated message sequence from backend for sidebar persistence
-        try {
-          const historyResult = await getHistory(threadId)
-          if (historyResult.message_sequence) {
-            const sequence = historyResult.message_sequence
-            setMessageSequence(sequence)
-
-            // Auto-select the latest session (last session_id in sequence)
-            if (sequence && sequence.length > 0) {
-              const sessionIds = [...new Set(sequence.map(step => step.session_id))]
-              if (sessionIds.length > 0) {
-                setSelectedSessionId(sessionIds[sessionIds.length - 1])
-              }
-            }
+        // Auto-select the latest request_id from messages
+        setMessages((currentMessages) => {
+          const lastAiMessage = currentMessages.filter(m => m.type === "ai" && m.request_id).pop()
+          if (lastAiMessage?.request_id) {
+            setSelectedRequestId(lastAiMessage.request_id)
           }
-        } catch {
-          // Ignore errors when fetching message sequence
-        }
+          return currentMessages
+        })
       }
     },
     [
@@ -1398,21 +1264,18 @@ function App() {
             setMessages(
               historyResult.value.messages.map((message) => toLocalMessage(message)),
             )
-            // Set message sequence for sidebar
-            const sequence = historyResult.value.message_sequence || []
-            setMessageSequence(sequence)
-
-            // Auto-select the latest session (last session_id in sequence)
-            if (sequence && sequence.length > 0) {
-              const sessionIds = [...new Set(sequence.map(step => step.session_id))]
-              if (sessionIds.length > 0) {
-                setSelectedSessionId(sessionIds[sessionIds.length - 1])
-              }
+            // Auto-select the latest request_id (from last AI message)
+            const lastAiMessage = historyResult.value.messages
+              .filter((m: ChatMessage) => m.type === "ai")
+              .pop()
+            if (lastAiMessage?.request_id) {
+              setSelectedRequestId(lastAiMessage.request_id)
+            } else {
+              setSelectedRequestId(null)
             }
           } else {
             setMessages([])
-            setMessageSequence([])
-            setSelectedSessionId(null)
+            setSelectedRequestId(null)
           }
 
           if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -1520,25 +1383,8 @@ function App() {
             onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
-            aiMessageSessionIds={aiMessageSessionIds}
-            aiMessageHasSteps={aiMessageHasSteps}
-
-
-            onSelectSession={(sessionId: string) => {
-              setSelectedSessionId(sessionId)
-              // Clear requestId when selecting session
-              setSelectedRequestId(null)
-              // Ensure sidebar is visible when selecting a session
-              if (!showSidebarProcess) {
-                setShowSidebarProcess(true)
-              }
-            }}
             onSelectRequestId={(requestId: string | null) => {
               setSelectedRequestId(requestId)
-              // Clear sessionId when selecting requestId
-              if (requestId) {
-                setSelectedSessionId(null)
-              }
               // Ensure sidebar is visible
               if (!showSidebarProcess) {
                 setShowSidebarProcess(true)
@@ -1549,7 +1395,6 @@ function App() {
             onSelectModel={setSelectedModel}
             onOpenModelConfig={() => setShowProviderConfig(true)}
             hasAvailableModels={hasAvailableModels}
-            selectedSessionId={selectedSessionId}
             selectedRequestId={selectedRequestId}
           />
         </SidebarInset>
@@ -1621,9 +1466,7 @@ function App() {
             {!isInitializing && threadId && messages.length > 0 && (
               <TurnDAGSidebar
                 threadId={threadId || null}
-                sessionId={selectedSessionId}
                 isStreaming={isStreaming}
-                messageSequence={messageSequence}
                 requestId={selectedRequestId}
               />
             )}

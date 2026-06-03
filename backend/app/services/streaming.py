@@ -126,7 +126,9 @@ class ChatStreamingService:
         try:
             before_state = await self._agent.aget_state(config)
             configurable = before_state.config.get("configurable")
-            before_checkpoint_id = configurable.get("checkpoint_id") if configurable else None
+            before_checkpoint_id = (
+                configurable.get("checkpoint_id") if configurable else None
+            )
             before_message_count = len(before_state.values.get("messages", []))
             # Log full state for debugging
             logger.debug(
@@ -283,7 +285,7 @@ class ChatStreamingService:
             # ── Emit final assembled message ───────────────────────
             final_messages = state.get("final_state_messages")
             accumulated_reasoning = state.get("accumulated_reasoning", "")
-            
+
             if final_messages:
                 # Find the last AIMessage (skip ToolMessage, HumanMessage, etc.)
                 # ToolMessage contains tool results which should not be shown as AI response
@@ -304,9 +306,13 @@ class ChatStreamingService:
                         # Store thinking in additional_kwargs for immediate frontend display
                         # Note: This modification is in-memory only and won't persist to checkpointer
                         # The thinking content is passed via custom_data below for frontend display
-                        if accumulated_reasoning and hasattr(last_ai_msg, "additional_kwargs"):
-                            last_ai_msg.additional_kwargs["thinking"] = accumulated_reasoning
-                        
+                        if accumulated_reasoning and hasattr(
+                            last_ai_msg, "additional_kwargs"
+                        ):
+                            last_ai_msg.additional_kwargs["thinking"] = (
+                                accumulated_reasoning
+                            )
+
                         chat_msg = langchain_to_chat_message(last_ai_msg)
                         # Include request_id for DAG viewing
                         chat_msg.request_id = request_id
@@ -341,7 +347,7 @@ class ChatStreamingService:
                         tokens=tokens,
                         before_checkpoint_id=before_checkpoint_id,
                         before_message_count=before_message_count,
-                        reasoning_segments=reasoning_segments,  # Pass reasoning segments keyed by msg_id
+                        reasoning_segments=reasoning_segments,
                     )
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
@@ -440,7 +446,9 @@ class ChatStreamingService:
             # At this point the message is complete and output is guaranteed available.
             final = message.output
             if final is None:
-                logger.debug("[%s] message.output is None after delta iteration", node_name)
+                logger.debug(
+                    "[%s] message.output is None after delta iteration", node_name
+                )
                 continue
 
             # Handle AsyncProjection (some providers wrap output in awaitable)

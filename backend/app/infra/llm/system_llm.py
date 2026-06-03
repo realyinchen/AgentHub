@@ -7,7 +7,7 @@ environment variables. It is used for:
     - Compile-time default
 
 Configuration:
-    - SYSTEM_DEFAULT_LLM_MODEL: Model identifier (e.g., "openai/gpt-4")
+    - SYSTEM_DEFAULT_LLM_MODEL: Model identifier (e.g., "dashscope/qwen3.6-27b")
     - SYSTEM_DEFAULT_LLM_API_KEY: API key for the model
 
 Usage:
@@ -39,6 +39,11 @@ def init_system_llm() -> ChatLiteLLM:
     Called by init_models() during startup.
     Used for: summarization, title generation, compile-time default.
     No streaming, no token counting — minimal config for auxiliary tasks.
+
+    IMPORTANT: System LLM must NOT enable thinking mode.
+    Thinking mode returns content blocks with reasoning, which breaks
+    title generation and other auxiliary tasks that expect plain text.
+    DashScope: thinking mode controlled via extra_body={"enable_thinking": False}
     """
     global _system_llm_instance
 
@@ -51,14 +56,24 @@ def init_system_llm() -> ChatLiteLLM:
     assert settings.SYSTEM_DEFAULT_LLM_MODEL is not None
     assert settings.SYSTEM_DEFAULT_LLM_API_KEY is not None
 
-    _system_llm_instance = ChatLiteLLM(
-        model=settings.SYSTEM_DEFAULT_LLM_MODEL,
-        api_key=settings.SYSTEM_DEFAULT_LLM_API_KEY.get_secret_value(),
-        temperature=0,
-    )
+    # Build litellm_params for ChatLiteLLM
+    litellm_params = {
+        "model": settings.SYSTEM_DEFAULT_LLM_MODEL,
+        "api_key": settings.SYSTEM_DEFAULT_LLM_API_KEY.get_secret_value(),
+        "temperature": 0,
+    }
+
+    # DashScope models: explicitly disable thinking mode via extra_body
+    # This ensures title generation and other auxiliary tasks get plain text responses
+    if settings.SYSTEM_DEFAULT_LLM_MODEL.startswith("dashscope/"):
+        litellm_params["model_kwargs"] = {
+            "extra_body": {"enable_thinking": False},
+        }
+
+    _system_llm_instance = ChatLiteLLM(**litellm_params)
 
     logger.info(
-        "System default LLM initialized: model=%s",
+        "System default LLM initialized: model=%s, thinking_mode=False",
         settings.SYSTEM_DEFAULT_LLM_MODEL,
     )
     return _system_llm_instance

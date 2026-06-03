@@ -190,36 +190,3 @@ export function SciFiLoader({
   )
 }
 
-export const NeuralNetworkLoader = SciFiLoader
-
-export default function SciFiLoaderDemo() {
-  const { theme, toggleTheme } = useTheme()
-
-  return (
-    <div
-      className="flex flex-col items-center justify-center gap-12 p-8 min-h-screen"
-      style={{ background: theme === "dark" ? "radial-gradient(circle at center, #0a0f1c, #02040a)" : "radial-gradient(circle at center, #f0f9ff, #e0f2fe 70%)" }}
-    >
-      <div className="flex flex-col items-center gap-4">
-        <button
-          onClick={toggleTheme}
-          className="px-4 py-2 rounded-lg bg-muted hover:bg-muted/80"
-        >
-          Toggle Theme (Current: {theme})
-        </button>
-      </div>
-      <div className="flex flex-col items-center gap-2">
-        <SciFiLoader showText={true} />
-        <span className="text-xs text-foreground/60">With status text</span>
-      </div>
-      <div className="flex flex-col items-center gap-2">
-        <SciFiLoader showText={false} />
-        <span className="text-xs text-foreground/60">Without status text</span>
-      </div>
-      <div className="flex flex-col items-center gap-2">
-        <SciFiLoader className="w-24 h-24" showText={false} />
-        <span className="text-xs text-foreground/60">Compact (w-24 h-24)</span>
-      </div>
-    </div>
-  )
-}
