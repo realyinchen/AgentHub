@@ -1,10 +1,8 @@
 import {
   BrainIcon,
-  CheckCircle2,
   CheckIcon,
   ChevronDown,
   CopyIcon,
-  ListOrdered,
   Loader2,
   PencilIcon,
   QuoteIcon,
@@ -204,14 +202,12 @@ export function ChatMessageItem({
   calledTools = [],
   thinkingContent = "",
   isStreaming = false,
-  sessionId,
   isSelected = false,
   onEditMessage,
   editDisabled = false,
   onQuote,
   quoteDisabled = false,
   onJumpToMessage,
-  onSelectSession,
   onSelectRequestId,
 }: ChatMessageItemProps) {
   const { t } = useI18n()

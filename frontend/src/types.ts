@@ -13,6 +13,7 @@ export type ChatMessage = {
   tool_calls: ToolCall[]
   tool_call_id: string | null
   run_id: string | null
+  request_id?: string | null  // Request ID for viewing DAG of this specific turn
   response_metadata: Record<string, unknown>
   custom_data: Record<string, unknown>
   reasoning_content?: string | null  // Reasoning/thinking content (for reasoning models)
@@ -21,7 +22,6 @@ export type ChatMessage = {
 export type LocalChatMessage = ChatMessage & {
   local_id: string
   is_streaming?: boolean
-  request_id?: string  // Request ID for viewing DAG of this specific turn
 }
 
 export type ChatHistory = {

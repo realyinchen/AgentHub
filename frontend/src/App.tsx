@@ -607,6 +607,8 @@ function App() {
               ...(normalized.tool_calls || []),
             ]
             const mergedThinking = normalized.custom_data?.thinking || lastMessage.custom_data?.thinking
+            // Keep request_id from either the existing message or the new normalized message
+            const mergedRequestId = normalized.request_id || lastMessage.request_id
 
             return previous.map((item, index) => {
               if (index === previous.length - 1) {
@@ -614,6 +616,7 @@ function App() {
                   ...item,
                   content: mergedContent,
                   tool_calls: mergedToolCalls,
+                  request_id: mergedRequestId,
                   custom_data: {
                     ...item.custom_data,
                     ...(mergedThinking ? { thinking: mergedThinking } : {}),
@@ -1547,6 +1550,7 @@ function App() {
             onOpenModelConfig={() => setShowProviderConfig(true)}
             hasAvailableModels={hasAvailableModels}
             selectedSessionId={selectedSessionId}
+            selectedRequestId={selectedRequestId}
           />
         </SidebarInset>
 

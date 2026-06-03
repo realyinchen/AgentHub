@@ -98,6 +98,11 @@ class ChatMessage(BaseModel):
         default=None,
         examples=["847c6285-8fc9-4560-a83f-4e6285809254"],
     )
+    request_id: str | None = Field(
+        description="Request ID for viewing DAG of this specific turn.",
+        default=None,
+        examples=["req-abc-123"],
+    )
     response_metadata: dict[str, Any] = Field(
         description="Response metadata. For example: response headers, logprobs, token counts.",
         default={},

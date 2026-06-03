@@ -247,12 +247,12 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
                   key={node.id}
                   onClick={() => onNodeClick(node.data)}
                   className="absolute cursor-pointer"
-                  style={{
+                    style={{
                     left: x,
                     top: y,
                     width: node.width,
-                    transition: 'transform 0.15s ease',
-                    animation: `nodeAppear 0.3s ease ${idx * 0.05}s both`,
+                    transition: 'transform 0.2s ease',
+                    animation: `nodeAppear 0.5s ease ${idx * 0.08}s both`,
                   }}
                   onMouseEnter={e => {
                     e.currentTarget.style.transform = 'translateY(-2px)';

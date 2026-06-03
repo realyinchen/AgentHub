@@ -36,6 +36,7 @@ type ChatMainPanelProps = {
   aiMessageSessionIds?: (string | null)[] // session_id for each AI message (parallel to messages array)
   aiMessageHasSteps?: boolean[] // Whether each AI message has steps (parallel to messages array)
   selectedSessionId?: string | null // Currently selected session ID for sidebar
+  selectedRequestId?: string | null // Currently selected request_id for DAG viewing
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
   onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
@@ -71,6 +72,7 @@ export function ChatMainPanel({
   aiMessageSessionIds,
   aiMessageHasSteps,
   selectedSessionId,
+  selectedRequestId,
   onSendMessage,
   onStopStreaming,
   onEditMessage,
@@ -332,14 +334,17 @@ export function ChatMainPanel({
 
                     // Determine if this message is "selected" (its steps are shown in sidebar):
                     // 1. During streaming, the last AI message is always "selected" 
-                    // 2. When sidebar shows a specific session: check if sessionId matches
-                    // 3. When sidebar shows default (last message, selectedSessionId is null): last AI message is selected
+                    // 2. When user clicks a brain icon, selectedRequestId is set - check if this message's request_id matches
+                    // 3. When sidebar shows a specific session: check if sessionId matches
+                    // 4. When sidebar shows default (selectedSessionId and selectedRequestId are null): last AI message is selected
                     const isMessageSelected = message.type === "ai" && (
                       (isLastAIMessage && isStreaming)
                         ? true
-                        : selectedSessionId === null
-                          ? isLastAIMessage  // Default: show last AI message as selected when no specific session selected
-                          : sessionId === selectedSessionId  // Specific session selected
+                        : selectedRequestId !== null
+                          ? message.request_id === selectedRequestId  // User clicked this message's brain icon
+                          : selectedSessionId !== null
+                            ? sessionId === selectedSessionId  // Specific session selected
+                            : isLastAIMessage  // Default: show last AI message as selected
                     )
 
                     return (

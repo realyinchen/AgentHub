@@ -291,6 +291,8 @@ class ChatStreamingService:
                 ):
                     try:
                         chat_msg = langchain_to_chat_message(last_ai_msg)
+                        # Include request_id for DAG viewing
+                        chat_msg.request_id = request_id
                         # Include accumulated reasoning in custom_data for frontend display
                         # This enables "View reasoning" expandable section after streaming ends
                         if accumulated_reasoning:

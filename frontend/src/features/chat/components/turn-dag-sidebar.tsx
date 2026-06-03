@@ -214,7 +214,7 @@ export function TurnDAGSidebar({
   return (
     <>
       <div
-        className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden backdrop-blur-sm shadow-lg flex flex-col h-full"
+        className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden backdrop-blur-sm shadow-lg flex flex-col h-full animate-in fade-in duration-500"
       >
         {/* Header */}
         <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">

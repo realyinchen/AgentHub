@@ -22,6 +22,7 @@ export function normalizeChatMessage(message: Partial<ChatMessage>): ChatMessage
     tool_calls: toolCalls,
     tool_call_id: message.tool_call_id ?? null,
     run_id: message.run_id ?? null,
+    request_id: message.request_id ?? null,
     response_metadata:
       message.response_metadata && typeof message.response_metadata === "object"
         ? (message.response_metadata as Record<string, unknown>)

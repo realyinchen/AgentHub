@@ -73,6 +73,24 @@ async def get_dag_by_request_id(
     return row.dag_data
 
 
+async def get_traces_by_thread(
+    db: AsyncSession, thread_id: UUID
+) -> list[tuple[str, str]]:
+    """Return all traces for a thread, ordered by creation time.
+
+    Returns:
+        List of (request_id, created_at) tuples in chronological order.
+    """
+    stmt = (
+        select(TraceExecution.request_id, TraceExecution.created_at)
+        .where(TraceExecution.thread_id == thread_id)
+        .order_by(TraceExecution.created_at.asc())
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    return [(row.request_id, str(row.created_at)) for row in rows]
+
+
 async def get_latest_model_name(db: AsyncSession, thread_id: UUID) -> str | None:
     """Return the model_name from the most recent trace in a thread.
 
