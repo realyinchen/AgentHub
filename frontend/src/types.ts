@@ -21,6 +21,7 @@ export type ChatMessage = {
 export type LocalChatMessage = ChatMessage & {
   local_id: string
   is_streaming?: boolean
+  request_id?: string  // Request ID for viewing DAG of this specific turn
 }
 
 export type ChatHistory = {
@@ -186,6 +187,10 @@ export type StoredToolCallInfo = {
 }
 
 export type StreamEvent =
+  | {
+    type: "request_start"
+    request_id: string
+  }
   | {
     type: "token"
     content: string

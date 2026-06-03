@@ -192,6 +192,32 @@ async def get_trace_dag(
     return ExecutionDag(**dag_data)
 
 
+@api_router.get("/{thread_id}/dag/{request_id}", response_model=ExecutionDag)
+async def get_trace_dag_by_request_id(
+    thread_id: UUID,
+    request_id: str,
+    user_id: str = Query(..., description="User ID to verify ownership"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get the execution DAG for a specific request_id.
+
+    Reads from ``trace_executions`` table — no graph compilation required.
+    Returns the full execution DAG with nodes and edges for visualization.
+
+    This endpoint is used when viewing historical messages to see the
+    exact DAG that was generated during that specific request.
+    """
+    await _verify_trace_owner(db, thread_id, user_id)
+
+    dag_data = await trace_crud.get_dag_by_request_id(db, request_id)
+    if dag_data is None:
+        raise HTTPException(
+            status_code=404, detail="No execution DAG found for this request_id"
+        )
+
+    return ExecutionDag(**dag_data)
+
+
 @api_router.get("/{thread_id}/steps/{step_number}", response_model=StepOutput)
 async def get_trace_step_by_number(
     thread_id: UUID,

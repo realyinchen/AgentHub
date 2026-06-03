@@ -51,6 +51,28 @@ async def get_latest_dag_and_steps(
     return dag, dag.get("steps", []), row.total_steps
 
 
+async def get_dag_by_request_id(
+    db: AsyncSession, request_id: str
+) -> dict | None:
+    """Return the DAG data for a specific request_id.
+
+    Args:
+        db: Database session.
+        request_id: Unique request identifier (business key).
+
+    Returns:
+        DAG data dict, or None if no trace exists for this request_id.
+    """
+    stmt = select(TraceExecution.dag_data).where(
+        TraceExecution.request_id == request_id,
+    )
+    result = await db.execute(stmt)
+    row = result.one_or_none()
+    if row is None:
+        return None
+    return row.dag_data
+
+
 async def get_latest_model_name(db: AsyncSession, thread_id: UUID) -> str | None:
     """Return the model_name from the most recent trace in a thread.
 
@@ -140,6 +162,8 @@ async def persist_agent_trace(
     request_id: str,
     model_name: str | None,
     tokens: dict[str, int],
+    before_checkpoint_id: str | None = None,
+    before_message_count: int = 0,
 ) -> None:
     """Persist token usage and execution DAG after an agent response.
 
@@ -160,6 +184,10 @@ async def persist_agent_trace(
         model_name: Resolved model name (or None).
         tokens: A dict with keys: input_tokens, output_tokens,
             total_tokens.
+        before_checkpoint_id: Checkpoint ID before this turn started.
+            Used to filter checkpoint history for per-turn DAG construction.
+        before_message_count: Number of messages before this turn started.
+            Used as fallback when checkpoint history is unavailable.
     """
 
     thread_id_str = str(thread_id)
@@ -180,7 +208,11 @@ async def persist_agent_trace(
     # DAG persistence
     try:
         dag_builder = DagBuilder(agent)
-        dag = await dag_builder.get_execution_dag(thread_id_str)
+        dag = await dag_builder.get_execution_dag(
+            thread_id_str,
+            before_checkpoint_id=before_checkpoint_id,
+            before_message_count=before_message_count,
+        )
         await upsert_trace(
             db=db,
             thread_id=thread_id,

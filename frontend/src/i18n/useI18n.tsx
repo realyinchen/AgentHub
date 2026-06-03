@@ -178,6 +178,9 @@ const en = {
   "process.toolStatus.success": "Completed",
   "process.toolStatus.error": "Failed",
   "process.input": "Message",
+  "process.finalResponse": "Response",
+  "process.toolInput": "Tool Input",
+  "process.toolOutput": "Tool Output",
   // Token stats
   "token.title": "Token Usage",
   "token.input": "Input",
@@ -392,6 +395,9 @@ const zh: TranslationDictionary = {
   "process.toolStatus.success": "已完成",
   "process.toolStatus.error": "失败",
   "process.input": "对话输入",
+  "process.finalResponse": "最终回复",
+  "process.toolInput": "工具入参",
+  "process.toolOutput": "工具出参",
   // Token stats
   "token.title": "Token 消耗",
   "token.input": "输入",

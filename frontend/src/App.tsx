@@ -240,6 +240,8 @@ function App() {
 
 
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  // Selected request_id for viewing historical DAG
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null)
 
 
 
@@ -251,6 +253,7 @@ function App() {
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
+  const currentRequestIdRef = useRef<string | null>(null)
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
   const effectiveModelRef = useRef<string | null>(null)
@@ -769,6 +772,23 @@ function App() {
             } : undefined,
           },
           (event: StreamEvent) => {
+            // Handle request_start event - store request_id for DAG viewing
+            if (event.type === "request_start") {
+              currentRequestIdRef.current = event.request_id
+              // Update the placeholder message with request_id
+              const placeholderId = streamingPlaceholderIdRef.current
+              if (placeholderId) {
+                setMessages((previous) =>
+                  previous.map((item) =>
+                    item.local_id === placeholderId
+                      ? { ...item, request_id: event.request_id }
+                      : item,
+                  ),
+                )
+              }
+              return
+            }
+
             if (event.type === "llm" || event.type === "reasoning") {
               // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
               // "llm" is legacy event type, "reasoning" is LangChain v3 streaming type
@@ -1503,7 +1523,20 @@ function App() {
 
             onSelectSession={(sessionId: string) => {
               setSelectedSessionId(sessionId)
+              // Clear requestId when selecting session
+              setSelectedRequestId(null)
               // Ensure sidebar is visible when selecting a session
+              if (!showSidebarProcess) {
+                setShowSidebarProcess(true)
+              }
+            }}
+            onSelectRequestId={(requestId: string | null) => {
+              setSelectedRequestId(requestId)
+              // Clear sessionId when selecting requestId
+              if (requestId) {
+                setSelectedSessionId(null)
+              }
+              // Ensure sidebar is visible
               if (!showSidebarProcess) {
                 setShowSidebarProcess(true)
               }
@@ -1587,6 +1620,7 @@ function App() {
                 sessionId={selectedSessionId}
                 isStreaming={isStreaming}
                 messageSequence={messageSequence}
+                requestId={selectedRequestId}
               />
             )}
           </div>

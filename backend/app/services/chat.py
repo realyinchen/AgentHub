@@ -102,6 +102,22 @@ class ChatService:
             initial_model,
         )
 
+        # 2.5 Get state BEFORE execution for per-turn DAG construction
+        before_checkpoint_id: str | None = None
+        before_message_count: int = 0
+        try:
+            before_state = await self._agent.aget_state(config)
+            configurable = before_state.config.get("configurable")
+            before_checkpoint_id = configurable.get("checkpoint_id") if configurable else None
+            before_message_count = len(before_state.values.get("messages", []))
+            logger.debug(
+                "Before execution: checkpoint_id=%s, message_count=%d",
+                before_checkpoint_id,
+                before_message_count,
+            )
+        except Exception as e:
+            logger.warning("Failed to get state before execution: %s", e)
+
         # 3. Execute agent with timeout
         settings = get_settings()
         timeout = (
@@ -155,6 +171,8 @@ class ChatService:
             request_id=request_id,
             model_name=initial_model,
             tokens=tokens,
+            before_checkpoint_id=before_checkpoint_id,
+            before_message_count=before_message_count,
         )
 
         return output

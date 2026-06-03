@@ -36,6 +36,7 @@ type ChatMessageItemProps = {
   onJumpToMessage?: (localId: string) => void // Jump to quoted message
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectSession?: (sessionId: string) => void // Select a specific session to view
+  onSelectRequestId?: (requestId: string | null) => void // Select request_id for DAG viewing
 }
 
 type SourceLink = {
@@ -211,6 +212,7 @@ export function ChatMessageItem({
   quoteDisabled = false,
   onJumpToMessage,
   onSelectSession,
+  onSelectRequestId,
 }: ChatMessageItemProps) {
   const { t } = useI18n()
   const isUser = message.type === "human"
@@ -259,8 +261,9 @@ export function ChatMessageItem({
   }
 
   // Determine what to show in the action bar
-  // Show brain icon only if this AI message has steps (tool calls or thinking)
-  const showBrainIcon = !!sessionId
+  // Show brain icon if this AI message has request_id (for DAG viewing)
+  const hasRequestId = Boolean(message.request_id)
+  const showBrainIcon = hasRequestId
 
   // Get quoted message ID and user content from custom_data
   const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
@@ -350,33 +353,6 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Thinking process - ChatGPT style streaming display */}
-          {isAI && hasThinkingContent ? (
-            isStreaming ? (
-              // During streaming: show expanded thinking panel with live content
-              <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2" open>
-                <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
-                  <BrainIcon className="size-3 animate-pulse" />
-                  {t("message.thinking")}
-                </summary>
-                <div className="mt-2 whitespace-pre-wrap text-muted-foreground max-h-40 overflow-y-auto font-mono">
-                  {displayThinkingContent}
-                  <span className="inline-block w-1.5 h-3 bg-primary/60 animate-pulse ml-0.5" />
-                </div>
-              </details>
-            ) : (
-              // After streaming ends: show collapsed "View reasoning" section
-              <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mt-2">
-                <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground hover:text-foreground transition-colors">
-                  <BrainIcon className="size-3" />
-                  {t("message.viewReasoning")}
-                </summary>
-                <div className="mt-2 whitespace-pre-wrap text-muted-foreground max-h-60 overflow-y-auto font-mono">
-                  {displayThinkingContent}
-                </div>
-              </details>
-            )
-          ) : null}
 
           {/* Tool calls display - ChatGPT style scrolling list */}
           {isAI && allTools.length > 0 && (isStreaming || !message.content.trim()) ? (
@@ -562,14 +538,14 @@ export function ChatMessageItem({
                 </button>
               ) : null}
 
-              {/* Brain icon - click to show this session's execution trace */}
-              {showBrainIcon && sessionId ? (
+              {/* DAG icon - click to show this request's execution DAG */}
+              {showBrainIcon && message.request_id ? (
                 <button
                   type="button"
                   onClick={() => {
-                    // Select this session to show its steps
-                    if (onSelectSession) {
-                      onSelectSession(sessionId)
+                    // Select this request_id to show its DAG
+                    if (onSelectRequestId) {
+                      onSelectRequestId(message.request_id || null)
                     }
                   }}
                   className={cn(

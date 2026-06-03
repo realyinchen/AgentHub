@@ -121,6 +121,24 @@ class ChatStreamingService:
             initial_model,
         )
 
+        # ── Get state BEFORE execution for per-turn DAG construction ──────────
+        before_checkpoint_id: str | None = None
+        before_message_count: int = 0
+        try:
+            before_state = await self._agent.aget_state(config)
+            configurable = before_state.config.get("configurable")
+            before_checkpoint_id = configurable.get("checkpoint_id") if configurable else None
+            before_message_count = len(before_state.values.get("messages", []))
+            # Log full state for debugging
+            logger.info(
+                "Before execution: checkpoint_id=%s, message_count=%d, state_values_keys=%s",
+                before_checkpoint_id,
+                before_message_count,
+                list(before_state.values.keys()) if before_state.values else [],
+            )
+        except Exception as e:
+            logger.warning("Failed to get state before execution: %s", e)
+
         # ── Stream state (mutated by consumer coroutines) ──────────
         state: StreamState = {
             "step_counter": 0,
@@ -136,7 +154,10 @@ class ChatStreamingService:
         # ── Send SSE prelude to flush through proxies ──────────────
         yield f": {' ' * 2048}\n\n"
 
-        # ── Emit initial human step ────────────────────────────────
+        # ── Emit request_start event with request_id ───────────────
+        yield sse({"type": "request_start", "request_id": request_id})
+
+        # ── Emit initial human step ─────────────────────────────────
         state["step_counter"] += 1
         yield sse(
             {
@@ -296,6 +317,8 @@ class ChatStreamingService:
                         request_id=request_id,
                         model_name=initial_model,
                         tokens=tokens,
+                        before_checkpoint_id=before_checkpoint_id,
+                        before_message_count=before_message_count,
                     )
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())

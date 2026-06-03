@@ -121,15 +121,19 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
     }
   };
 
+  // For AI nodes: show thinking first (if exists), then response
+  // For tool nodes: show tool name in header, then arguments, then output
   const getInput = (): { label: string; content: string } | null => {
     switch (nodeData.type) {
       case 'human':
         return nodeData.content ? { label: t('process.input') || 'Message', content: nodeData.content } : null;
       case 'ai':
+        // AI node: show thinking process first (推理过程)
         return nodeData.thinking ? { label: t('process.thinking') || 'Thinking', content: nodeData.thinking } : null;
       case 'tool':
+        // Tool node: show arguments (入参)
         if (nodeData.toolArgs && Object.keys(nodeData.toolArgs).length > 0) {
-          return { label: t('process.arguments') || 'Arguments', content: JSON.stringify(nodeData.toolArgs, null, 2) };
+          return { label: t('process.toolInput') || 'Tool Input', content: JSON.stringify(nodeData.toolArgs, null, 2) };
         }
         return null;
       case 'subagent':
@@ -142,10 +146,12 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
       case 'human':
         return null;
       case 'ai':
-        return nodeData.content ? { label: t('process.content') || 'Response', content: nodeData.content } : null;
+        // AI node: show response (最终回复)
+        return nodeData.content ? { label: t('process.finalResponse') || 'Response', content: nodeData.content } : null;
       case 'tool':
+        // Tool node: show output (出参)
         return nodeData.toolOutput
-          ? { label: t('process.content') || 'Result', content: formatToolOutput(nodeData.toolOutput, 5000) }
+          ? { label: t('process.toolOutput') || 'Tool Output', content: formatToolOutput(nodeData.toolOutput, 5000) }
           : null;
       case 'subagent':
         return null;

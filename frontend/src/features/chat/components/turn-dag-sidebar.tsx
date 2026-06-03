@@ -1,9 +1,13 @@
 /**
  * TurnDAGSidebar - Displays execution DAG for a turn in the sidebar
  * Shows CSSTurnDAG in compact mode, with expandable dialog for full view
+ * 
+ * Can display DAG by either:
+ * - sessionId: for latest turn or session-based viewing
+ * - requestId: for historical message DAG viewing
  */
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Activity, AlertCircle, Maximize2 } from "lucide-react"
 
 import {
@@ -17,6 +21,10 @@ import CSSTurnDAG from "@/features/kanban/components/dag/CSSTurnDAG"
 import { useTurnSteps } from "@/features/kanban/hooks/useTurnSteps"
 import { useI18n } from "@/i18n"
 import type { MessageStep } from "@/types"
+import { getCurrentUserId } from "@/lib/api"
+
+// API base URL - same origin
+const API_BASE_URL = "/api/v1"
 
 interface TurnDAGSidebarProps {
   /** Current thread ID */
@@ -27,6 +35,62 @@ interface TurnDAGSidebarProps {
   isStreaming: boolean
   /** Message sequence for history view */
   messageSequence?: MessageStep[]
+  /** Request ID for viewing historical DAG */
+  requestId?: string | null
+}
+
+// Hook to fetch DAG by request_id
+function useDagByRequestId(threadId: string | null, requestId: string | null | undefined) {
+  const [steps, setSteps] = useState<MessageStep[]>([])
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!threadId || !requestId) {
+      setSteps([])
+      return
+    }
+
+    setLoading(true)
+    setError(null)
+
+    const controller = new AbortController()
+
+    async function fetchDag() {
+      try {
+        const userId = getCurrentUserId()
+        if (!userId) {
+          throw new Error('No user selected')
+        }
+        const response = await fetch(
+          `${API_BASE_URL}/traces/${threadId}/dag/${requestId}?user_id=${encodeURIComponent(userId)}`,
+          { signal: controller.signal }
+        )
+        if (!response.ok) {
+          throw new Error(`Failed to fetch DAG: ${response.status}`)
+        }
+        const data = await response.json()
+        // Extract steps from DAG response
+        const dagSteps = data.steps || []
+        setSteps(dagSteps)
+      } catch (err) {
+        if (err instanceof Error && err.name === 'AbortError') {
+          return
+        }
+        setError(err instanceof Error ? err.message : 'Failed to fetch DAG')
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    void fetchDag()
+
+    return () => {
+      controller.abort()
+    }
+  }, [threadId, requestId])
+
+  return { steps, loading, error }
 }
 
 export function TurnDAGSidebar({
@@ -34,17 +98,23 @@ export function TurnDAGSidebar({
   sessionId,
   isStreaming,
   messageSequence: _messageSequence,
+  requestId,
 }: TurnDAGSidebarProps) {
   const { t } = useI18n()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
-  // Get turn steps for the selected session
-  // Pass isStreaming to trigger refetch when streaming ends
-  const { steps, loading, error } = useTurnSteps(
+  // Use request_id if provided, otherwise use session-based steps
+  const dagByRequestId = useDagByRequestId(threadId, requestId)
+  const sessionSteps = useTurnSteps(
     threadId ?? undefined,
     sessionId ?? undefined,
     isStreaming
   )
+
+  // Choose data source based on whether requestId is provided
+  const steps = requestId ? dagByRequestId.steps : sessionSteps.steps
+  const loading = requestId ? dagByRequestId.loading : sessionSteps.loading
+  const error = requestId ? dagByRequestId.error : sessionSteps.error
 
   // Determine if we have valid steps to display
   const hasSteps = steps.length > 0

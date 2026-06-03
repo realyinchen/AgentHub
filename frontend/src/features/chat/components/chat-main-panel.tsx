@@ -42,6 +42,7 @@ type ChatMainPanelProps = {
   onJumpToMessage?: (localId: string) => void // Jump to quoted message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectSession?: (sessionId: string) => void // Select a specific session to view
+  onSelectRequestId?: (requestId: string | null) => void // Select request_id for DAG viewing
   // Model selection props
   models: ModelInfo[]
   selectedModel: string | null
@@ -76,6 +77,7 @@ export function ChatMainPanel({
   onJumpToMessage,
   onToggleSidebarProcess,
   onSelectSession,
+  onSelectRequestId,
   models,
   selectedModel,
   onSelectModel,
@@ -360,6 +362,7 @@ export function ChatMainPanel({
                         onJumpToMessage={onJumpToMessage}
                         onToggleSidebarProcess={onToggleSidebarProcess}
                         onSelectSession={onSelectSession}
+                        onSelectRequestId={onSelectRequestId}
                       />
                     )
                   })
