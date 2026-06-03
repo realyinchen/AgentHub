@@ -150,6 +150,7 @@ class ConversationCreate(BaseModel):
 
 class Conversation(BaseModel):
     """Full conversation schema for responses."""
+
     thread_id: UUID = Field(
         description="The thread ID of the conversation.",
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
@@ -202,16 +203,8 @@ class ConversationInDB(Conversation):
         description="Cumulative input tokens used in this conversation",
         default=0,
     )
-    cache_read: int = Field(
-        description="Cumulative cache read tokens used in this conversation",
-        default=0,
-    )
     output_tokens: int = Field(
         description="Cumulative output tokens used in this conversation",
-        default=0,
-    )
-    reasoning: int = Field(
-        description="Cumulative reasoning tokens used in this conversation",
         default=0,
     )
     total_tokens: int = Field(
@@ -246,9 +239,7 @@ class DailyStatsItem(BaseModel):
     date: str = Field(description="Date in YYYY-MM-DD format")
     conversation_count: int = Field(description="Number of conversations that day")
     input_tokens: int = Field(default=0, description="Input tokens consumed")
-    cache_read: int = Field(default=0, description="Cache read tokens")
     output_tokens: int = Field(default=0, description="Output tokens consumed")
-    reasoning: int = Field(default=0, description="Reasoning tokens consumed")
     total_tokens: int = Field(default=0, description="Total tokens consumed")
 
 

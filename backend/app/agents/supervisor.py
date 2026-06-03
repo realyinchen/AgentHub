@@ -22,6 +22,7 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 
 from app.agents.context import AgentRuntimeContext
+from app.agents.middleware.content_filter import content_filter
 from app.agents.middleware.model import dynamic_model
 from app.agents.middleware.prompt import supervisor_prompt
 from app.agents.tools import get_current_time, create_web_search
@@ -72,11 +73,12 @@ async def init_agent(
         )
 
     # Build middleware list following the official LangChain middleware order:
-    # Pre-processing → Model Selection → Post-processing.
+    # Pre-processing → Model Selection → Content Filter → Post-processing.
     # Note: Fallback/retry is handled by LiteLLM Router, no ModelRetryMiddleware needed.
     middleware: list = [
         supervisor_prompt,  # @dynamic_prompt: loads MD template + time context
         dynamic_model,  # DynamicModelMiddleware: runtime model switching (sync + async)
+        content_filter,  # ContentFilterMiddleware: removes non-standard content types
         SummarizationMiddleware(
             model=model,
             trigger=("tokens", 4000),

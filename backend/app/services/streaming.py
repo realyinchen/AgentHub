@@ -42,7 +42,6 @@ from app.utils.sse import (
 from app.utils.request import build_agent_kwargs
 from app.utils.message import (
     empty_totals,
-    extract_usage,
     accumulate_usage,
     langchain_to_chat_message,
 )
@@ -127,6 +126,7 @@ class ChatStreamingService:
             "step_counter": 0,
             "first_chunk_time": None,
             "accumulated_tokens": empty_totals(),
+            "accumulated_reasoning": "",  # Accumulate reasoning content
             "final_message": None,
             "final_state_messages": None,
         }
@@ -251,11 +251,31 @@ class ChatStreamingService:
 
             # ── Emit final assembled message ───────────────────────
             final_messages = state.get("final_state_messages")
+            accumulated_reasoning = state.get("accumulated_reasoning", "")
             if final_messages:
-                last = final_messages[-1]
-                if hasattr(last, "content") and last.content:
+                # Find the last AIMessage (skip ToolMessage, HumanMessage, etc.)
+                # ToolMessage contains tool results which should not be shown as AI response
+                last_ai_msg = None
+                for msg in reversed(final_messages):
+                    # Check if this is an AIMessage (has type='ai' or is AIMessage class)
+                    msg_type = getattr(msg, "type", None)
+                    if msg_type == "ai":
+                        last_ai_msg = msg
+                        break
+
+                if (
+                    last_ai_msg
+                    and hasattr(last_ai_msg, "content")
+                    and last_ai_msg.content
+                ):
                     try:
-                        chat_msg = langchain_to_chat_message(last)
+                        chat_msg = langchain_to_chat_message(last_ai_msg)
+                        # Include accumulated reasoning in custom_data for frontend display
+                        # This enables "View reasoning" expandable section after streaming ends
+                        if accumulated_reasoning:
+                            if chat_msg.custom_data is None:
+                                chat_msg.custom_data = {}
+                            chat_msg.custom_data["thinking"] = accumulated_reasoning
                         yield sse({"type": "message", "content": chat_msg.model_dump()})
                     except Exception as e:
                         logger.error("Error converting final message: %s", e)
@@ -309,42 +329,146 @@ class ChatStreamingService:
         - ``accumulated_tokens``: usage totals across all model calls
         - ``final_message``: last AI message (for memory extraction)
         - ``first_chunk_time``: timestamp of first emitted token
+
+        DashScope (Qwen) thinking mode:
+        - When enable_thinking=True, model returns reasoning_content in response
+        - LangChain v3 normalizes this to message.reasoning projection
+        - Token usage in usage_metadata or response_metadata.token_usage
         """
         async for message in stream.messages:
-            # Stream text deltas
-            async for delta in message.text:
-                if delta:
-                    if state["first_chunk_time"] is None:
-                        state["first_chunk_time"] = time.perf_counter()
-                    await out_queue.put(sse({"type": "token", "content": delta}))
-
-            # Stream reasoning deltas (thinking models)
-            async for delta in message.reasoning:
-                if delta:
-                    await out_queue.put(sse({"type": "reasoning", "content": delta}))
+            # Log incoming message structure for debugging
+            node_name = getattr(message, "node", "") or "model"
 
             # Finalized message arrives last
+            # In v3 streaming, message.output should be the complete message
             final = message.output
             if final is None:
+                logger.debug("[%s] message.output is None, skipping", node_name)
                 continue
 
-            # Token usage
-            usage = extract_usage(final)
+            # CRITICAL: In v3 streaming, message.output may be an AsyncProjection
+            # that needs to be awaited BEFORE checking message type.
+            # AsyncProjection doesn't have 'type' attribute, so msg_type check
+            # would fail and skip all streaming logic!
+            if hasattr(final, "__await__"):
+                try:
+                    final = await final
+                except Exception as e:
+                    logger.warning(
+                        "[%s] Error awaiting message.output: %s", node_name, e
+                    )
+                    continue
+
+            # Get message type - only process AIMessage for text streaming
+            # ToolMessage contains tool results which should NOT be streamed as AI response
+            msg_type = getattr(final, "type", None)
+            if msg_type != "ai":
+                # Skip ToolMessage, HumanMessage, etc. - only stream AIMessage content
+                logger.debug(
+                    "[%s] Skipping non-AI message type: %s", node_name, msg_type
+                )
+                continue
+
+            # Stream text deltas (only for AIMessage from model node)
+            # Skip token streaming for tool nodes - their content is tool execution results,
+            # not AI-generated response tokens. Tool results are shown via tool_result events.
+            text_delta_count = 0
+            if node_name == "model":
+                async for delta in message.text:
+                    if delta:
+                        text_delta_count += 1
+                        if state["first_chunk_time"] is None:
+                            state["first_chunk_time"] = time.perf_counter()
+                        await out_queue.put(sse({"type": "token", "content": delta}))
+            else:
+                # Drain text deltas for non-model nodes without emitting
+                async for _ in message.text:
+                    pass
+
+            if text_delta_count > 0:
+                logger.info("[%s] Streamed %d text deltas", node_name, text_delta_count)
+
+            # Stream reasoning deltas (thinking models, only for AIMessage)
+            # LangChain v3 normalizes provider-specific thinking/reasoning to message.reasoning
+            # DashScope Qwen with enable_thinking=True emits reasoning_content
+            reasoning_delta_count = 0
+            async for delta in message.reasoning:
+                if delta:
+                    reasoning_delta_count += 1
+                    # First reasoning delta - stop loading animation
+                    # Accumulate reasoning content for later inclusion in final message
+                    state["accumulated_reasoning"] += delta
+                    await out_queue.put(sse({"type": "reasoning", "content": delta}))
+
             node_name = getattr(message, "node", "") or "model"
+
+            # Token usage extraction
+            usage = None
+
+            # 1. Try message.output.usage_metadata (official v3 API)
+            if hasattr(final, "usage_metadata") and final.usage_metadata:
+                usage = final.usage_metadata
+
+            # 2. Try message.output.response_metadata.token_usage
+            if not usage and hasattr(final, "response_metadata"):
+                resp_meta = final.response_metadata
+                if resp_meta and "token_usage" in resp_meta:
+                    token_usage = resp_meta["token_usage"]
+                    usage = {
+                        "input_tokens": token_usage.get("prompt_tokens", 0),
+                        "output_tokens": token_usage.get("completion_tokens", 0),
+                        "total_tokens": token_usage.get("total_tokens", 0),
+                    }
+
+                # 2b. Try response_metadata.usage (LiteLLM style)
+                if not usage and resp_meta and "usage" in resp_meta:
+                    usage_obj = resp_meta["usage"]
+                    if isinstance(usage_obj, dict):
+                        usage = {
+                            "input_tokens": usage_obj.get("prompt_tokens", 0),
+                            "output_tokens": usage_obj.get("completion_tokens", 0),
+                            "total_tokens": usage_obj.get("total_tokens", 0),
+                        }
+
+            # 3. Try message itself (in case usage is on the projection object)
+            if (
+                not usage
+                and hasattr(message, "usage_metadata")
+                and message.usage_metadata
+            ):
+                usage = message.usage_metadata
+
+            # 4. Try additional_kwargs.usage
+            if not usage and hasattr(final, "additional_kwargs"):
+                add_kwargs = final.additional_kwargs
+                if (
+                    add_kwargs
+                    and isinstance(add_kwargs, dict)
+                    and "usage" in add_kwargs
+                ):
+                    usage_obj = add_kwargs["usage"]
+                    if isinstance(usage_obj, dict):
+                        usage = {
+                            "input_tokens": usage_obj.get("prompt_tokens", 0),
+                            "output_tokens": usage_obj.get("completion_tokens", 0),
+                            "total_tokens": usage_obj.get("total_tokens", 0),
+                        }
+
             if usage:
                 accumulate_usage(state["accumulated_tokens"], usage)
-                logger.info(
-                    "[%s] Token usage: input=%d, output=%d, total=%d",
-                    node_name,
-                    usage.get("input_tokens", 0),
-                    usage.get("output_tokens", 0),
-                    usage.get("total_tokens", 0),
-                )
+
                 await out_queue.put(
                     sse(
                         {
                             "type": "usage",
-                            "content": {"node": node_name, "usage": usage},
+                            "content": {
+                                "node": node_name,
+                                "usage": {
+                                    "input_tokens": usage.get("input_tokens", 0),
+                                    "output_tokens": usage.get("output_tokens", 0),
+                                    "total_tokens": usage.get("total_tokens", 0),
+                                },
+                            },
                         }
                     )
                 )
@@ -376,20 +500,36 @@ class ChatStreamingService:
 
         Each call has: ``.tool_name``, ``.input``, ``.output_deltas``,
         ``.output``, ``.error``.
-        """
-        async for call in stream.tool_calls:
-            tool_name = getattr(call, "tool_name", "unknown")
 
-            # Tool start
+        Emits SSE events in format expected by frontend:
+        - ``type: "tool"`` when tool starts calling
+        - ``type: "tool_result"`` when tool completes
+
+        First tool event triggers frontend to stop loading animation.
+        """
+        tool_call_count = 0
+        async for call in stream.tool_calls:
+            tool_call_count += 1
+            tool_name = getattr(call, "tool_name", "unknown")
+            tool_id = (
+                getattr(call, "id", None)
+                or getattr(call, "callId", None)
+                or str(uuid.uuid4())
+            )
+            tool_args = getattr(call, "input", {}) or getattr(call, "args", {}) or {}
+
+            # Tool start - emit event for frontend to show "calling" state
+            # First tool event stops loading animation
             state["step_counter"] += 1
             await out_queue.put(
                 sse(
                     {
-                        "type": "step",
-                        "step": state["step_counter"],
-                        "action": "tool_call",
-                        "name": tool_name,
-                        "status": "calling",
+                        "type": "tool",
+                        "content": {
+                            "name": tool_name,
+                            "tool_id": tool_id,
+                            "args": tool_args if isinstance(tool_args, dict) else {},
+                        },
                     }
                 )
             )
@@ -401,20 +541,37 @@ class ChatStreamingService:
             except Exception:
                 pass
 
-            # Wait for final output (required to await call completion)
+            # Get final output - in Python v3 streaming, call.output is direct access (not awaitable)
+            # Per LangChain docs: "print(call.output, call.error)" - direct property access
+            output = None
+            error = None
             try:
-                await call.output
+                # call.output may be a ToolMessage object or string
+                raw_output = call.output
+                if raw_output is not None:
+                    # Extract content from ToolMessage if needed
+                    if hasattr(raw_output, "content"):
+                        output = raw_output.content
+                    else:
+                        output = str(raw_output)
+                # Check for error
+                if call.error is not None:
+                    error = str(call.error)[:500]
             except Exception as e:
                 logger.warning("Tool %s raised: %s", tool_name, e)
+                error = str(e)[:500]
 
-            # Tool end
+            # Tool end - emit event for frontend to show "completed" state
             await out_queue.put(
                 sse(
                     {
-                        "type": "step",
-                        "step": state["step_counter"],
-                        "action": "tool_result",
-                        "status": "completed",
+                        "type": "tool_result",
+                        "content": {
+                            "id": tool_id,
+                            "name": tool_name,
+                            "output": str(output)[:500] if output else None,
+                            "error": error,
+                        },
                     }
                 )
             )

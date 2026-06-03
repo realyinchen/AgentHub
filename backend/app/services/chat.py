@@ -192,8 +192,7 @@ class ChatService:
             events: List of (mode, chunk) tuples from agent.astream.
 
         Returns:
-            Token totals dict with keys: input_tokens, cache_read,
-            output_tokens, reasoning, total_tokens.
+            Token totals dict with keys: input_tokens, output_tokens, total_tokens.
         """
         from app.utils.message import extract_usage, accumulate_usage, empty_totals
 

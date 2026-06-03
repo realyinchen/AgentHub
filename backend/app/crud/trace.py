@@ -82,9 +82,7 @@ async def upsert_trace(
     total_steps: int,
     model_name: str | None = None,
     input_tokens: int = 0,
-    cache_read: int = 0,
     output_tokens: int = 0,
-    reasoning: int = 0,
     total_tokens: int = 0,
 ) -> TraceExecution:
     """Insert or update a trace execution for the given request_id.
@@ -100,9 +98,7 @@ async def upsert_trace(
         total_steps: Number of steps in the DAG.
         model_name: LLM model name used for this turn.
         input_tokens: Per-request input tokens.
-        cache_read: Per-request cache read tokens.
         output_tokens: Per-request output tokens.
-        reasoning: Per-request reasoning tokens.
         total_tokens: Per-request total tokens.
     """
     stmt = select(TraceExecution).where(
@@ -116,9 +112,7 @@ async def upsert_trace(
         existing.total_steps = total_steps
         existing.model_name = model_name
         existing.input_tokens = input_tokens
-        existing.cache_read = cache_read
         existing.output_tokens = output_tokens
-        existing.reasoning = reasoning
         existing.total_tokens = total_tokens
         await db.flush()
         return existing
@@ -130,9 +124,7 @@ async def upsert_trace(
         total_steps=total_steps,
         model_name=model_name,
         input_tokens=input_tokens,
-        cache_read=cache_read,
         output_tokens=output_tokens,
-        reasoning=reasoning,
         total_tokens=total_tokens,
     )
     db.add(row)
@@ -166,8 +158,8 @@ async def persist_agent_trace(
         thread_id: Conversation thread identifier.
         request_id: Unique request identifier for this invocation.
         model_name: Resolved model name (or None).
-        tokens: A dict with keys: input_tokens, cache_read, output_tokens,
-            reasoning, total_tokens.
+        tokens: A dict with keys: input_tokens, output_tokens,
+            total_tokens.
     """
 
     thread_id_str = str(thread_id)
@@ -179,9 +171,7 @@ async def persist_agent_trace(
                 db=db,
                 thread_id=thread_id,
                 input_tokens=tokens["input_tokens"],
-                cache_read=tokens["cache_read"],
                 output_tokens=tokens["output_tokens"],
-                reasoning=tokens["reasoning"],
                 total_tokens=tokens["total_tokens"],
             )
         except Exception:
@@ -199,9 +189,7 @@ async def persist_agent_trace(
             total_steps=len(dag.steps),
             model_name=model_name,
             input_tokens=tokens.get("input_tokens", 0),
-            cache_read=tokens.get("cache_read", 0),
             output_tokens=tokens.get("output_tokens", 0),
-            reasoning=tokens.get("reasoning", 0),
             total_tokens=tokens.get("total_tokens", 0),
         )
     except Exception:

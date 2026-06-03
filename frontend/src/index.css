@@ -250,32 +250,32 @@
   --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.5);
   --glow-accent: 0 0 15px oklch(0.85 0.15 165 / 0.4);
 
-  /* Token stats - Dark theme (Cost analysis palette) */
-  /* Input tokens - Blue: Request scale (source) */
+  /* Token stats - Dark theme (Sharp, high contrast) */
+  /* Input tokens - Saturated blue with sharp edges */
   --token-input: #60A5FA;
   --token-input-bg: rgba(96, 165, 250, 0.15);
-  --token-input-glow: 0 0 10px rgba(96, 165, 250, 0.4);
+  --token-input-glow: none;
 
-  /* Output tokens - Indigo: Generation scale (result) */
-  --token-output: #818CF8;
-  --token-output-bg: rgba(129, 140, 248, 0.15);
-  --token-output-glow: 0 0 10px rgba(129, 140, 248, 0.4);
+  /* Output tokens - Saturated violet, distinct from blue */
+  --token-output: #A78BFA;
+  --token-output-bg: rgba(167, 139, 250, 0.15);
+  --token-output-glow: none;
 
-  /* Cache tokens - Green: Savings / Optimization benefits - Strong glow highlight */
+  /* Cache tokens - Green (kept for compatibility) */
   --token-cache: #4ADE80;
   --token-cache-bg: rgba(74, 222, 128, 0.15);
   --token-cache-glow: 0 0 15px rgba(74, 222, 128, 0.55);
 
-  /* Reasoning tokens - Amber: Cost / Resource consumption (primary color) */
+  /* Reasoning tokens - Amber (kept for compatibility) */
   --token-reasoning: #FBBF24;
   --token-reasoning-bg: rgba(251, 191, 36, 0.15);
   --token-reasoning-glow: 0 0 12px rgba(251, 191, 36, 0.45);
 
-  --token-total: #818CF8;
-  --token-total-bg: rgba(129, 140, 248, 0.15);
-  --token-total-glow: 0 0 12px rgba(129, 140, 248, 0.5);
+  --token-total: #A5B4FC;
+  --token-total-bg: rgba(165, 180, 252, 0.20);
+  --token-total-glow: 0 0 12px rgba(165, 180, 252, 0.5);
 
-  --token-track: rgba(255, 255, 255, 0.08);
+  --token-track: rgba(255, 255, 255, 0.15);
 
   /* DAG Colors - Dark Theme */
   --dag-bg-main: #0A0E17;

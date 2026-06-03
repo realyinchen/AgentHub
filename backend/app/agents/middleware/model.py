@@ -66,12 +66,6 @@ class DynamicModelMiddleware(AgentMiddleware):
 
         thinking_mode = bool(getattr(ctx, "thinking_mode", False))
 
-        logger.debug(
-            "dynamic_model: switching to model=%s thinking_mode=%s",
-            model_name,
-            thinking_mode,
-        )
-
         # Lazy import to avoid circular dependency at module load time.
         from app.infra.llm import get_llm
 

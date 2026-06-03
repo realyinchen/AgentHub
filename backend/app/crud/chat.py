@@ -89,8 +89,8 @@ async def get_daily_conversation_stats(
         user_id: Optional user scope filter
 
     Returns:
-        List of dicts with date, count, input_tokens, cache_read,
-        output_tokens, reasoning, total_tokens
+        List of dicts with date, count, input_tokens, output_tokens,
+        total_tokens
     """
     start_date = datetime.now(timezone.utc) - timedelta(days=days)
 
@@ -106,9 +106,7 @@ async def get_daily_conversation_stats(
             func.date(Conversation.created_at).label("date"),
             func.count(Conversation.thread_id).label("count"),
             func.sum(Conversation.input_tokens).label("input_tokens"),
-            func.sum(Conversation.cache_read).label("cache_read"),
             func.sum(Conversation.output_tokens).label("output_tokens"),
-            func.sum(Conversation.reasoning).label("reasoning"),
             func.sum(Conversation.total_tokens).label("total_tokens"),
         )
         .where(*conditions)
@@ -122,11 +120,9 @@ async def get_daily_conversation_stats(
     return [
         {
             "date": str(row.date),
-            "count": row.count,
+            "conversation_count": row.count,
             "input_tokens": row.input_tokens,
-            "cache_read": row.cache_read,
             "output_tokens": row.output_tokens,
-            "reasoning": row.reasoning,
             "total_tokens": row.total_tokens,
         }
         for row in rows
@@ -237,9 +233,7 @@ async def update_conversation_tokens(
     db: AsyncSession,
     thread_id: UUID,
     input_tokens: int = 0,
-    cache_read: int = 0,
     output_tokens: int = 0,
-    reasoning: int = 0,
     total_tokens: int = 0,
 ) -> Conversation | None:
     """Update conversation token usage by accumulating the new values.
@@ -248,9 +242,7 @@ async def update_conversation_tokens(
         db: Database session
         thread_id: Conversation thread ID
         input_tokens: New input tokens to add
-        cache_read: New cache read tokens to add
         output_tokens: New output tokens to add
-        reasoning: New reasoning tokens to add
         total_tokens: New total tokens to add
 
     Returns:
@@ -264,9 +256,7 @@ async def update_conversation_tokens(
         )
         .values(
             input_tokens=Conversation.input_tokens + input_tokens,
-            cache_read=Conversation.cache_read + cache_read,
             output_tokens=Conversation.output_tokens + output_tokens,
-            reasoning=Conversation.reasoning + reasoning,
             total_tokens=Conversation.total_tokens + total_tokens,
         )
         .returning(Conversation)

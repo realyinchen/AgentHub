@@ -30,9 +30,7 @@ def empty_totals() -> dict[str, int]:
     """Return a zero-filled token totals dictionary."""
     return {
         "input_tokens": 0,
-        "cache_read": 0,
         "output_tokens": 0,
-        "reasoning": 0,
         "total_tokens": 0,
     }
 
@@ -41,17 +39,20 @@ def extract_usage(final_message: Any) -> dict | None:
     """Extract token usage from a finalized AI message.
 
     Tries ``usage_metadata`` first (preferred), then falls back to
-    ``response_metadata.token_usage``.
+    ``response_metadata.token_usage`` or ``response_metadata.usage``.
     """
     if final_message is None:
         return None
 
+    # 1. Try usage_metadata (standard LangChain format)
     usage = getattr(final_message, "usage_metadata", None)
     if usage:
         return dict(usage)
 
+    # 2. Try response_metadata (OpenAI/LiteLLM format)
     resp_meta = getattr(final_message, "response_metadata", None)
     if resp_meta and isinstance(resp_meta, dict):
+        # OpenAI style: token_usage
         token_usage = resp_meta.get("token_usage")
         if token_usage:
             return {
@@ -59,6 +60,26 @@ def extract_usage(final_message: Any) -> dict | None:
                 "output_tokens": token_usage.get("completion_tokens", 0),
                 "total_tokens": token_usage.get("total_tokens", 0),
             }
+        # LiteLLM style: usage object
+        usage_obj = resp_meta.get("usage")
+        if usage_obj and isinstance(usage_obj, dict):
+            return {
+                "input_tokens": usage_obj.get("prompt_tokens", 0),
+                "output_tokens": usage_obj.get("completion_tokens", 0),
+                "total_tokens": usage_obj.get("total_tokens", 0),
+            }
+
+    # 3. Try additional_kwargs.usage (some providers)
+    additional_kwargs = getattr(final_message, "additional_kwargs", None)
+    if additional_kwargs and isinstance(additional_kwargs, dict):
+        usage_kwarg = additional_kwargs.get("usage")
+        if usage_kwarg and isinstance(usage_kwarg, dict):
+            return {
+                "input_tokens": usage_kwarg.get("prompt_tokens", 0),
+                "output_tokens": usage_kwarg.get("completion_tokens", 0),
+                "total_tokens": usage_kwarg.get("total_tokens", 0),
+            }
+
     return None
 
 
@@ -67,14 +88,6 @@ def accumulate_usage(totals: dict[str, int], usage: dict) -> None:
     totals["input_tokens"] += usage.get("input_tokens", 0)
     totals["output_tokens"] += usage.get("output_tokens", 0)
     totals["total_tokens"] += usage.get("total_tokens", 0)
-
-    input_details = usage.get("input_token_details")
-    if isinstance(input_details, dict):
-        totals["cache_read"] += input_details.get("cache_read", 0)
-
-    output_details = usage.get("output_token_details")
-    if isinstance(output_details, dict):
-        totals["reasoning"] += output_details.get("reasoning", 0)
 
 
 # =============================================================================

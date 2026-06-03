@@ -57,12 +57,6 @@ INSERT INTO public.providers (provider, api_key, is_openai_compatible)
 VALUES ('dashscope', '', false)
 ON CONFLICT (provider) DO NOTHING;
 
--- ZAI provider
--- Get your API key from: https://open.bigmodel.cn/apikey
-INSERT INTO public.providers (provider, api_key, is_openai_compatible)
-VALUES ('zai', '', false)
-ON CONFLICT (provider) DO NOTHING;
-
 -- 3. models table (user maintains all model configurations)
 -- Note: api_key is now stored in providers table
 -- Note: model_id is the plain model name (e.g. "qwen3.5-32b").

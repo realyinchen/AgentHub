@@ -9,7 +9,7 @@ Public API:
                            Used for: summarization, title generation, compile-time default
 
     Runtime LLM:
-        - get_llm(model_id, thinking_mode): Get a ChatLiteLLMRouter for runtime model switching
+        - get_llm(model_id, thinking_mode): Get a ChatLiteLLM for runtime use
                                            Models configured in DB (providers + models tables)
 
     Embedding (from .env):

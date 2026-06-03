@@ -27,7 +27,5 @@ class Conversation(Base):
 
     # Token usage fields (cumulative for the conversation)
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    cache_read: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    reasoning: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   CopyIcon,
   ListOrdered,
+  Loader2,
   PencilIcon,
   QuoteIcon,
 } from "lucide-react"
@@ -196,52 +197,6 @@ function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
     return []
   }
 }
-
-/**
- * Group consecutive tool calls with the same name.
- * Returns an array of grouped tool calls with count.
- */
-type GroupedToolCall = {
-  name: string
-  count: number
-  tools: ToolCallInfo[]
-}
-
-function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
-  if (tools.length === 0) {
-    return []
-  }
-
-  const groups: GroupedToolCall[] = []
-  let currentGroup: GroupedToolCall = {
-    name: tools[0].name,
-    count: 1,
-    tools: [tools[0]],
-  }
-
-  for (let i = 1; i < tools.length; i++) {
-    const tool = tools[i]
-    if (tool.name === currentGroup.name) {
-      // Same tool as previous - add to current group
-      currentGroup.count++
-      currentGroup.tools.push(tool)
-    } else {
-      // Different tool - push current group and start new one
-      groups.push(currentGroup)
-      currentGroup = {
-        name: tool.name,
-        count: 1,
-        tools: [tool],
-      }
-    }
-  }
-
-  // Don't forget to push the last group
-  groups.push(currentGroup)
-
-  return groups
-}
-
 export function ChatMessageItem({
   message,
   messageIndex,
@@ -395,33 +350,65 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Thinking process - only show when there is actual thinking content */}
-          {isAI && hasThinkingContent && isStreaming && !message.content.trim() ? (
-            <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2" open>
-              <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
-                <BrainIcon className="size-3" />
-                {t("message.thinking")}
-              </summary>
-              <div className="mt-2 whitespace-pre-wrap text-muted-foreground max-h-40 overflow-y-auto">
-                {displayThinkingContent}
-              </div>
-            </details>
+          {/* Thinking process - ChatGPT style streaming display */}
+          {isAI && hasThinkingContent ? (
+            isStreaming ? (
+              // During streaming: show expanded thinking panel with live content
+              <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2" open>
+                <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
+                  <BrainIcon className="size-3 animate-pulse" />
+                  {t("message.thinking")}
+                </summary>
+                <div className="mt-2 whitespace-pre-wrap text-muted-foreground max-h-40 overflow-y-auto font-mono">
+                  {displayThinkingContent}
+                  <span className="inline-block w-1.5 h-3 bg-primary/60 animate-pulse ml-0.5" />
+                </div>
+              </details>
+            ) : (
+              // After streaming ends: show collapsed "View reasoning" section
+              <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mt-2">
+                <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground hover:text-foreground transition-colors">
+                  <BrainIcon className="size-3" />
+                  {t("message.viewReasoning")}
+                </summary>
+                <div className="mt-2 whitespace-pre-wrap text-muted-foreground max-h-60 overflow-y-auto font-mono">
+                  {displayThinkingContent}
+                </div>
+              </details>
+            )
           ) : null}
 
-          {/* Tool calls during streaming - only show completed tools */}
-          {isAI && allTools.some(t => t.status === "completed") && isStreaming && !message.content.trim() ? (
-            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
+          {/* Tool calls display - ChatGPT style scrolling list */}
+          {isAI && allTools.length > 0 && (isStreaming || !message.content.trim()) ? (
+            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2 max-h-32 overflow-y-auto">
               <div className="space-y-1.5">
-                {groupConsecutiveToolCalls(allTools.filter(t => t.status === "completed")).map((group, groupIndex) => {
+                {allTools.map((tool, toolIndex) => {
+                  const isCalling = tool.status === "calling"
+                  const isCompleted = tool.status === "completed"
                   return (
-                    <div key={`group-${groupIndex}`} className="flex items-center gap-2">
-                      <CheckIcon className="size-3 text-green-500" />
-                      <span className="text-foreground">
-                        {group.name}
-                        {group.count > 1 ? (
-                          <span className="ml-1 text-muted-foreground">×{group.count}</span>
-                        ) : null}
+                    <div 
+                      key={tool.id || `tool-${toolIndex}`} 
+                      className={cn(
+                        "flex items-center gap-2 animate-in slide-in-from-left-2 duration-200",
+                        toolIndex === allTools.length - 1 && isCalling && "bg-primary/5 -mx-1 px-1 rounded"
+                      )}
+                    >
+                      {isCalling ? (
+                        <Loader2 className="size-3 animate-spin text-primary" />
+                      ) : isCompleted ? (
+                        <CheckIcon className="size-3 text-green-500" />
+                      ) : null}
+                      <span className={cn(
+                        "font-medium",
+                        isCalling ? "text-foreground" : "text-muted-foreground"
+                      )}>
+                        {tool.name}
                       </span>
+                      {isCalling && (
+                        <span className="text-muted-foreground text-[10px] animate-pulse">
+                          {t("message.toolRunning")}
+                        </span>
+                      )}
                     </div>
                   )
                 })}
@@ -575,7 +562,7 @@ export function ChatMessageItem({
                 </button>
               ) : null}
 
-              {/* Steps icon - click to show this session's steps in sidebar */}
+              {/* Brain icon - click to show this session's execution trace */}
               {showBrainIcon && sessionId ? (
                 <button
                   type="button"
@@ -587,16 +574,11 @@ export function ChatMessageItem({
                   }}
                   className={cn(
                     "p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer",
-                    isSelected && "text-accent hover:text-accent"
+                    isSelected && "text-primary hover:text-primary"
                   )}
                   title={t("process.showProcess")}
                 >
-                  {/* Show check circle icon if this message's session is currently selected in sidebar, otherwise show list icon */}
-                  {isSelected ? (
-                    <CheckCircle2 className="size-4" />
-                  ) : (
-                    <ListOrdered className="size-4" />
-                  )}
+                  <BrainIcon className="size-4" />
                 </button>
               ) : null}
             </div>

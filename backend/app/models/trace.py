@@ -37,9 +37,7 @@ class TraceExecution(Base):
     )
     # Per-request token usage
     input_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    cache_read: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     output_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
-    reasoning: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     total_tokens: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=utc_now

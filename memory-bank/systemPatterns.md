@@ -48,13 +48,21 @@ app/infra/database/
 - Removed per-component init functions (use `init_all()` only)
 - Removed async locks (FastAPI lifespan guarantees single-call initialization)
 
-## LLM Layer (Simplified)
+## LLM Layer (Simplified - DashScope Only)
 ```
 app/infra/llm/
 ├── __init__.py          # Public API exports (ONLY getters)
 ├── manager.py           # Internal: ModelManager, Router, cache
+├── factory.py           # Internal: get_llm()
+├── resolver.py          # Internal: resolve_model_name()
+├── system_llm.py        # Internal: system-level LLM singleton
 └── embedding.py         # Internal: LiteLLMEmbeddings
 ```
+
+**Provider: DashScope (Alibaba Cloud) only**
+- All models accessed via DashScope API
+- Thinking mode controlled via `extra_body: {"enable_thinking": bool}`
+- Default: thinking mode disabled
 
 **Public API (minimal interface):**
 ```python
@@ -76,13 +84,11 @@ refresh_model_cache() -> None             # Call after model/provider CRUD
 **Internal (not exposed):**
 - `ModelManager` class - implementation detail
 - `LiteLLMEmbeddings` class - implementation detail
-- `get_model_manager()` - internal function
-- `get_embed_fn()` / `get_embed_batch_fn()` - removed (redundant)
 
 **Design principles:**
 - Only expose getter functions, not implementation classes
-- `get_embeddings()` provides full `Embeddings` interface (aembed_query, aembed_documents)
-- Cache refresh encapsulated in `refresh_model_cache()` - no need to know about ModelManager
+- Single provider (DashScope) simplifies `extra_body` logic
+- Thinking mode disabled by default via `extra_body: {"enable_thinking": False}`
 - LangGraph Store uses: `embed: Callable[[Sequence[str]], list[list[float]]]`
 - PGVectorStore uses: `embedding_service: Embeddings`
 

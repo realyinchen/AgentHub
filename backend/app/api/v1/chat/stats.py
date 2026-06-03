@@ -54,7 +54,7 @@ async def get_conversation_stats(
     """Get cumulative token usage statistics for a specific conversation.
 
     Returns the full ConversationInDB object which includes all token
-    fields (input_tokens, cache_read, output_tokens, reasoning, total_tokens).
+    fields (input_tokens, output_tokens, reasoning, total_tokens).
     """
     conv = await read_conversation_by_thread_id(
         db=db, thread_id=thread_id, user_id=user_id

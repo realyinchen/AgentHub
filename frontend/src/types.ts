@@ -196,6 +196,10 @@ export type StreamEvent =
     id: string
   }
   | {
+    type: "reasoning"
+    content: string
+  }
+  | {
     type: "message"
     content: ChatMessage
   }

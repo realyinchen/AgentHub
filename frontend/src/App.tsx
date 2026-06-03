@@ -769,8 +769,14 @@ function App() {
             } : undefined,
           },
           (event: StreamEvent) => {
-            if (event.type === "llm") {
+            if (event.type === "llm" || event.type === "reasoning") {
               // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
+              // "llm" is legacy event type, "reasoning" is LangChain v3 streaming type
+              // Stop showing "processing..." loader when reasoning content arrives
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               setIsAgentThinking(true)
               setActiveToolCall(null)
               // Accumulate thinking content
@@ -793,11 +799,26 @@ function App() {
 
             if (event.type === "message") {
               const message = event.content
+              // Stop loading animation when we receive a message event
+              // This handles cases where backend sends message directly without streaming tokens
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               // When we receive an AI message with actual content (not just tool_calls), 
               // agent is no longer "thinking"
               if (message.type === "ai") {
                 const hasContent = message.content && message.content.trim().length > 0
                 const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
+                
+                // If this is an intermediate message (has tool_calls but no meaningful content),
+                // don't add it to messages - just track tool calls
+                if (hasToolCalls && !hasContent) {
+                  // This is an intermediate AI message for tool calls
+                  // Don't add to messages array - tool info is already tracked via calledTools
+                  return
+                }
+                
                 // Only stop thinking if we have content and no pending tool calls
                 if (hasContent && !hasToolCalls) {
                   setIsAgentThinking(false)
@@ -809,7 +830,12 @@ function App() {
             }
 
             if (event.type === "tool") {
-              // Agent is calling a tool, show thinking state
+              // Agent is calling a tool - stop showing "processing..." loader
+              // Content is arriving (tool call is a form of content)
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               setIsAgentThinking(true)
               // Create ToolCallEvent from the new event format
               const toolCallEvent: ToolCallEvent = {
@@ -839,6 +865,7 @@ function App() {
 
             if (event.type === "tool_result") {
               // Tool execution completed, update the tool call info
+              // Still keep isProcessing true - more tools may be called or AI response pending
               setCalledTools((prev) =>
                 prev.map((t) =>
                   t.id === event.content.id
@@ -1039,6 +1066,15 @@ function App() {
               if (message.type === "ai") {
                 const hasContent = message.content && message.content.trim().length > 0
                 const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
+                
+                // If this is an intermediate message (has tool_calls but no meaningful content),
+                // don't add it to messages - just track tool calls
+                if (hasToolCalls && !hasContent) {
+                  // This is an intermediate AI message for tool calls
+                  // Don't add to messages array - tool info is already tracked via calledTools
+                  return
+                }
+                
                 if (hasContent && !hasToolCalls) {
                   setIsAgentThinking(false)
                   setActiveToolCall(null)

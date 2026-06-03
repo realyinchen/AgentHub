@@ -75,6 +75,7 @@ class StreamState(TypedDict):
     step_counter: int
     first_chunk_time: float | None
     accumulated_tokens: dict[str, int]
+    accumulated_reasoning: str  # Accumulated reasoning/thinking content
     final_message: BaseMessage | None
     final_state_messages: list[BaseMessage] | None
 
