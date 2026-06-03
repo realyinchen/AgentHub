@@ -10,6 +10,7 @@ import type { MessageStepRaw, LayoutNode, DAGNodeData } from '../../types/dag';
 import { buildDAGFromSteps, calculateBoundingBox } from '../../utils/dagBuilder';
 import NodeDetailSheet from './NodeDetailSheet';
 import { useI18n } from '@/i18n';
+import { SciFiLoader } from '@/components/ai/neural-network-loader';
 
 interface CSSTurnDAGProps {
   steps: MessageStepRaw[];
@@ -92,9 +93,9 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
   if (nodes.length === 0) {
     return (
       <div
-        className="flex items-center justify-center h-[200px] text-muted-foreground"
+        className="flex items-center justify-center h-[200px]"
       >
-        {t('process.noSteps')}
+        <SciFiLoader className="w-24 h-24" showText={false} />
       </div>
     );
   }

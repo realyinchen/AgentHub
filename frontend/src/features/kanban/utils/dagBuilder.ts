@@ -128,15 +128,6 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
   const layers: LayerInfo[] = [];
   let i = 0;
 
-  // Debug: log all incoming steps
-  console.log('[DAG] Building layers from steps:', steps.map(s => ({
-    step_number: s.step_number,
-    message_type: s.message_type,
-    tool_name: s.tool_name,
-    tool_call_id: s.tool_call_id,
-    tool_calls: s.tool_calls,
-  })));
-
   while (i < steps.length) {
     const step = steps[i];
 

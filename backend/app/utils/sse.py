@@ -33,21 +33,6 @@ def sse_error(content: str, error_type: str = "error") -> str:
     return sse({"type": "error", "content": content, "error_type": error_type})
 
 
-def has_meaningful_content(output: object) -> bool:
-    """Return whether a LangChain message output contains user-visible text."""
-    if output is None:
-        return False
-    content = getattr(output, "content", "")
-    if isinstance(content, str):
-        return bool(content.strip())
-    if isinstance(content, list):
-        for block in content:
-            if isinstance(block, dict) and block.get("type") == "text":
-                if block.get("text", "").strip():
-                    return True
-    return False
-
-
 # ── Protocols & shared state ────────────────────────────────────────────────
 
 
@@ -75,7 +60,8 @@ class StreamState(TypedDict):
     step_counter: int
     first_chunk_time: float | None
     accumulated_tokens: dict[str, int]
-    accumulated_reasoning: str  # Accumulated reasoning/thinking content
+    accumulated_reasoning: str  # Current accumulated reasoning (resets per LLM call)
+    reasoning_segments: dict[str, str]  # reasoning content keyed by message_id
     final_message: BaseMessage | None
     final_state_messages: list[BaseMessage] | None
 
@@ -167,5 +153,4 @@ __all__ = [
     "StreamV3Projection",
     "sse",
     "sse_error",
-    "has_meaningful_content",
 ]

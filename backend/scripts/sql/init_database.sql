@@ -12,9 +12,7 @@ CREATE TABLE IF NOT EXISTS public.conversations (
     
     -- Token usage fields (cumulative for the conversation)
     input_tokens     BIGINT NOT NULL DEFAULT 0,
-    cache_read       BIGINT NOT NULL DEFAULT 0,
     output_tokens    BIGINT NOT NULL DEFAULT 0,
-    reasoning        BIGINT NOT NULL DEFAULT 0,
     total_tokens     BIGINT NOT NULL DEFAULT 0
 );
 
@@ -25,7 +23,7 @@ ON public.conversations (user_id, is_deleted, updated_at DESC);
 -- Covering index for user-scoped conversation list (avoids table lookups)
 CREATE INDEX IF NOT EXISTS idx_conv_user_list 
 ON public.conversations (user_id, is_deleted, updated_at DESC) 
-INCLUDE (thread_id, title, created_at, input_tokens, cache_read, output_tokens, reasoning, total_tokens)
+INCLUDE (thread_id, title, created_at, input_tokens, output_tokens, total_tokens)
 WHERE is_deleted = FALSE;
 
 -- Index for pagination and sorting by created_at

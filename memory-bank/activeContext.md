@@ -2,6 +2,47 @@
 
 ## Current Focus
 
+**修复 SSE 流式响应批量到达问题** (June 3, 2026)
+
+### 问题
+前端调用 `/api/v1/chat/stream` 时，SSE 事件不是逐个实时到达，而是积累到约 16KB 后一批一批出现。用户看到的是"一批一批"的内容更新，而不是逐 token 的真正流式效果。
+
+### 根本原因
+Vite 开发服务器的 proxy 使用 `http-proxy` 库，该库内部有 16KB 的 `highWaterMark` 缓冲。SSE 事件通常很小（几十到几百字节），`http-proxy` 会将多个小事件缓冲到填满 16KB 后才一次性刷新给客户端，导致批量到达的现象。
+
+### 解决方案
+使用 Vite 内置 proxy 的 `selfHandleResponse: true` 选项，让 http-proxy 不自动转发响应，改为手动零缓冲转发：
+
+1. **`selfHandleResponse: true`** — http-proxy 不自动 pipe 响应，我们手动控制
+2. **立即刷新响应头** — `res.flushHeaders()` 在收到后端响应后立即发送
+3. **禁用 Nagle 算法** — `res.socket.setNoDelay(true)` 确保 TCP 不延迟小包
+4. **零缓冲转发** — 每个 `data` 事件直接 `res.write(chunk)` 写入
+
+### 踩坑记录
+
+1. **自定义 http.request() 代理方案**：最初创建自定义 `sseProxyPlugin` 使用 `http.request()` 绕过 http-proxy，但出现 `socket hang up` 错误（502 Bad Gateway）。可能因为自定义代理的连接管理和请求头转发不够完善。
+
+2. **Connect 中间件路径剥离**：使用 `server.middlewares.use("/api/v1/chat/stream", handler)` 时，Connect 会从 `req.url` 中剥离挂载路径，导致代理请求发到 `/` → 502。
+
+**最终方案**：使用 Vite 内置 proxy + `selfHandleResponse`，比自定义代理更可靠（连接管理交给成熟的 http-proxy），只覆盖响应转发逻辑。
+
+### 修改的文件
+- `frontend/vite.config.ts` — SSE 路由使用 `selfHandleResponse: true` + 手动零缓冲转发
+
+### 架构说明
+```
+浏览器 → Vite Dev Server
+  ├── /api/v1/chat/stream (POST) → Vite http-proxy + selfHandleResponse (手动零缓冲) → Backend:8080
+  └── /api/* (其他)            → Vite http-proxy (正常代理) → Backend:8080
+```
+
+### 前端 React 渲染
+React 18 的自动 `setState` 批处理是正确的行为 — 多个 token 的状态更新合并为一次重渲染是性能优化，不需要改变。真正的问题是网络层的缓冲。
+
+---
+
+## Previous Focus
+
 **重构 Agent 执行 DAG 构建** (June 3, 2026)
 
 ### 问题

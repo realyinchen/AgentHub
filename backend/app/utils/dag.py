@@ -19,13 +19,18 @@ This approach is more reliable than checkpoint metadata parsing because:
 """
 
 import logging
-from typing import Any
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 
-from app.schemas.trace import AIStepMetadata, DagNode, ExecutionDag, StepOutput, ToolStepMetadata
+from app.schemas.trace import (
+    AIStepMetadata,
+    DagNode,
+    ExecutionDag,
+    StepOutput,
+    ToolStepMetadata,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -47,7 +52,7 @@ class DagBuilder:
         thread_id: str,
         before_checkpoint_id: str | None = None,
         before_message_count: int = 0,
-        accumulated_reasoning: str = "",
+        reasoning_segments: dict[str, str] | None = None,
     ) -> ExecutionDag:
         """Build the execution DAG for a single user-agent turn.
 
@@ -62,9 +67,9 @@ class DagBuilder:
             before_checkpoint_id: Checkpoint ID before this turn started.
                 Used to determine if this is a continuation.
             before_message_count: Number of messages before this turn started.
-            accumulated_reasoning: Accumulated reasoning/thinking content from
-                streaming. Injected into the last AI node when checkpointer
-                doesn't preserve thinking content.
+            reasoning_segments: Dict mapping AIMessage.id to reasoning content.
+                Used to inject thinking into each AI node in the DAG when
+                checkpointer doesn't preserve reasoning content.
 
         Returns:
             Execution DAG with nodes and edges representing the message flow.
@@ -75,14 +80,6 @@ class DagBuilder:
         state = await self.agent.aget_state(config)
         all_messages: list = state.values.get("messages", [])
         new_messages = all_messages[before_message_count:]
-
-        logger.info(
-            "Building DAG for thread=%s: %d total messages, %d new messages, accumulated_reasoning_len=%d",
-            thread_id,
-            len(all_messages),
-            len(new_messages),
-            len(accumulated_reasoning) if accumulated_reasoning else 0,
-        )
 
         if not new_messages:
             logger.warning("No messages found for thread=%s", thread_id)
@@ -95,14 +92,7 @@ class DagBuilder:
             )
 
         # Build nodes using message-based inference
-        nodes, edges = self._build_dag_from_messages(new_messages, accumulated_reasoning)
-
-        logger.info(
-            "Built DAG: %d nodes, %d edges for thread=%s",
-            len(nodes),
-            len(edges),
-            thread_id,
-        )
+        nodes, edges = self._build_dag_from_messages(new_messages, reasoning_segments)
 
         return ExecutionDag(
             thread_id=thread_id,
@@ -115,7 +105,7 @@ class DagBuilder:
     def _build_dag_from_messages(
         self,
         messages: list,
-        accumulated_reasoning: str = "",
+        reasoning_segments: dict[str, str] | None = None,
     ) -> tuple[list[DagNode], list[tuple[str, str]]]:
         """Build DAG nodes and edges from a list of messages.
 
@@ -124,9 +114,9 @@ class DagBuilder:
 
         Args:
             messages: List of messages for this turn.
-            accumulated_reasoning: Accumulated reasoning/thinking content from
-                streaming. Injected into the last AI node when checkpointer
-                doesn't preserve thinking content.
+            reasoning_segments: Dict mapping AIMessage.id to reasoning content.
+                Used to inject thinking into each AI node in the DAG when
+                checkpointer doesn't preserve reasoning content.
 
         Returns:
             Tuple of (nodes list, edges list).
@@ -145,142 +135,93 @@ class DagBuilder:
         last_ai_node: str | None = None
         last_tool_nodes: list[str] = []  # For parallel tools
 
-        # Track the last AIMessage node index for injecting accumulated reasoning
-        last_ai_node_index: int | None = None
+        # Track AI node indices and their message IDs for reasoning injection
+        ai_node_indices: list[tuple[int, str]] = []  # (node_index, message_id)
 
         step_number = 0
 
-        # Log all messages at start
-        logger.info(
-            "Processing %d messages: %s",
-            len(messages),
-            [f"{i}:{type(m).__name__}" for i, m in enumerate(messages)]
-        )
-
         for msg_idx, msg in enumerate(messages):
-            logger.info(
-                "Message[%d]: type=%s, id=%s",
-                msg_idx,
-                type(msg).__name__,
-                getattr(msg, "id", None),
-            )
-
             if isinstance(msg, HumanMessage):
                 # User input node
                 step_number += 1
                 node = self._build_human_node(msg, step_number)
                 nodes.append(node)
                 last_user_node = node.node_id
-                logger.info(
-                    "Created HumanNode: id=%s, step=%d",
-                    node.node_id, step_number
-                )
 
             elif isinstance(msg, AIMessage):
                 step_number += 1
+                msg_id = getattr(msg, "id", None) or str(id(msg))
                 node = self._build_ai_node(msg, step_number)
                 nodes.append(node)
-                last_ai_node_index = len(nodes) - 1  # Track for later injection
-                
-                # Debug: log AIMessage details
-                logger.info(
-                    "AIMessage details: id=%s, content_len=%d, tool_calls=%s, has_thinking=%s",
-                    getattr(msg, "id", None),
-                    len(str(msg.content)) if msg.content else 0,
-                    msg.tool_calls,
-                    bool(_extract_thinking(msg)),
-                )
+
+                # Track AI node index and message_id for reasoning injection
+                ai_node_indices.append((len(nodes) - 1, msg_id))
 
                 # Build edge from previous node
                 if last_user_node and not last_ai_node:
                     # First AI after user
                     edges.append((last_user_node, node.node_id))
-                    logger.info("Edge: %s → %s (user→first AI)", last_user_node, node.node_id)
                 elif last_tool_nodes:
                     # AI after tools (tools → AI)
                     for tool_node_id in last_tool_nodes:
                         edges.append((tool_node_id, node.node_id))
-                        logger.info("Edge: %s → %s (tool→AI)", tool_node_id, node.node_id)
                 elif last_ai_node:
                     # AI after AI (shouldn't normally happen, but handle it)
                     edges.append((last_ai_node, node.node_id))
-                    logger.info("Edge: %s → %s (AI→AI)", last_ai_node, node.node_id)
 
                 last_ai_node = node.node_id
                 last_tool_nodes = []
 
                 # Register tool calls from this AI message
                 if msg.tool_calls:
-                    logger.info(
-                        "AIMessage has %d tool_calls: %s",
-                        len(msg.tool_calls),
-                        [{"id": tc.get("id"), "name": tc.get("name"), "args": tc.get("args")} 
-                         for tc in msg.tool_calls]
-                    )
                     for tc in msg.tool_calls:
                         # Use tool_call_id if available, otherwise generate unique key
                         tc_id = tc.get("id")
                         tool_name = tc.get("name", "unknown")
                         tool_args = tc.get("args", {})
-                        
+
                         # If tool_call_id is missing or empty, generate a unique key
                         if not tc_id:
                             tc_id = f"__gen_{tool_name}_{tool_call_counter}"
-                            logger.warning(
+                            logger.debug(
                                 "Tool call without id, generated: %s for tool=%s",
-                                tc_id, tool_name
+                                tc_id,
+                                tool_name,
                             )
-                        
+
                         tool_call_counter += 1
-                        pending_tool_calls[tc_id] = (node.node_id, tool_name, tool_args, tool_call_counter)
-                        logger.info(
-                            "Registered pending tool call: key=%s, ai_node=%s, name=%s",
-                            tc_id, node.node_id, tool_name
+                        pending_tool_calls[tc_id] = (
+                            node.node_id,
+                            tool_name,
+                            tool_args,
+                            tool_call_counter,
                         )
 
             elif isinstance(msg, ToolMessage):
-                # Debug: log ALL ToolMessage attributes to understand the structure
-                logger.info(
-                    "ToolMessage received: type=%s, id=%s, tool_call_id=%s, name=%s, "
-                    "content_type=%s, content_preview=%s, additional_kwargs_keys=%s",
-                    type(msg).__name__,
-                    getattr(msg, "id", None),
-                    getattr(msg, "tool_call_id", None),
-                    getattr(msg, "name", None),
-                    type(msg.content).__name__ if msg.content else None,
-                    str(msg.content)[:200] if msg.content else None,
-                    list(getattr(msg, "additional_kwargs", {}).keys()),
-                )
-                # Also log all available attributes
-                all_attrs = {k: v for k, v in vars(msg).items() if not k.startswith('_')}
-                logger.info("ToolMessage all attributes: %s", all_attrs)
-                
                 # Find matching tool call
                 tool_call_id = getattr(msg, "tool_call_id", None)
                 tool_name_from_msg = getattr(msg, "name", None)
-                
+
                 if not tool_call_id:
                     # Fallback: try to match by tool name
                     if tool_name_from_msg:
-                        for tc_id, (ai_node_id, name, args, order) in list(pending_tool_calls.items()):
+                        for tc_id, (ai_node_id, name, args, order) in list(
+                            pending_tool_calls.items()
+                        ):
                             if name == tool_name_from_msg:
                                 tool_call_id = tc_id
-                                logger.info(
-                                    "Matched ToolMessage by name=%s to tool_call_id=%s",
-                                    tool_name_from_msg, tool_call_id
-                                )
                                 break
-                    
+
                     if not tool_call_id:
-                        logger.warning(
+                        logger.debug(
                             "ToolMessage without tool_call_id and no name match, skipping. name=%s",
-                            tool_name_from_msg
+                            tool_name_from_msg,
                         )
                         continue
 
                 pending = pending_tool_calls.pop(tool_call_id, None)
                 if not pending:
-                    logger.warning(
+                    logger.debug(
                         "ToolMessage with unmatched tool_call_id=%s, skipping",
                         tool_call_id,
                     )
@@ -297,43 +238,32 @@ class DagBuilder:
                 )
                 nodes.append(node)
                 last_tool_nodes.append(node.node_id)
-                
-                logger.info(
-                    "Created ToolNode: id=%s, name=%s, step=%d, output_preview=%s",
-                    node.node_id, tool_name, step_number,
-                    str(msg.content)[:100] if msg.content else None
-                )
 
                 # Edge: AI → Tool
                 edges.append((source_ai_node_id, node.node_id))
-                logger.info("Edge: %s → %s (AI→tool)", source_ai_node_id, node.node_id)
 
             else:
                 logger.warning("Unknown message type: %s", type(msg).__name__)
 
-        # Inject accumulated reasoning into the last AI node if:
-        # 1. We have accumulated reasoning content
-        # 2. The last AI node exists
-        # 3. The accumulated reasoning is longer than existing thinking (or existing is empty)
-        #    This handles the case where checkpointer only preserves a partial thinking token
-        if accumulated_reasoning and last_ai_node_index is not None and 0 <= last_ai_node_index < len(nodes):
-            last_ai_node = nodes[last_ai_node_index]
-            if last_ai_node.message_type == "ai":
-                existing_thinking = last_ai_node.step.thinking or ""
-                # Replace if accumulated reasoning is longer (more complete)
-                if len(accumulated_reasoning) > len(existing_thinking):
-                    logger.info(
-                        "Injecting accumulated reasoning into last AI node: node_id=%s, "
-                        "accumulated_len=%d > existing_len=%d, replacing",
-                        last_ai_node.node_id,
-                        len(accumulated_reasoning),
-                        len(existing_thinking),
-                    )
-                    # Update the step's thinking field
-                    last_ai_node.step.thinking = accumulated_reasoning
-                    # Also update ai_metadata if it exists
-                    if last_ai_node.step.ai_metadata:
-                        last_ai_node.step.ai_metadata.thinking = accumulated_reasoning
+        # ── Inject reasoning segments into each AI node ──────────────────────────
+        # For each AI node, check if there's a matching reasoning segment from streaming.
+        # If the segment is longer than existing thinking (from checkpointer), inject it.
+        if reasoning_segments:
+            for node_idx, msg_id in ai_node_indices:
+                if 0 <= node_idx < len(nodes):
+                    ai_node = nodes[node_idx]
+                    if ai_node.message_type == "ai":
+                        # Get reasoning segment for this message
+                        segment = reasoning_segments.get(msg_id, "")
+                        if segment:
+                            existing_thinking = ai_node.step.thinking or ""
+                            # Replace if segment is longer (more complete)
+                            if len(segment) > len(existing_thinking):
+                                # Update the step's thinking field
+                                ai_node.step.thinking = segment
+                                # Also update ai_metadata if it exists
+                                if ai_node.step.ai_metadata:
+                                    ai_node.step.ai_metadata.thinking = segment
 
         return nodes, edges
 
@@ -366,7 +296,7 @@ class DagBuilder:
             node_id=f"human_{step_number}",
             step_number=step_number,
             node_name="user",
-            title=f"User Input",
+            title="User Input",
             message_type="human",
             step=step,
         )
@@ -504,10 +434,10 @@ def _extract_thinking(message) -> str:
         for block in message.content:
             if isinstance(block, dict):
                 block_type = block.get("type")
-                
+
                 if block_type == "thinking":
                     thinking_blocks.append(block.get("thinking", ""))
-                    
+
                 elif block_type == "non_standard":
                     # Qwen style: {"type": "non_standard", "value": {"type": "thinking", "thinking": "..."}}
                     # The value might contain thinking content
@@ -517,15 +447,15 @@ def _extract_thinking(message) -> str:
                             thinking_blocks.append(value.get("thinking", ""))
                         # Also check for reasoning_content in value
                         elif value.get("reasoning_content"):
-                            thinking_blocks.append(str(value.get("reasoning_content", "")))
-                    
+                            thinking_blocks.append(
+                                str(value.get("reasoning_content", ""))
+                            )
+
                     # Also check if non_standard block has thinking directly
                     if block.get("thinking"):
                         thinking_blocks.append(block.get("thinking", ""))
-                        
+
         thinking = "".join(thinking_blocks)
-        if thinking:
-            logger.info("Extracted thinking from content blocks: len=%d", len(thinking))
 
     # 2. reasoning_content attribute (DeepSeek-R1 style)
     if not thinking:

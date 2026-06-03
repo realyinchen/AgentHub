@@ -37,7 +37,6 @@ from app.utils.sse import (
     StreamV3Projection,
     sse,
     sse_error,
-    has_meaningful_content,
 )
 from app.utils.request import build_agent_kwargs
 from app.utils.message import (
@@ -130,7 +129,7 @@ class ChatStreamingService:
             before_checkpoint_id = configurable.get("checkpoint_id") if configurable else None
             before_message_count = len(before_state.values.get("messages", []))
             # Log full state for debugging
-            logger.info(
+            logger.debug(
                 "Before execution: checkpoint_id=%s, message_count=%d, state_values_keys=%s",
                 before_checkpoint_id,
                 before_message_count,
@@ -144,7 +143,8 @@ class ChatStreamingService:
             "step_counter": 0,
             "first_chunk_time": None,
             "accumulated_tokens": empty_totals(),
-            "accumulated_reasoning": "",  # Accumulate reasoning content
+            "accumulated_reasoning": "",  # Current accumulated reasoning (resets per LLM call)
+            "reasoning_segments": {},  # reasoning content keyed by message_id
             "final_message": None,
             "final_state_messages": None,
         }
@@ -194,7 +194,7 @@ class ChatStreamingService:
                 # Launch projection consumers concurrently
                 consumer_tasks = [
                     asyncio.create_task(
-                        self._consume_messages(stream, out_queue, state)
+                        self._consume_messages(stream, out_queue, state, started_at)
                     ),
                     asyncio.create_task(
                         self._consume_tool_calls(stream, out_queue, state)
@@ -214,6 +214,7 @@ class ChatStreamingService:
                 completion_task = asyncio.create_task(_wait_and_signal())
 
                 # Drain queue with zero polling latency
+                # Force flush after each yield to ensure real-time streaming
                 while True:
                     item = await out_queue.get()
                     if item is _SENTINEL:
@@ -224,6 +225,15 @@ class ChatStreamingService:
                         )
                         break
                     yield item
+                    # Force flush: yield control to event loop AND give the ASGI
+                    # transport enough time to actually write to the socket.
+                    # asyncio.sleep(0) only yields to the event loop but the
+                    # transport may coalesce multiple write() calls in the same
+                    # tick into a single TCP packet (writev batching).
+                    # A 1ms sleep ensures the transport flushes before the next
+                    # item is yielded, giving true per-event streaming at the
+                    # cost of ~1ms/event overhead — negligible for UX.
+                    await asyncio.sleep(0.001)
 
         except asyncio.TimeoutError:
             logger.error(
@@ -296,10 +306,6 @@ class ChatStreamingService:
                         # The thinking content is passed via custom_data below for frontend display
                         if accumulated_reasoning and hasattr(last_ai_msg, "additional_kwargs"):
                             last_ai_msg.additional_kwargs["thinking"] = accumulated_reasoning
-                            logger.info(
-                                "Stored thinking in AIMessage additional_kwargs: len=%d",
-                                len(accumulated_reasoning),
-                            )
                         
                         chat_msg = langchain_to_chat_message(last_ai_msg)
                         # Include request_id for DAG viewing
@@ -316,8 +322,9 @@ class ChatStreamingService:
 
             # ── Persist tokens and DAG (non-blocking) ──────────────
             tokens = state["accumulated_tokens"]
-            # Pass accumulated reasoning to persist_agent_trace for DAG reconstruction
-            final_accumulated_reasoning = state.get("accumulated_reasoning", "")
+            # Pass reasoning_segments to persist_agent_trace for DAG reconstruction
+            # This maps each AI message to its corresponding reasoning content
+            reasoning_segments = state.get("reasoning_segments", {})
 
             async def _persist_tokens_and_dag() -> None:
                 """Persist token usage and execution DAG after stream completes."""
@@ -334,7 +341,7 @@ class ChatStreamingService:
                         tokens=tokens,
                         before_checkpoint_id=before_checkpoint_id,
                         before_message_count=before_message_count,
-                        accumulated_reasoning=final_accumulated_reasoning,  # Pass thinking content
+                        reasoning_segments=reasoning_segments,  # Pass reasoning segments keyed by msg_id
                     )
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
@@ -360,6 +367,7 @@ class ChatStreamingService:
         stream: StreamV3Projection,
         out_queue: asyncio.Queue,
         state: StreamState,
+        started_at: float,
     ) -> None:
         """Consume ``stream.messages`` projection — token deltas + finalized messages.
 
@@ -378,39 +386,43 @@ class ChatStreamingService:
             # Log incoming message structure for debugging
             node_name = getattr(message, "node", "") or "model"
 
-            # Finalized message arrives last
-            # In v3 streaming, message.output should be the complete message
-            final = message.output
-            if final is None:
-                logger.debug("[%s] message.output is None, skipping", node_name)
-                continue
+            # ── CRITICAL: Iterate deltas BEFORE accessing message.output ──
+            # Per LangChain v3 docs, the correct pattern is:
+            #   for delta in message.text:    # stream deltas in real-time
+            #       print(delta)
+            #   final = message.output         # access output AFTER deltas
+            #
+            # Previously we accessed message.output FIRST, which blocked until
+            # the message was fully generated — defeating the purpose of streaming.
+            # This caused all deltas to be buffered and delivered in one batch.
 
-            # CRITICAL: In v3 streaming, message.output may be an AsyncProjection
-            # that needs to be awaited BEFORE checking message type.
-            # AsyncProjection doesn't have 'type' attribute, so msg_type check
-            # would fail and skip all streaming logic!
-            if hasattr(final, "__await__"):
-                try:
-                    final = await final
-                except Exception as e:
-                    logger.warning(
-                        "[%s] Error awaiting message.output: %s", node_name, e
-                    )
-                    continue
-
-            # Get message type - only process AIMessage for text streaming
-            # ToolMessage contains tool results which should NOT be streamed as AI response
-            msg_type = getattr(final, "type", None)
-            if msg_type != "ai":
-                # Skip ToolMessage, HumanMessage, etc. - only stream AIMessage content
-                logger.debug(
-                    "[%s] Skipping non-AI message type: %s", node_name, msg_type
+            # 0️⃣ Emit ai_thinking step BEFORE deltas (so frontend shows "thinking..." immediately)
+            state["step_counter"] += 1
+            await out_queue.put(
+                sse(
+                    {
+                        "type": "step",
+                        "step": state["step_counter"],
+                        "action": "ai_thinking",
+                        "status": "thinking...",
+                    }
                 )
-                continue
+            )
 
-            # Stream text deltas (only for AIMessage from model node)
-            # Skip token streaming for tool nodes - their content is tool execution results,
-            # not AI-generated response tokens. Tool results are shown via tool_result events.
+            # 1️⃣ Stream reasoning deltas FIRST (real-time, before output is ready)
+            # LangChain v3 normalizes provider-specific thinking/reasoning to message.reasoning
+            # DashScope Qwen with enable_thinking=True emits reasoning_content
+            reasoning_delta_count = 0
+            async for delta in message.reasoning:
+                if delta:
+                    reasoning_delta_count += 1
+                    # Accumulate reasoning content for later inclusion in final message
+                    state["accumulated_reasoning"] += delta
+                    await out_queue.put(sse({"type": "reasoning", "content": delta}))
+
+            # 2️⃣ Stream text deltas AFTER reasoning (real-time)
+            # Only emit token events for model node — tool node content is
+            # tool execution results, not AI-generated response tokens.
             text_delta_count = 0
             if node_name == "model":
                 async for delta in message.text:
@@ -424,20 +436,41 @@ class ChatStreamingService:
                 async for _ in message.text:
                     pass
 
-            if text_delta_count > 0:
-                logger.info("[%s] Streamed %d text deltas", node_name, text_delta_count)
+            # 3️⃣ AFTER delta iteration, access message.output for finalized message
+            # At this point the message is complete and output is guaranteed available.
+            final = message.output
+            if final is None:
+                logger.debug("[%s] message.output is None after delta iteration", node_name)
+                continue
 
-            # Stream reasoning deltas (thinking models, only for AIMessage)
-            # LangChain v3 normalizes provider-specific thinking/reasoning to message.reasoning
-            # DashScope Qwen with enable_thinking=True emits reasoning_content
-            reasoning_delta_count = 0
-            async for delta in message.reasoning:
-                if delta:
-                    reasoning_delta_count += 1
-                    # First reasoning delta - stop loading animation
-                    # Accumulate reasoning content for later inclusion in final message
-                    state["accumulated_reasoning"] += delta
-                    await out_queue.put(sse({"type": "reasoning", "content": delta}))
+            # Handle AsyncProjection (some providers wrap output in awaitable)
+            if hasattr(final, "__await__"):
+                try:
+                    final = await final
+                except Exception as e:
+                    logger.warning(
+                        "[%s] Error awaiting message.output: %s", node_name, e
+                    )
+                    continue
+
+            # Check message type - only process AIMessage for post-processing
+            msg_type = getattr(final, "type", None)
+            if msg_type != "ai":
+                logger.debug(
+                    "[%s] Skipping non-AI message type: %s", node_name, msg_type
+                )
+                continue
+
+            # ── Track reasoning per message for DAG reconstruction ──────────
+            # When an AIMessage is finalized, save the accumulated reasoning
+            # to reasoning_segments keyed by message_id, then reset for next LLM call.
+            # This ensures each AI node in the DAG gets its corresponding reasoning.
+            msg_id = getattr(final, "id", None) or str(id(final))
+            accumulated = state["accumulated_reasoning"]
+            if accumulated:
+                state["reasoning_segments"][msg_id] = accumulated
+                # Reset accumulated reasoning for next LLM call
+                state["accumulated_reasoning"] = ""
 
             node_name = getattr(message, "node", "") or "model"
 
@@ -508,20 +541,6 @@ class ChatStreamingService:
                                     "total_tokens": usage.get("total_tokens", 0),
                                 },
                             },
-                        }
-                    )
-                )
-
-            # Emit ai_thinking step if there's meaningful content
-            if has_meaningful_content(final):
-                state["step_counter"] += 1
-                await out_queue.put(
-                    sse(
-                        {
-                            "type": "step",
-                            "step": state["step_counter"],
-                            "action": "ai_thinking",
-                            "status": "thinking...",
                         }
                     )
                 )

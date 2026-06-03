@@ -5,7 +5,11 @@
  * Updated to use backend API: GET /api/v1/traces/{thread_id}/steps
  * with user_id parameter.
  * 
- * Added isStreaming parameter to refetch when streaming ends.
+ * IMPORTANT: Only fetches when NOT streaming to avoid multiple API calls.
+ * The DAG data is only available after streaming ends and is persisted.
+ * 
+ * DEBOUNCE: Added debounce logic to prevent duplicate calls when
+ * isStreaming changes to false and sessionId changes shortly after.
  */
 
 import { useState, useEffect, useRef } from 'react';
@@ -29,10 +33,15 @@ export function useTurnSteps(
 
   // Track previous streaming state to detect when streaming ends
   const wasStreamingRef = useRef(isStreaming);
+  // Track last fetched key to prevent duplicate requests
+  const lastFetchedKeyRef = useRef<string>('');
+  // Debounce timer
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!threadId) {
       setSteps([]);
+      lastFetchedKeyRef.current = '';
       return;
     }
 
@@ -42,47 +51,77 @@ export function useTurnSteps(
       return;
     }
 
-    // Track previous streaming state to detect when streaming ends
-    wasStreamingRef.current = isStreaming;
+    // Don't fetch during streaming - only fetch after streaming ends
+    // This prevents multiple API calls before data is fully persisted
+    if (isStreaming) {
+      wasStreamingRef.current = true;
+      return;
+    }
 
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
+    // Generate a unique key for this request
+    const requestKey = `${threadId}:${sessionId || 'all'}`;
+    
+    // Skip if already fetched this exact data (prevent duplicate calls)
+    if (lastFetchedKeyRef.current === requestKey) {
+      return;
+    }
 
-    // Use the correct backend API endpoint with user_id
-    fetch(`/api/v1/traces/${threadId}/steps?user_id=${encodeURIComponent(userId)}`)
-      .then(res => {
-        if (!res.ok) throw new Error(`Failed to fetch turn steps: ${res.status}`);
-        return res.json();
-      })
-      .then((data: MessageStepRaw[]) => {
-        if (!cancelled) {
-          // Empty array is valid - means no trace data yet (new conversation)
-          // Filter by sessionId if provided
-          const filteredSteps = sessionId 
-            ? data.filter(step => step.session_id === sessionId)
-            : data;
-          setSteps(filteredSteps);
-          // Clear any previous error when data is successfully fetched
-          setError(null);
-        }
-      })
-      .catch(err => {
-        if (!cancelled) {
-          // Don't show error for new conversations without trace data
-          // The backend returns empty array now, so this shouldn't happen
-          // But keep error handling for genuine network/auth errors
-          setError(err.message);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
+    // Clear any pending debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Debounce: wait 100ms before fetching to avoid duplicate calls
+    // when both isStreaming and sessionId change in quick succession
+    debounceTimerRef.current = setTimeout(() => {
+      // Double-check the key hasn't been fetched while we waited
+      if (lastFetchedKeyRef.current === requestKey) {
+        return;
+      }
+
+      let cancelled = false;
+      setLoading(true);
+      setError(null);
+
+      // Use the correct backend API endpoint with user_id
+      fetch(`/api/v1/traces/${threadId}/steps?user_id=${encodeURIComponent(userId)}`)
+        .then(res => {
+          if (!res.ok) throw new Error(`Failed to fetch turn steps: ${res.status}`);
+          return res.json();
+        })
+        .then((data: MessageStepRaw[]) => {
+          if (!cancelled) {
+            // Empty array is valid - means no trace data yet (new conversation)
+            // Filter by sessionId if provided
+            const filteredSteps = sessionId 
+              ? data.filter(step => step.session_id === sessionId)
+              : data;
+            setSteps(filteredSteps);
+            // Mark this request as fetched
+            lastFetchedKeyRef.current = requestKey;
+            // Clear any previous error when data is successfully fetched
+            setError(null);
+          }
+        })
+        .catch(err => {
+          if (!cancelled) {
+            // Don't show error for new conversations without trace data
+            // The backend returns empty array now, so this shouldn't happen
+            // But keep error handling for genuine network/auth errors
+            setError(err.message);
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoading(false);
+          }
+        });
+    }, 100);
 
     return () => {
-      cancelled = true;
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
     };
   }, [threadId, sessionId, isStreaming]);
 

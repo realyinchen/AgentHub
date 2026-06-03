@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog"
 
 import CSSTurnDAG from "@/features/kanban/components/dag/CSSTurnDAG"
+import { SciFiLoader } from "@/components/ai/neural-network-loader"
 import { useTurnSteps } from "@/features/kanban/hooks/useTurnSteps"
 import { useI18n } from "@/i18n"
 import type { MessageStep } from "@/types"
@@ -112,13 +113,20 @@ export function TurnDAGSidebar({
   )
 
   // Choose data source based on whether requestId is provided
-  const steps = requestId ? dagByRequestId.steps : sessionSteps.steps
-  const loading = requestId ? dagByRequestId.loading : sessionSteps.loading
+  const rawSteps = requestId ? dagByRequestId.steps : sessionSteps.steps
+  const rawLoading = requestId ? dagByRequestId.loading : sessionSteps.loading
   const error = requestId ? dagByRequestId.error : sessionSteps.error
+
+  // IMPORTANT: During streaming, always show loading state
+  // - Don't show stale data from previous turn
+  // - Only fetch and display DAG after streaming ends
+  // 流式期间不展示旧数据，始终显示loading
+  const steps = isStreaming ? [] : rawSteps
+  const loading = isStreaming || rawLoading
 
   // Determine if we have valid steps to display
   const hasSteps = steps.length > 0
-  const isLoading = loading || (isStreaming && !hasSteps)
+  const isLoading = loading
 
   // Dialog steps: use same steps, no loading state for dialog
   const dialogSteps = steps
@@ -130,7 +138,7 @@ export function TurnDAGSidebar({
     s.message_type === 'ai' && s.thinking && s.thinking.trim().length > 0
   )
 
-  // Loading state - simple loading animation
+  // Loading state - use SciFiLoader animation
   if (isLoading) {
     return (
       <div
@@ -140,7 +148,7 @@ export function TurnDAGSidebar({
         <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
           <div className="flex items-center gap-2">
             <div className="size-6 rounded-lg bg-accent/15 flex items-center justify-center">
-              <div className="size-3 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <Activity className="size-3.5 text-accent animate-pulse" />
             </div>
             <span className="text-sm font-semibold text-foreground">
               {t("process.agentWorking") || "Agent working..."}
@@ -148,9 +156,9 @@ export function TurnDAGSidebar({
           </div>
         </div>
 
-        {/* Simple loading */}
-        <div className="p-8 flex justify-center">
-          <div className="size-6 rounded-full border-2 border-primary/30 border-t-primary animate-spin" />
+        {/* Neural network loader */}
+        <div className="p-6 flex justify-center">
+          <SciFiLoader className="w-32 h-32" showText={false} />
         </div>
       </div>
     )
