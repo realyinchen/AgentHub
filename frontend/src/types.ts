@@ -36,18 +36,22 @@ export type ChatHistory = {
  * Each message from the conversation is represented as a step.
  * 
  * Types:
+ * - human: User input message
  * - ai: AI response with content and optional thinking
  * - tool: Tool execution with name, args, and output (merged call + result)
  */
 export type MessageStep = {
   session_id: string  // UUID that groups steps from the same conversation turn
   step_number: number
-  message_type: "ai" | "tool"
+  message_type: "human" | "ai" | "tool"
   content: string | null
   tool_name: string | null
   tool_args: Record<string, unknown> | null
   tool_output: string | null
+  tool_call_id: string | null  // Tool call ID for matching
   thinking: string | null
+  tool_calls: ToolCall[] | null  // Tool calls from AI message
+  model_name: string | null  // Model name for AI messages
 }
 
 export type UserInfo = {

@@ -2,6 +2,48 @@
 
 ## Current Focus
 
+**重构 Agent 执行 DAG 构建** (June 3, 2026)
+
+### 问题
+Sidebar 显示的 DAG 不正确：用户 → 最终 → unknown 等待中 → 最终 → unknown... 
+而不是真实的执行流程：用户 → AI(判断) → 工具 → AI(回复)
+
+### 根本原因
+之前的 DAG 构建逻辑基于 checkpoint metadata.writes，但 LangGraph checkpoint 的 writes 字段是空的（`{}`）。
+
+### 解决方案
+改用 **消息推断法** 构建 DAG：
+1. 从最终状态获取所有消息
+2. 根据消息类型推断执行流程：
+   - HumanMessage → 用户节点
+   - AIMessage + tool_calls → AI 决策节点（注册待处理工具调用）
+   - ToolMessage → 通过 tool_call_id 匹配到 AI 节点，创建工具节点
+
+### 修改的文件
+
+1. **`backend/app/utils/dag.py`**
+   - 重构 `_build_dag_from_messages()` 使用消息推断
+   - 正确处理 tool_call_id 匹配和并行工具调用
+   - 添加扁平化字段填充
+
+2. **`backend/app/schemas/trace.py`**
+   - StepOutput 添加扁平化字段：`thinking`, `tool_calls`, `model_name`, `tool_name`, `tool_args`, `tool_output`, `tool_call_id`
+   - 方便前端直接访问，无需深入 metadata
+
+3. **`frontend/src/types.ts`**
+   - MessageStep 类型添加 `human` 消息类型
+   - 添加 `tool_call_id`, `tool_calls`, `model_name` 字段
+
+### 正确的 DAG 流程
+```
+用户 → AI(工具调用) → 工具1 → AI(最终回复)
+                   ↘ 工具2 ↗
+```
+
+---
+
+## Previous Focus
+
 **简化 infra/llm 模块** (June 2, 2026)
 
 ### 变更内容

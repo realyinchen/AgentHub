@@ -273,6 +273,7 @@ class ChatStreamingService:
             # ── Emit final assembled message ───────────────────────
             final_messages = state.get("final_state_messages")
             accumulated_reasoning = state.get("accumulated_reasoning", "")
+            
             if final_messages:
                 # Find the last AIMessage (skip ToolMessage, HumanMessage, etc.)
                 # ToolMessage contains tool results which should not be shown as AI response
@@ -290,6 +291,16 @@ class ChatStreamingService:
                     and last_ai_msg.content
                 ):
                     try:
+                        # Store thinking in additional_kwargs for immediate frontend display
+                        # Note: This modification is in-memory only and won't persist to checkpointer
+                        # The thinking content is passed via custom_data below for frontend display
+                        if accumulated_reasoning and hasattr(last_ai_msg, "additional_kwargs"):
+                            last_ai_msg.additional_kwargs["thinking"] = accumulated_reasoning
+                            logger.info(
+                                "Stored thinking in AIMessage additional_kwargs: len=%d",
+                                len(accumulated_reasoning),
+                            )
+                        
                         chat_msg = langchain_to_chat_message(last_ai_msg)
                         # Include request_id for DAG viewing
                         chat_msg.request_id = request_id
@@ -305,6 +316,8 @@ class ChatStreamingService:
 
             # ── Persist tokens and DAG (non-blocking) ──────────────
             tokens = state["accumulated_tokens"]
+            # Pass accumulated reasoning to persist_agent_trace for DAG reconstruction
+            final_accumulated_reasoning = state.get("accumulated_reasoning", "")
 
             async def _persist_tokens_and_dag() -> None:
                 """Persist token usage and execution DAG after stream completes."""
@@ -321,6 +334,7 @@ class ChatStreamingService:
                         tokens=tokens,
                         before_checkpoint_id=before_checkpoint_id,
                         before_message_count=before_message_count,
+                        accumulated_reasoning=final_accumulated_reasoning,  # Pass thinking content
                     )
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())

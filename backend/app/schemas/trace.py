@@ -82,6 +82,16 @@ class StepOutput(BaseModel):
         None, description="Tool-specific metadata (name, args, output, etc.)"
     )
 
+    # Flattened fields for frontend compatibility
+    # These are convenience fields that duplicate metadata for easier access
+    thinking: str | None = Field(None, description="AI thinking content (flattened from ai_metadata)")
+    tool_calls: list[dict] | None = Field(None, description="Tool calls (flattened from ai_metadata)")
+    model_name: str | None = Field(None, description="Model name (flattened from ai_metadata)")
+    tool_name: str | None = Field(None, description="Tool name (flattened from tool_metadata)")
+    tool_args: dict | None = Field(None, description="Tool args (flattened from tool_metadata)")
+    tool_output: str | None = Field(None, description="Tool output content")
+    tool_call_id: str | None = Field(None, description="Tool call ID (flattened from tool_metadata)")
+
 
 # ── 3. Execution DAG ───────────────────────────────────────────────────
 

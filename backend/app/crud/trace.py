@@ -182,6 +182,7 @@ async def persist_agent_trace(
     tokens: dict[str, int],
     before_checkpoint_id: str | None = None,
     before_message_count: int = 0,
+    accumulated_reasoning: str = "",
 ) -> None:
     """Persist token usage and execution DAG after an agent response.
 
@@ -206,6 +207,9 @@ async def persist_agent_trace(
             Used to filter checkpoint history for per-turn DAG construction.
         before_message_count: Number of messages before this turn started.
             Used as fallback when checkpoint history is unavailable.
+        accumulated_reasoning: Accumulated reasoning/thinking content from
+            streaming. Used to inject thinking into AI nodes when checkpointer
+            doesn't preserve it.
     """
 
     thread_id_str = str(thread_id)
@@ -230,6 +234,7 @@ async def persist_agent_trace(
             thread_id_str,
             before_checkpoint_id=before_checkpoint_id,
             before_message_count=before_message_count,
+            accumulated_reasoning=accumulated_reasoning,
         )
         await upsert_trace(
             db=db,

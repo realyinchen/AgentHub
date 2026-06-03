@@ -128,6 +128,15 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
   const layers: LayerInfo[] = [];
   let i = 0;
 
+  // Debug: log all incoming steps
+  console.log('[DAG] Building layers from steps:', steps.map(s => ({
+    step_number: s.step_number,
+    message_type: s.message_type,
+    tool_name: s.tool_name,
+    tool_call_id: s.tool_call_id,
+    tool_calls: s.tool_calls,
+  })));
+
   while (i < steps.length) {
     const step = steps[i];
 
@@ -150,11 +159,20 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
         i++;
       }
 
-      // For each tool call, find its matching result (by tool_call_id)
+      // For each tool call, find its matching result (by tool_call_id or name)
       for (const tc of step.tool_calls) {
-        const matchingResult = resultSteps.find(
+        // Primary: match by tool_call_id (non-empty)
+        let matchingResult = resultSteps.find(
           r => r.tool_call_id && tc.id && r.tool_call_id === tc.id
         );
+        
+        // Fallback: match by tool name if tool_call_id is empty/missing
+        if (!matchingResult && tc.name) {
+          matchingResult = resultSteps.find(
+            r => r.tool_name && r.tool_name === tc.name
+          );
+        }
+        
         toolInfos.push({
           toolName: tc.name,
           toolArgs: tc.args && Object.keys(tc.args).length > 0 ? tc.args : null,
@@ -177,9 +195,16 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
         }
       }
 
+      // Generate step numbers for tools
+      // If we have result steps, use their step numbers; otherwise generate from AI step
+      const aiStepNum = step.step_number;
+      const toolStepNumbers = resultSteps.length > 0
+        ? resultSteps.map(r => r.step_number)
+        : toolInfos.map((_, idx) => aiStepNum + idx + 1);
+
       layers.push({
         type: 'tools',
-        stepNumbers: resultSteps.map(r => r.step_number),
+        stepNumbers: toolStepNumbers,
         toolInfos,
       });
     }
