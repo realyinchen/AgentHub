@@ -65,6 +65,12 @@ export default defineConfig(({ mode }) => {
             })
           },
         },
+        // WebSocket proxy for WeChat auth
+        "/api/v1/ws": {
+          target: proxyTarget,
+          changeOrigin: true,
+          ws: true,  // Enable WebSocket proxy
+        },
         // Other API endpoints — normal proxy
         "/api": {
           target: proxyTarget,

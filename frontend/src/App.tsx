@@ -38,6 +38,7 @@ import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import { useTheme } from "@/hooks/use-theme"
 import { useModels } from "@/hooks/use-models"
 import { useUser } from "@/hooks/use-user"
+import { useAuth } from "@/contexts/AuthContext"
 import {
   ChatMainPanel,
   ChatSidebar,
@@ -55,6 +56,7 @@ import {
   isDefaultConversationTitle,
   normalizeChatMessage,
   readThreadIdFromUrl,
+  writeToUrl,
   sanitizeTitle,
   sortConversationsByUpdatedAt,
   toLocalMessage,
@@ -91,13 +93,23 @@ function App() {
     refreshModels,
   } = useModels(threadId)
 
-  // User selection state
+  // User selection state (for Jack/Rose mock users)
   const { userId, currentUser, setUserId } = useUser()
+
+  // Auth context (for WeChat login)
+  const { user: authUser, isAuthenticated, isLoading: isAuthLoading } = useAuth()
+
+  // Determine if user is logged in (either via mock user or WeChat)
+  // Priority: URL userId > mock userId > AuthContext
+  const effectiveUserId = userId || (authUser?.id) || null
+  const isLoggedIn = !!effectiveUserId || isAuthenticated
 
   // Handle user switch - go back to home page
   const handleSwitchUser = useCallback(() => {
     setUserId(null)
     setCurrentUserId(null)
+    // Also clear auth cookie for WeChat logout
+    void fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })
   }, [setUserId])
 
   // Track if we need to re-initialize after user login
@@ -182,15 +194,11 @@ function App() {
     }
   }, [isInitializing, isLoadingConversation, hasAvailableModels])
 
-  const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
-    const url = new URL(window.location.href)
-    if (nextThreadId) {
-      url.searchParams.set("thread_id", nextThreadId)
-    } else {
-      url.searchParams.delete("thread_id")
-    }
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
-  }, [])
+  // Write userId and threadId to URL
+  // Use effectiveUserId to support both mock users and WeChat users
+  const writeUrl = useCallback((nextThreadId: string | null) => {
+    writeToUrl(effectiveUserId, nextThreadId)
+  }, [effectiveUserId])
 
   const refreshConversations = useCallback(async () => {
     const { conversations: latest, total } = await listConversations(10, 0)
@@ -272,7 +280,7 @@ function App() {
       abortControllerRef.current?.abort()
       setIsStreaming(false)
       setThreadId(targetThreadId)
-      writeThreadIdToUrl(targetThreadId)
+      writeUrl(targetThreadId)
       setRenameTarget(null)
       setIsLoadingConversation(true)
       setAppError(null)
@@ -326,7 +334,7 @@ function App() {
         setIsLoadingConversation(false)
       }
     },
-    [conversations, defaultConversationTitle, t, writeThreadIdToUrl],
+    [conversations, defaultConversationTitle, t, writeUrl],
   )
 
   const resetToNewConversation = useCallback(() => {
@@ -335,14 +343,14 @@ function App() {
 
     // Delay thread_id creation until first message is sent
     setThreadId("")
-    writeThreadIdToUrl(null)
+    writeUrl(null)
     setMessages([])
     setConversationTitleState(defaultConversationTitle)
     setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
     setAppError(null)
     setSelectedRequestId(null)
-  }, [writeThreadIdToUrl, defaultConversationTitle])
+  }, [writeUrl, defaultConversationTitle])
 
   const createStreamingPlaceholder = useCallback(() => {
     const placeholderId = crypto.randomUUID()
@@ -628,7 +636,7 @@ function App() {
         await ensureConversationExists(targetThreadId, currentTitle)
 
         // Write thread_id to URL for sharing (especially important for new conversations)
-        writeThreadIdToUrl(targetThreadId)
+        writeUrl(targetThreadId)
 
         setIsStreaming(true)
         streamingPlaceholderIdRef.current = null
@@ -868,7 +876,7 @@ function App() {
       refreshConversations,
       t,
       threadId,
-      writeThreadIdToUrl,
+      writeUrl,
     ],
   )
 
@@ -1252,7 +1260,7 @@ function App() {
 
         if (queryThreadId) {
           setThreadId(queryThreadId)
-          writeThreadIdToUrl(queryThreadId)
+          writeUrl(queryThreadId)
           setIsLoadingConversation(true)
 
           const [historyResult, titleResult] = await Promise.allSettled([
@@ -1298,7 +1306,7 @@ function App() {
           setConversationTitleState(defaultConversationTitle)
           setDraftTitle(defaultConversationTitle)
           setMessages([])
-          writeThreadIdToUrl(null)
+          writeUrl(null)
         }
       } catch (error) {
         if (!cancelled) {
@@ -1324,7 +1332,7 @@ function App() {
       cancelled = true
       abortControllerRef.current?.abort()
     }
-  }, [writeThreadIdToUrl, needsReinit])
+  }, [writeUrl, needsReinit])
 
   // Handle user login from home page
   const handleUserLogin = useCallback((user: UserInfo) => {
@@ -1334,8 +1342,17 @@ function App() {
     setNeedsReinit(true)
   }, [setUserId])
 
-  // If no user is selected, show the home page
-  if (!userId) {
+  // If still loading auth status, show nothing (or loading indicator)
+  if (isAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
+
+  // If no user is logged in (neither mock nor WeChat), show the home page
+  if (!isLoggedIn) {
     return (
       <>
         <HomePage onSelectUser={handleUserLogin} />

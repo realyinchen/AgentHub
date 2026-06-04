@@ -114,11 +114,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         store=store.get_store() if store else None,
     )
 
+    # WeChat listener is now per-login, started in WebSocket endpoint
+
     try:
         yield
     finally:
         # ── Shutdown ──────────────────────────────────────────────────
-        # Always run cleanup, even if the app crashes during startup.
+        # WeChat listeners are stopped individually when WebSocket disconnects
         await dispose_database()
         logger.info("All database components disposed successfully")
 

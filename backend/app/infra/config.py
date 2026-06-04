@@ -118,6 +118,17 @@ class Settings(BaseSettings):
     LLM_REQUEST_TIMEOUT: float = Field(default=60.0, ge=0)
 
     # =========================================================================
+    # JWT Authentication Configuration
+    # =========================================================================
+    # JWT Token for user authentication (HTTP-only Cookie)
+    JWT_SECRET_KEY: Optional[SecretStr] = None
+    JWT_ALGORITHM: str = "HS256"
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24 * 7, ge=1)  # 7 days default
+    JWT_COOKIE_NAME: str = "agenthub_token"
+    JWT_COOKIE_SECURE: bool = True  # HTTPS only (set False for dev without HTTPS)
+    JWT_COOKIE_SAMESITE: Literal["strict", "lax", "none"] = "lax"
+
+    # =========================================================================
     # API Keys & Secrets
     # =========================================================================
     # Amap (Gaode Maps) Configuration
@@ -193,6 +204,7 @@ class Settings(BaseSettings):
         "TAVILY_API_KEY",
         "API_KEY_ENCRYPTION_KEY",
         "SYSTEM_DEFAULT_LLM_API_KEY",
+        "JWT_SECRET_KEY",
         mode="before",
     )
     @classmethod
@@ -318,6 +330,16 @@ class Settings(BaseSettings):
             )
             self.LANGCHAIN_TRACING_V2 = False
 
+        return self
+
+    @model_validator(mode="after")
+    def validate_jwt_config(self) -> "Settings":
+        """Validate JWT_SECRET_KEY is set (required for user authentication)."""
+        if self.JWT_SECRET_KEY is None:
+            raise ValueError(
+                "JWT_SECRET_KEY must be set in .env for user authentication. "
+                'Generate a secure key with: python -c "import secrets; print(secrets.token_urlsafe(32))"'
+            )
         return self
 
     # =========================================================================

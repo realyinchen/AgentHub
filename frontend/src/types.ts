@@ -58,7 +58,7 @@ export type UserInfo = {
   id: string
   name: string
   gender: "male" | "female"
-  avatar: string
+  avatar?: string  // Optional avatar (emoji or URL)
 }
 
 export type ConversationInDB = {

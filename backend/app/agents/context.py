@@ -7,6 +7,7 @@ is the only compiled agent with checkpointer middleware.
 """
 
 from dataclasses import dataclass
+from uuid import UUID
 
 
 @dataclass
@@ -25,7 +26,7 @@ class AgentRuntimeContext:
         file: File path/URL for file-based Q&A scenarios (from custom_data).
     """
 
-    user_id: str = ""
+    user_id: UUID | None = None
     request_id: str = ""
     model_name: str = ""
     thinking_mode: bool = False

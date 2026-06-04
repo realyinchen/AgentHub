@@ -22,7 +22,7 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar"
-import agentHubLogo from "@/assets/agenthub.png"
+import { AgentHubLogo } from "@/components/agenthub-logo"
 
 import { formatUpdatedAt } from "@/features/chat/utils"
 import { useI18n } from "@/i18n"
@@ -120,7 +120,7 @@ export function ChatSidebar({
               title={t("sidebar.logoAlt")}
               className="flex items-center"
             >
-              <img src={agentHubLogo} alt="" className="h-9 w-auto cursor-pointer" />
+              <AgentHubLogo size="sm" className="h-9" />
             </a>
             {/* Collapse button with << arrow */}
             <Button

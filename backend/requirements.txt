@@ -13,3 +13,12 @@ asyncpg==0.31.0
 psycopg-binary==3.3.2
 uvicorn==0.38.0
 cryptography==46.0.7
+# WebSocket
+websockets==15.0.1
+# JWT authentication
+python-jose[cryptography]==3.4.0
+passlib[bcrypt]==1.7.4
+# HTTP client for WeChat iLink API
+aiohttp==3.12.6
+# QR code generation for WeChat login
+qrcode[pil]==8.0

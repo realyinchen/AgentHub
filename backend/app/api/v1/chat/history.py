@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agents import get_agent
 from app.api.v1.dependencies import get_db
 from app.crud import trace as trace_crud
+from app.crud import is_weixin_thread
 from app.schemas.chat import ChatHistory, ChatMessage
 from app.schemas.trace import StepOutput
 from app.utils.message import (
@@ -32,8 +33,15 @@ async def history(
     thread_id: UUID,
     db: AsyncSession = Depends(get_db),
 ) -> ChatHistory:
-    """Get chat history with message sequence for sidebar."""
+    """Get chat history with message sequence for sidebar.
+    
+    WeChat threads are blocked - returns empty history.
+    """
     if not thread_id:
+        return ChatHistory(messages=[], message_sequence=[])
+    
+    # Block access to WeChat threads (Web UI cannot see WeChat conversations)
+    if await is_weixin_thread(db, thread_id):
         return ChatHistory(messages=[], message_sequence=[])
 
     supervisor = get_agent()

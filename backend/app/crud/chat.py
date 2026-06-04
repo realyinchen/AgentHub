@@ -1,10 +1,11 @@
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import select, update, func
+from sqlalchemy import select, update, func, not_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import Conversation
+from app.models.user_channel import UserChannel
 from app.schemas.chat import (
     ConversationCreate,
     ConversationUpdate,
@@ -14,7 +15,7 @@ from app.schemas.chat import (
 async def read_conversation_by_thread_id(
     db: AsyncSession,
     thread_id: UUID,
-    user_id: str,
+    user_id: UUID,
 ) -> Conversation | None:
     stmt = select(Conversation).where(
         Conversation.thread_id == thread_id,
@@ -25,10 +26,59 @@ async def read_conversation_by_thread_id(
     return result.scalar_one_or_none()
 
 
+async def get_or_create_conversation_by_thread_id(
+    db: AsyncSession,
+    thread_id: UUID,
+    user_id: UUID,
+    title: str = "New Conversation",
+) -> Conversation:
+    """Get or create a conversation by thread_id.
+
+    Used by third-party channel listeners (WeChat, Telegram, etc.) to ensure
+    a Conversation record exists for the user_channel.id thread_id, satisfying
+    the trace_executions foreign key constraint.
+
+    Args:
+        db: Database session
+        thread_id: Thread ID (typically user_channel.id for third-party channels)
+        user_id: User ID
+        title: Title for new conversation
+
+    Returns:
+        Existing or newly created Conversation
+    """
+    # Try to get existing conversation (including deleted ones)
+    stmt = select(Conversation).where(
+        Conversation.thread_id == thread_id,
+        Conversation.user_id == user_id,
+    )
+    result = await db.execute(stmt)
+    existing = result.scalar_one_or_none()
+
+    if existing is not None:
+        # If deleted, restore it
+        if existing.is_deleted:
+            existing.is_deleted = False
+            existing.title = title
+            await db.flush()
+        return existing
+
+    # Create new conversation with specified thread_id
+    conversation = Conversation(
+        thread_id=thread_id,
+        user_id=user_id,
+        title=title,
+    )
+    db.add(conversation)
+    await db.flush()
+    await db.refresh(conversation)
+    return conversation
+
+
 async def create_conversation(
     db: AsyncSession,
     conversation_in: ConversationCreate,
-    user_id: str,
+    user_id: UUID,
 ) -> Conversation:
     create_data = conversation_in.model_dump(exclude_unset=True)
     create_data["user_id"] = user_id
@@ -48,7 +98,7 @@ async def update_conversation_by_thread_id(
     db: AsyncSession,
     thread_id: UUID,
     update_data: ConversationUpdate,
-    user_id: str,
+    user_id: UUID,
 ) -> Conversation | None:
     update_values = update_data.model_dump(exclude_unset=True)
     if not update_values:
@@ -78,7 +128,7 @@ async def update_conversation_by_thread_id(
 async def get_daily_conversation_stats(
     db: AsyncSession,
     days: int = 30,
-    user_id: str | None = None,
+    user_id: UUID | None = None,
 ) -> list[dict]:
     """
     Get daily conversation count and token usage statistics for the last N days.
@@ -132,7 +182,7 @@ async def get_daily_conversation_stats(
 async def soft_delete_conversation_by_thread_id(
     db: AsyncSession,
     thread_id: UUID,
-    user_id: str,
+    user_id: UUID,
 ) -> bool:
     stmt = (
         update(Conversation)
@@ -157,7 +207,7 @@ async def list_traces(
     hours: int,
     page: int,
     page_size: int,
-    user_id: str,
+    user_id: UUID,
 ) -> tuple[list[Conversation], int]:
     """List conversations as traces with time filtering and pagination.
 
@@ -196,36 +246,54 @@ async def list_traces(
 
 async def list_conversations(
     db: AsyncSession,
-    user_id: str,
+    user_id: UUID,
     limit: int = 20,
     offset: int = 0,
+    exclude_weixin: bool = True,
 ) -> tuple[list[Conversation], int]:
+    """List conversations for a user.
+    
+    Args:
+        db: Database session
+        user_id: User ID to scope conversations
+        limit: Maximum number of conversations to return
+        offset: Number of conversations to skip
+        exclude_weixin: If True, exclude WeChat thread conversations
+        
+    Returns:
+        Tuple of (conversations, total count)
+    """
+    # Build base conditions
+    conditions = [
+        Conversation.user_id == user_id,
+        Conversation.is_deleted.is_(False),
+    ]
+    
+    # Exclude WeChat threads: thread_id NOT IN (user_channels.id where channel='weixin')
+    if exclude_weixin:
+        weixin_subquery = select(UserChannel.id).where(UserChannel.channel == "weixin")
+        conditions.append(
+            not_(Conversation.thread_id.in_(weixin_subquery))
+        )
+    
+    # Main query
     stmt = (
         select(Conversation)
-        .where(
-            Conversation.user_id == user_id,
-            Conversation.is_deleted.is_(False),
-        )
+        .where(*conditions)
         .order_by(Conversation.updated_at.desc())
         .offset(offset)
         .limit(limit)
     )
-
-    count_stmt = (
-        select(func.count())
-        .select_from(Conversation)
-        .where(
-            Conversation.user_id == user_id,
-            Conversation.is_deleted.is_(False),
-        )
-    )
-
+    
+    # Count query
+    count_stmt = select(func.count()).select_from(Conversation).where(*conditions)
+    
     result = await db.execute(stmt)
     convs = result.scalars().all()
-
+    
     total_result = await db.execute(count_stmt)
     total = total_result.scalar_one()
-
+    
     return list(convs), total
 
 

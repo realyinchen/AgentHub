@@ -1,7 +1,7 @@
 from uuid import UUID, uuid4
 from datetime import datetime
 
-from sqlalchemy import Boolean, String, DateTime, BigInteger, Uuid
+from sqlalchemy import Boolean, String, DateTime, BigInteger, Uuid, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.infra.database import Base
@@ -12,7 +12,9 @@ class Conversation(Base):
     __tablename__ = "conversations"
 
     thread_id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
-    user_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    user_id: Mapped[UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
     title: Mapped[str] = mapped_column(String(64), nullable=False)
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(

@@ -18,7 +18,7 @@ export function UserCard({ user, onClick }: UserCardProps) {
     >
       <div className="flex size-24 items-center justify-center rounded-full bg-muted text-5xl
                       transition-transform duration-300 group-hover:scale-110">
-        {user.avatar || (user.gender === "female" ? "👩" : "👨")}
+        {user.gender === "female" ? "👩" : "👨"}
       </div>
       <span className="text-lg font-semibold text-foreground">{user.name}</span>
     </button>

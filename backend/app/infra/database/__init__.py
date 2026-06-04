@@ -27,6 +27,7 @@ from app.infra.database.vectorstore import (
     build_ttl_filter,
     build_expires_at_metadata,
 )
+from app.infra.database.session import get_async_session
 
 __all__ = [
     # Core
@@ -40,6 +41,8 @@ __all__ = [
     "get_saver",
     "init_database",
     "dispose_database",
+    # Session
+    "get_async_session",
     # TTL helpers
     "build_ttl_filter",
     "build_expires_at_metadata",

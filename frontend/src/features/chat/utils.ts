@@ -96,3 +96,31 @@ export function readThreadIdFromUrl(): string | null {
   const value = new URLSearchParams(window.location.search).get("thread_id")
   return value && value.trim() ? value : null
 }
+
+export function readUserIdFromUrl(): string | null {
+  const value = new URLSearchParams(window.location.search).get("userId")
+  return value && value.trim() ? value : null
+}
+
+/**
+ * Write userId and thread_id to URL.
+ * If thread_id is null, only userId is shown.
+ * If both are null, URL is cleared to root.
+ */
+export function writeToUrl(userId: string | null, threadId: string | null): void {
+  const url = new URL(window.location.href)
+
+  // Clear existing params
+  url.searchParams.delete("userId")
+  url.searchParams.delete("thread_id")
+
+  // Add params if provided
+  if (userId) {
+    url.searchParams.set("userId", userId)
+  }
+  if (threadId) {
+    url.searchParams.set("thread_id", threadId)
+  }
+
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
+}

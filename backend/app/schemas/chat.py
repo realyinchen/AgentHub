@@ -34,9 +34,9 @@ class UserInput(BaseModel):
         description="User input to the agent.",
         examples=["What is the weather in Hefei?"],
     )
-    user_id: str = Field(
+    user_id: UUID = Field(
         description="User ID for long-term memory and personalization.",
-        examples=["user-123"],
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
     )
     thread_id: UUID = Field(
         description="Thread ID to persist and continue a multi-turn conversation.",
@@ -160,9 +160,9 @@ class Conversation(BaseModel):
         description="The thread ID of the conversation.",
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
     )
-    user_id: str = Field(
+    user_id: UUID = Field(
         description="The user ID who owns this conversation.",
-        examples=["user-123"],
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
     )
     title: str = Field(
         description="The title of the conversation",

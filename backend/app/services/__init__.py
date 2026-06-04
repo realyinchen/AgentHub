@@ -3,6 +3,7 @@
 This layer handles:
 - Chat orchestration (invoke/stream)
 - SSE streaming service
+- WeChat listener (per-login message loop)
 
 Services are the glue between API layer (routing) and Agent layer (LangGraph).
 
@@ -13,8 +14,18 @@ Notes:
 
 from app.services.chat import ChatService
 from app.services.streaming import ChatStreamingService
+from app.services.weixin_listener import (
+    WeixinListener,
+    create_listener,
+    stop_listener,
+    get_listener,
+)
 
 __all__ = [
     "ChatService",
     "ChatStreamingService",
+    "WeixinListener",
+    "create_listener",
+    "stop_listener",
+    "get_listener",
 ]

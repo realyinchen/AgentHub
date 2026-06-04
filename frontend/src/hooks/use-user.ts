@@ -1,26 +1,32 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import type { UserInfo } from "@/types"
 import { setCurrentUserId } from "@/lib/api"
+import { readUserIdFromUrl, writeToUrl } from "@/features/chat/utils"
 
 const STORAGE_KEY = "agenthub_user_id"
 
 export const USERS: UserInfo[] = [
   {
-    id: "user-male",
+    id: "00000000-0000-0000-0000-000000000001",
     name: "Jack",
     gender: "male",
-    avatar: "",
   },
   {
-    id: "user-female",
+    id: "00000000-0000-0000-0000-000000000002",
     name: "Rose",
     gender: "female",
-    avatar: "",
   },
 ]
 
 function readStoredUserId(): string | null {
   if (typeof window === "undefined") return null
+  // First check URL, then localStorage
+  const urlUserId = readUserIdFromUrl()
+  if (urlUserId) {
+    // Sync to localStorage
+    window.localStorage.setItem(STORAGE_KEY, urlUserId)
+    return urlUserId
+  }
   return window.localStorage.getItem(STORAGE_KEY)
 }
 
@@ -40,6 +46,8 @@ export function useUser() {
     setUserIdState(id)
     writeStoredUserId(id)
     setCurrentUserId(id)
+    // Write to URL (without thread_id)
+    writeToUrl(id, null)
   }, [])
 
   // Sync api module on mount in case localStorage had a value
@@ -47,6 +55,11 @@ export function useUser() {
     const stored = readStoredUserId()
     if (stored) {
       setCurrentUserId(stored)
+      // Ensure URL is updated if userId was from localStorage
+      const urlUserId = readUserIdFromUrl()
+      if (!urlUserId && stored) {
+        writeToUrl(stored, null)
+      }
     }
   }, [])
 

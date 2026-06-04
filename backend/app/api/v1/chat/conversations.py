@@ -47,7 +47,7 @@ api_router = APIRouter(tags=["Chat"])
 @api_router.get("/conversations", response_model=list[ConversationInDB])
 async def get_conversations(
     response: Response,
-    user_id: str = Query(..., description="User ID to scope conversations"),
+    user_id: UUID = Query(..., description="User ID to scope conversations"),
     limit: int = Query(
         20,
         ge=1,
@@ -59,10 +59,14 @@ async def get_conversations(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConversationInDB]:
-    """Get a list of recent conversations for a user (most recently updated first)."""
+    """Get a list of recent conversations for a user (most recently updated first).
+    
+    WeChat threads are filtered out at SQL level - they are only accessible via WeChat.
+    """
     conversations, total = await list_conversations(
-        db=db, user_id=user_id, limit=limit, offset=offset
+        db=db, user_id=user_id, limit=limit, offset=offset, exclude_weixin=True
     )
+    
     response.headers["X-Total-Count"] = str(total)
     return [ConversationInDB.model_validate(c) for c in conversations]
 
@@ -70,7 +74,7 @@ async def get_conversations(
 @api_router.post("/conversations", response_model=ConversationInDB)
 async def save_conversation(
     conversation_in: ConversationCreate,
-    user_id: str = Query(..., description="User ID who owns this conversation"),
+    user_id: UUID = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB:
     """Create a conversation in DB."""
@@ -83,7 +87,7 @@ async def save_conversation(
 @api_router.delete("/conversations/{thread_id}", status_code=204)
 async def delete_conversation(
     thread_id: UUID,
-    user_id: str = Query(..., description="User ID who owns this conversation"),
+    user_id: UUID = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> None:
     """Soft-delete a conversation by thread_id."""
@@ -102,7 +106,7 @@ async def delete_conversation(
 )
 async def get_conversation_info(
     thread_id: UUID,
-    user_id: str = Query(..., description="User ID who owns this conversation"),
+    user_id: UUID = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInfoResponse:
     """Get the last-used model for a conversation.
@@ -142,7 +146,7 @@ async def get_conversation_info(
 @api_router.get("/conversations/{thread_id}/title")
 async def get_conversation_title(
     thread_id: UUID,
-    user_id: str = Query(..., description="User ID who owns this conversation"),
+    user_id: UUID = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB | None:
     """Get the title of a conversation."""
@@ -161,7 +165,7 @@ async def get_conversation_title(
 async def update_conversation_title(
     thread_id: UUID,
     conversation_title: ConversationUpdate,
-    user_id: str = Query(..., description="User ID who owns this conversation"),
+    user_id: UUID = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB | None:
     """Set or update the title of a conversation (partial update via PATCH)."""

@@ -38,7 +38,7 @@ api_router = APIRouter(prefix="/traces", tags=["traces"])
 async def _verify_trace_owner(
     db: AsyncSession,
     thread_id: UUID,
-    user_id: str,
+    user_id: UUID,
 ) -> None:
     """Verify that a thread belongs to user_id, or raise 404."""
     conv = await chat_crud.read_conversation_by_thread_id(
@@ -63,7 +63,7 @@ async def list_traces(
         le=168,
         description="Filter by hours back from now (max 168 hours / 7 days)",
     ),
-    user_id: str = Query(..., description="User ID to scope traces"),
+    user_id: UUID = Query(..., description="User ID to scope traces"),
     db: AsyncSession = Depends(get_db),
 ):
     """List traces with pagination and time filtering.
@@ -150,7 +150,7 @@ async def _batch_fetch_step_counts(
 @api_router.get("/{thread_id}/steps", response_model=list[StepOutput])
 async def get_trace_steps(
     thread_id: UUID,
-    user_id: str = Query(..., description="User ID to verify ownership"),
+    user_id: UUID = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get all execution steps for a specific thread from persisted DAG.
@@ -173,7 +173,7 @@ async def get_trace_steps(
 @api_router.get("/{thread_id}/dag", response_model=ExecutionDag)
 async def get_trace_dag(
     thread_id: UUID,
-    user_id: str = Query(..., description="User ID to verify ownership"),
+    user_id: UUID = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get the execution DAG for a specific thread from persisted data.
@@ -196,7 +196,7 @@ async def get_trace_dag(
 async def get_trace_dag_by_request_id(
     thread_id: UUID,
     request_id: str,
-    user_id: str = Query(..., description="User ID to verify ownership"),
+    user_id: UUID = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get the execution DAG for a specific request_id.
@@ -222,7 +222,7 @@ async def get_trace_dag_by_request_id(
 async def get_trace_step_by_number(
     thread_id: UUID,
     step_number: int,
-    user_id: str = Query(..., description="User ID to verify ownership"),
+    user_id: UUID = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific step by number from persisted DAG.
@@ -247,7 +247,7 @@ async def get_trace_step_by_number(
 async def get_trace_step_by_checkpoint(
     thread_id: UUID,
     checkpoint_id: str,
-    user_id: str = Query(..., description="User ID to verify ownership"),
+    user_id: UUID = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific step by checkpoint ID from persisted DAG.
@@ -273,7 +273,7 @@ async def replay_trace(
     thread_id: UUID,
     from_step: int = Query(1, ge=1, description="Start from this step number"),
     to_step: int | None = Query(None, ge=1, description="End at this step number"),
-    user_id: str = Query(..., description="User ID to verify ownership"),
+    user_id: UUID = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Replay a trace from a specific step range from persisted DAG.

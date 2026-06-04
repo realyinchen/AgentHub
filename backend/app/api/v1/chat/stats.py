@@ -34,7 +34,7 @@ async def get_daily_stats(
         le=365,
         description="Number of days to retrieve statistics for (1-365)",
     ),
-    user_id: str | None = Query(None, description="Optional user scope filter"),
+    user_id: UUID | None = Query(None, description="Optional user scope filter"),
     db: AsyncSession = Depends(get_db),
 ) -> list[DailyStatsItem]:
     """Get daily conversation count and token usage statistics."""
@@ -48,7 +48,7 @@ async def get_daily_stats(
 )
 async def get_conversation_stats(
     thread_id: UUID,
-    user_id: str = Query(..., description="User ID who owns this conversation"),
+    user_id: UUID = Query(..., description="User ID who owns this conversation"),
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB:
     """Get cumulative token usage statistics for a specific conversation.

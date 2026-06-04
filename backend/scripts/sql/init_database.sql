@@ -1,10 +1,50 @@
 -- init_database.sql
 -- Idempotent: safe to run multiple times, no DROP, no destructive changes
 
--- 1. conversations table
+-- 1. users table (main user table for authentication)
+CREATE TABLE IF NOT EXISTS public.users (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    display_name    VARCHAR(64) NOT NULL,
+    is_mock_user    BOOLEAN NOT NULL DEFAULT FALSE,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- Index for looking up mock users
+CREATE INDEX IF NOT EXISTS idx_users_is_mock_user ON public.users(is_mock_user);
+
+-- Mock users for development/demo (idempotent)
+INSERT INTO public.users (id, display_name, is_mock_user)
+VALUES 
+    ('00000000-0000-0000-0000-000000000001', 'Jack', true),
+    ('00000000-0000-0000-0000-000000000002', 'Rose', true)
+ON CONFLICT (id) DO NOTHING;
+
+-- 2. user_channels table (channel bindings for users)
+CREATE TABLE IF NOT EXISTS public.user_channels (
+    id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id                  UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
+    channel                  VARCHAR(32) NOT NULL,  -- 'weixin', 'telegram', etc.
+    channel_user_id          VARCHAR(128) NOT NULL,  -- e.g., 'xxx@im.wechat'
+    channel_token            TEXT,  -- Bot token (encrypted)
+    channel_base_url         VARCHAR(512),  -- API base URL
+    channel_token_expires_at TIMESTAMPTZ,
+    channel_extra_data       JSONB,
+    last_contact_id          VARCHAR(128),  -- Last contact for reconnection
+    last_context_token       TEXT,
+    created_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE(channel, channel_user_id)
+);
+
+-- Indexes for user_channels
+CREATE INDEX IF NOT EXISTS idx_user_channels_user_id ON public.user_channels(user_id);
+CREATE INDEX IF NOT EXISTS idx_user_channels_channel ON public.user_channels(channel);
+
+-- 3. conversations table
 CREATE TABLE IF NOT EXISTS public.conversations (
     thread_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id          VARCHAR(128) NOT NULL DEFAULT '',
+    user_id          UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
     title            VARCHAR(64) NOT NULL,
     is_deleted       BOOLEAN NOT NULL DEFAULT FALSE,
     created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -31,7 +71,7 @@ CREATE INDEX IF NOT EXISTS idx_conversations_created_at
 ON public.conversations (created_at DESC) 
 WHERE is_deleted = FALSE;
 
--- 2. providers table (stores provider API keys and base URLs)
+-- 4. providers table (stores provider API keys and base URLs)
 CREATE TABLE IF NOT EXISTS public.providers (
     provider               VARCHAR(64) PRIMARY KEY,   -- e.g. "dashscope", "zai", "openai-compatible"
     api_key                TEXT NOT NULL DEFAULT '',  -- encrypted API key
@@ -55,7 +95,7 @@ INSERT INTO public.providers (provider, api_key, is_openai_compatible)
 VALUES ('dashscope', '', false)
 ON CONFLICT (provider) DO NOTHING;
 
--- 3. models table (user maintains all model configurations)
+-- 5. models table (user maintains all model configurations)
 -- Note: api_key is now stored in providers table
 -- Note: model_id is the plain model name (e.g. "qwen3.5-32b").
 --       The full litellm model name "provider/model_id" is assembled at runtime.
@@ -84,7 +124,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_models_model_id ON public.models(model_id)
 -- No default models are inserted - configure them in the application
 -- =============================================================================
 
--- 4. trace_executions table (persisted DAG snapshots for offline trace viewing)
+-- 6. trace_executions table (persisted DAG snapshots for offline trace viewing)
 -- Each row = one agent invocation (user→agent turn), identified by request_id.
 -- Contains model used and the full ExecutionDag.
 CREATE TABLE IF NOT EXISTS public.trace_executions (
@@ -104,14 +144,14 @@ ON public.trace_executions (thread_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trace_exec_request_id
 ON public.trace_executions (request_id);
 
--- 5. langchain_pg_collection table (PGVector — collection registry)
+-- 7. langchain_pg_collection table (PGVector — collection registry)
 CREATE TABLE IF NOT EXISTS public.langchain_pg_collection (
     uuid       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name       VARCHAR NOT NULL UNIQUE,
     cmetadata  JSON
 );
 
--- 6. langchain_pg_embedding table (PGVector — vector embeddings)
+-- 8. langchain_pg_embedding table (PGVector — vector embeddings)
 -- The vector dimension must match the embedding model output.
 -- Schema matches langchain-postgres v2 PGVectorStore expectations.
 CREATE TABLE IF NOT EXISTS public.langchain_pg_embedding (
@@ -127,6 +167,8 @@ CREATE INDEX IF NOT EXISTS ix_langchain_metadata_gin
     ON public.langchain_pg_embedding USING gin (langchain_metadata jsonb_path_ops);
 
 -- Analyze tables after index creation for query planner
+ANALYZE public.users;
+ANALYZE public.user_channels;
 ANALYZE public.conversations;
 ANALYZE public.models;
 ANALYZE public.providers;
