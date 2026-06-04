@@ -2,6 +2,11 @@ import asyncio
 import logging
 import sys
 import warnings
+import uvicorn
+from dotenv import load_dotenv
+
+from app.infra.config import get_settings
+from app.utils.logging import JsonFormatter, RequestIdFilter
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Suppress third-party warnings BEFORE any imports that might trigger them
@@ -29,12 +34,6 @@ logging.getLogger("litellm").setLevel(logging.ERROR)
 # https://www.psycopg.org/psycopg3/docs/advanced/async.html#asynchronous-operations
 if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-
-import uvicorn
-from dotenv import load_dotenv
-
-from app.infra.config import get_settings
-from app.utils.logging import JsonFormatter, RequestIdFilter
 
 # Load environment variables first
 load_dotenv()
@@ -78,9 +77,7 @@ def configure_logging() -> None:
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(
-            logging.Formatter(
-                "%(asctime)s %(levelname)-8s [%(name)s] %(message)s"
-            )
+            logging.Formatter("%(asctime)s %(levelname)-8s [%(name)s] %(message)s")
         )
 
     root.addHandler(handler)

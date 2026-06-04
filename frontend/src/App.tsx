@@ -78,6 +78,17 @@ function App() {
   const [hasMoreConversations, setHasMoreConversations] = useState(false)
   const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false)
 
+  // User selection state (for Jack/Rose mock users)
+  const { userId, currentUser, setUserId } = useUser()
+
+  // Auth context (for WeChat login)
+  const { user: authUser, isAuthenticated, isLoading: isAuthLoading } = useAuth()
+
+  // Determine if user is logged in (either via mock user or WeChat)
+  // Priority: URL userId > mock userId > AuthContext
+  const effectiveUserId = userId || (authUser?.id) || null
+  const isLoggedIn = !!effectiveUserId || isAuthenticated
+
   // Thinking mode state - persisted per conversation in localStorage
   const {
     thinkingMode,
@@ -91,18 +102,7 @@ function App() {
     getEffectiveModel,
     getSelectedModelInfo,
     refreshModels,
-  } = useModels(threadId)
-
-  // User selection state (for Jack/Rose mock users)
-  const { userId, currentUser, setUserId } = useUser()
-
-  // Auth context (for WeChat login)
-  const { user: authUser, isAuthenticated, isLoading: isAuthLoading } = useAuth()
-
-  // Determine if user is logged in (either via mock user or WeChat)
-  // Priority: URL userId > mock userId > AuthContext
-  const effectiveUserId = userId || (authUser?.id) || null
-  const isLoggedIn = !!effectiveUserId || isAuthenticated
+  } = useModels(threadId, isLoggedIn)
 
   // Handle user switch - go back to home page
   const handleSwitchUser = useCallback(() => {
@@ -1226,6 +1226,11 @@ function App() {
   }, [t, defaultConversationTitle])
 
   useEffect(() => {
+    // Only run bootstrap after user logs in
+    if (!isLoggedIn) {
+      return
+    }
+
     let cancelled = false
 
     async function bootstrap() {
@@ -1332,7 +1337,7 @@ function App() {
       cancelled = true
       abortControllerRef.current?.abort()
     }
-  }, [writeUrl, needsReinit])
+  }, [writeUrl, needsReinit, isLoggedIn, defaultConversationTitle])
 
   // Handle user login from home page
   const handleUserLogin = useCallback((user: UserInfo) => {

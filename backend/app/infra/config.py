@@ -123,10 +123,19 @@ class Settings(BaseSettings):
     # JWT Token for user authentication (HTTP-only Cookie)
     JWT_SECRET_KEY: Optional[SecretStr] = None
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(default=60 * 24 * 7, ge=1)  # 7 days default
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
+        default=60 * 24 * 7, ge=1
+    )  # 7 days default
     JWT_COOKIE_NAME: str = "agenthub_token"
     JWT_COOKIE_SECURE: bool = True  # HTTPS only (set False for dev without HTTPS)
     JWT_COOKIE_SAMESITE: Literal["strict", "lax", "none"] = "lax"
+
+    # =========================================================================
+    # WeChat iLink Bot API Configuration
+    # =========================================================================
+    # Base URL for WeChat iLink Bot API (Tencent's official server)
+    # Can be overridden for custom deployments
+    WEIXIN_ILINK_BASE_URL: str = "https://ilinkai.weixin.qq.com"
 
     # =========================================================================
     # API Keys & Secrets

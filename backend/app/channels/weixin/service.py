@@ -15,11 +15,9 @@ from typing import Any
 
 import aiohttp
 
+from app.infra.config import get_settings
+
 logger = logging.getLogger(__name__)
-
-
-# iLink API base URL (Tencent's official server)
-ILINK_BASE_URL = "https://ilinkai.weixin.qq.com"
 
 # SDK version info (based on openclaw-weixin 2.4.3)
 CHANNEL_VERSION = "2.4.3"
@@ -45,9 +43,9 @@ class WeixinService:
         """Initialize the WeChat iLink service.
         
         Args:
-            base_url: Optional custom base URL (defaults to official Tencent server)
+            base_url: Optional custom base URL (defaults to config value)
         """
-        self.base_url = base_url or ILINK_BASE_URL
+        self.base_url = base_url or get_settings().WEIXIN_ILINK_BASE_URL
         self._session: aiohttp.ClientSession | None = None
     
     async def _get_session(self) -> aiohttp.ClientSession:
