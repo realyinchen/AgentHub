@@ -31,6 +31,13 @@
   <img src="https://github.com/realyinchen/RAG/blob/main/imgs/wechat_qrcode.jpg" alt="PyTorch研习社">
 </p>
 
+<p align="center">
+  <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
+    <video src="https://raw.githubusercontent.com/realyinchen/AgentHub/dev/assets/webui.mp4" style="max-height: 300px; border-radius: 8px;"></video>
+    <video src="https://raw.githubusercontent.com/realyinchen/AgentHub/dev/assets/wechat.mp4" style="max-height: 300px; border-radius: 8px;"></video>
+  </div>
+</p>
+
 ---
 
 ## 项目介绍
