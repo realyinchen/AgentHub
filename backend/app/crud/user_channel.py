@@ -260,34 +260,3 @@ async def get_or_create_user_channel(
     )
 
 
-async def get_weixin_thread_ids(session: AsyncSession) -> set[UUID]:
-    """Get all thread IDs (user_channel.id) that belong to WeChat channel.
-    
-    Used to filter out WeChat threads from Web UI.
-    
-    Returns:
-        Set of thread IDs (UUIDs) that are WeChat channels
-    """
-    result = await session.execute(
-        select(UserChannel.id).where(UserChannel.channel == "weixin")
-    )
-    return set(row[0] for row in result.all())
-
-
-async def is_weixin_thread(session: AsyncSession, thread_id: UUID) -> bool:
-    """Check if a thread ID belongs to a WeChat channel.
-    
-    Args:
-        session: AsyncSession for database operations
-        thread_id: Thread ID to check (user_channel.id)
-        
-    Returns:
-        True if the thread is a WeChat channel
-    """
-    result = await session.execute(
-        select(UserChannel.id).where(
-            UserChannel.id == thread_id,
-            UserChannel.channel == "weixin",
-        )
-    )
-    return result.scalar_one_or_none() is not None

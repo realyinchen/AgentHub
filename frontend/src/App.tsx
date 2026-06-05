@@ -82,7 +82,7 @@ function App() {
   const { userId, currentUser, setUserId } = useUser()
 
   // Auth context (for WeChat login)
-  const { user: authUser, isAuthenticated, isLoading: isAuthLoading } = useAuth()
+  const { user: authUser, isAuthenticated, isLoading: isAuthLoading, logout } = useAuth()
 
   // Determine if user is logged in (either via mock user or WeChat)
   // Priority: URL userId > mock userId > AuthContext
@@ -105,12 +105,12 @@ function App() {
   } = useModels(threadId, isLoggedIn)
 
   // Handle user switch - go back to home page
-  const handleSwitchUser = useCallback(() => {
+  const handleSwitchUser = useCallback(async () => {
     setUserId(null)
     setCurrentUserId(null)
-    // Also clear auth cookie for WeChat logout
-    void fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' })
-  }, [setUserId])
+    // Call AuthContext logout to properly clear auth state (for WeChat users)
+    await logout()
+  }, [setUserId, logout])
 
   // Track if we need to re-initialize after user login
   const [needsReinit, setNeedsReinit] = useState(false)
@@ -1402,7 +1402,6 @@ function App() {
             messages={messages}
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
-            onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
             onSelectRequestId={(requestId: string | null) => {

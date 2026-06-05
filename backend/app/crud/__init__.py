@@ -19,8 +19,6 @@ from app.crud.user_channel import (
     update_last_contact,
     delete_user_channel,
     get_or_create_user_channel,
-    get_weixin_thread_ids,
-    is_weixin_thread,
 )
 
 __all__ = [
@@ -42,7 +40,4 @@ __all__ = [
     "update_last_contact",
     "delete_user_channel",
     "get_or_create_user_channel",
-    # WeChat thread filtering
-    "get_weixin_thread_ids",
-    "is_weixin_thread",
 ]

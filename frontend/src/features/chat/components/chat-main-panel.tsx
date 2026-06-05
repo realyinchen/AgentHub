@@ -36,7 +36,6 @@ type ChatMainPanelProps = {
   selectedRequestId?: string | null // Currently selected request_id for DAG viewing
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
-  onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to quoted message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectRequestId?: (requestId: string | null) => void // Select request_id for DAG viewing
@@ -68,7 +67,6 @@ export function ChatMainPanel({
   selectedRequestId,
   onSendMessage,
   onStopStreaming,
-  onEditMessage,
   onJumpToMessage,
   onToggleSidebarProcess,
   onSelectRequestId,
@@ -339,17 +337,12 @@ export function ChatMainPanel({
                       <ChatMessageItem
                         key={`msg-${index}`}
                         message={{ ...message, local_id: `msg-${index}` }}
-                        messageIndex={index}
                         calledTools={isLastAIMessage ? calledTools : []}
                         isAgentThinking={isLastAIMessage ? isAgentThinking : false}
                         thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
                         isSelected={isMessageSelected}
-                        onEditMessage={onEditMessage}
-                        editDisabled={isStreaming || isComposerDisabled}
-                        onQuote={() => handleQuote(message, index)}
-                        quoteDisabled={isStreaming || isComposerDisabled}
                         onJumpToMessage={onJumpToMessage}
                         onToggleSidebarProcess={onToggleSidebarProcess}
                         onSelectRequestId={onSelectRequestId}

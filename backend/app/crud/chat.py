@@ -1,11 +1,10 @@
 from uuid import UUID
 from datetime import datetime, timezone, timedelta
 
-from sqlalchemy import select, update, func, not_
+from sqlalchemy import select, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.chat import Conversation
-from app.models.user_channel import UserChannel
 from app.schemas.chat import (
     ConversationCreate,
     ConversationUpdate,
@@ -249,7 +248,6 @@ async def list_conversations(
     user_id: UUID,
     limit: int = 20,
     offset: int = 0,
-    exclude_weixin: bool = True,
 ) -> tuple[list[Conversation], int]:
     """List conversations for a user.
     
@@ -258,7 +256,6 @@ async def list_conversations(
         user_id: User ID to scope conversations
         limit: Maximum number of conversations to return
         offset: Number of conversations to skip
-        exclude_weixin: If True, exclude WeChat thread conversations
         
     Returns:
         Tuple of (conversations, total count)
@@ -268,13 +265,6 @@ async def list_conversations(
         Conversation.user_id == user_id,
         Conversation.is_deleted.is_(False),
     ]
-    
-    # Exclude WeChat threads: thread_id NOT IN (user_channels.id where channel='weixin')
-    if exclude_weixin:
-        weixin_subquery = select(UserChannel.id).where(UserChannel.channel == "weixin")
-        conditions.append(
-            not_(Conversation.thread_id.in_(weixin_subquery))
-        )
     
     # Main query
     stmt = (

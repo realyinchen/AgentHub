@@ -111,19 +111,16 @@ backend/app/
 - `frontend/src/channels/weixin/WeixinLoginDialog.tsx`
 - `frontend/src/channels/weixin/WeixinLoginButton.tsx`
 
-### 微信线程隔离
+### 微信线程统一
 
-**设计决策：** 微信会话完全不可见于 Web UI，防止用户在 Web UI 插入消息导致与微信消息冲突。
+**设计决策：** 微信会话与 Web UI 会话一视同仁，用户可以在 Web UI 查看和继续微信对话。
 
 **实现方式：**
-```python
-# conversations.py - 会话列表过滤
-filtered = [c for c in conversations if not await is_weixin_thread(db, c.thread_id)]
+- 微信消息通过 `weixin_listener.py` 接收并存储到 LangGraph checkpointer
+- Web UI 通过 `/history/{thread_id}` 和 `/conversations` 端点访问所有会话
+- 所有会话（包括微信）共享相同的 `thread_id` 机制
 
-# history.py - 历史记录拦截
-if await is_weixin_thread(db, thread_id):
-    return ChatHistory(messages=[], message_sequence=[])
-```
+---
 
 ### 认证流程 (简化版)
 
@@ -197,7 +194,7 @@ CREATE TABLE user_channels (
 
 ## Active Decisions
 
-- **微信线程隔离** — Web UI 完全无法访问微信会话，防止数据冲突
+- **微信线程统一** — 微信会话与 Web UI 会话一视同仁，用户可以在 Web UI 查看和继续微信对话
 - **首页直接扫码** — 无需点击按钮，用户体验更流畅
 - **120秒自动刷新** — 二维码过期后自动重新获取
 - **每登录一个 Listener** — 每个微信登录会话独立的消息循环

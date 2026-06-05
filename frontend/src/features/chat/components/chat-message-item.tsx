@@ -4,8 +4,6 @@ import {
   ChevronDown,
   CopyIcon,
   Loader2,
-  PencilIcon,
-  QuoteIcon,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
@@ -18,7 +16,6 @@ import { useI18n } from "@/i18n"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
-  messageIndex: number // Index in messages array for edit functionality
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
   thinkingContent?: string // Accumulated thinking content (streaming)
@@ -27,10 +24,6 @@ type ChatMessageItemProps = {
   sessionId?: string | null // session_id for this AI message
   hasSteps?: boolean // Whether this AI message has steps (tool calls or thinking)
   isSelected?: boolean // Whether this message's session is currently selected in sidebar
-  onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
-  editDisabled?: boolean // Whether edit is disabled
-  onQuote?: () => void // Callback when user wants to quote this message
-  quoteDisabled?: boolean // Whether quote is disabled
   onJumpToMessage?: (localId: string) => void // Jump to quoted message
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectSession?: (sessionId: string) => void // Select a specific session to view
@@ -196,17 +189,13 @@ function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
     return []
   }
 }
+
 export function ChatMessageItem({
   message,
-  messageIndex,
   calledTools = [],
   thinkingContent = "",
   isStreaming = false,
   isSelected = false,
-  onEditMessage,
-  editDisabled = false,
-  onQuote,
-  quoteDisabled = false,
   onJumpToMessage,
   onSelectRequestId,
 }: ChatMessageItemProps) {
@@ -216,12 +205,6 @@ export function ChatMessageItem({
   const isTool = message.type === "tool"
   const sources = parseSources(message)
   const [copied, setCopied] = useState(false)
-  const [isEditing, setIsEditing] = useState(false)
-  // For quoted messages, edit only the user_content; otherwise edit the full content
-  const [editContent, setEditContent] = useState(
-    (isUser && message.custom_data?.user_content as string | undefined) || message.content
-  )
-  const [isActionsHovered, setIsActionsHovered] = useState(false)
 
   // Parse thinking content from message (for history) or use streaming content
   const historicalThinking = parseThinkingContent(message)
@@ -242,7 +225,6 @@ export function ChatMessageItem({
   // For streaming messages, use calledTools; for history messages, use stored tool_info
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
   const hasToolCalls = allTools.length > 0
-
 
   useEffect(() => {
     if (!copied) {
@@ -311,14 +293,14 @@ export function ChatMessageItem({
   return (
     <article
       id={`message-${message.local_id}`}
-      className={cn("flex w-full items-start gap-3", isUser && "justify-end")}
+      className={cn("flex w-full items-center gap-2", isUser ? "flex-row-reverse justify-start" : "justify-start")}
     >
       <Message
         from={isUser ? "user" : "assistant"}
         className={cn(
           "min-w-0 shrink-0 transition-all duration-300",
           isUser
-            ? "w-auto max-w-[72%] items-end"
+            ? "w-auto max-w-[72%] items-end ml-0"
             : "w-full max-w-[85%]",
           isAI && isSelected && "scale-[1.01]"
         )}
@@ -420,53 +402,6 @@ export function ChatMessageItem({
             message.content ? (
               <MarkdownContent content={message.content} isStreaming={isStreaming} />
             ) : null
-          ) : isEditing ? (
-            <div className="space-y-2">
-              <textarea
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-h-[60px] resize-none rounded-lg bg-background p-2 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder={t("message.editPlaceholder")}
-                rows={3}
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditing(false)
-                    setEditContent(message.content)
-                  }}
-                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-background/80"
-                >
-                  {t("common.cancel")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (editContent.trim() && onEditMessage) {
-                      // For quoted messages, reconstruct the full content with quote
-                      if (isQuotedMessage && quotedParts) {
-                        const newFullContent = `> ${quotedParts.quotedContent}\n\n${editContent.trim()}`
-                        // Only send if content actually changed
-                        if (newFullContent !== message.content.trim()) {
-                          onEditMessage(newFullContent, messageIndex)
-                        }
-                      } else {
-                        // Regular message - check if content changed
-                        if (editContent.trim() !== message.content.trim()) {
-                          onEditMessage(editContent.trim(), messageIndex)
-                        }
-                      }
-                    }
-                    setIsEditing(false)
-                  }}
-                  disabled={!editContent.trim() || editDisabled}
-                  className="rounded-md bg-primary/20 px-2 py-1 text-xs text-primary hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {t("message.sendEdit")}
-                </button>
-              </div>
-            </div>
           ) : isQuotedMessage ? (
             // Render quoted message with separator - use user_content for display
             <div className="space-y-2">
@@ -501,48 +436,10 @@ export function ChatMessageItem({
           )}
         </MessageContent>
 
-        {/* User message actions: copy, edit, quote - always rendered, controlled by opacity */}
-        {isUser && !isEditing && (
-          <div
-            className={cn(
-              "pt-1 justify-end transition-opacity duration-200 flex items-center gap-1",
-              isActionsHovered ? "opacity-100" : "opacity-0"
-            )}
-            onMouseEnter={() => setIsActionsHovered(true)}
-            onMouseLeave={() => setIsActionsHovered(false)}
-          >
-            <button
-              onClick={() => void handleCopy()}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-              title={copied ? t("common.copied") : t("common.copy")}
-            >
-              {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-            </button>
-            <button
-              onClick={() => setIsEditing(true)}
-              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-              title={t("common.edit")}
-              disabled={editDisabled}
-            >
-              <PencilIcon className="size-4" />
-            </button>
-            {onQuote ? (
-              <button
-                onClick={onQuote}
-                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                title={t("message.quote")}
-                disabled={quoteDisabled}
-              >
-                <QuoteIcon className="size-4" />
-              </button>
-            ) : null}
-          </div>
-        )}
-
-        {/* Actions area: copy, thinking process, tool calls */}
+        {/* AI message actions: copy, DAG view - below the bubble */}
         {isAI && !isStreaming ? (
-          <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
-            <div className={cn("pt-1 flex items-center gap-1", isUser ? "justify-end" : "justify-start")}>
+          <div className="flex flex-col items-start">
+            <div className="pt-1 flex items-center gap-1 justify-start">
               <button
                 onClick={() => void handleCopy()}
                 className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
@@ -550,16 +447,6 @@ export function ChatMessageItem({
               >
                 {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
               </button>
-              {onQuote ? (
-                <button
-                  onClick={onQuote}
-                  className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
-                  title={t("message.quote")}
-                  disabled={quoteDisabled}
-                >
-                  <QuoteIcon className="size-4" />
-                </button>
-              ) : null}
 
               {/* DAG icon - click to show this request's execution DAG */}
               {showBrainIcon && message.request_id ? (
@@ -584,6 +471,17 @@ export function ChatMessageItem({
           </div>
         ) : null}
       </Message>
+
+      {/* User message: copy button on the left, vertically centered */}
+      {isUser && (
+        <button
+          onClick={() => void handleCopy()}
+          className="p-1.5 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-background/80 transition-colors cursor-pointer self-center shrink-0 opacity-60 hover:opacity-100"
+          title={copied ? t("common.copied") : t("common.copy")}
+        >
+          {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+        </button>
+      )}
     </article>
   )
 }
