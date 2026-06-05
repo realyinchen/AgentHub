@@ -12,19 +12,21 @@ from app.models.base import utc_now
 
 # Import for type checking (avoid circular import at runtime)
 from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from app.models.user_channel import UserChannel
 
 
 class User(Base):
     """Main user table for AgentHub.
-    
+
     Users can be:
     - Mock users (Jack/Rose) for demo/testing
     - Real users authenticated via channels (WeChat, etc.)
-    
+
     Channel-specific data is stored in UserChannel table.
     """
+
     __tablename__ = "users"
 
     id: Mapped[UUID] = mapped_column(Uuid, primary_key=True, default=uuid4)
@@ -39,7 +41,7 @@ class User(Base):
         default=utc_now,
         onupdate=utc_now,
     )
-    
+
     # Relationship to UserChannel
     user_channels: Mapped[list["UserChannel"]] = relationship(
         "UserChannel", back_populates="user", cascade="all, delete-orphan"

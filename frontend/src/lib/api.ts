@@ -166,7 +166,7 @@ export async function getHistory(
   threadId: string,
 ): Promise<ChatHistory> {
   return requestJson<ChatHistory>(
-    `/chat/history/${encodeURIComponent(threadId)}`,
+    `/chat/history/${encodeURIComponent(threadId)}?${userIdQuery()}`,
   )
 }
 

@@ -62,6 +62,7 @@ class PostgresDatabase:
             pool_pre_ping=True,
             pool_use_lifo=True,  # Production: idle connections reused first
             json_serializer=_json_serializer,
+            connect_args={"timeout": 5},  # Connection timeout in seconds
         )
 
     async def initialize(self) -> None:

@@ -59,12 +59,11 @@ async def get_conversations(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConversationInDB]:
-    """Get a list of recent conversations for a user (most recently updated first).
-    """
+    """Get a list of recent conversations for a user (most recently updated first)."""
     conversations, total = await list_conversations(
         db=db, user_id=user_id, limit=limit, offset=offset
     )
-    
+
     response.headers["X-Total-Count"] = str(total)
     return [ConversationInDB.model_validate(c) for c in conversations]
 

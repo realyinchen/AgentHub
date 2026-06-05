@@ -381,6 +381,7 @@ class Settings(BaseSettings):
             f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             f"?application_name={self.POSTGRES_APPLICATION_NAME}"
             f"&sslmode={self.POSTGRES_SSL_MODE}"
+            f"&connect_timeout=5"
         )
 
     def get_postgres_libpq_url(self) -> str:
@@ -394,6 +395,7 @@ class Settings(BaseSettings):
             f"postgresql+psycopg://{user}:{password}@"
             f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             f"?sslmode={self.POSTGRES_SSL_MODE}"
+            f"&connect_timeout=5"
         )
 
     def get_postgres_conn_string(self) -> str:
@@ -408,6 +410,7 @@ class Settings(BaseSettings):
             f"postgresql://{user}:{password}@"
             f"{self.POSTGRES_HOST}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
             f"?sslmode={self.POSTGRES_SSL_MODE}"
+            f"&connect_timeout=5"
         )
 
 

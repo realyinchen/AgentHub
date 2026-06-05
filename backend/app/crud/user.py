@@ -12,11 +12,11 @@ from app.models.user_channel import UserChannel
 
 async def get_user(session: AsyncSession, user_id: UUID) -> User | None:
     """Get a user by ID.
-    
+
     Args:
         session: AsyncSession for database operations
         user_id: UUID of the user
-        
+
     Returns:
         User instance or None if not found
     """
@@ -25,19 +25,17 @@ async def get_user(session: AsyncSession, user_id: UUID) -> User | None:
 
 
 async def get_user_by_channel_user_id(
-    session: AsyncSession, 
-    channel: str, 
-    channel_user_id: str
+    session: AsyncSession, channel: str, channel_user_id: str
 ) -> User | None:
     """Get a user by channel type and channel user ID.
-    
+
     This is used for channel authentication (e.g., WeChat login).
-    
+
     Args:
         session: AsyncSession for database operations
         channel: Channel type (e.g., 'weixin')
         channel_user_id: Channel-specific user ID (e.g., 'xxx@im.wechat')
-        
+
     Returns:
         User instance or None if not found
     """
@@ -52,10 +50,10 @@ async def get_user_by_channel_user_id(
 
 async def get_mock_users(session: AsyncSession) -> list[User]:
     """Get all mock users (for demo/testing).
-    
+
     Args:
         session: AsyncSession for database operations
-        
+
     Returns:
         List of mock users
     """
@@ -71,12 +69,12 @@ async def create_user(
     is_mock_user: bool = False,
 ) -> User:
     """Create a new user.
-    
+
     Args:
         session: AsyncSession for database operations
         display_name: User's display name
         is_mock_user: Whether this is a mock user for demo/testing
-        
+
     Returns:
         Created User instance
     """
@@ -96,12 +94,12 @@ async def update_user(
     **kwargs: Any,
 ) -> User:
     """Update user fields.
-    
+
     Args:
         session: AsyncSession for database operations
         user: User instance to update
         **kwargs: Fields to update
-        
+
     Returns:
         Updated User instance
     """
@@ -115,7 +113,7 @@ async def update_user(
 
 async def delete_user(session: AsyncSession, user: User) -> None:
     """Delete a user.
-    
+
     Args:
         session: AsyncSession for database operations
         user: User instance to delete

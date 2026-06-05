@@ -250,13 +250,13 @@ async def list_conversations(
     offset: int = 0,
 ) -> tuple[list[Conversation], int]:
     """List conversations for a user.
-    
+
     Args:
         db: Database session
         user_id: User ID to scope conversations
         limit: Maximum number of conversations to return
         offset: Number of conversations to skip
-        
+
     Returns:
         Tuple of (conversations, total count)
     """
@@ -265,7 +265,7 @@ async def list_conversations(
         Conversation.user_id == user_id,
         Conversation.is_deleted.is_(False),
     ]
-    
+
     # Main query
     stmt = (
         select(Conversation)
@@ -274,16 +274,16 @@ async def list_conversations(
         .offset(offset)
         .limit(limit)
     )
-    
+
     # Count query
     count_stmt = select(func.count()).select_from(Conversation).where(*conditions)
-    
+
     result = await db.execute(stmt)
     convs = result.scalars().all()
-    
+
     total_result = await db.execute(count_stmt)
     total = total_result.scalar_one()
-    
+
     return list(convs), total
 
 

@@ -87,34 +87,38 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     Startup failures propagate immediately (fail-fast).  Shutdown cleanup
     runs in ``finally`` so it always executes, even when startup raises.
     """
-    # ── Startup ──────────────────────────────────────────────────────
-    # Initialize system LLM and embedding model FIRST (no dependencies).
-    # Embedding model must be ready before database (vectorstore needs it).
-    init_system_llm()
-    logger.info("System LLM initialized")
-    init_embedding_model()
-    logger.info("Embedding model initialized")
+    try:
+        # ── Startup ──────────────────────────────────────────────────────
+        # Initialize system LLM and embedding model FIRST (no dependencies).
+        # Embedding model must be ready before database (vectorstore needs it).
+        init_system_llm()
+        logger.info("System LLM initialized")
+        init_embedding_model()
+        logger.info("Embedding model initialized")
 
-    # Initialize database (needs embedding model for vectorstore).
-    # Order: database → vectorstore → checkpointer → store.
-    await init_database()
-    logger.info("All database components initialized successfully")
+        # Initialize database (needs embedding model for vectorstore).
+        # Order: database → vectorstore → checkpointer → store.
+        await init_database()
+        logger.info("All database components initialized successfully")
 
-    # Initialize model manager (needs database to query model configs).
-    await get_model_manager().refresh()
-    logger.info("Model manager initialized")
+        # Initialize model manager (needs database to query model configs).
+        await get_model_manager().refresh()
+        logger.info("Model manager initialized")
 
-    # Preload prompt templates (sync, zero first-request latency)
-    loaded = preload_templates()
-    logger.info("Preloaded %d prompt templates: %s", len(loaded), loaded)
+        # Preload prompt templates (sync, zero first-request latency)
+        loaded = preload_templates()
+        logger.info("Preloaded %d prompt templates: %s", len(loaded), loaded)
 
-    store = get_store()
-    await init_agent(
-        checkpointer=get_checkpointer().get_saver(),
-        store=store.get_store() if store else None,
-    )
+        store = get_store()
+        await init_agent(
+            checkpointer=get_checkpointer().get_saver(),
+            store=store.get_store() if store else None,
+        )
 
-    # WeChat listener is now per-login, started in WebSocket endpoint
+        # WeChat listener is now per-login, started in WebSocket endpoint
+    except Exception as e:
+        logger.critical("Application startup failed, exiting: %s", e)
+        sys.exit(1)
 
     try:
         yield

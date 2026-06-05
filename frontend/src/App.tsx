@@ -106,11 +106,24 @@ function App() {
 
   // Handle user switch - go back to home page
   const handleSwitchUser = useCallback(async () => {
+    // Clear all conversation-related state to prevent data leakage between users
+    setConversations([])
+    setThreadId("")
+    setMessages([])
+    setConversationTitleState(defaultConversationTitle)
+    setDraftTitle(defaultConversationTitle)
+    setConversationsOffset(0)
+    setHasMoreConversations(false)
+    setSelectedRequestId(null)
+    setAppError(null)
+    abortControllerRef.current?.abort()
+    setIsStreaming(false)
+
     setUserId(null)
     setCurrentUserId(null)
     // Call AuthContext logout to properly clear auth state (for WeChat users)
     await logout()
-  }, [setUserId, logout])
+  }, [setUserId, logout, defaultConversationTitle])
 
   // Track if we need to re-initialize after user login
   const [needsReinit, setNeedsReinit] = useState(false)
@@ -880,215 +893,6 @@ function App() {
     ],
   )
 
-  const handleEditMessage = useCallback(
-    async (newContent: string, messageIndex: number) => {
-      if (!threadId || isStreaming) {
-        return
-      }
-
-      // Validate the message index
-      if (messageIndex < 0 || messageIndex >= messages.length) {
-        return
-      }
-
-      // Ensure the message at the index is a user message
-      const messageToEdit = messages[messageIndex]
-      if (messageToEdit.type !== "human") {
-        return
-      }
-
-      // Keep messages before the edited message
-      const previousMessages = messages.slice(0, messageIndex)
-
-      // Create placeholder ID before any state updates
-      const placeholderId = crypto.randomUUID()
-      streamingPlaceholderIdRef.current = placeholderId
-
-      // Keep messages before the edited message, then add the edited user message
-      // This ensures history is visible while editing
-      const editedUserMessage = toLocalMessage(
-        { type: "human", content: newContent },
-        { customData: messageToEdit.custom_data }
-      )
-
-      // Create AI placeholder in the same state update to avoid race condition
-      const aiPlaceholder = toLocalMessage(
-        { type: "ai", content: "" },
-        { localId: placeholderId, isStreaming: true }
-      )
-
-      // Single state update with all messages
-      setMessages([...previousMessages, editedUserMessage, aiPlaceholder])
-
-      setAppError(null)
-      setSelectedRequestId(null) // Reset to show latest request after streaming ends
-      setIsStreaming(true)
-
-      const controller = new AbortController()
-      abortControllerRef.current = controller
-
-      // Reset state
-      setIsProcessing(true)
-      isProcessingRef.current = true
-      setIsAgentThinking(false)
-      setCalledTools([])
-      setThinkingContent("")
-
-      const currentThinkingMode = thinkingModeRef.current
-      const currentModel = effectiveModelRef.current
-
-      try {
-        // Stream with the new content
-        await streamChat(
-          {
-            content: newContent,
-            thread_id: threadId,
-            user_id: getCurrentUserId() || "default",
-            request_id: crypto.randomUUID(),
-            model_name: currentModel,
-            thinking_mode: currentThinkingMode,
-          },
-          (event: StreamEvent) => {
-            if (event.type === "llm") {
-              setIsAgentThinking(true)
-              setActiveToolCall(null)
-              setThinkingContent((prev) => prev + event.content)
-              return
-            }
-
-            if (event.type === "token") {
-              // Stop showing "processing..." loader when actual content arrives
-              if (isProcessingRef.current) {
-                setIsProcessing(false)
-                isProcessingRef.current = false
-              }
-              setIsAgentThinking(false)
-              setActiveToolCall(null)
-              addStreamToken(event.content)
-              return
-            }
-
-            if (event.type === "message") {
-              const message = event.content
-              if (message.type === "ai") {
-                const hasContent = message.content && message.content.trim().length > 0
-                const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
-
-                // If this is an intermediate message (has tool_calls but no meaningful content),
-                // don't add it to messages - just track tool calls
-                if (hasToolCalls && !hasContent) {
-                  // This is an intermediate AI message for tool calls
-                  // Don't add to messages array - tool info is already tracked via calledTools
-                  return
-                }
-
-                if (hasContent && !hasToolCalls) {
-                  setIsAgentThinking(false)
-                  setActiveToolCall(null)
-                }
-              }
-              addMessageFromStream(message)
-              return
-            }
-
-            if (event.type === "tool") {
-              setIsAgentThinking(true)
-              const toolCallEvent: ToolCallEvent = {
-                name: event.content.name,
-                id: event.content.tool_id,
-                args: event.content.args,
-              }
-              setActiveToolCall(toolCallEvent)
-              setCalledTools((prev) => {
-                const existing = prev.find((t) => t.id === event.content.tool_id)
-                if (existing) {
-                  return prev
-                }
-                return [
-                  ...prev,
-                  {
-                    name: event.content.name,
-                    id: event.content.tool_id,
-                    args: event.content.args || {},
-                    status: "calling" as const,
-                  },
-                ]
-              })
-              return
-            }
-
-            if (event.type === "tool_result") {
-              setCalledTools((prev) =>
-                prev.map((t) =>
-                  t.id === event.content.id
-                    ? { ...t, output: event.content.output, status: "completed" as const }
-                    : t,
-                ),
-              )
-              return
-            }
-
-            if (event.type === "usage") {
-              // Token usage event - log for debugging
-              console.log(
-                `[${event.content.node}] Token usage:`,
-                `input=${event.content.usage.input_tokens ?? 'N/A'},`,
-                `output=${event.content.usage.output_tokens ?? 'N/A'},`,
-                `total=${event.content.usage.total_tokens ?? 'N/A'}`
-              )
-              return
-            }
-
-            // error event
-            if (event.type === "error") {
-              setAppError(event.content)
-            }
-          },
-          controller.signal,
-        )
-
-        // Mark streaming complete
-        setMessages((previous) => {
-          const updated = previous.map((message) =>
-            message.is_streaming
-              ? { ...message, is_streaming: false }
-              : message,
-          )
-          return updated
-        })
-
-        await refreshConversations()
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          const details = getErrorMessage(error, t("error.unexpected"))
-          setAppError(t("error.generateResponse", { details }))
-        }
-      } finally {
-        setIsStreaming(false)
-        streamingPlaceholderIdRef.current = null
-        abortControllerRef.current = null
-
-        // Auto-select the latest request_id from messages
-        setMessages((currentMessages) => {
-          const lastAiMessage = currentMessages.filter(m => m.type === "ai" && m.request_id).pop()
-          if (lastAiMessage?.request_id) {
-            setSelectedRequestId(lastAiMessage.request_id)
-          }
-          return currentMessages
-        })
-      }
-    },
-    [
-      addMessageFromStream,
-      addStreamToken,
-      isStreaming,
-      messages,
-      refreshConversations,
-      t,
-      threadId,
-    ],
-  )
-
   const handleSaveTitle = useCallback(async () => {
     const targetThreadId = renameTarget?.thread_id ?? threadId
     if (!targetThreadId) {
@@ -1247,16 +1051,10 @@ function App() {
         const conversationList = conversationResult.conversations
         const total = conversationResult.total
         const sorted = sortConversationsByUpdatedAt(conversationList)
-        // Use functional update to avoid duplicates if bootstrap runs twice (React StrictMode)
-        setConversations((prev) => {
-          if (prev.length === 0) {
-            return sorted
-          }
-          // If we already have conversations, merge and deduplicate
-          const existingIds = new Set(prev.map((c) => c.thread_id))
-          const uniqueNew = sorted.filter((c) => !existingIds.has(c.thread_id))
-          return sortConversationsByUpdatedAt([...prev, ...uniqueNew])
-        })
+        // Always replace conversations to prevent data leakage between users.
+        // When switching users, handleSwitchUser already clears conversations,
+        // but we use replace here as a safety net.
+        setConversations(sorted)
         // Update pagination state based on first load
         setConversationsOffset(sorted.length)
         setHasMoreConversations(sorted.length < total)

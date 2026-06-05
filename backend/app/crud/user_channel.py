@@ -10,13 +10,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.user_channel import UserChannel
 
 
-async def get_user_channel(session: AsyncSession, channel_id: UUID) -> UserChannel | None:
+async def get_user_channel(
+    session: AsyncSession, channel_id: UUID
+) -> UserChannel | None:
     """Get a user channel by ID.
-    
+
     Args:
         session: AsyncSession for database operations
         channel_id: UUID of the user channel
-        
+
     Returns:
         UserChannel instance or None if not found
     """
@@ -32,12 +34,12 @@ async def get_user_channel_by_user_and_channel(
     channel: str,
 ) -> UserChannel | None:
     """Get a user's channel by channel type.
-    
+
     Args:
         session: AsyncSession for database operations
         user_id: UUID of the user
         channel: Channel type (e.g., 'weixin')
-        
+
     Returns:
         UserChannel instance or None if not found
     """
@@ -55,14 +57,14 @@ async def get_user_channel_by_channel_user_id(
     channel_user_id: str,
 ) -> UserChannel | None:
     """Get a user channel by channel type and channel user ID.
-    
+
     This is used to find a user by their channel-specific ID (e.g., WeChat ID).
-    
+
     Args:
         session: AsyncSession for database operations
         channel: Channel type (e.g., 'weixin')
         channel_user_id: Channel-specific user ID (e.g., 'xxx@im.wechat')
-        
+
     Returns:
         UserChannel instance or None if not found
     """
@@ -76,11 +78,11 @@ async def get_user_channel_by_channel_user_id(
 
 async def get_user_channels(session: AsyncSession, user_id: UUID) -> list[UserChannel]:
     """Get all channels for a user.
-    
+
     Args:
         session: AsyncSession for database operations
         user_id: UUID of the user
-        
+
     Returns:
         List of UserChannel instances
     """
@@ -103,7 +105,7 @@ async def create_user_channel(
     channel_extra_data: dict | None = None,
 ) -> UserChannel:
     """Create a new user channel.
-    
+
     Args:
         session: AsyncSession for database operations
         user_id: UUID of the user
@@ -113,7 +115,7 @@ async def create_user_channel(
         channel_base_url: Optional channel API base URL
         channel_token_expires_at: Optional token expiration time
         channel_extra_data: Optional extra data (JSON)
-        
+
     Returns:
         Created UserChannel instance
     """
@@ -138,12 +140,12 @@ async def update_user_channel(
     **kwargs: Any,
 ) -> UserChannel:
     """Update user channel fields.
-    
+
     Args:
         session: AsyncSession for database operations
         user_channel: UserChannel instance to update
         **kwargs: Fields to update
-        
+
     Returns:
         Updated UserChannel instance
     """
@@ -163,23 +165,22 @@ async def update_channel_credentials(
     expires_in_seconds: int = 24 * 3600,  # Default 24 hours
 ) -> UserChannel:
     """Update channel credentials after successful authentication.
-    
+
     Args:
         session: AsyncSession for database operations
         user_channel: UserChannel instance to update
         channel_token: New channel token
         channel_base_url: Channel API base URL
         expires_in_seconds: Token expiration time in seconds
-        
+
     Returns:
         Updated UserChannel instance
     """
     now = datetime.now(timezone.utc)
     expires_at = datetime.fromtimestamp(
-        now.timestamp() + expires_in_seconds, 
-        tz=timezone.utc
+        now.timestamp() + expires_in_seconds, tz=timezone.utc
     )
-    
+
     return await update_user_channel(
         session,
         user_channel,
@@ -196,13 +197,13 @@ async def update_last_contact(
     context_token: str,
 ) -> UserChannel:
     """Update last contact info for reconnection notifications.
-    
+
     Args:
         session: AsyncSession for database operations
         user_channel: UserChannel instance to update
         contact_id: Last contact user ID
         context_token: Last context token
-        
+
     Returns:
         Updated UserChannel instance
     """
@@ -216,7 +217,7 @@ async def update_last_contact(
 
 async def delete_user_channel(session: AsyncSession, user_channel: UserChannel) -> None:
     """Delete a user channel.
-    
+
     Args:
         session: AsyncSession for database operations
         user_channel: UserChannel instance to delete
@@ -233,24 +234,24 @@ async def get_or_create_user_channel(
     **kwargs: Any,
 ) -> UserChannel:
     """Get existing user channel or create a new one.
-    
+
     Args:
         session: AsyncSession for database operations
         user_id: UUID of the user
         channel: Channel type (e.g., 'weixin')
         channel_user_id: Channel-specific user ID
         **kwargs: Additional fields for creation
-        
+
     Returns:
         UserChannel instance (existing or newly created)
     """
     user_channel = await get_user_channel_by_channel_user_id(
         session, channel, channel_user_id
     )
-    
+
     if user_channel:
         return user_channel
-    
+
     return await create_user_channel(
         session,
         user_id=user_id,
@@ -258,5 +259,3 @@ async def get_or_create_user_channel(
         channel_user_id=channel_user_id,
         **kwargs,
     )
-
-

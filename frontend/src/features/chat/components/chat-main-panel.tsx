@@ -262,17 +262,6 @@ export function ChatMainPanel({
   const shouldShowScrollButton =
     showScrollButton && !isLoadingConversation
 
-  // Handle quote action - set quoted content and message ID
-  // Use message index as stable ID for jump functionality
-  const handleQuote = useCallback((message: LocalChatMessage, messageIndex: number) => {
-    setQuotedContent(message.content)
-    // Use index as stable ID (works after page refresh)
-    setQuotedMessageId(`msg-${messageIndex}`)
-    // Focus the textarea
-    const textarea = document.querySelector('textarea[name="message"]') as HTMLTextAreaElement
-    textarea?.focus()
-  }, [])
-
   // Clear quoted content
   const clearQuote = useCallback(() => {
     setQuotedContent(null)

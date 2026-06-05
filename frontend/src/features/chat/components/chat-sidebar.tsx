@@ -12,6 +12,7 @@ import {
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -272,49 +273,45 @@ export function ChatSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Expand button when collapsed - at the bottom */}
+      </SidebarContent>
+
+      {/* Footer with expand button and user switch - fixed at bottom */}
+      <SidebarFooter className={isCollapsed ? "p-2" : "p-3"}>
+        {/* Expand button when collapsed */}
         {isCollapsed && (
-          <SidebarGroup className="mt-auto pt-2">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    className="cursor-pointer"
-                    tooltip={t("sidebar.expand") || "Expand sidebar"}
-                    onClick={() => toggleSidebar()}
-                  >
-                    <ChevronsRight className="size-4" />
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="cursor-pointer"
+                tooltip={t("sidebar.expand") || "Expand sidebar"}
+                onClick={() => toggleSidebar()}
+              >
+                <ChevronsRight className="size-4" />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         )}
 
-        {/* User switch button at the bottom */}
+        {/* User switch button */}
         {onSwitchUser && (
-          <SidebarGroup className="mt-auto pt-2">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    className="cursor-pointer"
-                    tooltip={isCollapsed ? (currentUser?.name ?? t("user.switchUser")) : undefined}
-                    onClick={onSwitchUser}
-                  >
-                    <div className="flex size-6 items-center justify-center rounded-full bg-muted text-xs shrink-0">
-                      {currentUser?.avatar || (currentUser?.gender === "female" ? "👩" : "👨")}
-                    </div>
-                    {!isCollapsed && (
-                      <span className="truncate">{currentUser?.name ?? t("user.switchUser")}</span>
-                    )}
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="cursor-pointer"
+                tooltip={isCollapsed ? (currentUser?.name ?? t("user.switchUser")) : undefined}
+                onClick={onSwitchUser}
+              >
+                <div className="flex size-6 items-center justify-center rounded-full bg-muted text-xs shrink-0">
+                  {currentUser?.avatar || (currentUser?.gender === "female" ? "👩" : "👨")}
+                </div>
+                {!isCollapsed && (
+                  <span className="truncate">{currentUser?.name ?? t("user.switchUser")}</span>
+                )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
         )}
-      </SidebarContent>
+      </SidebarFooter>
     </Sidebar>
   )
 }

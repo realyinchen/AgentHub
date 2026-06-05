@@ -192,6 +192,46 @@ CREATE TABLE user_channels (
 
 ---
 
+## 最近修改
+
+### 2026-06-05: Supervisor Prompt 推理效率优化（第四轮 - 终极版）
+
+**问题**：第三轮优化后，推理仍过长，模型反复比较多个来源、回溯校验。
+
+**根因分析**：
+1. Prompt 约束力不足，"NEVER"、"Limit" 等措辞仍属建议性质
+2. 模型不知道如何处理多源数据冲突，陷入无限分析
+3. 缺乏明确的推理终止点
+
+**实施改进**（用户提供的终极方案）：
+
+1. **Identity 注入硬原则**：
+   - "One decision, one tool call, one synthesis"
+   - "No repeated reasoning, no backward verification, no endless source comparison"
+
+2. **Tool Iron Rules（工具铁则）**：
+   - "ONE tool call per question maximum"
+   - "Tool result is FINAL"
+
+3. **Reasoning Guidelines（单链路推理）**：
+   - "decide → call ONCE → get result → synthesize → STOP"
+   - "reasoning ≤ 3 lines" for simple queries
+   - "No backward verification"
+
+4. **数据冲突处理**：
+   - "Minor data conflicts → use middle range"
+   - 解决核心问题：模型有了明确的冲突处理策略
+
+5. **[FINAL CONSTRAINT]**：
+   - "Reasoning exceeding 5 lines is a violation"
+
+**代码修改保留**：
+- `web.py`: 屏蔽 `time_range` 参数
+
+**状态**：已实施，待用户测试验证
+
+---
+
 ## Active Decisions
 
 - **微信线程统一** — 微信会话与 Web UI 会话一视同仁，用户可以在 Web UI 查看和继续微信对话

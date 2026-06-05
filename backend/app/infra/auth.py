@@ -24,29 +24,29 @@ logger = logging.getLogger(__name__)
 
 async def _extract_token_from_request(request: Request) -> str | None:
     """Extract JWT token from request.
-    
+
     Checks:
     1. HTTP-only cookie
     2. Authorization header (Bearer token)
-    
+
     Args:
         request: FastAPI request object
-        
+
     Returns:
         Token string or None
     """
     settings = get_settings()
-    
+
     # Try cookie first
     token = request.cookies.get(settings.JWT_COOKIE_NAME)
     if token:
         return token
-    
+
     # Try Authorization header
     auth_header = request.headers.get("Authorization")
     if auth_header and auth_header.startswith("Bearer "):
         return auth_header[7:]  # Remove "Bearer " prefix
-    
+
     return None
 
 
@@ -55,35 +55,35 @@ async def get_current_user(
     session: AsyncSession = Depends(get_async_session),
 ) -> User:
     """Get the current authenticated user.
-    
+
     Raises HTTP 401 if not authenticated.
-    
+
     Args:
         request: FastAPI request object
         session: Database session
-        
+
     Returns:
         User instance
-        
+
     Raises:
         HTTPException: 401 if not authenticated
     """
     token = await _extract_token_from_request(request)
-    
+
     if not token:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Not authenticated",
         )
-    
+
     user_id = verify_token(token)
-    
+
     if not user_id:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired token",
         )
-    
+
     try:
         user_uuid = UUID(user_id)
     except ValueError:
@@ -91,15 +91,15 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token subject",
         )
-    
+
     user = await get_user(session, user_uuid)
-    
+
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
-    
+
     return user
 
 
@@ -108,31 +108,31 @@ async def get_current_user_optional(
     session: AsyncSession = Depends(get_async_session),
 ) -> User | None:
     """Get the current user if authenticated, otherwise None.
-    
+
     Use this for endpoints that work for both authenticated and anonymous users.
-    
+
     Args:
         request: FastAPI request object
         session: Database session
-        
+
     Returns:
         User instance or None
     """
     token = await _extract_token_from_request(request)
-    
+
     if not token:
         return None
-    
+
     user_id = verify_token(token)
-    
+
     if not user_id:
         return None
-    
+
     try:
         user_uuid = UUID(user_id)
     except ValueError:
         return None
-    
+
     return await get_user(session, user_uuid)
 
 
