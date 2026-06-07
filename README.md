@@ -26,16 +26,16 @@
 </p>
 
 <p align="center">
-  Follow the WeChat Official Account <strong>PyTorch研习社</strong> for<br>
-  First-hand updates on AgentHub · Latest AI technology practices<br>
-  <img src="https://github.com/realyinchen/RAG/blob/main/imgs/wechat_qrcode.jpg" alt="PyTorch研习社">
+  关注公众号 <strong>AgenticHub</strong> 获得<br>
+  AI智能体工程实战 | Agentic思维实现 | AgentHub开源项目作者 | 每周新增实战Agent + 完整代码 + 踩坑记录<br>
+  <img src="https://github.com/realyinchen/AgentHub/blob/dev/imgs/qrcode_for_agentichub.jpg" alt="AgenticHub">
 </p>
 
 <p align="center">
-  <div style="display: flex; justify-content: center; gap: 16px; flex-wrap: wrap;">
-    <video src="https://raw.githubusercontent.com/realyinchen/AgentHub/dev/assets/webui.mp4" style="max-height: 300px; border-radius: 8px;"></video>
-    <video src="https://raw.githubusercontent.com/realyinchen/AgentHub/dev/assets/wechat.mp4" style="max-height: 300px; border-radius: 8px;"></video>
-  </div>
+  WebUI<br>
+  <img src="https://github.com/realyinchen/AgentHub/blob/dev/imgs/webui.gif" alt="webui"><br>
+  WeChat Channel<br>
+  <img src="https://github.com/realyinchen/AgentHub/blob/dev/imgs/wechat.gif" alt="wechat channel"><br>
 </p>
 
 ---

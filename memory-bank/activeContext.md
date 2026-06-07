@@ -2,243 +2,79 @@
 
 ## Current Focus
 
-**URL 参数与认证系统整合** (June 4, 2026)
+Memory Bank initialization — no active development task beyond project documentation setup.
 
-### 实现目标
+## Recent Changes
 
-1. 打开主页 `localhost:5173` 必须是登录页面（Jack、Rose + 微信二维码）
-2. 登录后进入聊天界面，URL 变为 `localhost:5173?userId=xxxx`
-3. 进入会话后，URL 变为 `localhost:5173?userId=xxxx&thread_id=xxx`
+### v0.0.1 (2026-06-05) — Initial Release
 
-### URL 结构
+**Completed Features:**
+- Supervisor Agent basic conversation capabilities
+- Dynamic model switching (runtime LLM switching)
+- Tool calling (time query, web search via Tavily)
+- SSE streaming response
+- Multi-user session isolation
+- Long-term memory (LangGraph Store + PGVector)
+- WeChat integration (WebSocket message push)
+- Docker one-click deployment
 
-| 场景 | URL |
-|------|-----|
-| 未登录（首页） | `localhost:5173` |
-| 登录后（无会话） | `localhost:5173?userId=xxxx` |
-| 进入会话 | `localhost:5173?userId=xxxx&thread_id=xxx` |
+## Next Steps
 
-### 认证系统整合
+### Immediate Priorities (In Development)
 
-系统现在支持两种认证方式：
-- **Jack/Rose Mock 用户**：通过 `useUser` hook 管理，userId 存储在 localStorage + URL
-- **微信登录用户**：通过 `AuthContext` 管理，JWT 存储在 cookie，userId 从后端 `/api/v1/auth/status` 获取
+1. **ReAct SubAgent** — Add reasoning and acting capabilities for complex multi-step tasks
+2. **RAG SubAgent** — Implement retrieval-augmented generation for knowledge base queries
+3. **Multi-Agent Collaboration** — Enable multiple agents to work together on complex problems
 
-判断逻辑：
-```typescript
-// Priority: URL userId > mock userId > AuthContext
-const effectiveUserId = userId || (authUser?.id) || null
-const isLoggedIn = !!effectiveUserId || isAuthenticated
-```
+### Future Considerations
 
-### 修改的文件
+- Enhanced tool ecosystem (more built-in tools)
+- Agent orchestration DSL for custom workflows
+- Admin dashboard for monitoring and analytics
+- API rate limiting and usage quotas
 
-1. **`frontend/src/features/chat/utils.ts`**
-   - 添加 `readUserIdFromUrl()` 函数
-   - 添加 `writeToUrl(userId, threadId)` 函数
+## Active Decisions & Considerations
 
-2. **`frontend/src/hooks/use-user.ts`**
-   - 从 URL 读取 userId，同步到 localStorage
-   - 登录时写入 URL 参数
+### Architecture Decisions
 
-3. **`frontend/src/App.tsx`**
-   - 导入 `useAuth` 和 URL 工具函数
-   - 整合两种认证方式的判断逻辑
-   - 使用 `writeUrl` 替代原来的 `writeThreadIdToUrl`
-   - 添加 `isAuthLoading` 加载状态
-   - 使用 `isLoggedIn` 判断是否显示首页
+1. **Supervisor Pattern**: Chosen for simplicity and clear routing. May evolve to more sophisticated patterns as SubAgents are added.
 
-4. **`backend/app/api/v1/weixin.py`**
-   - WebSocket 返回数据添加 `user_id` 字段
+2. **PostgreSQL + pgvector**: Single database for both relational data and vector embeddings. Simplifies deployment and operations.
 
-5. **`frontend/src/channels/weixin/WeixinQRCode.tsx`**
-   - 接收 `user_id` 并写入 URL
-   - 移除 `react-router-dom` 的 `useNavigate`，改用 `window.location.reload()`
+3. **LiteLLM Router**: Provides unified interface to multiple LLM providers with built-in fallback/retry logic.
 
----
+4. **Middleware Chain**: LangChain v1 official middleware pattern for request processing (prompt → model selection → content filter → summarization).
 
-## Previous Focus
+### Known Constraints
 
-**微信扫码登录功能简化重构** (June 4, 2026)
+- LangSmith tracing only allowed in `dev` mode (disabled in `prod`)
+- JWT authentication required for all user-facing APIs
+- API keys stored encrypted in database (AES-256)
+- PostgreSQL is the only supported database (no SQLite/MySQL support)
 
-### 简化后的架构
+## Important Patterns & Preferences
 
-核心原则：**简洁优先，减少抽象**
+### Code Style
+- Python backend: FastAPI async patterns, Pydantic v2 for validation
+- TypeScript frontend: React 19 with hooks, Tailwind CSS for styling
+- All configuration via environment variables (`.env` files)
+- Comprehensive logging with JSON format option for production
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                        Frontend                                  │
-├─────────────────────────────────────────────────────────────────┤
-│  HomePage.tsx → WeixinQRCode.tsx (内联组件)                      │
-│       ↓ WebSocket连接                                           │
-│  AuthContext.tsx (用户状态管理)                                   │
-└─────────────────────────────────────────────────────────────────┘
-                              ↓ WebSocket
-┌─────────────────────────────────────────────────────────────────┐
-│                        Backend                                   │
-├─────────────────────────────────────────────────────────────────┤
-│  /ws/weixin/auth         → WebSocket QR码登录 (内联逻辑)          │
-│  /api/v1/chat/*          → 会话列表/历史 (过滤微信线程)           │
-│  channels/weixin/service → iLink API 封装                        │
-│  services/weixin_listener → 消息循环 (无 WebSocket 管理)         │
-└─────────────────────────────────────────────────────────────────┘
-```
+### Development Workflow
+- Docker Compose for local development and production
+- `backend/` and `frontend/` directories are independently deployable
+- Database migrations via SQL scripts in `backend/scripts/`
 
-### 关键简化点
+## Project Insights
 
-1. **移除 WeixinLoginDialog/WeixinLoginButton** — 用单一 `WeixinQRCode` 组件替代
-2. **首页直接嵌入二维码** — 无需点击按钮，扫码即登录
-3. **WebSocket 逻辑内联** — 所有登录逻辑在 `weixin.py` 端点中，无额外服务类
-4. **Listener 只负责消息循环** — 移除 WebSocket 管理代码
-5. **微信线程完全过滤** — Web UI 无法访问微信会话，防止数据冲突
+### What Works Well
+- Four-layer architecture provides clear separation of concerns
+- Middleware pattern allows easy extension of agent behavior
+- SSE streaming gives responsive user experience
+- Docker one-click deployment lowers barrier to entry
 
-### 文件变更
-
-**简化后的文件结构：**
-```
-frontend/src/channels/weixin/
-├── index.ts              # 只导出 WeixinQRCode
-├── WeixinQRCode.tsx      # 内联二维码组件 (替代 Dialog + Button)
-└── service.ts            # iLink API 客户端 (不变)
-
-backend/app/
-├── api/v1/weixin.py      # WebSocket 端点 (内联登录逻辑)
-├── services/weixin_listener.py  # 消息循环 (简化)
-└── crud/user_channel.py  # 新增: is_weixin_thread() 过滤函数
-```
-
-**已删除：**
-- `frontend/src/channels/weixin/WeixinLoginDialog.tsx`
-- `frontend/src/channels/weixin/WeixinLoginButton.tsx`
-
-### 微信线程统一
-
-**设计决策：** 微信会话与 Web UI 会话一视同仁，用户可以在 Web UI 查看和继续微信对话。
-
-**实现方式：**
-- 微信消息通过 `weixin_listener.py` 接收并存储到 LangGraph checkpointer
-- Web UI 通过 `/history/{thread_id}` 和 `/conversations` 端点访问所有会话
-- 所有会话（包括微信）共享相同的 `thread_id` 机制
-
----
-
-### 认证流程 (简化版)
-
-```
-1. 用户打开首页 → 立即显示二维码 (120秒刷新)
-2. WebSocket 连接 → 后端获取 QR 码 → 推送给前端
-3. 后端轮询扫码状态 (scaned → confirmed)
-4. 确认后:
-   - 创建/查找用户 (user_channels 表)
-   - 生成 JWT
-   - 启动消息循环 (create_listener)
-   - 返回 token + user_id 给前端
-5. 前端直接登录:
-   - 存储 JWT 到 cookie
-   - 写入 userId 到 URL
-   - 刷新页面进入聊天界面
-```
-
-### WebSocket 协议
-
-```json
-// Server → Client
-{"type": "qrcode", "qrcode": "xxx", "qrcode_img": "https://..."}
-{"type": "scaned"}
-{"type": "confirmed", "token": "jwt-xxx", "thread_id": "uuid"}
-{"type": "expired"}
-{"type": "error", "message": "xxx"}
-```
-
-### 待完成
-
-- [ ] 测试完整登录流程
-- [ ] 测试微信消息收发
-
----
-
-## Previous Focus
-
-**微信扫码登录功能实现** (June 4, 2026)
-
-### 核心架构 (已简化)
-实现了通过个人微信扫码注册/登录 AgentHub 的完整功能，基于腾讯 iLink Bot API。
-
-### 数据库设计 (不变)
-
-```sql
--- 用户表
-CREATE TABLE users (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    display_name VARCHAR(64) NOT NULL,
-    avatar_url VARCHAR(512),
-    is_mock_user BOOLEAN NOT NULL DEFAULT FALSE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- 用户渠道绑定表
-CREATE TABLE user_channels (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    channel VARCHAR(32) NOT NULL,           -- 'weixin', 'telegram', etc.
-    channel_user_id VARCHAR(128) NOT NULL,  -- 'xxx@im.wechat'
-    channel_token TEXT,                      -- Bot token (加密存储)
-    channel_base_url VARCHAR(512),           -- API base URL
-    channel_token_expires_at TIMESTAMPTZ,
-    UNIQUE(channel, channel_user_id)
-);
-```
-
----
-
-## 最近修改
-
-### 2026-06-05: Supervisor Prompt 推理效率优化（第四轮 - 终极版）
-
-**问题**：第三轮优化后，推理仍过长，模型反复比较多个来源、回溯校验。
-
-**根因分析**：
-1. Prompt 约束力不足，"NEVER"、"Limit" 等措辞仍属建议性质
-2. 模型不知道如何处理多源数据冲突，陷入无限分析
-3. 缺乏明确的推理终止点
-
-**实施改进**（用户提供的终极方案）：
-
-1. **Identity 注入硬原则**：
-   - "One decision, one tool call, one synthesis"
-   - "No repeated reasoning, no backward verification, no endless source comparison"
-
-2. **Tool Iron Rules（工具铁则）**：
-   - "ONE tool call per question maximum"
-   - "Tool result is FINAL"
-
-3. **Reasoning Guidelines（单链路推理）**：
-   - "decide → call ONCE → get result → synthesize → STOP"
-   - "reasoning ≤ 3 lines" for simple queries
-   - "No backward verification"
-
-4. **数据冲突处理**：
-   - "Minor data conflicts → use middle range"
-   - 解决核心问题：模型有了明确的冲突处理策略
-
-5. **[FINAL CONSTRAINT]**：
-   - "Reasoning exceeding 5 lines is a violation"
-
-**代码修改保留**：
-- `web.py`: 屏蔽 `time_range` 参数
-
-**状态**：已实施，待用户测试验证
-
----
-
-## Active Decisions
-
-- **微信线程统一** — 微信会话与 Web UI 会话一视同仁，用户可以在 Web UI 查看和继续微信对话
-- **首页直接扫码** — 无需点击按钮，用户体验更流畅
-- **120秒自动刷新** — 二维码过期后自动重新获取
-- **每登录一个 Listener** — 每个微信登录会话独立的消息循环
-
-## Active Branches
-
-- Main development on `main` branch
+### Areas for Improvement
+- Test coverage needs to be established
+- API documentation could be enhanced
+- Error messages could be more user-friendly
+- Performance benchmarking needed for production readiness
