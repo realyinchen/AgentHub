@@ -25,22 +25,22 @@ def _get_encryption_key() -> bytes:
     encryption_key = os.getenv("API_KEY_ENCRYPTION_KEY")
 
     if encryption_key is None:
-        # Check if we're in production mode
-        env = os.getenv("ENVIRONMENT", os.getenv("PYTHON_ENV", "development")).lower()
-        is_production = env in {"prod", "production"}
+        # Check if we're in prod (production) mode via our canonical MODE setting
+        mode = os.getenv("MODE", "dev").lower()
+        is_prod = mode == "prod"
 
-        if is_production:
+        if is_prod:
             raise RuntimeError(
-                "API_KEY_ENCRYPTION_KEY must be set in production mode. "
+                "API_KEY_ENCRYPTION_KEY must be set in prod (production) mode. "
                 "Please set this environment variable to a secure random string."
             )
 
-        # Development mode: use a default key and issue a warning
+        # Dev (development/test) mode: use a default key and issue a warning
         import logging
 
         logger = logging.getLogger(__name__)
         logger.warning(
-            "Using default API_KEY_ENCRYPTION_KEY in development mode. "
+            "Using default API_KEY_ENCRYPTION_KEY in dev mode. "
             "This is NOT secure for production!"
         )
         encryption_key = "AgentHub2026SecureKey!@#$%"

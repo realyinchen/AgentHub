@@ -1,45 +1,33 @@
 import {
   BrainIcon,
-  CheckCircle2,
   CheckIcon,
   ChevronDown,
-  ChevronDownIcon,
-  ChevronRightIcon,
   CopyIcon,
-  ListOrdered,
-  PencilIcon,
-  QuoteIcon,
+  Loader2,
 } from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 
-import { Action, Actions } from "@/components/ai/actions"
 import { Message, MessageContent } from "@/components/ai/message"
 import { cn } from "@/lib/utils"
-import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo, AgentProcessSession, MessageStep, ToolCallEvent } from "@/types"
+import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo } from "@/types"
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
-  messageIndex: number // Index in messages array for edit functionality
   calledTools?: ToolCallInfo[]
   isAgentThinking?: boolean
   thinkingContent?: string // Accumulated thinking content (streaming)
   isProcessing?: boolean // Processing, no content received yet (kept for backward compatibility, not used)
   isStreaming?: boolean // Whether the current message is streaming
-  processSession?: AgentProcessSession | null // Process session for inline display during streaming
-  messageSequence?: MessageStep[] // Message sequence for historical display
   sessionId?: string | null // session_id for this AI message
   hasSteps?: boolean // Whether this AI message has steps (tool calls or thinking)
   isSelected?: boolean // Whether this message's session is currently selected in sidebar
-  onEditMessage?: (newContent: string, messageIndex: number) => void // Callback when user edits their message, with index
-  editDisabled?: boolean // Whether edit is disabled
-  onQuote?: () => void // Callback when user wants to quote this message
-  quoteDisabled?: boolean // Whether quote is disabled
   onJumpToMessage?: (localId: string) => void // Jump to quoted message
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectSession?: (sessionId: string) => void // Select a specific session to view
+  onSelectRequestId?: (requestId: string | null) => void // Select request_id for DAG viewing
 }
 
 type SourceLink = {
@@ -202,318 +190,41 @@ function parseStoredToolInfo(message: LocalChatMessage): ToolCallInfo[] {
   }
 }
 
-/**
- * Group consecutive tool calls with the same name.
- * Returns an array of grouped tool calls with count.
- */
-type GroupedToolCall = {
-  name: string
-  count: number
-  tools: ToolCallInfo[]
-}
-
-function groupConsecutiveToolCalls(tools: ToolCallInfo[]): GroupedToolCall[] {
-  if (tools.length === 0) {
-    return []
-  }
-
-  const groups: GroupedToolCall[] = []
-  let currentGroup: GroupedToolCall = {
-    name: tools[0].name,
-    count: 1,
-    tools: [tools[0]],
-  }
-
-  for (let i = 1; i < tools.length; i++) {
-    const tool = tools[i]
-    if (tool.name === currentGroup.name) {
-      // Same tool as previous - add to current group
-      currentGroup.count++
-      currentGroup.tools.push(tool)
-    } else {
-      // Different tool - push current group and start new one
-      groups.push(currentGroup)
-      currentGroup = {
-        name: tool.name,
-        count: 1,
-        tools: [tool],
-      }
-    }
-  }
-
-  // Don't forget to push the last group
-  groups.push(currentGroup)
-
-  return groups
-}
-
-// ==================== Timeline Step Types ====================
-
-type TimelineStepType = "ai_thinking" | "tool" | "ai_final"
-
-type TimelineStep = {
-  id: string
-  stepNumber: number
-  type: TimelineStepType
-  title: string
-  content: string
-  args?: string
-  result?: string
-  thinking?: string
-  status: "running" | "done"
-  timestamp: number
-}
-
-// Icon mapping
-const getStepIcon = (type: TimelineStepType) => {
-  if (type === "ai_thinking" || type === "ai_final") {
-    return "🧠"
-  }
-  return "🔧"
-}
-
-// ==================== Inline Process Steps Component (for streaming) ====================
-// Shows steps in main chat UI during agent execution (before final content streams)
-
-function InlineProcessSteps({
-  session,
-}: {
-  session: AgentProcessSession | null
-}) {
-  const { t } = useI18n()
-  const [expandedSteps, setExpandedSteps] = useState<Set<string>>(new Set())
-
-  // Convert streaming session to timeline steps
-  const getTimelineStepsFromSession = (): TimelineStep[] => {
-    if (!session || !session.steps || session.steps.length === 0) {
-      return []
-    }
-
-    const steps: TimelineStep[] = []
-
-    session.steps.forEach((step) => {
-      // Skip human messages
-      if (step.type === "human") {
-        return
-      }
-
-      if (step.type === "thinking") {
-        steps.push({
-          id: step.id,
-          stepNumber: steps.length,
-          type: "ai_thinking",
-          title: t("process.thinking"),
-          content: "",
-          thinking: step.content as string,
-          status: step.status === "done" ? "done" : "running",
-          timestamp: step.timestamp,
-        })
-      } else if (step.type === "tool_call") {
-        const toolCall = step.content as ToolCallEvent
-        steps.push({
-          id: step.id,
-          stepNumber: steps.length,
-          type: "tool",
-          title: toolCall.name,
-          content: "",
-          result: step.result || "",
-          status: step.status === "done" ? "done" : "running",
-          timestamp: step.timestamp,
-        })
-      } else if (step.type === "ai_response") {
-        const thinkingContent = step.thinking || ""
-        const hasThinking = thinkingContent.trim().length > 0
-        const contentStr = (step.content as string) || ""
-        const hasContent = contentStr.trim().length > 0
-
-        // Only add ai_response step if it has thinking or content
-        if (hasThinking || hasContent) {
-          steps.push({
-            id: step.id,
-            stepNumber: steps.length,
-            type: "ai_final",
-            title: t("process.modelResponse"),
-            content: hasContent ? contentStr : "",
-            thinking: hasThinking ? thinkingContent : undefined,
-            status: "done",
-            timestamp: step.timestamp,
-          })
-        }
-      }
-    })
-
-    return steps
-  }
-
-  const timelineSteps = getTimelineStepsFromSession()
-
-  // Auto-expand last step when new steps arrive
-  useEffect(() => {
-    if (timelineSteps.length > 0) {
-      const lastStepId = timelineSteps[timelineSteps.length - 1].id
-      setExpandedSteps(prev => {
-        const next = new Set(prev)
-        next.add(lastStepId)
-        return next
-      })
-    }
-  }, [timelineSteps.length])
-
-  const toggleStep = (stepId: string) => {
-    setExpandedSteps(prev => {
-      const next = new Set(prev)
-      if (next.has(stepId)) {
-        next.delete(stepId)
-      } else {
-        next.add(stepId)
-      }
-      return next
-    })
-  }
-
-  if (timelineSteps.length === 0) {
-    return null
-  }
-
-  return (
-    <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-2 px-1">
-        <span className="text-[11px] font-medium text-muted-foreground">
-          {t("process.executionSteps")}
-        </span>
-        <span className="text-[10px] text-muted-foreground">
-          {timelineSteps.length}
-        </span>
-      </div>
-
-      <div className="space-y-0">
-        {timelineSteps.map((step, index) => {
-          const isExpanded = expandedSteps.has(step.id)
-          const isLast = index === timelineSteps.length - 1
-          const isRunning = step.status === "running"
-
-          return (
-            <div key={step.id} className="relative">
-              {/* Timeline vertical line */}
-              {!isLast && (
-                <div className="absolute left-[11px] top-5 bottom-0 w-0.5 bg-gray-200 dark:bg-gray-700" />
-              )}
-
-              {/* Step row */}
-              <div className="flex items-start gap-2">
-                {/* Dot/Circle */}
-                <div
-                  className={cn(
-                    "flex-shrink-0 size-5 rounded-full flex items-center justify-center text-[10px] z-10",
-                    isRunning
-                      ? "bg-blue-100 dark:bg-blue-900/30 animate-pulse"
-                      : "bg-green-100 dark:bg-green-900/30"
-                  )}
-                >
-                  {isRunning ? (
-                    <span className="size-1.5 rounded-full bg-blue-500 animate-pulse" />
-                  ) : (
-                    <span className="text-green-600 dark:text-green-400 text-[8px]">✔</span>
-                  )}
-                </div>
-
-                {/* Content */}
-                <div className="flex-1 min-w-0 pb-2">
-                  {/* Header - clickable */}
-                  <button
-                    type="button"
-                    onClick={() => toggleStep(step.id)}
-                    className="w-full text-left flex items-center gap-1.5 group"
-                  >
-                    {/* Expand/Collapse icon */}
-                    {isExpanded ? (
-                      <ChevronDownIcon className="size-3 text-gray-400 flex-shrink-0" />
-                    ) : (
-                      <ChevronRightIcon className="size-3 text-gray-400 flex-shrink-0" />
-                    )}
-
-                    {/* Icon */}
-                    <span className="text-xs">{getStepIcon(step.type)}</span>
-
-                    {/* Title */}
-                    <span className="text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate flex-1">
-                      {step.title}
-                    </span>
-                  </button>
-
-                  {/* Expandable content */}
-                  {isExpanded && (
-                    <div className="mt-1.5 ml-5 space-y-2">
-                      {/* AI Thinking step during streaming */}
-                      {step.type === "ai_thinking" && step.thinking && (
-                        <div className="rounded-md bg-amber-50 dark:bg-amber-900/20 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                          {step.thinking}
-                        </div>
-                      )}
-
-                      {/* Result (for tool result steps) */}
-                      {step.result && (
-                        <div className="rounded-md bg-gray-100 dark:bg-gray-800/50 p-2 text-[11px] text-gray-600 dark:text-gray-400 whitespace-pre-wrap break-words max-h-40 overflow-y-auto">
-                          {step.result}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )
-        })}
-      </div>
-    </div>
-  )
-}
-
 export function ChatMessageItem({
   message,
-  messageIndex,
   calledTools = [],
   thinkingContent = "",
   isStreaming = false,
-  processSession,
-  messageSequence: _messageSequence,  // eslint-disable-line @typescript-eslint/no-unused-vars
-  sessionId,
   isSelected = false,
-  onEditMessage,
-  editDisabled = false,
-  onQuote,
-  quoteDisabled = false,
   onJumpToMessage,
-  onToggleSidebarProcess: _onToggleSidebarProcess,  // eslint-disable-line @typescript-eslint/no-unused-vars
-  onSelectSession,
+  onSelectRequestId,
 }: ChatMessageItemProps) {
-  const messageRef = useRef<HTMLDivElement>(null)
   const { t } = useI18n()
   const isUser = message.type === "human"
   const isAI = message.type === "ai"
   const isTool = message.type === "tool"
   const sources = parseSources(message)
   const [copied, setCopied] = useState(false)
-  const [isEditing, setIsEditing] = useState(false)
-  // For quoted messages, edit only the user_content; otherwise edit the full content
-  const [editContent, setEditContent] = useState(
-    (isUser && message.custom_data?.user_content as string | undefined) || message.content
-  )
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const [isActionsHovered, setIsActionsHovered] = useState(false)
-  const actionsRef = useRef<HTMLDivElement>(null)
 
   // Parse thinking content from message (for history) or use streaming content
   const historicalThinking = parseThinkingContent(message)
   const displayThinkingContent = thinkingContent || historicalThinking || ""
   const hasThinkingContent = Boolean(displayThinkingContent)
 
+  // Ref for thinking content container - auto-scroll during streaming
+  const thinkingContentRef = useRef<HTMLDivElement>(null)
+
+  // Auto-scroll thinking content to bottom when content grows during streaming
+  useEffect(() => {
+    if (isStreaming && thinkingContent && thinkingContentRef.current) {
+      thinkingContentRef.current.scrollTop = thinkingContentRef.current.scrollHeight
+    }
+  }, [isStreaming, thinkingContent])
+
   // Merge calledTools from streaming with stored tool_info from history
   // For streaming messages, use calledTools; for history messages, use stored tool_info
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
   const hasToolCalls = allTools.length > 0
-
 
   useEffect(() => {
     if (!copied) {
@@ -538,8 +249,9 @@ export function ChatMessageItem({
   }
 
   // Determine what to show in the action bar
-  // Show brain icon only if this AI message has steps (tool calls or thinking)
-  const showBrainIcon = !!sessionId
+  // Show brain icon if this AI message has request_id (for DAG viewing)
+  const hasRequestId = Boolean(message.request_id)
+  const showBrainIcon = hasRequestId
 
   // Get quoted message ID and user content from custom_data
   const quotedMessageId = message.custom_data?.quoted_message_id as string | undefined
@@ -581,15 +293,14 @@ export function ChatMessageItem({
   return (
     <article
       id={`message-${message.local_id}`}
-      ref={messageRef}
-      className={cn("flex w-full items-start gap-3", isUser && "justify-end")}
+      className={cn("flex w-full items-center gap-2", isUser ? "flex-row-reverse justify-start" : "justify-start")}
     >
       <Message
         from={isUser ? "user" : "assistant"}
         className={cn(
           "min-w-0 shrink-0 transition-all duration-300",
           isUser
-            ? "w-auto max-w-[72%] items-end"
+            ? "w-auto max-w-[72%] items-end ml-0"
             : "w-full max-w-[85%]",
           isAI && isSelected && "scale-[1.01]"
         )}
@@ -630,39 +341,55 @@ export function ChatMessageItem({
             </details>
           ) : null}
 
-          {/* Inline Process Steps - show during streaming before final content arrives */}
-          {/* Show when: AI message, streaming, has active processSession, no final content yet */}
-          {isAI && isStreaming && processSession?.isActive && !message.content.trim() ? (
-            <InlineProcessSteps session={processSession} />
-          ) : null}
 
-          {/* Thinking process - only show when there is actual thinking content and no process session */}
-          {isAI && hasThinkingContent && isStreaming && !message.content.trim() && !processSession?.isActive ? (
-            <details className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2" open>
-              <summary className="flex cursor-pointer list-none items-center gap-2 font-medium text-muted-foreground">
-                <BrainIcon className="size-3" />
-                {t("message.thinking")}
-              </summary>
-              <div className="mt-2 whitespace-pre-wrap text-muted-foreground max-h-40 overflow-y-auto">
-                {displayThinkingContent}
+          {/* Thinking content display - show during streaming when there's thinking content */}
+          {/* Note: DashScope may send reasoning events after text tokens, so we show thinking
+              content whenever it's available during streaming, regardless of text content */}
+          {isAI && isStreaming && thinkingContent ? (
+            <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs mb-2">
+              <div className="flex items-center gap-2 mb-2">
+                <BrainIcon className="size-3.5 text-primary animate-pulse" />
+                <span className="font-medium text-muted-foreground">
+                  {t("message.thinking") || "Thinking..."}
+                </span>
               </div>
-            </details>
+              <div ref={thinkingContentRef} className="whitespace-pre-wrap break-words text-muted-foreground max-h-48 overflow-y-auto">
+                {thinkingContent}
+              </div>
+            </div>
           ) : null}
 
-          {/* Tool calls during streaming - only show completed tools (with output) and no process session */}
-          {isAI && allTools.some(t => t.status === "completed") && isStreaming && !message.content.trim() && !processSession?.isActive ? (
-            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2">
+          {/* Tool calls display - ChatGPT style scrolling list */}
+          {isAI && allTools.length > 0 && (isStreaming || !message.content.trim()) ? (
+            <div className="rounded-lg border border-border/60 bg-background/50 p-2 text-xs mb-2 max-h-32 overflow-y-auto">
               <div className="space-y-1.5">
-                {groupConsecutiveToolCalls(allTools.filter(t => t.status === "completed")).map((group, groupIndex) => {
+                {allTools.map((tool, toolIndex) => {
+                  const isCalling = tool.status === "calling"
+                  const isCompleted = tool.status === "completed"
                   return (
-                    <div key={`group-${groupIndex}`} className="flex items-center gap-2">
-                      <CheckIcon className="size-3 text-green-500" />
-                      <span className="text-foreground">
-                        {group.name}
-                        {group.count > 1 ? (
-                          <span className="ml-1 text-muted-foreground">×{group.count}</span>
-                        ) : null}
+                    <div
+                      key={tool.id || `tool-${toolIndex}`}
+                      className={cn(
+                        "flex items-center gap-2 animate-in slide-in-from-left-2 duration-200",
+                        toolIndex === allTools.length - 1 && isCalling && "bg-primary/5 -mx-1 px-1 rounded"
+                      )}
+                    >
+                      {isCalling ? (
+                        <Loader2 className="size-3 animate-spin text-primary" />
+                      ) : isCompleted ? (
+                        <CheckIcon className="size-3 text-green-500" />
+                      ) : null}
+                      <span className={cn(
+                        "font-medium",
+                        isCalling ? "text-foreground" : "text-muted-foreground"
+                      )}>
+                        {tool.name}
                       </span>
+                      {isCalling && (
+                        <span className="text-muted-foreground text-[10px] animate-pulse">
+                          {t("message.toolRunning")}
+                        </span>
+                      )}
                     </div>
                   )
                 })}
@@ -675,54 +402,6 @@ export function ChatMessageItem({
             message.content ? (
               <MarkdownContent content={message.content} isStreaming={isStreaming} />
             ) : null
-          ) : isEditing ? (
-            <div className="space-y-2">
-              <textarea
-                ref={textareaRef}
-                value={editContent}
-                onChange={(e) => setEditContent(e.target.value)}
-                className="w-full min-h-[60px] resize-none rounded-lg bg-background p-2 text-sm text-foreground placeholder-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring"
-                placeholder={t("message.editPlaceholder")}
-                rows={3}
-              />
-              <div className="flex justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditing(false)
-                    setEditContent(message.content)
-                  }}
-                  className="rounded-md px-2 py-1 text-xs text-muted-foreground hover:bg-background/80"
-                >
-                  {t("common.cancel")}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (editContent.trim() && onEditMessage) {
-                      // For quoted messages, reconstruct the full content with quote
-                      if (isQuotedMessage && quotedParts) {
-                        const newFullContent = `> ${quotedParts.quotedContent}\n\n${editContent.trim()}`
-                        // Only send if content actually changed
-                        if (newFullContent !== message.content.trim()) {
-                          onEditMessage(newFullContent, messageIndex)
-                        }
-                      } else {
-                        // Regular message - check if content changed
-                        if (editContent.trim() !== message.content.trim()) {
-                          onEditMessage(editContent.trim(), messageIndex)
-                        }
-                      }
-                    }
-                    setIsEditing(false)
-                  }}
-                  disabled={!editContent.trim() || editDisabled}
-                  className="rounded-md bg-primary/20 px-2 py-1 text-xs text-primary hover:bg-primary/30 disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {t("message.sendEdit")}
-                </button>
-              </div>
-            </div>
           ) : isQuotedMessage ? (
             // Render quoted message with separator - use user_content for display
             <div className="space-y-2">
@@ -757,113 +436,52 @@ export function ChatMessageItem({
           )}
         </MessageContent>
 
-        {/* User message actions: copy, edit, quote - always rendered, controlled by opacity */}
-        {isUser && !isEditing && (
-          <Actions
-            ref={actionsRef}
-            className={cn(
-              "pt-1 justify-end transition-opacity duration-200",
-              isActionsHovered ? "opacity-100" : "opacity-0"
-            )}
-            onMouseEnter={() => setIsActionsHovered(true)}
-            onMouseLeave={() => setIsActionsHovered(false)}
-          >
-            <Action
-              onClick={() => {
-                void handleCopy()
-              }}
-              className="cursor-pointer"
-              tooltip={copied ? t("common.copied") : t("common.copy")}
-              label={copied ? t("message.copiedMessage") : t("message.copyMessage")}
-            >
-              {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-            </Action>
-            <Action
-              onClick={() => setIsEditing(true)}
-              tooltip={t("common.edit")}
-              label={t("message.editMessage")}
-              className="cursor-pointer"
-              disabled={editDisabled}
-            >
-              <PencilIcon className="size-4" />
-            </Action>
-            {onQuote ? (
-              <Action
-                onClick={onQuote}
-                tooltip={t("message.quote")}
-                label={t("message.quote")}
-                className="cursor-pointer"
-                disabled={quoteDisabled}
-              >
-                <QuoteIcon className="size-4" />
-              </Action>
-            ) : null}
-          </Actions>
-        )}
-
-        {/* Message Steps - hidden per user request */}
-        {/* {isAI && !isStreaming && hasSteps ? (
-          <MessageSteps
-            messageSequence={_messageSequence}
-            sessionId={sessionId}
-            defaultExpanded={false}
-          />
-        ) : null} */}
-
-        {/* Actions area: copy, thinking process, tool calls */}
+        {/* AI message actions: copy, DAG view - below the bubble */}
         {isAI && !isStreaming ? (
-          <div className={cn("flex flex-col", isUser ? "items-end" : "items-start")}>
-            <Actions className={cn("pt-1", isUser ? "justify-end" : "justify-start")}>
-              <Action
-                onClick={() => {
-                  void handleCopy()
-                }}
-                className="cursor-pointer"
-                tooltip={copied ? t("common.copied") : t("common.copy")}
-                label={copied ? t("message.copiedResponse") : t("message.copyResponse")}
+          <div className="flex flex-col items-start">
+            <div className="pt-1 flex items-center gap-1 justify-start">
+              <button
+                onClick={() => void handleCopy()}
+                className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer"
+                title={copied ? t("common.copied") : t("common.copy")}
               >
                 {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
-              </Action>
-              {onQuote ? (
-                <Action
-                  onClick={onQuote}
-                  tooltip={t("message.quote")}
-                  label={t("message.quote")}
-                  className="cursor-pointer"
-                  disabled={quoteDisabled}
-                >
-                  <QuoteIcon className="size-4" />
-                </Action>
-              ) : null}
+              </button>
 
-              {/* Steps icon - click to show this session's steps in sidebar */}
-              {showBrainIcon && sessionId ? (
+              {/* DAG icon - click to show this request's execution DAG */}
+              {showBrainIcon && message.request_id ? (
                 <button
                   type="button"
                   onClick={() => {
-                    // Select this session to show its steps
-                    if (onSelectSession) {
-                      onSelectSession(sessionId)
+                    // Select this request_id to show its DAG
+                    if (onSelectRequestId) {
+                      onSelectRequestId(message.request_id || null)
                     }
                   }}
                   className={cn(
                     "p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors cursor-pointer",
-                    isSelected && "text-accent hover:text-accent"
+                    isSelected && "text-primary hover:text-primary"
                   )}
                   title={t("process.showProcess")}
                 >
-                  {/* Show check circle icon if this message's session is currently selected in sidebar, otherwise show list icon */}
-                  {isSelected ? (
-                    <CheckCircle2 className="size-4" />
-                  ) : (
-                    <ListOrdered className="size-4" />
-                  )}
+                  <BrainIcon className="size-4" />
                 </button>
               ) : null}
-            </Actions>
+            </div>
           </div>
         ) : null}
       </Message>
+
+      {/* User message: copy button on the left, vertically centered */}
+      {isUser && (
+        <button
+          onClick={() => void handleCopy()}
+          className="p-1.5 rounded-md text-muted-foreground/60 hover:text-foreground hover:bg-background/80 transition-colors cursor-pointer self-center shrink-0 opacity-60 hover:opacity-100"
+          title={copied ? t("common.copied") : t("common.copy")}
+        >
+          {copied ? <CheckIcon className="size-4" /> : <CopyIcon className="size-4" />}
+        </button>
+      )}
     </article>
   )
 }

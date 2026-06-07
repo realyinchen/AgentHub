@@ -590,15 +590,27 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               </Button>
                             </>
                           ) : (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              onClick={addNewModelForm}
-                              className="gap-1"
-                            >
-                              <Plus className="size-3.5" />
-                              {t("model.addModel")}
-                            </Button>
+                            <TooltipProvider>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Button
+                                    variant="secondary"
+                                    size="sm"
+                                    onClick={addNewModelForm}
+                                    className="gap-1"
+                                    disabled={!selectedProviderInfo.has_api_key}
+                                  >
+                                    <Plus className="size-3.5" />
+                                    {t("model.addModel")}
+                                  </Button>
+                                </TooltipTrigger>
+                                {!selectedProviderInfo.has_api_key && (
+                                  <TooltipContent side="top" className="max-w-xs">
+                                    <p>{t("model.needApiKeyFirst")}</p>
+                                  </TooltipContent>
+                                )}
+                              </Tooltip>
+                            </TooltipProvider>
                           )}
                         </div>
                       </div>
@@ -683,15 +695,27 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                           ))}
 
                           {/* Add another model button */}
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={addNewModelForm}
-                            className="w-full gap-1"
-                          >
-                            <Plus className="size-3.5" />
-                            {t("model.continueAdd")}
-                          </Button>
+                          <TooltipProvider>
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  onClick={addNewModelForm}
+                                  className="w-full gap-1"
+                                  disabled={!selectedProviderInfo.has_api_key}
+                                >
+                                  <Plus className="size-3.5" />
+                                  {t("model.continueAdd")}
+                                </Button>
+                              </TooltipTrigger>
+                              {!selectedProviderInfo.has_api_key && (
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <p>{t("model.needApiKeyFirst")}</p>
+                                </TooltipContent>
+                              )}
+                            </Tooltip>
+                          </TooltipProvider>
                         </div>
                       )}
 
@@ -699,7 +723,10 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                       <div className="space-y-3">
                         {selectedProviderModels.length === 0 && newModelForms.length === 0 ? (
                           <div className="text-center py-8 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
-                            {t("model.noModelsForProvider") || "No models configured for this provider"}
+                            {!selectedProviderInfo.has_api_key
+                              ? (t("model.needApiKeyFirstThenAdd"))
+                              : (t("model.noModelsForProvider") || "No models configured for this provider")
+                            }
                           </div>
                         ) : (
                           selectedProviderModels
@@ -744,14 +771,26 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                           </Button>
                                         </>
                                       ) : (
-                                        <Button
-                                          variant="ghost"
-                                          size="icon"
-                                          className="size-8 rounded-lg text-muted-foreground/60 hover:text-primary transition-all hover:scale-105 active:scale-95"
-                                          onClick={() => toggleModelEdit(model.model_id)}
-                                        >
-                                          <Edit2 className="size-4" />
-                                        </Button>
+                                        <TooltipProvider>
+                                          <Tooltip>
+                                            <TooltipTrigger asChild>
+                                              <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="size-8 rounded-lg text-muted-foreground/60 hover:text-primary transition-all hover:scale-105 active:scale-95"
+                                                onClick={() => toggleModelEdit(model.model_id)}
+                                                disabled={!selectedProviderInfo.has_api_key}
+                                              >
+                                                <Edit2 className="size-4" />
+                                              </Button>
+                                            </TooltipTrigger>
+                                            {!selectedProviderInfo.has_api_key && (
+                                              <TooltipContent side="top" className="max-w-xs">
+                                                <p>{t("model.needApiKeyFirst")}</p>
+                                              </TooltipContent>
+                                            )}
+                                          </Tooltip>
+                                        </TooltipProvider>
                                       )}
                                       <Button
                                         variant="ghost"

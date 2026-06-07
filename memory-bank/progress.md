@@ -1,37 +1,132 @@
 # Progress
 
+## Current Status
+
+**Version**: v0.0.1 (Initial Release)
+**Release Date**: 2026-06-05
+**Status**: Production-ready core features, SubAgents in development
+
 ## What Works
-- Phase 1: Architecture foundation (interfaces, factory, config) ✅
-- Phase 2: PostgreSQL migration (all business code uses factory) ✅
-- Phase 3: SQLite backend (db.py, checkpointer.py, ORM model refactoring) ✅
-- Phase 5: Smart database initialization (dual-backend init_database.py, SQL scripts, ORM fixes) ✅
-- Code review fixes: singleton caching, connection pool leak, auto-commit, AsyncQdrantClient ✅
+
+### Core Platform ✅
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Supervisor Agent | ✅ Complete | Basic conversation with tool calling |
+| Dynamic Model Switching | ✅ Complete | Runtime LLM switching via middleware |
+| SSE Streaming | ✅ Complete | Token-level streaming via `astream_events` v3 |
+| Multi-User Isolation | ✅ Complete | Per-user sessions with Checkpointer |
+| Long-Term Memory | ✅ Complete | LangGraph Store + PGVector |
+| JWT Authentication | ✅ Complete | HTTP-only cookies, 7-day expiry |
+| API Key Encryption | ✅ Complete | AES-256 encryption for stored keys |
+| Docker Deployment | ✅ Complete | One-click three-container setup |
+
+### Tools ✅
+
+| Tool | Status | Notes |
+|------|--------|-------|
+| `get_current_time` | ✅ Complete | Timezone-aware time query |
+| `web_search` | ✅ Complete | Tavily-powered web search |
+
+### Integrations ✅
+
+| Integration | Status | Notes |
+|-------------|--------|-------|
+| WeChat iLink | ✅ Complete | WebSocket message push |
+| LangSmith | ✅ Complete | Tracing (dev mode only) |
+| LiteLLM Router | ✅ Complete | Multi-provider with fallback/retry |
+
+### Frontend ✅
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Chat UI | ✅ Complete | SSE streaming, markdown rendering |
+| Session Management | ✅ Complete | Create, list, delete sessions |
+| Model Selection | ✅ Complete | Dynamic model switching UI |
+| User Authentication | ✅ Complete | Login, register, logout |
+| Responsive Design | ✅ Complete | Mobile-friendly |
 
 ## What's Left to Build
-- Phase 4: sqlite-vec vectorstore backend
-- Phase 6: Configuration and documentation
 
-## Current Status
-Phase 3 and Phase 5 complete. SQLite backend fully implemented. `init_database.py` refactored to support both PostgreSQL and SQLite via SQL scripts in `sql/postgres/` and `sql/sqlite/` subdirectories. ORM model compatibility issues resolved (`server_default=func.now()` → `default=utc_now`, `description` primary_key fix). Ready for Phase 4 (vector store abstraction).
+### Phase 1: SubAgents (In Development)
+
+| Feature | Status | Priority |
+|---------|--------|----------|
+| ReAct SubAgent | 🔄 In Progress | High |
+| RAG SubAgent | 📋 Planned | High |
+| Multi-Agent Collaboration | 📋 Planned | Medium |
+
+### Phase 2: Enhanced Tooling
+
+| Feature | Status | Priority |
+|---------|--------|----------|
+| Code Interpreter | 📋 Planned | Medium |
+| File Processing | 📋 Planned | Medium |
+| Custom Tool Framework | 📋 Planned | Medium |
+
+### Phase 3: Platform Features
+
+| Feature | Status | Priority |
+|---------|--------|----------|
+| Admin Dashboard | 📋 Planned | Medium |
+| Usage Analytics | 📋 Planned | Low |
+| Rate Limiting | 📋 Planned | Medium |
+| API Quotas | 📋 Planned | Low |
+
+### Phase 4: Developer Experience
+
+| Feature | Status | Priority |
+|---------|--------|----------|
+| Agent Orchestration DSL | 📋 Planned | Low |
+| Custom Agent Templates | 📋 Planned | Low |
+| CLI Tool | 📋 Planned | Low |
 
 ## Known Issues
-- `VectorstoreInterface.search()` (text-based) raises `NotImplementedError` — needs embedding model integration
-- `vectorstore_search` tool calls `vectorstore.search()` which will fail for Qdrant backend — needs embedding model wiring
-- CRUD `message_step.py` uses `flush()` without `commit()` in save functions — relies on session auto-commit (safe with current auto-commit semantics)
 
-## Documentation Updates (2026-04-27)
-- Merged `memory-bank/database-abstraction.md` into `README.md` (English) and `README.zh.md` (Chinese)
-- Added 🗄️ Database Abstraction Architecture section to both READMEs
-- Removed standalone `memory-bank/database-abstraction.md` — documentation now centralized in bilingual READMEs
+1. **Test Coverage**: No automated tests yet — needs unit and integration tests
+2. **API Documentation**: OpenAPI docs exist but could be enhanced with more examples
+3. **Error Messages**: Some error messages are technical; could be more user-friendly
+4. **Performance Benchmarking**: No load testing done yet for production readiness
 
 ## Evolution of Project Decisions
-- 2026-04-24: Migrated from direct `db_manager`/`checkpointer`/`qdrant_manager` imports to factory pattern
-- 2026-04-24: Code review fixed critical singleton caching, connection pool leak, and async client issues
-- 2026-04-24: Restored auto-commit in session() to match old behavior and prevent silent data loss
-- 2026-04-24: Changed QdrantClient to AsyncQdrantClient to avoid blocking FastAPI event loop
-- 2026-04-24: Simplified main.py to use init_all()/dispose_all() for lifecycle management
-- 2026-04-25: Refactored ORM models from PostgreSQL dialect types (UUID, JSONB) to SQLAlchemy universal types (Uuid, JSON) for cross-backend compatibility
-- 2026-04-25: Implemented SQLite backend (SQLiteDatabase, SqliteCheckpointer) using aiosqlite + langgraph-checkpoint-sqlite
-- 2026-04-25: SQLite uses StaticPool for async compatibility, auto-creates data directory and tables via create_all()
-- 2026-04-25: Phase 5 complete — init_database.py supports both backends, SQL scripts reorganized into sql/postgres/ and sql/sqlite/ subdirectories
-- 2026-04-25: Fixed Agent model (description erroneously set as primary_key, is_active default), Provider/Model models (server_default=func.now() → default=utc_now for SQLite compat)
+
+### Architecture Decisions
+
+| Decision | Rationale | Status |
+|----------|-----------|--------|
+| Four-layer architecture | Clean separation, testability | ✅ Final |
+| Supervisor Pattern | Simple routing, extensible | ✅ Final |
+| PostgreSQL + pgvector | Single DB for all data types | ✅ Final |
+| LiteLLM Router | Multi-provider support, fallback | ✅ Final |
+| Middleware Chain | LangChain v1 best practice | ✅ Final |
+
+### Technology Choices
+
+| Choice | Rationale | Status |
+|--------|-----------|--------|
+| FastAPI over Flask/Django | Async-native, OpenAPI | ✅ Final |
+| React 19 over Vue/Svelte | Ecosystem, TypeScript support | ✅ Final |
+| Tailwind CSS | Rapid UI development | ✅ Final |
+| Docker Compose over K8s | Simplicity for target users | ✅ Final |
+
+## Milestone History
+
+### v0.0.1 (2026-06-05) — Initial Release
+
+- Core Supervisor Agent with conversation capabilities
+- Dynamic model switching
+- Tool calling (time, web search)
+- SSE streaming response
+- Multi-user session isolation
+- Long-term memory
+- WeChat integration
+- Docker one-click deployment
+
+## Next Milestone: v0.1.0
+
+**Target**: SubAgent Architecture
+
+- [ ] ReAct SubAgent for multi-step reasoning
+- [ ] RAG SubAgent for knowledge retrieval
+- [ ] Supervisor routing to SubAgents based on intent
+- [ ] Tool sharing across SubAgents

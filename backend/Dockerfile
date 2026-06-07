@@ -10,6 +10,9 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# Install curl for healthcheck and debugging
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 # Copy requirements first for better caching
 COPY requirements.txt .
 
@@ -22,8 +25,14 @@ RUN pip install --no-cache-dir --retries 5 --timeout 120 \
 # Copy application code
 COPY . .
 
+# Make entrypoint executable
+RUN chmod +x entrypoint.sh
+
 # Expose port
 EXPOSE 8080
 
-# Run the application
-CMD ["python", "run_backend.py"]
+# Run the application via entrypoint script
+# Database initialization is handled separately — run:
+#   python scripts/init_database.py
+# against a running PostgreSQL instance before starting the app.
+ENTRYPOINT ["./entrypoint.sh"]

@@ -22,6 +22,7 @@ export function normalizeChatMessage(message: Partial<ChatMessage>): ChatMessage
     tool_calls: toolCalls,
     tool_call_id: message.tool_call_id ?? null,
     run_id: message.run_id ?? null,
+    request_id: message.request_id ?? null,
     response_metadata:
       message.response_metadata && typeof message.response_metadata === "object"
         ? (message.response_metadata as Record<string, unknown>)
@@ -75,7 +76,9 @@ export function getErrorMessage(error: unknown, fallback = "Unexpected error"): 
 }
 
 export function formatUpdatedAt(isoString: string, locale: Locale): string {
-  const date = new Date(isoString)
+  // Ensure ISO string is treated as UTC (add Z suffix if missing)
+  const utcString = isoString.endsWith("Z") ? isoString : isoString + "Z"
+  const date = new Date(utcString)
   if (Number.isNaN(date.getTime())) {
     return ""
   }
@@ -92,4 +95,32 @@ export function formatUpdatedAt(isoString: string, locale: Locale): string {
 export function readThreadIdFromUrl(): string | null {
   const value = new URLSearchParams(window.location.search).get("thread_id")
   return value && value.trim() ? value : null
+}
+
+export function readUserIdFromUrl(): string | null {
+  const value = new URLSearchParams(window.location.search).get("userId")
+  return value && value.trim() ? value : null
+}
+
+/**
+ * Write userId and thread_id to URL.
+ * If thread_id is null, only userId is shown.
+ * If both are null, URL is cleared to root.
+ */
+export function writeToUrl(userId: string | null, threadId: string | null): void {
+  const url = new URL(window.location.href)
+
+  // Clear existing params
+  url.searchParams.delete("userId")
+  url.searchParams.delete("thread_id")
+
+  // Add params if provided
+  if (userId) {
+    url.searchParams.set("userId", userId)
+  }
+  if (threadId) {
+    url.searchParams.set("thread_id", threadId)
+  }
+
+  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
 }

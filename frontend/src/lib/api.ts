@@ -1,5 +1,4 @@
 import type {
-  AgentInDB,
   ChatHistory,
   ChatMessage,
   ConversationInDB,
@@ -40,23 +39,32 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-export async function listAgents(
-  limit = 10,
-  offset = 0,
-): Promise<{ agents: AgentInDB[]; total: number }> {
-  const agents = await requestJson<AgentInDB[]>(
-    `/agents/?active_only=true&limit=${limit}&offset=${offset}`,
-  )
-  // Note: Backend doesn't return total for agents, we use hasMore pattern
-  return { agents, total: agents.length }
+// ── User scoping helper ───────────────────────────────────────────────────────
+
+let _currentUserId: string | null = null
+
+export function setCurrentUserId(userId: string | null): void {
+  _currentUserId = userId
 }
+
+export function getCurrentUserId(): string | null {
+  return _currentUserId
+}
+
+function userIdQuery(): string {
+  const id = _currentUserId
+  if (!id) throw new Error("No user selected. Please select a user first.")
+  return `user_id=${encodeURIComponent(id)}`
+}
+
+// ── Conversations ─────────────────────────────────────────────────────────────
 
 export async function listConversations(
   limit = 10,
   offset = 0,
 ): Promise<{ conversations: ConversationInDB[]; total: number }> {
   const response = await fetch(
-    `${apiBaseUrl}/chat/conversations?limit=${limit}&offset=${offset}`,
+    `${apiBaseUrl}/chat/conversations?${userIdQuery()}&limit=${limit}&offset=${offset}`,
   )
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`)
@@ -66,13 +74,6 @@ export async function listConversations(
   const totalHeader = response.headers.get("X-Total-Count")
   const total = totalHeader ? parseInt(totalHeader, 10) : conversations.length
   return { conversations, total }
-}
-
-export async function loadMoreAgents(
-  offset: number,
-  limit = 10,
-): Promise<{ agents: AgentInDB[]; total: number }> {
-  return listAgents(limit, offset)
 }
 
 export async function loadMoreConversations(
@@ -85,58 +86,91 @@ export async function loadMoreConversations(
 export async function createConversation(input: {
   thread_id: string
   title: string
-  agent_id?: string
 }): Promise<ConversationInDB> {
-  return requestJson<ConversationInDB>("/chat/conversations", {
-    method: "POST",
-    body: JSON.stringify(input),
-  })
+  return requestJson<ConversationInDB>(
+    `/chat/conversations?${userIdQuery()}`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  )
 }
+
+export async function deleteConversation(
+  threadId: string,
+): Promise<void> {
+  await fetch(
+    `${apiBaseUrl}/chat/conversations/${encodeURIComponent(threadId)}?${userIdQuery()}`,
+    { method: "DELETE" },
+  )
+}
+
+// ── Conversation info (model fallback) ────────────────────────────────────────
+
+export type ConversationInfoResponse = {
+  model_name: string | null
+  model_fallback: boolean
+}
+
+export async function getConversationInfo(
+  threadId: string,
+): Promise<ConversationInfoResponse> {
+  return requestJson<ConversationInfoResponse>(
+    `/chat/conversations/${encodeURIComponent(threadId)}/info?${userIdQuery()}`,
+  )
+}
+
+// ── Title ─────────────────────────────────────────────────────────────────────
 
 export async function getConversationTitle(
   threadId: string,
 ): Promise<ConversationInDB | null> {
-  return requestJson<ConversationInDB | null>(`/chat/title/${threadId}`)
+  return requestJson<ConversationInDB | null>(
+    `/chat/conversations/${encodeURIComponent(threadId)}/title?${userIdQuery()}`,
+  )
 }
 
 export async function setConversationTitle(
   threadId: string,
   title: string,
 ): Promise<ConversationInDB | null> {
-  return requestJson<ConversationInDB | null>(`/chat/title?thread_id=${encodeURIComponent(threadId)}`, {
-    method: "POST",
-    body: JSON.stringify({ title }),
-  })
+  return requestJson<ConversationInDB | null>(
+    `/chat/conversations/${encodeURIComponent(threadId)}/title?${userIdQuery()}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    },
+  )
 }
 
-export async function deleteConversation(
-  threadId: string,
-): Promise<void> {
-  await fetch(`${apiBaseUrl}/chat/conversations/${encodeURIComponent(threadId)}`, {
-    method: "DELETE",
-  })
-}
-
-/**
- * Generate a conversation title using the default LLM.
- * This is a lightweight endpoint that doesn't go through the agent flow.
- */
 export async function generateTitle(input: {
+  thread_id: string
   user_message: string
   ai_response?: string
 }): Promise<{ title: string }> {
-  return requestJson<{ title: string }>("/chat/title/generate", {
-    method: "POST",
-    body: JSON.stringify(input),
-  })
+  return requestJson<{ title: string }>(
+    `/chat/conversations/${encodeURIComponent(input.thread_id)}/title/generate`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        user_message: input.user_message,
+        ai_response: input.ai_response,
+      }),
+    },
+  )
 }
 
+// ── History ───────────────────────────────────────────────────────────────────
+
 export async function getHistory(
-  agentId: string,
   threadId: string,
 ): Promise<ChatHistory> {
-  return requestJson<ChatHistory>(`/chat/history/${agentId}/${threadId}`)
+  return requestJson<ChatHistory>(
+    `/chat/history/${encodeURIComponent(threadId)}?${userIdQuery()}`,
+  )
 }
+
+// ── Invoke / Stream ───────────────────────────────────────────────────────────
 
 export async function invoke(input: UserInput): Promise<ChatMessage> {
   return requestJson<ChatMessage>("/chat/invoke", {
@@ -227,34 +261,47 @@ export async function streamChat(
   }
 }
 
+// ── Thinking mode ─────────────────────────────────────────────────────────────
+
 export async function getThinkingModeStatus(): Promise<{ available: boolean }> {
-  return requestJson<{ available: boolean }>("/chat/thinking-mode")
+  return requestJson<{ available: boolean }>("/models/thinking-mode")
 }
 
-// ==================== Model API ====================
+// ── Model API ─────────────────────────────────────────────────────────────────
 
 /**
  * Get available models (for frontend dropdown)
  * Only returns models with API key configured
  */
 export async function getAvailableModels(): Promise<ModelsResponse> {
-  return requestJson<ModelsResponse>("/models/")
+  return requestJson<ModelsResponse>("/models")
 }
 
 /**
  * Get all models (for configuration page)
  */
 export async function getAllModels(): Promise<ModelsResponse> {
-  return requestJson<ModelsResponse>("/models/all")
+  return requestJson<ModelsResponse>("/models?include_inactive=true")
 }
 
 /**
  * Create a new model
+ * Note: model_id should be the model name WITHOUT provider prefix.
+ * If user provides "provider/model_name", it will be automatically normalized to "model_name".
  */
 export async function createModel(data: ModelCreate): Promise<ModelInfo> {
-  return requestJson<ModelInfo>("/models/", {
+  // Normalize model_id: strip provider prefix if present
+  let normalizedModelId = data.model_id
+  if (normalizedModelId.startsWith(`${data.provider}/`)) {
+    normalizedModelId = normalizedModelId.slice(data.provider.length + 1)
+  }
+
+  return requestJson<ModelInfo>("/models", {
     method: "POST",
-    body: JSON.stringify(data),
+    body: JSON.stringify({
+      ...data,
+      model_id: normalizedModelId,
+    }),
   })
 }
 
@@ -262,9 +309,9 @@ export async function createModel(data: ModelCreate): Promise<ModelInfo> {
  * Update model configuration
  */
 export async function updateModel(id: string, data: ModelUpdate): Promise<ModelInfo> {
-  return requestJson<ModelInfo>("/models/update", {
-    method: "POST",
-    body: JSON.stringify({ id, ...data }),
+  return requestJson<ModelInfo>(`/models/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
   })
 }
 
@@ -272,9 +319,8 @@ export async function updateModel(id: string, data: ModelUpdate): Promise<ModelI
  * Delete a model
  */
 export async function deleteModel(id: string): Promise<void> {
-  await requestJson<void>("/models/delete", {
-    method: "POST",
-    body: JSON.stringify({ id }),
+  await requestJson<void>(`/models/${id}`, {
+    method: "DELETE",
   })
 }
 
@@ -282,28 +328,23 @@ export async function deleteModel(id: string): Promise<void> {
  * Set default model
  */
 export async function setDefaultModel(id: string): Promise<ModelInfo> {
-  return requestJson<ModelInfo>("/models/set-default", {
-    method: "POST",
-    body: JSON.stringify({ id }),
+  return requestJson<ModelInfo>(`/models/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_default: true }),
   })
 }
 
 /**
  * Set default thinking model
+ * Note: Backend does not have a dedicated endpoint for this.
+ * This sets the model as default and assumes the backend handles thinking mode appropriately.
  */
 export async function setDefaultThinkingModel(modelId: string): Promise<ModelInfo> {
-  return requestJson<ModelInfo>("/models/set-default-thinking", {
-    method: "POST",
-    body: JSON.stringify({ model_id: modelId }),
-  })
-}
-
-/**
- * Manually refresh model cache
- */
-export async function refreshModelsCache(): Promise<{ success: boolean; message: string; models_count: number }> {
-  return requestJson<{ success: boolean; message: string; models_count: number }>("/models/refresh", {
-    method: "POST",
+  // Backend doesn't have a separate thinking-model endpoint
+  // We'll set it as default with thinking mode enabled
+  return requestJson<ModelInfo>(`/models/${modelId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ is_default: true, thinking: true }),
   })
 }
 
@@ -311,15 +352,15 @@ export async function refreshModelsCache(): Promise<{ success: boolean; message:
  * Get all providers with their configuration
  */
 export async function getProviders(): Promise<ProvidersResponse> {
-  return requestJson<ProvidersResponse>("/providers/")
+  return requestJson<ProvidersResponse>("/models/providers")
 }
 
 /**
  * Update provider configuration (API key and/or base URL)
  */
 export async function updateProvider(data: ProviderUpdate): Promise<ProviderInfo> {
-  return requestJson<ProviderInfo>("/providers/update", {
-    method: "POST",
+  return requestJson<ProviderInfo>(`/models/providers/${data.provider}`, {
+    method: "PATCH",
     body: JSON.stringify(data),
   })
 }

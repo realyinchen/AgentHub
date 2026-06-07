@@ -1,42 +1,68 @@
-# Project Brief: AgentHub
+# Project Brief
 
-## Overview
+## Project Overview
 
-AgentHub is a modular AI Agent collection framework that provides a modern web interface for experimenting with LangChain and LangGraph agents. It is the GUI version of the [AgentLab](https://github.com/realyinchen/AgentLab) project.
+**AgentHub** is a production-grade Multi-Agent runtime platform that provides a high-performance, stable, and reliable Agent execution environment for AI applications.
+
+It is **not** another Agent orchestration framework, but a true **Agent Runtime Platform** — solving the last-mile problem from prototype to production deployment.
 
 ## Core Requirements
 
-1. **FastAPI Backend** — Robust RESTful API layer for agent orchestration and async task management
-2. **Modern React Frontend** — Interactive web interface built with Vite + React + TypeScript + Tailwind CSS + shadcn/ui
-3. **LangChain/LangGraph Integration** — Easy to build, design, and connect multi-agent reasoning workflows with visualization
-4. **Streaming & Event-Driven** — Real-time token streaming and agent execution event visualization
-5. **Database Support** — PostgreSQL for persistent storage, Qdrant for vector search (RAG)
+### Primary Goals
 
-## Project Goals
+1. **High Concurrency & Low Latency** — FastAPI async + SSE token-level streaming + LiteLLM Router automatic fallback/retry
+2. **Multi-User Isolation** — Independent session spaces with LangGraph Checkpointer state persistence, complete data isolation
+3. **Dynamic Model Switching** — Runtime LLM switching (OpenAI, Anthropic, Groq, Ollama, etc.) without session restart
+4. **Long-Term Memory** — LangGraph Store + PGVector semantic retrieval, cross-session user preference persistence
+5. **Production-Ready Deployment** — Docker Compose three-container orchestration, complete service startup in 5 minutes
 
-- Provide a GUI platform for students and developers to showcase their LangChain and LangGraph learning achievements
-- Enable interactive, visual experimentation with AI agents
-- Support multiple agent types with different tool sets
-- Offer real-time streaming responses and thinking mode for deeper reasoning
+### Architecture Pattern
 
-## Target Audience
+AgentHub adopts the **Supervisor Pattern**:
 
-Students and developers who want to efficiently showcase their LangChain and LangGraph learning achievements in an interactive, visual format.
+```
+User Request → Supervisor (Intent Recognition + Task Routing)
+                    │
+                    ├── Chat SubAgent (Available Now)
+                    │
+                    ├── ReAct SubAgent (In Development)
+                    │
+                    ├── RAG SubAgent (In Development)
+                    │
+                    └── Multi-Agent Collaboration (In Development)
+```
 
-## Project Scope
+### Four-Layer Architecture
+
+Strict unidirectional dependencies: `API → Agent → Service → Infra`
+
+- **Layer 4: API Layer** — HTTP endpoints, parameter validation, SSE streaming, global exception handling
+- **Layer 3: Agent Layer** — Agent compilation, middleware chain, tool execution, state management
+- **Layer 2: Service Layer** — Session management, message persistence, SSE streaming, WeChat message listening
+- **Layer 1: Infrastructure Layer** — Database connection pool, LLM gateway, vector store, JWT authentication, configuration management
+
+## Target Users
+
+- **Individual Developers / Learners** — Quickly practice LangGraph production-level development
+- **Startup Teams** — Rapidly validate Multi-Agent product ideas
+- **Enterprise Users** — Build internal AI assistants, knowledge bases, intelligent workflows
+
+## Scope
 
 ### In Scope
-- Agent orchestration and execution
-- Real-time streaming responses
-- Multi-language support (English, Chinese)
-- Dark/Light theme support
-- Token usage tracking
-- Image zoom and drag in markdown
-- Quote messages for context continuation
-- Docker deployment
 
-### Out of Scope (Current)
-- Unit/integration tests
-- Agent graph visualization in React UI
-- Conversation search and filtering
-- Document upload UI for Qdrant population
+- Supervisor Agent with basic conversation capabilities
+- Dynamic model switching at runtime
+- Tool calling (time query, web search)
+- SSE streaming response
+- Multi-user session isolation
+- Long-term memory with semantic retrieval
+- WeChat integration (WebSocket message push)
+- Docker one-click deployment
+
+### Out of Scope (Future)
+
+- ReAct SubAgent
+- RAG SubAgent  
+- Multi-Agent Collaboration
+- Agent orchestration DSL

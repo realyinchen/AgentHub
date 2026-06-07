@@ -1,0 +1,527 @@
+"""Centralized API error handling.
+
+Combines types, classifiers, handlers, and SSE formatting previously
+split across five files in the ``api/errors/`` package.
+
+Architecture
+------------
+- **Types** — Custom exception hierarchy for LLM errors
+- **Classifiers** — Pure functions for LLM error detection / classification
+- **Handlers** — FastAPI exception handlers (HTTP / LLM / uncaught)
+- **SSE** — Error payload formatting for SSE streaming responses
+- **Registration** — Convenience function to wire handlers into a FastAPI app
+"""
+
+import logging
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import JSONResponse
+
+from app.infra.errors import (
+    AgentHubError,
+    AgentTimeoutError,
+    LLMError as DomainLLMError,
+    ToolError as DomainToolError,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# =============================================================================
+# Exception Types
+# =============================================================================
+
+
+class LLMBaseError(Exception):
+    """Base exception for LLM-related errors."""
+
+    pass
+
+
+class LLMAuthenticationError(LLMBaseError):
+    """Raised when LLM API key is invalid or authentication fails."""
+
+    pass
+
+
+class LLMConnectionError(LLMBaseError):
+    """Raised when there is a network/connection issue with the LLM provider."""
+
+    pass
+
+
+class LLMInvalidRequestError(LLMBaseError):
+    """Raised when the request to the LLM is invalid (bad parameters, etc.)."""
+
+    pass
+
+
+class LLMRateLimitError(LLMBaseError):
+    """Raised when the LLM API rate limit is exceeded."""
+
+    pass
+
+
+class LLMPermissionError(LLMBaseError):
+    """Raised when LLM API permission is denied (e.g. model not accessible)."""
+
+    pass
+
+
+class LLMUnknownProviderError(LLMBaseError):
+    """Raised when the model provider is unknown or not supported."""
+
+    pass
+
+
+# =============================================================================
+# Classifiers — LLM error detection & classification
+# =============================================================================
+
+
+def is_llm_authentication_error(exception: Exception) -> bool:
+    """Detect if an exception is related to LLM authentication / API key issues."""
+    error_str = str(exception).lower()
+    class_name = type(exception).__name__.lower()
+
+    auth_keywords = [
+        "auth",
+        "api key",
+        "api_key",
+        "authentication",
+        "unauthorized",
+        "401",
+        "forbidden",
+        "403",
+        "invalid",
+        "incorrect",
+        "wrong key",
+        "missing key",
+    ]
+    auth_type_names = ["authenticationerror", "autherror", "unauthorizederror"]
+
+    if any(keyword in class_name for keyword in auth_type_names):
+        return True
+    if any(keyword in error_str for keyword in auth_keywords):
+        return True
+    return False
+
+
+def is_llm_connection_error(exception: Exception) -> bool:
+    """Detect if an exception is related to LLM connection / network issues."""
+    error_str = str(exception).lower()
+    class_name = type(exception).__name__.lower()
+
+    connection_keywords = [
+        "connection",
+        "timeout",
+        "network",
+        "socket",
+        "dns resolution",
+        "dns error",
+        "name resolution",
+        "could not connect",
+        "failed to connect",
+        "connection refused",
+        "connection reset",
+        "econnrefused",
+        "etimedout",
+        "502",
+        "503",
+        "504",
+        "bad gateway",
+        "service unavailable",
+        "gateway timeout",
+    ]
+    connection_type_names = [
+        "apiconnectionerror",
+        "connectionerror",
+        "timeouterror",
+        "networkerror",
+    ]
+
+    if any(keyword in class_name for keyword in connection_type_names):
+        return True
+    if any(keyword in error_str for keyword in connection_keywords):
+        return True
+    return False
+
+
+def is_llm_rate_limit_error(exception: Exception) -> bool:
+    """Detect if an exception is related to LLM rate limiting."""
+    error_str = str(exception).lower()
+    class_name = type(exception).__name__.lower()
+
+    rate_limit_keywords = [
+        "rate limit",
+        "ratelimit",
+        "quota",
+        "too many requests",
+        "429",
+        "rate exceeded",
+        "request limit",
+    ]
+    rate_limit_type_names = [
+        "ratelimiterror",
+        "toolmanyrequests",
+        "quotaexceedederror",
+    ]
+
+    if any(keyword in class_name for keyword in rate_limit_type_names):
+        return True
+    if any(keyword in error_str for keyword in rate_limit_keywords):
+        return True
+    return False
+
+
+def is_llm_invalid_request_error(exception: Exception) -> bool:
+    """Detect if an exception is related to invalid LLM request parameters."""
+    error_str = str(exception).lower()
+    class_name = type(exception).__name__.lower()
+
+    invalid_request_keywords = [
+        "invalid request",
+        "bad request",
+        "400",
+        "parameter",
+        "invalid parameter",
+        "missing parameter",
+        "max tokens",
+        "context length",
+        "contextwindow",
+        "maximum context",
+    ]
+    invalid_request_type_names = [
+        "invalidrequesterror",
+        "badrequesterror",
+        "validationerror",
+    ]
+
+    if any(keyword in class_name for keyword in invalid_request_type_names):
+        return True
+    if any(keyword in error_str for keyword in invalid_request_keywords):
+        return True
+    return False
+
+
+def is_llm_unknown_provider_error(exception: Exception) -> bool:
+    """Detect if an exception is related to unknown / unsupported model provider."""
+    error_str = str(exception).lower()
+    class_name = type(exception).__name__.lower()
+
+    provider_keywords = [
+        "unknown provider",
+        "provider not found",
+        "invalid provider",
+        "unsupported provider",
+        "model not found",
+        "model does not exist",
+        "no such model",
+    ]
+    provider_type_names = [
+        "unknownprovidererror",
+        "notimplementederror",
+        "notfounderror",
+    ]
+
+    if any(keyword in class_name for keyword in provider_type_names):
+        return True
+    if any(keyword in error_str for keyword in provider_keywords):
+        return True
+    return False
+
+
+def is_llm_related_error(exception: Exception) -> bool:
+    """Detect if an exception is likely related to LLM API calls."""
+    return (
+        is_llm_authentication_error(exception)
+        or is_llm_connection_error(exception)
+        or is_llm_rate_limit_error(exception)
+        or is_llm_invalid_request_error(exception)
+        or is_llm_unknown_provider_error(exception)
+    )
+
+
+def classify_llm_error(exception: Exception) -> str:
+    """Classify an LLM-related error into a stable error category string."""
+    if is_llm_authentication_error(exception):
+        return "llm_authentication"
+    if is_llm_unknown_provider_error(exception):
+        return "llm_unknown_provider"
+    if is_llm_connection_error(exception):
+        return "llm_connection"
+    if is_llm_rate_limit_error(exception):
+        return "llm_rate_limit"
+    if is_llm_invalid_request_error(exception):
+        return "llm_invalid_request"
+    return "unknown"
+
+
+def get_user_friendly_error_message(exception: Exception) -> str:
+    """Get a user-friendly error message for the given exception."""
+    error_category = classify_llm_error(exception)
+
+    match error_category:
+        case "llm_authentication" | "llm_unknown_provider":
+            return "The AI service is temporarily unavailable. Please try again later."
+        case "llm_connection":
+            return "Unable to connect to the AI service. Please check your network and try again."
+        case "llm_rate_limit":
+            return (
+                "The AI service is busy right now. Please try again in a few moments."
+            )
+        case "llm_invalid_request" | "llm_permission":
+            return "The AI service is temporarily unavailable. Please try again later."
+        case _:
+            return "Something went wrong. Please try again or contact support if the issue persists."
+
+
+def should_show_detailed_error(exception: Exception) -> bool:
+    """Determine if detailed error information should be shown to the user."""
+    return isinstance(exception, HTTPException)
+
+
+def extract_error_context(exception: Exception) -> dict[str, Any]:
+    """Extract contextual information from an exception for logging."""
+    error_context = {
+        "type": type(exception).__name__,
+        "message": str(exception),
+        "is_llm_related": is_llm_related_error(exception),
+        "llm_error_category": classify_llm_error(exception),
+        "user_message": get_user_friendly_error_message(exception),
+    }
+
+    if hasattr(exception, "__dict__"):
+        # Sensitive key patterns to filter from logged attributes
+        _SENSITIVE_PATTERNS = (
+            "key",
+            "token",
+            "secret",
+            "password",
+            "credential",
+            "api_key",
+            "auth",
+        )
+        extra_attrs = {}
+        for key, value in exception.__dict__.items():
+            if key.startswith("_") or key in ("args", "message"):
+                continue
+            if any(pattern in key.lower() for pattern in _SENSITIVE_PATTERNS):
+                continue
+            try:
+                extra_attrs[key] = str(value)
+            except Exception:
+                pass
+        if extra_attrs:
+            error_context["attributes"] = extra_attrs
+
+    return error_context
+
+
+# =============================================================================
+# FastAPI Exception Handlers
+# =============================================================================
+
+
+async def http_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handle HTTPExceptions raised by business logic."""
+    assert isinstance(exc, HTTPException)
+
+    logger.warning(
+        "HTTPException: status_code=%s, detail=%s, path=%s, method=%s",
+        exc.status_code,
+        exc.detail,
+        request.url.path,
+        request.method,
+    )
+
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": str(exc.detail),
+            "error_type": "http_exception",
+        },
+    )
+
+
+async def llm_base_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handle custom LLM-related exceptions."""
+    assert isinstance(exc, LLMBaseError)
+
+    error_context = extract_error_context(exc)
+
+    logger.error(
+        "LLM Error: type=%s, category=%s, path=%s, method=%s, message=%s",
+        error_context["type"],
+        error_context["llm_error_category"],
+        request.url.path,
+        request.method,
+        error_context["message"],
+        exc_info=True,
+    )
+
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": get_user_friendly_error_message(exc),
+            "error_type": error_context["llm_error_category"],
+        },
+    )
+
+
+async def agent_hub_error_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handle AgentHub domain errors with appropriate HTTP status codes.
+
+    Maps domain error types to HTTP status codes:
+    - AgentTimeoutError → 504 Gateway Timeout
+    - LLMError → 502 Bad Gateway
+    - ToolError → 500 (tool failures are internal)
+    - AgentError → 500 (generic agent failures)
+    - AgentHubError (base) → 500
+    """
+    assert isinstance(exc, AgentHubError)
+
+    # Determine HTTP status code based on error type
+    if isinstance(exc, AgentTimeoutError):
+        http_status = status.HTTP_504_GATEWAY_TIMEOUT
+        error_type = "agent_timeout"
+    elif isinstance(exc, DomainLLMError):
+        http_status = status.HTTP_502_BAD_GATEWAY
+        error_type = "llm_error"
+    elif isinstance(exc, DomainToolError):
+        http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+        error_type = "tool_error"
+    else:
+        http_status = status.HTTP_500_INTERNAL_SERVER_ERROR
+        error_type = "agent_error"
+
+    logger.error(
+        "AgentHubError: type=%s, http_status=%d, path=%s, method=%s, message=%s",
+        type(exc).__name__,
+        http_status,
+        request.url.path,
+        request.method,
+        str(exc),
+        exc_info=True,
+    )
+
+    return JSONResponse(
+        status_code=http_status,
+        content={
+            "detail": str(exc),
+            "error_type": error_type,
+        },
+    )
+
+
+async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Handle all uncaught exceptions without exposing raw details to users."""
+    error_context = extract_error_context(exc)
+    is_llm_error = error_context["is_llm_related"]
+    error_category = error_context["llm_error_category"]
+
+    logger.error(
+        "Uncaught Exception: type=%s, is_llm_related=%s, category=%s, path=%s, method=%s",
+        error_context["type"],
+        is_llm_error,
+        error_category,
+        request.url.path,
+        request.method,
+        exc_info=True,
+    )
+
+    if error_category in ("llm_authentication", "llm_unknown_provider"):
+        status_code = status.HTTP_401_UNAUTHORIZED
+    else:
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "detail": get_user_friendly_error_message(exc),
+            "error_type": error_category if is_llm_error else "internal_error",
+        },
+    )
+
+
+def register_exception_handlers(app: FastAPI) -> None:
+    """Register all exception handlers with the FastAPI application."""
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(LLMBaseError, llm_base_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(AgentHubError, agent_hub_error_handler)  # type: ignore[arg-type]
+    app.add_exception_handler(Exception, general_exception_handler)
+    logger.info("Exception handlers registered successfully")
+
+
+# =============================================================================
+# SSE Error Formatting
+# =============================================================================
+
+
+def format_sse_error(exception: Exception) -> dict[str, Any]:
+    """Format an exception for SSE streaming responses.
+
+    Ensures error messages sent through SSE streaming are user-friendly
+    and don't expose sensitive information.
+
+    Example::
+
+        try:
+            ...
+        except Exception as e:
+            error_data = format_sse_error(e)
+            yield f"data: {json.dumps(error_data)}\\n\\n"
+    """
+    error_context = extract_error_context(exception)
+
+    logger.error(
+        "SSE Streaming Error: type=%s, category=%s, message=%s",
+        error_context["type"],
+        error_context["llm_error_category"],
+        error_context["message"],
+        exc_info=True,
+    )
+
+    return {
+        "type": "error",
+        "content": get_user_friendly_error_message(exception),
+        "error_type": error_context["llm_error_category"]
+        if error_context["is_llm_related"]
+        else "internal_error",
+    }
+
+
+# =============================================================================
+# Re-exports (preserve public API from old __init__.py)
+# =============================================================================
+
+__all__ = [
+    # Exceptions
+    "LLMBaseError",
+    "LLMAuthenticationError",
+    "LLMConnectionError",
+    "LLMInvalidRequestError",
+    "LLMRateLimitError",
+    "LLMPermissionError",
+    "LLMUnknownProviderError",
+    # Error detection
+    "is_llm_authentication_error",
+    "is_llm_connection_error",
+    "is_llm_rate_limit_error",
+    "is_llm_invalid_request_error",
+    "is_llm_unknown_provider_error",
+    "is_llm_related_error",
+    "classify_llm_error",
+    # Error messages
+    "get_user_friendly_error_message",
+    "should_show_detailed_error",
+    "extract_error_context",
+    # Exception handlers
+    "http_exception_handler",
+    "llm_base_error_handler",
+    "general_exception_handler",
+    "register_exception_handlers",
+    # SSE
+    "format_sse_error",
+]

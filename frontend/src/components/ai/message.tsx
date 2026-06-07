@@ -30,8 +30,8 @@ export type MessageContentProps = HTMLAttributes<HTMLDivElement>
 export const MessageContent = ({ children, className, ...props }: MessageContentProps) => (
   <div
     className={cn(
-      "flex w-fit max-w-full min-w-0 flex-col gap-2 overflow-hidden text-sm",
-      "group-[.is-user]:ml-auto group-[.is-user]:rounded-2xl group-[.is-user]:bg-[var(--warm)] group-[.is-user]:px-5 group-[.is-user]:py-3.5 group-[.is-user]:text-white group-[.is-user]:shadow-lg group-[.is-user]:shadow-[var(--warm)]/20",
+      "inline-flex w-fit max-w-full flex-col gap-2 text-sm",
+      "group-[.is-user]:ml-auto group-[.is-user]:items-start group-[.is-user]:rounded-2xl group-[.is-user]:bg-[var(--warm)] group-[.is-user]:px-5 group-[.is-user]:py-3.5 group-[.is-user]:text-white group-[.is-user]:shadow-lg group-[.is-user]:shadow-[var(--warm)]/20",
       "group-[.is-assistant]:rounded-2xl group-[.is-assistant]:bg-[var(--bg-elevated)] group-[.is-assistant]:dark:bg-white/[0.03] group-[.is-assistant]:border group-[.is-assistant]:border-[var(--border)] group-[.is-assistant]:px-5 group-[.is-assistant]:py-4 group-[.is-assistant]:backdrop-blur-sm",
       "group-[.is-assistant]:text-[var(--text-main)] group-[.is-user]:text-white",
       "transition-all duration-200",

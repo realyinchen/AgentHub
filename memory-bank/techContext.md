@@ -1,168 +1,205 @@
-# Tech Context: AgentHub
+# Technical Context
 
-## Technologies Used
+## Technology Stack
 
 ### Backend
-- **Python 3.12** — Runtime environment
-- **FastAPI** — High-performance web framework with automatic API documentation
-- **LangChain** — LLM orchestration framework
-- **LangGraph** — Agent workflow graphs for complex reasoning
-- **PostgreSQL** — Primary database with async/sync support
-- **Qdrant** — Vector store for RAG functionality
-- **Uvicorn** — ASGI server for production deployment
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **Python** | 3.11+ | Primary language |
+| **FastAPI** | 0.121.2 | Async web framework |
+| **LangChain** | 1.3.1 | LLM application framework |
+| **LangGraph** | 1.2.0 | Agent orchestration |
+| **langchain-litellm** | 0.6.6 | LLM provider abstraction |
+| **langgraph-checkpoint-postgres** | 3.1.0 | State persistence |
+| **langchain-postgres** | 0.0.17 | Vector store |
+| **langchain-tavily** | 0.2.18 | Web search tool |
+| **asyncpg** | 0.31.0 | Async PostgreSQL driver |
+| **psycopg-binary** | 3.3.2 | Sync PostgreSQL driver |
+| **cryptography** | 46.0.7 | API key encryption |
+| **python-jose** | 3.4.0 | JWT handling |
+| **passlib** | 1.7.4 | Password hashing |
+| **websockets** | 15.0.1 | WebSocket support |
+| **uvicorn** | 0.38.0 | ASGI server |
 
 ### Frontend
-- **Vite** — Next-generation build tool with instant server start
-- **React 19** — Component-based UI library
-- **TypeScript** — Static typing for code safety
-- **Tailwind CSS** — Utility-first CSS framework
-- **shadcn/ui** — Accessible, customizable UI components
-- **TanStack Query** — Data fetching and state management
-- **Lucide React** — Beautiful icon library
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **React** | 19.2.0 | UI framework |
+| **TypeScript** | 5.9.3 | Type-safe JavaScript |
+| **Vite** | 8.0.10 | Build tool |
+| **Tailwind CSS** | 4.2.1 | Styling |
+| **Radix UI** | 1.4.3 | Component primitives |
+| **TipTap** | 3.20.0 | Rich text editor |
+| **react-router-dom** | 7.14.2 | Client-side routing |
+| **react-markdown** | 10.1.0 | Markdown rendering |
+| **Shiki** | 3.22.0 | Code syntax highlighting |
+| **Recharts** | 3.8.1 | Charts library |
+| **Lucide React** | 0.575.0 | Icon library |
+
+### Infrastructure
+
+| Technology | Version | Purpose |
+|------------|---------|---------|
+| **PostgreSQL** | 18 | Primary database |
+| **pgvector** | 0.8.2 | Vector extension |
+| **Docker** | 20.10+ | Containerization |
+| **Docker Compose** | v2+ | Multi-container orchestration |
+| **Nginx** | - | Reverse proxy / static serving |
 
 ## Development Setup
 
 ### Prerequisites
-1. VS Code
-2. Miniconda
-3. Node.js 18+
-4. Docker (for PostgreSQL and Qdrant)
 
-### Environment Setup
+- Docker 20.10+
+- Docker Compose v2+
+- Node.js 18+ (for local frontend development)
+- Python 3.11+ (for local backend development)
+
+### Required Environment Variables
+
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `SYSTEM_DEFAULT_LLM_MODEL` | Default model (e.g., `openai/gpt-4o`) | ✅ |
+| `SYSTEM_DEFAULT_LLM_API_KEY` | Model API Key | ✅ |
+| `API_KEY_ENCRYPTION_KEY` | AES-256 encryption key (32 chars) | ✅ |
+| `JWT_SECRET_KEY` | JWT signing key | ✅ |
+| `POSTGRES_USER` | PostgreSQL username | ✅ |
+| `POSTGRES_PASSWORD` | PostgreSQL password | ✅ |
+| `POSTGRES_HOST` | PostgreSQL host | ✅ |
+| `POSTGRES_PORT` | PostgreSQL port | ✅ |
+| `POSTGRES_DB` | Database name | ✅ |
+| `TAVILY_API_KEY` | Tavily search API key | ❌ |
+| `LANGCHAIN_API_KEY` | LangSmith tracing | ❌ |
+
+### Local Development
+
 ```bash
-# Create and activate virtual environment
-conda create -n agenthub python=3.12
-conda activate agenthub
-
 # Clone repository
 git clone https://github.com/realyinchen/AgentHub.git
 cd AgentHub
 
-# Install backend dependencies
-cd backend
-pip install -r requirements.txt
+# Setup environment
+cp backend/.env.example backend/.env
+cp frontend/.env.example frontend/.env
+# Edit backend/.env with your values
 
-# Install frontend dependencies
-cd ../frontend
-npm install
-```
+# Start with Docker
+docker compose up -d
 
-### Docker Services
-```bash
-# Start PostgreSQL
-docker run -d --name agenthub-postgres \
-  -e POSTGRES_USER=langchain \
-  -e POSTGRES_PASSWORD=langgraph \
-  -e POSTGRES_DB=agentdb \
-  -p 5432:5432 \
-  postgres:latest
-
-# Start Qdrant
-docker run -d --name agenthub-qdrant \
-  -p 6333:6333 \
-  -p 6334:6334 \
-  qdrant/qdrant:latest
+# Access
+# Frontend: http://localhost
+# Backend API: http://localhost:8080/docs
 ```
 
 ## Technical Constraints
 
-### API Design
-- Only use GET, POST, DELETE endpoints (no PATCH/PUT)
-- Model update/delete operations use POST with model_id in request body
-- Avoids URL encoding issues with `/` character in model_id (e.g., `zai/glm-5`)
+### Database
 
-### LLM API Usage
-- **Recommended (Async API):**
-  - Use `aget_llm()`, `aembedding_model()` in FastAPI async endpoints
-  - Use `streaming_completion()` for LLM calls with automatic token tracking
-- **Compatibility Only (Sync Wrappers):**
-  - `get_llm()`, `embedding_model()` — for legacy code or non-async contexts only
-  - These add overhead when called from async context (triggers warning log)
+- **PostgreSQL only** — No SQLite or MySQL support
+- **pgvector required** — For vector embeddings and semantic search
+- **Connection pooling** — Min 2, Max 10 connections per pool
+
+### Authentication
+
+- **JWT-based** — HTTP-only cookies for web, token for API
+- **Token expiry** — 7 days default
+- **HTTPS required** — JWT cookies are `Secure` by default (disable for dev)
+
+### LLM Integration
+
+- **LiteLLM Router** — All LLM calls go through LiteLLM
+- **Model format** — `provider/model-id` (e.g., `openai/gpt-4o`)
+- **Fallback/retry** — Handled by LiteLLM Router, not application code
+
+### Agent Execution
+
+- **Timeouts**:
+  - Invoke: 120s default
+  - Stream: 300s default
+  - LLM call: 60s default
+- **Summarization**: Triggered at 4000 tokens, keeps 20 messages
 
 ## Dependencies
 
 ### Backend Key Dependencies
-- FastAPI ecosystem (fastapi, uvicorn, pydantic)
-- LangChain ecosystem (langchain, langchain-core, langgraph)
-- Database drivers (asyncpg, psycopg2, qdrant-client)
-- Utilities (python-dotenv, httpx, tavily-python)
+
+```
+fastapi==0.121.2
+langchain==1.3.1
+langchain-community==0.4.1
+langchain-litellm==0.6.6
+langchain-postgres==0.0.17
+langchain-tavily==0.2.18
+langgraph-checkpoint-postgres==3.1.0
+langgraph==1.2.0
+langsmith==0.8.5
+asyncpg==0.31.0
+psycopg-binary==3.3.2
+uvicorn==0.38.0
+cryptography==46.0.7
+websockets==15.0.1
+python-jose[cryptography]==3.4.0
+passlib[bcrypt]==1.7.4
+```
 
 ### Frontend Key Dependencies
-- React ecosystem (react, react-dom, react-router-dom)
-- UI libraries (@radix-ui/*, tailwindcss, class-variance-authority)
-- State management (@tanstack/react-query)
-- Icons (lucide-react)
+
+```json
+{
+  "react": "^19.2.0",
+  "react-dom": "^19.2.0",
+  "react-router-dom": "^7.14.2",
+  "@radix-ui/react-*": "various",
+  "@tiptap/*": "^3.20.0",
+  "tailwindcss": "^4.2.1",
+  "vite": "^8.0.10",
+  "typescript": "~5.9.3"
+}
+```
 
 ## Tool Usage Patterns
 
-### LLM Configuration
-- LLM/VLM models configured in `backend/scripts/sql/init_database.sql`
-- Embedding models configured in `backend/.env`
-- Model manager provides centralized access to model configurations
+### LangSmith Tracing
 
-### Streaming Pattern
-```python
-# Use streaming_completion for automatic token tracking
-async for event in streaming_completion(llm, messages, ...):
-    yield event
-# Return result.raw_response for token stats
+- **Dev mode only** — Automatically disabled in production
+- **Opt-in** — Set `LANGCHAIN_TRACING_V2=true` and `LANGCHAIN_API_KEY`
+- **Project-based** — Group traces by `LANGCHAIN_PROJECT`
+
+### Docker Deployment
+
+```yaml
+# Three-container setup
+services:
+  db:        # PostgreSQL + pgvector
+  backend:   # FastAPI application
+  frontend:  # Nginx serving React + proxying API
 ```
 
-### Agent Pattern
-```python
-# Register agent in __init__.py
-from app.agents.chatbot import chatbot
-from app.agents.navigator import navigator
+### Logging
 
-__all__ = ["chatbot", "navigator"]
-```
+- **Format**: Console (dev) or JSON (prod)
+- **Level**: INFO default, configurable via `LOG_LEVEL`
+- **Request ID**: Injected via `RequestIdFilter` for tracing
 
-## Performance Configuration
+## API Endpoints
 
-### Database Connection Pool
-```python
-# backend/app/database/db_manager.py
-pool_size=20,              # Base connections
-max_overflow=30,           # Overflow connections
-pool_recycle=300,          # Connection recycle time (seconds)
-pool_use_lifo=True,        # LIFO mode for better performance
-```
+### Authentication
+- `POST /api/v1/auth/register` — User registration
+- `POST /api/v1/auth/login` — User login
+- `POST /api/v1/auth/logout` — User logout
+- `GET /api/v1/auth/me` — Current user info
 
-### Rate Limiting
-```python
-# backend/app/core/rate_limiter.py
-default_limits=["100/minute"]  # Global default per IP
-RateLimits.LIST_AGENTS = "30/minute"
-RateLimits.STREAM_CHAT = "10/minute"
-```
+### Chat
+- `GET /api/v1/chat/sessions` — List sessions
+- `POST /api/v1/chat/sessions` — Create session
+- `GET /api/v1/chat/sessions/{id}/messages` — Get messages
+- `POST /api/v1/chat/sessions/{id}/stream` — SSE streaming chat
 
-### Caching
-```python
-# backend/app/core/cache.py
-_models_cache = TTLCache(maxsize=100, ttl=300)      # 5 min
-_providers_cache = TTLCache(maxsize=50, ttl=300)    # 5 min
-_conversations_cache = TTLCache(maxsize=200, ttl=60) # 1 min
-_vector_search_cache = TTLCache(maxsize=500, ttl=600) # 10 min
-```
+### Models
+- `GET /api/v1/models` — List available models
+- `PUT /api/v1/models/{id}` — Update model config
 
-### Qdrant HNSW Index
-```python
-# backend/app/database/qdrant_manager.py
-hnsw_config={
-    "m": 16,              # Connections per node
-    "ef_construct": 200,  # Construction search factor
-}
-ef_search=200              # Query-time search factor
-```
-
-## Configuration Files
-
-| File | Purpose |
-|------|---------|
-| `backend/.env` | Backend environment variables (embedding model, API keys) |
-| `backend/scripts/sql/init_database.sql` | LLM/VLM model configurations + DB indexes |
-| `frontend/.env` | Frontend environment variables |
-| `backend/docker-compose.yml` | Backend Docker deployment |
-| `frontend/docker-compose.yml` | Frontend Docker deployment |
-| `backend/app/core/rate_limiter.py` | Rate limiting configuration |
-| `backend/app/core/cache.py` | Caching configuration |
+### WeChat
+- `GET /api/v1/weixin/ws` — WebSocket endpoint for WeChat integration

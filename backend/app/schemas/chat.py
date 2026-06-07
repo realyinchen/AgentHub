@@ -1,7 +1,22 @@
-from pydantic import BaseModel, Field
-from typing import Any, Literal
+"""Chat request/response schemas.
+
+This module hosts the Pydantic schemas exposed by the ``/chat/*`` endpoints
+(stream, invoke, history, title, conversations, stats). It is intentionally
+the single source of truth for the **chat request DTO** (``UserInput``) used
+by both the stream and invoke endpoints.
+
+Trace / observability schemas live in ``app.schemas.trace``.
+"""
+
+from pydantic import BaseModel, ConfigDict, Field
+from typing import Any, Literal, cast, overload
 from uuid import UUID
 from datetime import datetime, timezone
+
+from langchain_core.messages import BaseMessage
+from langchain_core.messages import content as types
+
+from app.schemas.trace import StepOutput
 
 
 class ToolCall(BaseModel):
@@ -12,68 +27,6 @@ class ToolCall(BaseModel):
     id: str | None = Field(default=None, description="Tool call ID")
 
 
-class MessageStep(BaseModel):
-    """Single step in the agent execution sequence for sidebar display.
-
-    Each step represents a message in the conversation flow.
-    Steps are numbered sequentially (Step 1, Step 2, etc.)
-
-    Types:
-    - human: User message with content
-    - ai: AI message with thinking, content, and optional tool_calls
-    - tool: Tool execution with name, args, and output
-    """
-
-    session_id: UUID = Field(
-        description="Session ID that groups steps from the same conversation turn",
-        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
-    )
-    step_number: int = Field(
-        description="Step number (1-indexed)",
-        examples=[1, 2, 3],
-    )
-    message_type: Literal["human", "ai", "tool"] = Field(
-        description="Type of the step: human, ai, or tool",
-        examples=["human", "ai", "tool"],
-    )
-    # Content field (for human and ai types)
-    content: str | None = Field(
-        description="Message content (for human and ai types)",
-        default=None,
-        examples=["What's the weather in Beijing?"],
-    )
-    # AI message fields
-    thinking: str | None = Field(
-        description="Thinking/reasoning content (for ai type)",
-        default=None,
-        examples=["用户想了解北京天气..."],
-    )
-    tool_calls: list[ToolCall] | None = Field(
-        description="Tool calls from AI message (for ai type with tool calls)",
-        default=None,
-    )
-    # Tool fields (for tool type)
-    tool_name: str | None = Field(
-        description="Tool name (for tool type)",
-        default=None,
-        examples=["get_weather", "search_web"],
-    )
-    tool_args: dict[str, Any] | None = Field(
-        description="Tool call arguments (for tool type)",
-        default=None,
-        examples=[{"city": "Beijing"}],
-    )
-    tool_output: str | None = Field(
-        description="Tool execution result (for tool type)",
-        default=None,
-        examples=["晴天, 25°C"],
-    )
-    tool_call_id: str | None = Field(
-        description="Tool call ID for matching (for tool type)",
-        default=None,
-    )
-
-
 class UserInput(BaseModel):
     """Basic user input for the agent."""
 
@@ -81,15 +34,17 @@ class UserInput(BaseModel):
         description="User input to the agent.",
         examples=["What is the weather in Hefei?"],
     )
-    agent_id: str | None = Field(
-        description="The agent the user wants to use.",
-        default=None,
-        examples=["chatbot"],
-    )
-    thread_id: UUID | None = Field(
-        description="Thread ID to persist and continue a multi-turn conversation.",
-        default=None,
+    user_id: UUID = Field(
+        description="User ID for long-term memory and personalization.",
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
+    thread_id: UUID = Field(
+        description="Thread ID to persist and continue a multi-turn conversation.",
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
+    request_id: str = Field(
+        description="Request ID for end-to-end tracing and idempotency.",
+        examples=["req-abc-123"],
     )
     model_name: str | None = Field(
         description="The model name to use for this request. If not provided, uses the default model.",
@@ -100,6 +55,11 @@ class UserInput(BaseModel):
         description="Whether to enable thinking mode for models that support it (e.g., DeepSeek-R1, Qwen3).",
         default=False,
         examples=[True, False],
+    )
+    timezone: str = Field(
+        description="IANA timezone for time-context substitution in prompts (e.g. Asia/Shanghai, America/New_York).",
+        default="Asia/Shanghai",
+        examples=["Asia/Shanghai", "America/New_York", "Europe/London"],
     )
     custom_data: dict[str, Any] | None = Field(
         description="Custom data to persist with the message (e.g., quoted_message_id, user_content for quote feature).",
@@ -138,6 +98,11 @@ class ChatMessage(BaseModel):
         default=None,
         examples=["847c6285-8fc9-4560-a83f-4e6285809254"],
     )
+    request_id: str | None = Field(
+        description="Request ID for viewing DAG of this specific turn.",
+        default=None,
+        examples=["req-abc-123"],
+    )
     response_metadata: dict[str, Any] = Field(
         description="Response metadata. For example: response headers, logprobs, token counts.",
         default={},
@@ -148,7 +113,7 @@ class ChatMessage(BaseModel):
     )
 
     def pretty_repr(self) -> str:
-        """Get a pretty representation of the message."""
+        """Get a human-readable representation for debug logging."""
         base_title = self.type.title() + " Message"
         padded = " " + base_title + " "
         sep_len = (80 - len(padded)) // 2
@@ -157,9 +122,6 @@ class ChatMessage(BaseModel):
         title = f"{sep}{padded}{second_sep}"
         return f"{title}\n\n{self.content}"
 
-    def pretty_print(self) -> None:
-        print(self.pretty_repr())  # noqa: T201
-
 
 class ChatHistory(BaseModel):
     """Chat history with messages and execution sequence."""
@@ -167,13 +129,18 @@ class ChatHistory(BaseModel):
     messages: list[ChatMessage] = Field(
         description="Messages for main chat UI (human and final AI messages)",
     )
-    message_sequence: list[MessageStep] = Field(
+    message_sequence: list[StepOutput] = Field(
         description="Complete message sequence for sidebar (tool calls and AI response)",
         default=[],
     )
 
 
-class Conversation(BaseModel):
+class ConversationCreate(BaseModel):
+    """Schema for creating a conversation.
+
+    user_id comes from query parameter, not request body.
+    """
+
     thread_id: UUID = Field(
         description="The thread ID of the conversation.",
         examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
@@ -184,17 +151,25 @@ class Conversation(BaseModel):
         min_length=1,
         max_length=64,
     )
-    agent_id: str | None = Field(
-        description="The agent ID used in this conversation.",
-        default="chatbot",
-        examples=["chatbot", "navigator"],
+
+
+class Conversation(BaseModel):
+    """Full conversation schema for responses."""
+
+    thread_id: UUID = Field(
+        description="The thread ID of the conversation.",
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
     )
-
-
-class ConversationCreate(Conversation):
-    """Schema for creating a conversation. Server-side fields are set automatically."""
-
-    pass
+    user_id: UUID = Field(
+        description="The user ID who owns this conversation.",
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
+    title: str = Field(
+        description="The title of the conversation",
+        examples=["Hello"],
+        min_length=1,
+        max_length=64,
+    )
 
 
 class ConversationUpdate(BaseModel):
@@ -206,11 +181,6 @@ class ConversationUpdate(BaseModel):
         examples=["Hello"],
         min_length=1,
         max_length=64,
-    )
-    agent_id: str | None = Field(
-        default=None,
-        description="The agent ID used in this conversation.",
-        examples=["chatbot", "navigator"],
     )
     is_deleted: bool | None = Field(
         default=None,
@@ -238,16 +208,8 @@ class ConversationInDB(Conversation):
         description="Cumulative input tokens used in this conversation",
         default=0,
     )
-    cache_read: int = Field(
-        description="Cumulative cache read tokens used in this conversation",
-        default=0,
-    )
     output_tokens: int = Field(
         description="Cumulative output tokens used in this conversation",
-        default=0,
-    )
-    reasoning: int = Field(
-        description="Cumulative reasoning tokens used in this conversation",
         default=0,
     )
     total_tokens: int = Field(
@@ -255,5 +217,116 @@ class ConversationInDB(Conversation):
         default=0,
     )
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Conversation info ───────────────────────────────────────────────────────
+
+
+class ConversationInfoResponse(BaseModel):
+    """Response for GET /chat/conversation-info/{thread_id}."""
+
+    model_name: str | None = Field(
+        default=None, description="Model name from last trace execution"
+    )
+    model_fallback: bool = Field(
+        default=False,
+        description="True when the trace model was inactive and fell back to default",
+    )
+
+
+# ── Daily stats ─────────────────────────────────────────────────────────────
+
+
+class DailyStatsItem(BaseModel):
+    """A single day's conversation + token statistics."""
+
+    date: str = Field(description="Date in YYYY-MM-DD format")
+    conversation_count: int = Field(description="Number of conversations that day")
+    input_tokens: int = Field(default=0, description="Input tokens consumed")
+    output_tokens: int = Field(default=0, description="Output tokens consumed")
+    total_tokens: int = Field(default=0, description="Total tokens consumed")
+
+
+# ── Title schemas ───────────────────────────────────────────────────────────
+
+
+class TitleGenerateRequest(BaseModel):
+    """Request for generating a conversation title."""
+
+    user_message: str = Field(
+        description="The user's message to generate title from",
+        examples=["What is the weather in Beijing?"],
+    )
+    ai_response: str | None = Field(
+        default=None,
+        description="The AI's response (optional, for better context)",
+        examples=["The weather in Beijing is sunny, 25°C."],
+    )
+
+
+class TitleGenerateResponse(BaseModel):
+    """Response for title generation."""
+
+    title: str = Field(
+        description="The generated title",
+        examples=["Beijing Weather Inquiry"],
+    )
+
+
+# ── Human-in-the-Loop Interrupt Message ───────────────────────────────────────
+
+
+class InterruptMessage(BaseMessage):
+    """Message in an interrupt of Human In The Loop."""
+
+    action_requests: list[dict] = []
+    """
+    The list of tool actions the Agent intends to execute but that have been paused for human review.
+    """
+
+    review_configs: list[dict] = []
+    """
+    The configuration that defines which decision types (approve, edit, reject) are allowed for each corresponding action request.
+    """
+
+    type: Literal["interrupt"] = "interrupt"
+    """The type of the message (used for deserialization)."""
+
+    @overload
+    def __init__(
+        self,
+        content: str | list[str | dict],
+        **kwargs: Any,
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        content: str | list[str | dict] | None = None,
+        content_blocks: list[types.ContentBlock] | None = None,
+        **kwargs: Any,
+    ) -> None: ...
+
+    def __init__(
+        self,
+        content: str | list[str | dict] | None = None,
+        content_blocks: list[types.ContentBlock] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Initialize an `InterruptMessage`.
+
+        Specify `content` as positional arg or `content_blocks` for typing.
+
+        Args:
+            content: The content of the message.
+            content_blocks: Typed standard content.
+            **kwargs: Additional arguments to pass to the parent class.
+        """
+        if content_blocks is not None:
+            super().__init__(
+                content=cast("str | list[str | dict]", content_blocks),
+                **kwargs,
+            )
+        else:
+            super().__init__(content=content, **kwargs)

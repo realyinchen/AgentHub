@@ -4,8 +4,9 @@ import type { ModelInfo } from "@/types"
 
 /**
  * Hook to manage model selection per conversation.
- * 
+ *
  * @param threadId - The current conversation thread ID
+ * @param isLoggedIn - Whether the user is logged in (API calls only made when logged in)
  * @returns An object containing:
  *   - models: ModelInfo[] - All available models
  *   - selectedModel: string | null - Currently selected model ID
@@ -16,15 +17,19 @@ import type { ModelInfo } from "@/types"
  *   - isLoading: boolean - Whether the models are being fetched
  *   - error: string | null - Error message if fetch failed
  */
-export function useModels(threadId: string | null) {
+export function useModels(threadId: string | null, isLoggedIn: boolean) {
   const [models, setModels] = useState<ModelInfo[]>([])
   const [defaultModel, setDefaultModel] = useState<string | null>(null)
   const [selectedModel, setSelectedModelState] = useState<string | null>(null)
-  const [isLoading, setIsLoading] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Track if component is mounted to prevent state updates after unmount
   const mountedRef = useRef(true)
+  // Track previous threadId to detect real conversation switch vs new conversation
+  const prevThreadIdRef = useRef<string | null>(null)
+  // Track if we've already fetched models after login
+  const hasFetchedRef = useRef(false)
 
   // Unified fetch function with mounted check
   const fetchModels = useCallback(async () => {
@@ -35,6 +40,7 @@ export function useModels(threadId: string | null) {
         setModels(result.models)
         setDefaultModel(result.default_llm)
         setError(null)
+        hasFetchedRef.current = true
       }
     } catch (err) {
       console.error("Failed to fetch available models:", err)
@@ -48,20 +54,42 @@ export function useModels(threadId: string | null) {
     }
   }, [])
 
-  // Fetch models on mount
+  // Fetch models only after user logs in
   useEffect(() => {
     mountedRef.current = true
-    fetchModels()
+    
+    // Only fetch models when user is logged in
+    if (isLoggedIn && !hasFetchedRef.current) {
+      fetchModels()
+    }
 
     return () => {
       mountedRef.current = false
     }
-  }, [fetchModels])
+  }, [fetchModels, isLoggedIn])
 
-  // Reset selection when threadId changes, but use default model if available
+  // Reset selection when switching to a different conversation (threadId changes from one non-empty to another)
+  // BUT: do NOT reset when a new conversation creates its threadId ("" -> non-empty)
+  // This preserves the user's model selection when sending the first message in a new conversation
   useEffect(() => {
-    // Set to default model if available, otherwise null
-    setSelectedModelState(defaultModel)
+    const prevThreadId = prevThreadIdRef.current
+    prevThreadIdRef.current = threadId
+
+    // Helper: treat both null and empty string as "no active conversation"
+    const hasPrevThreadId = prevThreadId !== null && prevThreadId !== ""
+    const hasCurrentThreadId = threadId !== null && threadId !== ""
+
+    // Only reset to default model when:
+    // 1. Switching from one existing conversation to another (both non-empty and different)
+    // 2. NOT when a new conversation creates its first threadId ("" -> non-empty)
+    if (hasPrevThreadId && hasCurrentThreadId && prevThreadId !== threadId) {
+      setSelectedModelState(defaultModel)
+    }
+    // When going from non-empty to empty (e.g. new conversation button),
+    // also reset to default model for the fresh new conversation
+    if (hasPrevThreadId && !hasCurrentThreadId) {
+      setSelectedModelState(defaultModel)
+    }
   }, [threadId, defaultModel])
 
   // Update selected model

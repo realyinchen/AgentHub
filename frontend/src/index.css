@@ -86,28 +86,86 @@
   --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.4);
   --glow-accent: 0 0 15px oklch(0.72 0.15 200 / 0.3);
 
-  /* Token stats - Light theme (clean, high readability) */
-  --token-input: #2563EB;
-  --token-input-bg: rgba(37, 99, 235, 0.12);
-  --token-input-glow: 0 0 8px rgba(37, 99, 235, 0.35);
+  /* Token stats - Light theme (Cost analysis palette) */
+  /* Input tokens - Blue: Request scale (source) */
+  --token-input: #3B82F6;
+  --token-input-bg: rgba(59, 130, 246, 0.12);
+  --token-input-glow: 0 0 8px rgba(59, 130, 246, 0.35);
 
-  --token-output: #059669;
-  --token-output-bg: rgba(5, 150, 105, 0.12);
-  --token-output-glow: 0 0 8px rgba(5, 150, 105, 0.35);
+  /* Output tokens - Indigo: Generation scale (result) */
+  --token-output: #8B5CF6;
+  --token-output-bg: rgba(139, 92, 246, 0.12);
+  --token-output-glow: 0 0 8px rgba(139, 92, 246, 0.35);
 
-  --token-cache: #7C3AED;
-  --token-cache-bg: rgba(124, 58, 237, 0.12);
-  --token-cache-glow: 0 0 8px rgba(124, 58, 237, 0.35);
+  /* Cache tokens - Green: Savings / Optimization benefits - Strong glow highlight */
+  --token-cache: #22C55E;
+  --token-cache-bg: rgba(34, 197, 94, 0.12);
+  --token-cache-glow: 0 0 12px rgba(34, 197, 94, 0.5);
 
-  --token-reasoning: #D97706;
-  --token-reasoning-bg: rgba(217, 119, 6, 0.12);
-  --token-reasoning-glow: 0 0 8px rgba(217, 119, 6, 0.35);
+  /* Reasoning tokens - Amber: Cost / Resource consumption (primary color) */
+  --token-reasoning: #F59E0B;
+  --token-reasoning-bg: rgba(245, 158, 11, 0.12);
+  --token-reasoning-glow: 0 0 10px rgba(245, 158, 11, 0.4);
 
   --token-total: #4F46E5;
   --token-total-bg: rgba(79, 70, 229, 0.12);
   --token-total-glow: 0 0 10px rgba(79, 70, 229, 0.4);
 
   --token-track: #E5E7EB;
+
+  /* DAG Colors - Light Theme */
+  --dag-bg-main: #EEF2F6;
+  --dag-bg-panel: #FFFFFF;
+  --dag-border: rgba(0, 0, 0, 0.16);
+  --dag-text-primary: #1A1A1A;
+  --dag-text-secondary: #666666;
+  --dag-text-dim: #999999;
+
+  /* Human Node - Gray Blue */
+  --dag-node-human-bg: #F1F5F9;
+  --dag-node-human-border: #94A3B8;
+  --dag-node-human-text: #475569;
+
+  /* AI Node - Blue */
+  --dag-node-ai-bg: #EFF6FF;
+  --dag-node-ai-border: #3B82F6;
+  --dag-node-ai-text: #1D4ED8;
+
+  /* AI Final Node - Green */
+  --dag-node-final-bg: #F0FDF4;
+  --dag-node-final-border: #22C55E;
+  --dag-node-final-text: #16A34A;
+
+  /* Tool Node - Purple */
+  --dag-node-tool-bg: #FAF5FF;
+  --dag-node-tool-border: #A855F7;
+  --dag-node-tool-text: #7E22CE;
+
+  /* Legacy variables for compatibility */
+  --dag-node-user: #64748B;
+  --dag-node-user-light: #F1F5F9;
+  --dag-node-user-border: #94A3B8;
+
+  --dag-node-ai: #3B82F6;
+  --dag-node-ai-light: #EFF6FF;
+  --dag-node-ai-border: #3B82F6;
+
+  --dag-node-tool: #A855F7;
+  --dag-node-tool-light: #FAF5FF;
+  --dag-node-tool-border: #A855F7;
+
+  --dag-node-subagent-from: #3B82F6;
+  --dag-node-subagent-to: #06B6D4;
+
+  --dag-success: #22C55E;
+  --dag-success-light: #F0FDF4;
+  --dag-success-border: #22C55E;
+
+  --dag-error: #EF4444;
+  --dag-error-light: #FEF2F2;
+  --dag-error-border: #EF4444;
+
+  --dag-edge: rgba(0, 0, 0, 0.25);
 }
 
 .dark {
@@ -192,28 +250,86 @@
   --glow-warm: 0 0 20px oklch(0.72 0.18 50 / 0.5);
   --glow-accent: 0 0 15px oklch(0.85 0.15 165 / 0.4);
 
-  /* Token stats - Dark theme (cool tech, unified palette) */
+  /* Token stats - Dark theme (Sharp, high contrast) */
+  /* Input tokens - Saturated blue with sharp edges */
   --token-input: #60A5FA;
   --token-input-bg: rgba(96, 165, 250, 0.15);
-  --token-input-glow: 0 0 10px rgba(96, 165, 250, 0.4);
+  --token-input-glow: none;
 
-  --token-output: #34D399;
-  --token-output-bg: rgba(52, 211, 153, 0.15);
-  --token-output-glow: 0 0 10px rgba(52, 211, 153, 0.4);
+  /* Output tokens - Saturated violet, distinct from blue */
+  --token-output: #A78BFA;
+  --token-output-bg: rgba(167, 139, 250, 0.15);
+  --token-output-glow: none;
 
-  --token-cache: #A78BFA;
-  --token-cache-bg: rgba(167, 139, 250, 0.15);
-  --token-cache-glow: 0 0 10px rgba(167, 139, 250, 0.4);
+  /* Cache tokens - Green (kept for compatibility) */
+  --token-cache: #4ADE80;
+  --token-cache-bg: rgba(74, 222, 128, 0.15);
+  --token-cache-glow: 0 0 15px rgba(74, 222, 128, 0.55);
 
-  --token-reasoning: #FB923C;
-  --token-reasoning-bg: rgba(251, 146, 60, 0.15);
-  --token-reasoning-glow: 0 0 10px rgba(251, 146, 60, 0.4);
+  /* Reasoning tokens - Amber (kept for compatibility) */
+  --token-reasoning: #FBBF24;
+  --token-reasoning-bg: rgba(251, 191, 36, 0.15);
+  --token-reasoning-glow: 0 0 12px rgba(251, 191, 36, 0.45);
 
-  --token-total: #818CF8;
-  --token-total-bg: rgba(129, 140, 248, 0.15);
-  --token-total-glow: 0 0 12px rgba(129, 140, 248, 0.5);
+  --token-total: #A5B4FC;
+  --token-total-bg: rgba(165, 180, 252, 0.20);
+  --token-total-glow: 0 0 12px rgba(165, 180, 252, 0.5);
 
-  --token-track: rgba(255, 255, 255, 0.08);
+  --token-track: rgba(255, 255, 255, 0.15);
+
+  /* DAG Colors - Dark Theme */
+  --dag-bg-main: #0A0E17;
+  --dag-bg-panel: #1A2332;
+  --dag-border: rgba(255, 255, 255, 0.14);
+  --dag-text-primary: #E6EDF3;
+  --dag-text-secondary: #9FB0C3;
+  --dag-text-dim: #6B7A90;
+
+  /* Human Node - Silver Gray */
+  --dag-node-human-bg: #1E293B;
+  --dag-node-human-border: #64748B;
+  --dag-node-human-text: #CBD5E1;
+
+  /* AI Node - Blue */
+  --dag-node-ai-bg: #172554;
+  --dag-node-ai-border: #60A5FA;
+  --dag-node-ai-text: #93C5FD;
+
+  /* AI Final Node - Green */
+  --dag-node-final-bg: #052E16;
+  --dag-node-final-border: #4ADE80;
+  --dag-node-final-text: #86EFAC;
+
+  /* Tool Node - Purple */
+  --dag-node-tool-bg: #3B1D5C;
+  --dag-node-tool-border: #C084FC;
+  --dag-node-tool-text: #D8B4FE;
+
+  /* Legacy variables for compatibility */
+  --dag-node-user: #94A3B8;
+  --dag-node-user-light: #1E293B;
+  --dag-node-user-border: #64748B;
+
+  --dag-node-ai: #60A5FA;
+  --dag-node-ai-light: #172554;
+  --dag-node-ai-border: #60A5FA;
+
+  --dag-node-tool: #C084FC;
+  --dag-node-tool-light: #3B1D5C;
+  --dag-node-tool-border: #C084FC;
+
+  --dag-node-subagent-from: #60A5FA;
+  --dag-node-subagent-to: #22D3EE;
+
+  --dag-success: #4ADE80;
+  --dag-success-light: #052E16;
+  --dag-success-border: #4ADE80;
+
+  --dag-error: #F87171;
+  --dag-error-light: #450A0A;
+  --dag-error-border: #F87171;
+
+  --dag-edge: rgba(255, 255, 255, 0.25);
 }
 
 @theme inline {
@@ -461,6 +577,37 @@
   .step-detail-scroll:hover {
     --step-scrollbar-thumb: color-mix(in oklab, var(--color-muted-foreground) 50%, transparent);
     scrollbar-color: var(--step-scrollbar-thumb) transparent;
+  }
+
+  /* DAG scroll area - dark mode compatible */
+  .dag-scroll-container {
+    --dag-scrollbar-thumb: color-mix(in oklab, var(--dag-text-secondary) 50%, transparent);
+    --dag-scrollbar-track: var(--dag-bg-main);
+    scrollbar-width: thin;
+    scrollbar-color: var(--dag-scrollbar-thumb) var(--dag-scrollbar-track);
+  }
+
+  .dag-scroll-container::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+    background: var(--dag-scrollbar-track);
+  }
+
+  .dag-scroll-container::-webkit-scrollbar-track,
+  .dag-scroll-container::-webkit-scrollbar-corner {
+    background: var(--dag-scrollbar-track);
+    border: 0;
+  }
+
+  .dag-scroll-container::-webkit-scrollbar-thumb {
+    border: 0;
+    border-radius: 999px;
+    background-color: var(--dag-scrollbar-thumb);
+  }
+
+  .dag-scroll-container:hover {
+    --dag-scrollbar-thumb: color-mix(in oklab, var(--dag-text-secondary) 70%, transparent);
+    scrollbar-color: var(--dag-scrollbar-thumb) var(--dag-scrollbar-track);
   }
 }
 
@@ -717,4 +864,143 @@
 
 .animate-shimmer {
   animation: shimmer 2s infinite;
+}
+
+/* ==================== Kanban DAG Animations ==================== */
+
+/* Node appear: opacity 0→1, scale 0.92→1, gentle float up */
+@keyframes nodeAppear {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* Edge data-flow animation via stroke-dashoffset */
+@keyframes edgeFlow {
+  from {
+    stroke-dashoffset: 20;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ==================== Kanban Font ==================== */
+
+.kanban-page {
+  font-family: Inter, "SF Pro Display", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ==================== Pure CSS Icons ==================== */
+
+/* Token/Money icon - $¥ offset stacked coin */
+.icon-money-dual {
+  width: 24px;
+  height: 24px;
+  position: relative;
+  border-radius: 50%;
+  background: linear-gradient(145deg, #f6d365, #fda085);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.3);
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Foreground: $ */
+.icon-money-dual::before {
+  content: "$";
+  position: absolute;
+  left: 6px;
+  top: 4px;
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.7);
+}
+
+/* Background: ¥ (slightly offset + transparent) */
+.icon-money-dual::after {
+  content: "¥";
+  position: absolute;
+  right: 5px;
+  bottom: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  color: rgba(0, 0, 0, 0.35);
+}
+
+/* Steps icon - Numbered list 1 2 3 */
+.icon-steps {
+  width: 16px;
+  height: 18px;
+  position: relative;
+  display: inline-block;
+  font-family: system-ui, -apple-system, sans-serif;
+}
+
+/* Left column numbers 1 2 3 */
+.icon-steps::before {
+  content: "1 2 3";
+  white-space: pre;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 5.5px;
+  font-weight: 900;
+  line-height: 1.35;
+  color: currentColor;
+  letter-spacing: 0;
+}
+
+/* Right side three short horizontal lines (list item content) */
+.icon-steps::after {
+  content: "";
+  position: absolute;
+  right: 0;
+  top: 2px;
+  width: 7px;
+  height: 1.5px;
+  background: currentColor;
+  border-radius: 1px;
+  opacity: 0.7;
+  box-shadow:
+    0 5px 0 currentColor,
+    0 10px 0 currentColor;
+}
+
+/* Arrow left icon - Simple left arrow */
+.icon-arrow-left {
+  width: 16px;
+  height: 16px;
+  position: relative;
+  display: inline-block;
+}
+
+.icon-arrow-left::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 8px;
+  height: 2px;
+  background: currentColor;
+  transform: translateY(-50%);
+  border-radius: 1px;
+}
+
+.icon-arrow-left::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  width: 6px;
+  height: 6px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-50%) rotate(45deg);
 }

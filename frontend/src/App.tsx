@@ -17,38 +17,37 @@ import {
   deleteConversation,
   generateTitle,
   getConversationTitle,
+  getCurrentUserId,
   getHistory,
-  listAgents,
   listConversations,
   loadMoreConversations,
   setConversationTitle,
+  setCurrentUserId,
   streamChat,
 } from "@/lib/api"
 import type {
-  AgentInDB,
-  AgentProcessSession,
-  AgentProcessStep,
   ChatMessage,
   ConversationInDB,
   LocalChatMessage,
-  MessageStep,
   StreamEvent,
   ToolCallEvent,
   ToolCallInfo,
+  UserInfo,
 } from "@/types"
 import { useThinkingMode } from "@/hooks/use-thinking-mode"
 import { useTheme } from "@/hooks/use-theme"
 import { useModels } from "@/hooks/use-models"
+import { useUser } from "@/hooks/use-user"
+import { useAuth } from "@/contexts/AuthContext"
 import {
-  AgentProcessPanel,
   ChatMainPanel,
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
   ShareDialog,
   TokenStatsPanel,
+  TurnDAGSidebar,
 } from "@/features/chat/components"
-import { AgentSidebar } from "@/components/agent"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
@@ -57,25 +56,20 @@ import {
   isDefaultConversationTitle,
   normalizeChatMessage,
   readThreadIdFromUrl,
+  writeToUrl,
   sanitizeTitle,
   sortConversationsByUpdatedAt,
   toLocalMessage,
 } from "@/features/chat/utils"
 
-function readAgentIdFromUrl(): string | null {
-  const params = new URLSearchParams(window.location.search)
-  return params.get("agent_id")
-}
 import { useI18n } from "@/i18n"
+import { HomePage } from "@/pages/home-page"
 import { Toaster } from "@/components/ui/toaster"
 
 function App() {
   const { t, toggleLocale } = useI18n()
   const { theme, toggleTheme } = useTheme()
   const defaultConversationTitle = t("conversation.defaultTitle")
-
-  const [agents, setAgents] = useState<AgentInDB[]>([])
-  const [selectedAgentId, setSelectedAgentId] = useState("")
 
   const [conversations, setConversations] = useState<ConversationInDB[]>([])
   const [threadId, setThreadId] = useState("")
@@ -84,9 +78,21 @@ function App() {
   const [hasMoreConversations, setHasMoreConversations] = useState(false)
   const [isLoadingMoreConversations, setIsLoadingMoreConversations] = useState(false)
 
+  // User selection state (for Jack/Rose mock users)
+  const { userId, currentUser, setUserId } = useUser()
+
+  // Auth context (for WeChat login)
+  const { user: authUser, isAuthenticated, isLoading: isAuthLoading, logout } = useAuth()
+
+  // Determine if user is logged in (either via mock user or WeChat)
+  // Priority: URL userId > mock userId > AuthContext
+  const effectiveUserId = userId || (authUser?.id) || null
+  const isLoggedIn = !!effectiveUserId || isAuthenticated
+
   // Thinking mode state - persisted per conversation in localStorage
   const {
-    thinkingMode
+    thinkingMode,
+    setThinkingMode,
   } = useThinkingMode(threadId)
 
   // Model selection state - persisted per conversation in localStorage
@@ -94,11 +100,45 @@ function App() {
     models,
     setSelectedModel,
     getEffectiveModel,
+    getSelectedModelInfo,
     refreshModels,
-  } = useModels(threadId)
+  } = useModels(threadId, isLoggedIn)
+
+  // Handle user switch - go back to home page
+  const handleSwitchUser = useCallback(async () => {
+    // Clear all conversation-related state to prevent data leakage between users
+    setConversations([])
+    setThreadId("")
+    setMessages([])
+    setConversationTitleState(defaultConversationTitle)
+    setDraftTitle(defaultConversationTitle)
+    setConversationsOffset(0)
+    setHasMoreConversations(false)
+    setSelectedRequestId(null)
+    setAppError(null)
+    abortControllerRef.current?.abort()
+    setIsStreaming(false)
+
+    setUserId(null)
+    setCurrentUserId(null)
+    // Call AuthContext logout to properly clear auth state (for WeChat users)
+    await logout()
+  }, [setUserId, logout, defaultConversationTitle])
+
+  // Track if we need to re-initialize after user login
+  const [needsReinit, setNeedsReinit] = useState(false)
 
   // Get the effective model ID (selected or default)
   const effectiveSelectedModel = getEffectiveModel()
+
+  // Auto-sync thinking mode when model changes
+  // If the selected model has thinking enabled, automatically turn on thinking mode
+  useEffect(() => {
+    const selectedModelInfo = getSelectedModelInfo()
+    if (selectedModelInfo?.thinking) {
+      setThinkingMode(true)
+    }
+  }, [effectiveSelectedModel, getSelectedModelInfo, setThinkingMode])
 
   // Get current model info to check if it supports thinking
   const [conversationTitle, setConversationTitleState] = useState(
@@ -119,15 +159,11 @@ function App() {
   const [calledTools, setCalledTools] = useState<ToolCallInfo[]>([])
   const [thinkingContent, setThinkingContent] = useState("") // Accumulated thinking content
 
-  // Agent process session for real-time sidebar display
-  const [processSession, setProcessSession] = useState<AgentProcessSession | null>(null)
-  // Message sequence from backend - all messages as steps for sidebar
-  const [messageSequence, setMessageSequence] = useState<MessageStep[]>([])
   // Toggle for showing/hiding the sidebar process panel
   const [showSidebarProcess, setShowSidebarProcess] = useState(true)
 
-
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  // Selected request_id for viewing historical DAG
+  const [selectedRequestId, setSelectedRequestId] = useState<string | null>(null)
 
 
 
@@ -139,29 +175,19 @@ function App() {
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
+  const currentRequestIdRef = useRef<string | null>(null)
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
   const effectiveModelRef = useRef<string | null>(null)
-  const processSessionRef = useRef<AgentProcessSession | null>(null)
-  // Store pending tool calls (id -> ToolCallEvent) for creating steps when tool_result arrives
-  const pendingToolCallsRef = useRef<Map<string, ToolCallEvent>>(new Map())
-  // Direct ref for process steps to avoid race condition with React state sync
-  const processStepsRef = useRef<AgentProcessStep[]>([])
 
-  // Keep thinkingModeRef in sync with thinkingMode state
+  // Keep refs in sync with state
   useEffect(() => {
     thinkingModeRef.current = thinkingMode
   }, [thinkingMode])
 
-  // Keep effectiveModelRef in sync with effectiveSelectedModel state
   useEffect(() => {
     effectiveModelRef.current = effectiveSelectedModel
   }, [effectiveSelectedModel])
-
-  // Keep processSessionRef in sync with processSession state
-  useEffect(() => {
-    processSessionRef.current = processSession
-  }, [processSession])
 
   // Check if there are available models (active LLM/VLM)
   const hasAvailableModels = useMemo(() => {
@@ -181,15 +207,11 @@ function App() {
     }
   }, [isInitializing, isLoadingConversation, hasAvailableModels])
 
-  const writeThreadIdToUrl = useCallback((nextThreadId: string | null) => {
-    const url = new URL(window.location.href)
-    if (nextThreadId) {
-      url.searchParams.set("thread_id", nextThreadId)
-    } else {
-      url.searchParams.delete("thread_id")
-    }
-    window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
-  }, [])
+  // Write userId and threadId to URL
+  // Use effectiveUserId to support both mock users and WeChat users
+  const writeUrl = useCallback((nextThreadId: string | null) => {
+    writeToUrl(effectiveUserId, nextThreadId)
+  }, [effectiveUserId])
 
   const refreshConversations = useCallback(async () => {
     const { conversations: latest, total } = await listConversations(10, 0)
@@ -234,7 +256,7 @@ function App() {
   }, [conversationsOffset, hasMoreConversations, isLoadingMoreConversations])
 
   const ensureConversationExists = useCallback(
-    async (targetThreadId: string, title: string, agentId?: string) => {
+    async (targetThreadId: string, title: string) => {
       const exists = conversations.some(
         (conversation) => conversation.thread_id === targetThreadId,
       )
@@ -247,7 +269,6 @@ function App() {
         const created = await createConversation({
           thread_id: targetThreadId,
           title: sanitizeTitle(title) || defaultConversationTitle,
-          agent_id: agentId || selectedAgentId,
         })
 
         setConversations((previous) =>
@@ -257,14 +278,13 @@ function App() {
         await refreshConversations()
       }
     },
-    [conversations, refreshConversations, selectedAgentId],
+    [conversations, refreshConversations, defaultConversationTitle],
   )
 
   const openConversation = useCallback(
     async (
       targetThreadId: string,
       knownConversations: ConversationInDB[] = conversations,
-      agentList: AgentInDB[] = agents,
     ) => {
       if (!targetThreadId) {
         return
@@ -273,31 +293,14 @@ function App() {
       abortControllerRef.current?.abort()
       setIsStreaming(false)
       setThreadId(targetThreadId)
-      writeThreadIdToUrl(targetThreadId)
+      writeUrl(targetThreadId)
       setRenameTarget(null)
       setIsLoadingConversation(true)
       setAppError(null)
-      // Clear process display when switching conversations
-      setProcessSession(null)
-
-      // Find the conversation to get its agent_id
-      const conversation = knownConversations.find(
-        (c) => c.thread_id === targetThreadId,
-      )
-
-      // Determine agent to use: prefer saved agent_id, fall back to default
-      const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
-      const savedAgentId = conversation?.agent_id
-      const agentToUse = savedAgentId && agentList.some((a) => a.agent_id === savedAgentId)
-        ? savedAgentId
-        : defaultAgentId
-
-      // Update selected agent if different
-      setSelectedAgentId(agentToUse)
 
       try {
         const [historyResult, titleResult] = await Promise.allSettled([
-          getHistory(agentToUse, targetThreadId),
+          getHistory(targetThreadId),
           getConversationTitle(targetThreadId),
         ])
 
@@ -305,45 +308,18 @@ function App() {
           setMessages(
             historyResult.value.messages.map((message) => toLocalMessage(message)),
           )
-          // Set message sequence for sidebar
-          const sequence = historyResult.value.message_sequence || []
-          setMessageSequence(sequence)
-
-          // Auto-select the latest session that has steps
-          if (sequence && sequence.length > 0) {
-            // Group steps by session_id
-            const stepsBySession = new Map<string, MessageStep[]>()
-            sequence.forEach((step) => {
-              const sid = step.session_id
-              if (!stepsBySession.has(sid)) {
-                stepsBySession.set(sid, [])
-              }
-              stepsBySession.get(sid)!.push(step)
-            })
-
-            // Find sessions that have steps (tool calls or thinking)
-            const sessionsWithSteps: string[] = []
-            stepsBySession.forEach((steps, sid) => {
-              const hasToolSteps = steps.some(s => s.message_type === "tool")
-              const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
-              if (hasToolSteps || hasThinking) {
-                sessionsWithSteps.push(sid)
-              }
-            })
-
-            // Select the latest session with steps
-            if (sessionsWithSteps.length > 0) {
-              setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
-            } else {
-              setSelectedSessionId(null)
-            }
+          // Auto-select the latest request_id (from last AI message)
+          const lastAiMessage = historyResult.value.messages
+            .filter((m: ChatMessage) => m.type === "ai")
+            .pop()
+          if (lastAiMessage?.request_id) {
+            setSelectedRequestId(lastAiMessage.request_id)
           } else {
-            setSelectedSessionId(null)
+            setSelectedRequestId(null)
           }
         } else {
           setMessages([])
-          setMessageSequence([])
-          setSelectedSessionId(null)
+          setSelectedRequestId(null)
         }
 
         if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -371,40 +347,23 @@ function App() {
         setIsLoadingConversation(false)
       }
     },
-    [agents, conversations, defaultConversationTitle, t, writeThreadIdToUrl],
+    [conversations, defaultConversationTitle, t, writeUrl],
   )
 
   const resetToNewConversation = useCallback(() => {
     abortControllerRef.current?.abort()
     setIsStreaming(false)
 
-    const newThreadId = crypto.randomUUID()
-    setThreadId(newThreadId)
-    writeThreadIdToUrl(null)
+    // Delay thread_id creation until first message is sent
+    setThreadId("")
+    writeUrl(null)
     setMessages([])
-    setMessageSequence([]) // Clear message sequence for new conversation
     setConversationTitleState(defaultConversationTitle)
     setDraftTitle(defaultConversationTitle)
     setRenameTarget(null)
-    setSelectedAgentId(agents[0]?.agent_id ?? "chatbot") // Use first agent as default
     setAppError(null)
-    // Clear process display when creating new conversation
-    setProcessSession(null)
-  }, [writeThreadIdToUrl, defaultConversationTitle, agents])
-
-  const pickAgentForCurrentConversation = useCallback((agentId: string) => {
-    setSelectedAgentId(agentId)
-    setAppError(null)
-  }, [])
-
-  // Ensure chatbot is selected by default when no agent is selected
-  useEffect(() => {
-    if (!selectedAgentId && agents.length > 0) {
-      // Find chatbot agent, or use first agent as fallback
-      const chatbotAgent = agents.find(a => a.agent_id === 'chatbot')
-      setSelectedAgentId(chatbotAgent?.agent_id ?? agents[0]?.agent_id ?? "")
-    }
-  }, [selectedAgentId, agents])
+    setSelectedRequestId(null)
+  }, [writeUrl, defaultConversationTitle])
 
   const createStreamingPlaceholder = useCallback(() => {
     const placeholderId = crypto.randomUUID()
@@ -556,6 +515,8 @@ function App() {
               ...(normalized.tool_calls || []),
             ]
             const mergedThinking = normalized.custom_data?.thinking || lastMessage.custom_data?.thinking
+            // Keep request_id from either the existing message or the new normalized message
+            const mergedRequestId = normalized.request_id || lastMessage.request_id
 
             return previous.map((item, index) => {
               if (index === previous.length - 1) {
@@ -563,6 +524,7 @@ function App() {
                   ...item,
                   content: mergedContent,
                   tool_calls: mergedToolCalls,
+                  request_id: mergedRequestId,
                   custom_data: {
                     ...item.custom_data,
                     ...(mergedThinking ? { thinking: mergedThinking } : {}),
@@ -613,6 +575,7 @@ function App() {
         try {
           // Use the lightweight title generation endpoint
           const result = await generateTitle({
+            thread_id: targetThreadId,
             user_message: userInput,
             ai_response: aiResponse,
           })
@@ -653,14 +616,20 @@ function App() {
       const trimmed = rawInput.trim()
       if (
         !trimmed ||
-        !threadId ||
-        !selectedAgentId ||
         isStreaming
       ) {
         return
       }
 
+      // Lazy create thread_id if this is a brand new conversation
+      let targetThreadId = threadId
+      if (!targetThreadId) {
+        targetThreadId = crypto.randomUUID()
+        setThreadId(targetThreadId)
+      }
+
       setAppError(null)
+      setSelectedRequestId(null) // Reset to show latest request after streaming ends
       setMessages((previous) => [
         ...previous,
         toLocalMessage(
@@ -674,14 +643,13 @@ function App() {
         ),
       ])
 
-      const targetThreadId = threadId
       const currentTitle = conversationTitle
 
       try {
         await ensureConversationExists(targetThreadId, currentTitle)
 
         // Write thread_id to URL for sharing (especially important for new conversations)
-        writeThreadIdToUrl(targetThreadId)
+        writeUrl(targetThreadId)
 
         setIsStreaming(true)
         streamingPlaceholderIdRef.current = null
@@ -697,27 +665,6 @@ function App() {
         setCalledTools([])
         setThinkingContent("")
 
-        // Initialize process session for real-time sidebar display
-        // Start with human message as step 0 (matching backend)
-        const humanStep: AgentProcessStep = {
-          id: `human-${Date.now()}`,
-          type: "human",
-          content: trimmed,
-          timestamp: Date.now(),
-          status: "done",
-        }
-
-        setProcessSession({
-          threadId: targetThreadId,
-          agentId: selectedAgentId,
-          steps: [humanStep],
-          isActive: true,
-          startTime: Date.now(),
-        })
-        // Reset process steps ref for direct access (avoids race condition)
-        // Include human message as first step (step 0)
-        processStepsRef.current = [humanStep]
-
         // Use ref to get the latest thinkingMode and model value to avoid stale closure
         const currentThinkingMode = thinkingModeRef.current
         const currentModel = effectiveModelRef.current
@@ -725,8 +672,9 @@ function App() {
         await streamChat(
           {
             content: trimmed,
-            agent_id: selectedAgentId,
             thread_id: targetThreadId,
+            user_id: getCurrentUserId() || "default",
+            request_id: crypto.randomUUID(),
             model_name: currentModel,
             thinking_mode: currentThinkingMode,
             custom_data: quotedMessageId ? {
@@ -735,53 +683,45 @@ function App() {
             } : undefined,
           },
           (event: StreamEvent) => {
-            // Received any content, stop showing "processing..."
-            if (isProcessingRef.current) {
-              setIsProcessing(false)
-              isProcessingRef.current = false
+            // Handle request_start event - store request_id for DAG viewing
+            if (event.type === "request_start") {
+              currentRequestIdRef.current = event.request_id
+              // Update the placeholder message with request_id
+              const placeholderId = streamingPlaceholderIdRef.current
+              if (placeholderId) {
+                setMessages((previous) =>
+                  previous.map((item) =>
+                    item.local_id === placeholderId
+                      ? { ...item, request_id: event.request_id }
+                      : item,
+                  ),
+                )
+              }
+              return
             }
 
-            if (event.type === "llm") {
+            if (event.type === "llm" || event.type === "reasoning") {
               // Thinking/reasoning content from models like DeepSeek-R1, Qwen3
+              // "llm" is legacy event type, "reasoning" is LangChain v3 streaming type
+              // Stop showing "processing..." loader when reasoning content arrives
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               setIsAgentThinking(true)
               setActiveToolCall(null)
               // Accumulate thinking content
               setThinkingContent((prev) => prev + event.content)
-
-              // Update process steps ref directly (avoids race condition)
-              // Use id to identify the same step and append content
-              const currentSteps = processStepsRef.current
-              const existingStepIndex = currentSteps.findIndex(s => s.id === event.id)
-
-              if (existingStepIndex >= 0) {
-                // Append to existing step (streaming)
-                const existingStep = currentSteps[existingStepIndex]
-                currentSteps[existingStepIndex] = {
-                  ...existingStep,
-                  content: (existingStep.content as string) + event.content,
-                }
-              } else {
-                // Create new thinking step (new LLM call)
-                const newStep: AgentProcessStep = {
-                  id: event.id,
-                  type: "thinking",
-                  content: event.content,
-                  timestamp: Date.now(),
-                  status: "running",
-                }
-                processStepsRef.current = [...currentSteps, newStep]
-              }
-
-              // Update process session for UI display
-              setProcessSession((prev) => {
-                if (!prev) return null
-                return { ...prev, steps: processStepsRef.current }
-              })
               return
             }
 
             if (event.type === "token") {
               // When we start receiving tokens, agent is no longer "thinking"
+              // Also stop showing "processing..." loader since content is now arriving
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               setIsAgentThinking(false)
               setActiveToolCall(null)
               addStreamToken(event.content)
@@ -790,11 +730,26 @@ function App() {
 
             if (event.type === "message") {
               const message = event.content
+              // Stop loading animation when we receive a message event
+              // This handles cases where backend sends message directly without streaming tokens
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               // When we receive an AI message with actual content (not just tool_calls), 
               // agent is no longer "thinking"
               if (message.type === "ai") {
                 const hasContent = message.content && message.content.trim().length > 0
                 const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
+
+                // If this is an intermediate message (has tool_calls but no meaningful content),
+                // don't add it to messages - just track tool calls
+                if (hasToolCalls && !hasContent) {
+                  // This is an intermediate AI message for tool calls
+                  // Don't add to messages array - tool info is already tracked via calledTools
+                  return
+                }
+
                 // Only stop thinking if we have content and no pending tool calls
                 if (hasContent && !hasToolCalls) {
                   setIsAgentThinking(false)
@@ -806,7 +761,12 @@ function App() {
             }
 
             if (event.type === "tool") {
-              // Agent is calling a tool, show thinking state
+              // Agent is calling a tool - stop showing "processing..." loader
+              // Content is arriving (tool call is a form of content)
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
               setIsAgentThinking(true)
               // Create ToolCallEvent from the new event format
               const toolCallEvent: ToolCallEvent = {
@@ -831,41 +791,12 @@ function App() {
                   },
                 ]
               })
-
-              // Mark thinking as done
-              processStepsRef.current = processStepsRef.current.map((step) => {
-                if (step.type === "thinking" && step.status === "running") {
-                  return { ...step, status: "done" as const }
-                }
-                return step
-              })
-
-              // Create tool_call step immediately (tool is being executed)
-              const newStep: AgentProcessStep = {
-                id: event.id,
-                type: "tool_call",
-                content: toolCallEvent,
-                timestamp: Date.now(),
-                status: "running",
-              }
-              processStepsRef.current = [...processStepsRef.current, newStep]
-
-              // Store pending tool call for result matching
-              pendingToolCallsRef.current.set(event.content.tool_id, toolCallEvent)
-
-              // Update process session for UI display
-              setProcessSession((prev) => {
-                if (!prev) return null
-                return { ...prev, steps: processStepsRef.current }
-              })
-
-              // Reset thinking content for the next LLM call
-              setThinkingContent("")
               return
             }
 
             if (event.type === "tool_result") {
               // Tool execution completed, update the tool call info
+              // Still keep isProcessing true - more tools may be called or AI response pending
               setCalledTools((prev) =>
                 prev.map((t) =>
                   t.id === event.content.id
@@ -873,28 +804,6 @@ function App() {
                     : t,
                 ),
               )
-
-              // Find and update the existing tool step with the result
-              // The tool step was created when tool event was received
-              processStepsRef.current = processStepsRef.current.map((step) => {
-                // Match by tool_id stored in the content
-                if (step.type === "tool_call" && step.status === "running") {
-                  const toolContent = step.content as ToolCallEvent
-                  if (toolContent.id === event.content.id) {
-                    return { ...step, status: "done" as const, result: event.content.output }
-                  }
-                }
-                return step
-              })
-
-              // Clean up pending tool call
-              pendingToolCallsRef.current.delete(event.content.id)
-
-              // Update process session for UI display
-              setProcessSession((prev) => {
-                if (!prev) return null
-                return { ...prev, steps: processStepsRef.current }
-              })
               return
             }
 
@@ -923,76 +832,6 @@ function App() {
           },
           controller.signal,
         )
-
-        // Add AI response step to process steps before saving
-        // Get the final AI message content
-        let finalAiContent = ""
-        let finalThinkingContent = ""
-        setMessages((previous) => {
-          for (let i = previous.length - 1; i >= 0; i--) {
-            if (previous[i].type === "ai" && previous[i].content) {
-              finalAiContent = previous[i].content
-              finalThinkingContent = previous[i].custom_data?.thinking as string || ""
-              break
-            }
-          }
-          return previous
-        })
-
-        // Add AI response step if we have content
-        if (finalAiContent) {
-          const aiResponseStep: AgentProcessStep = {
-            id: `ai-response-${Date.now()}`,
-            type: "ai_response",
-            content: finalAiContent,
-            timestamp: Date.now(),
-            status: "done",
-            thinking: finalThinkingContent || undefined,
-          }
-          processStepsRef.current = [...processStepsRef.current, aiResponseStep]
-
-          // Update process session for UI display
-          setProcessSession((prev) => {
-            if (!prev) return null
-            return { ...prev, steps: processStepsRef.current }
-          })
-        }
-
-        // Ensure all streaming placeholders are marked as complete
-        // Also save process steps to the message's custom_data for history
-        // Use processStepsRef directly to avoid race condition with React state sync
-        setMessages((previous) => {
-          const updated = previous.map((message) => {
-            if (!message.is_streaming) {
-              return message
-            }
-            // Get the final process steps from processStepsRef (avoids race condition)
-            const finalSteps = processStepsRef.current
-
-            // Convert steps to historical format for persistence
-            const processSteps = finalSteps.map((step, index) => ({
-              id: step.id,
-              type: step.type,
-              content: step.type === "thinking" || step.type === "human" || step.type === "ai_response"
-                ? step.content as string
-                : (step.content as ToolCallEvent).name,
-              args: step.type === "tool_call" ? (step.content as ToolCallEvent).args : undefined,
-              result: step.result,
-              thinking: step.thinking,
-              order: index,
-            }))
-
-            return {
-              ...message,
-              is_streaming: false,
-              custom_data: {
-                ...message.custom_data,
-                process_steps: processSteps,
-              },
-            }
-          })
-          return updated
-        })
 
         await refreshConversations()
 
@@ -1028,55 +867,15 @@ function App() {
         setIsStreaming(false)
         streamingPlaceholderIdRef.current = null
         abortControllerRef.current = null
-        // Mark process session as inactive
-        setProcessSession((prev) => {
-          if (!prev) return null
-          return {
-            ...prev,
-            isActive: false,
-            endTime: Date.now(),
+
+        // Auto-select the latest request_id from messages
+        setMessages((currentMessages) => {
+          const lastAiMessage = currentMessages.filter(m => m.type === "ai" && m.request_id).pop()
+          if (lastAiMessage?.request_id) {
+            setSelectedRequestId(lastAiMessage.request_id)
           }
+          return currentMessages
         })
-
-        // Fetch updated message sequence from backend for sidebar persistence
-        // This ensures the sidebar shows correct data after streaming ends
-        try {
-          const historyResult = await getHistory(selectedAgentId, targetThreadId)
-          if (historyResult.message_sequence) {
-            setMessageSequence(historyResult.message_sequence)
-
-            // Auto-select the latest session that has steps
-            const sequence = historyResult.message_sequence
-            if (sequence && sequence.length > 0) {
-              // Group steps by session_id
-              const stepsBySession = new Map<string, MessageStep[]>()
-              sequence.forEach((step) => {
-                const sid = step.session_id
-                if (!stepsBySession.has(sid)) {
-                  stepsBySession.set(sid, [])
-                }
-                stepsBySession.get(sid)!.push(step)
-              })
-
-              // Find sessions that have steps (tool calls or thinking)
-              const sessionsWithSteps: string[] = []
-              stepsBySession.forEach((steps, sid) => {
-                const hasToolSteps = steps.some(s => s.message_type === "tool")
-                const hasThinking = steps.some(s => s.message_type === "ai" && s.thinking && s.thinking.trim().length > 0)
-                if (hasToolSteps || hasThinking) {
-                  sessionsWithSteps.push(sid)
-                }
-              })
-
-              // Select the latest session with steps
-              if (sessionsWithSteps.length > 0) {
-                setSelectedSessionId(sessionsWithSteps[sessionsWithSteps.length - 1])
-              }
-            }
-          }
-        } catch {
-          // Ignore errors when fetching message sequence
-        }
       }
     },
     [
@@ -1088,200 +887,9 @@ function App() {
       isStreaming,
       maybeGenerateTitle,
       refreshConversations,
-      selectedAgentId,
       t,
       threadId,
-      writeThreadIdToUrl,
-    ],
-  )
-
-  const handleEditMessage = useCallback(
-    async (newContent: string, messageIndex: number) => {
-      if (!threadId || !selectedAgentId || isStreaming) {
-        return
-      }
-
-      // Validate the message index
-      if (messageIndex < 0 || messageIndex >= messages.length) {
-        return
-      }
-
-      // Ensure the message at the index is a user message
-      const messageToEdit = messages[messageIndex]
-      if (messageToEdit.type !== "human") {
-        return
-      }
-
-      // Keep messages before the edited message
-      const previousMessages = messages.slice(0, messageIndex)
-
-      // Create placeholder ID before any state updates
-      const placeholderId = crypto.randomUUID()
-      streamingPlaceholderIdRef.current = placeholderId
-
-      // Keep messages before the edited message, then add the edited user message
-      // This ensures history is visible while editing
-      const editedUserMessage = toLocalMessage(
-        { type: "human", content: newContent },
-        { customData: messageToEdit.custom_data }
-      )
-
-      // Create AI placeholder in the same state update to avoid race condition
-      const aiPlaceholder = toLocalMessage(
-        { type: "ai", content: "" },
-        { localId: placeholderId, isStreaming: true }
-      )
-
-      // Single state update with all messages
-      setMessages([...previousMessages, editedUserMessage, aiPlaceholder])
-
-      setAppError(null)
-      setIsStreaming(true)
-
-      const controller = new AbortController()
-      abortControllerRef.current = controller
-
-      // Reset state
-      setIsProcessing(true)
-      isProcessingRef.current = true
-      setIsAgentThinking(false)
-      setCalledTools([])
-      setThinkingContent("")
-
-      const currentThinkingMode = thinkingModeRef.current
-      const currentModel = effectiveModelRef.current
-
-      try {
-        // Stream with the new content
-        await streamChat(
-          {
-            content: newContent,
-            agent_id: selectedAgentId,
-            thread_id: threadId,
-            model_name: currentModel,
-            thinking_mode: currentThinkingMode,
-          },
-          (event: StreamEvent) => {
-            if (isProcessingRef.current) {
-              setIsProcessing(false)
-              isProcessingRef.current = false
-            }
-
-            if (event.type === "llm") {
-              setIsAgentThinking(true)
-              setActiveToolCall(null)
-              setThinkingContent((prev) => prev + event.content)
-              return
-            }
-
-            if (event.type === "token") {
-              setIsAgentThinking(false)
-              setActiveToolCall(null)
-              addStreamToken(event.content)
-              return
-            }
-
-            if (event.type === "message") {
-              const message = event.content
-              if (message.type === "ai") {
-                const hasContent = message.content && message.content.trim().length > 0
-                const hasToolCalls = message.tool_calls && message.tool_calls.length > 0
-                if (hasContent && !hasToolCalls) {
-                  setIsAgentThinking(false)
-                  setActiveToolCall(null)
-                }
-              }
-              addMessageFromStream(message)
-              return
-            }
-
-            if (event.type === "tool") {
-              setIsAgentThinking(true)
-              const toolCallEvent: ToolCallEvent = {
-                name: event.content.name,
-                id: event.content.tool_id,
-                args: event.content.args,
-              }
-              setActiveToolCall(toolCallEvent)
-              setCalledTools((prev) => {
-                const existing = prev.find((t) => t.id === event.content.tool_id)
-                if (existing) {
-                  return prev
-                }
-                return [
-                  ...prev,
-                  {
-                    name: event.content.name,
-                    id: event.content.tool_id,
-                    args: event.content.args || {},
-                    status: "calling" as const,
-                  },
-                ]
-              })
-              return
-            }
-
-            if (event.type === "tool_result") {
-              setCalledTools((prev) =>
-                prev.map((t) =>
-                  t.id === event.content.id
-                    ? { ...t, output: event.content.output, status: "completed" as const }
-                    : t,
-                ),
-              )
-              return
-            }
-
-            if (event.type === "usage") {
-              // Token usage event - log for debugging
-              console.log(
-                `[${event.content.node}] Token usage:`,
-                `input=${event.content.usage.input_tokens ?? 'N/A'},`,
-                `output=${event.content.usage.output_tokens ?? 'N/A'},`,
-                `total=${event.content.usage.total_tokens ?? 'N/A'}`
-              )
-              return
-            }
-
-            // error event
-            if (event.type === "error") {
-              setAppError(event.content)
-            }
-          },
-          controller.signal,
-        )
-
-        // Mark streaming complete
-        setMessages((previous) => {
-          const updated = previous.map((message) =>
-            message.is_streaming
-              ? { ...message, is_streaming: false }
-              : message,
-          )
-          return updated
-        })
-
-        await refreshConversations()
-      } catch (error) {
-        if (!(error instanceof DOMException && error.name === "AbortError")) {
-          const details = getErrorMessage(error, t("error.unexpected"))
-          setAppError(t("error.generateResponse", { details }))
-        }
-      } finally {
-        setIsStreaming(false)
-        streamingPlaceholderIdRef.current = null
-        abortControllerRef.current = null
-      }
-    },
-    [
-      addMessageFromStream,
-      addStreamToken,
-      isStreaming,
-      messages,
-      refreshConversations,
-      selectedAgentId,
-      t,
-      threadId,
+      writeUrl,
     ],
   )
 
@@ -1422,6 +1030,11 @@ function App() {
   }, [t, defaultConversationTitle])
 
   useEffect(() => {
+    // Only run bootstrap after user logs in
+    if (!isLoggedIn) {
+      return
+    }
+
     let cancelled = false
 
     async function bootstrap() {
@@ -1429,74 +1042,32 @@ function App() {
       setAppError(null)
 
       try {
-        const [agentResult, conversationResult] = await Promise.all([
-          listAgents(),
-          listConversations(10, 0),
-        ])
+        const conversationResult = await listConversations(10, 0)
 
         if (cancelled) {
           return
         }
 
-        const agentList = agentResult.agents
-        setAgents(agentList)
-        const defaultAgentId = agentList[0]?.agent_id ?? "chatbot"
-
         const conversationList = conversationResult.conversations
         const total = conversationResult.total
         const sorted = sortConversationsByUpdatedAt(conversationList)
-        // Use functional update to avoid duplicates if bootstrap runs twice (React StrictMode)
-        setConversations((prev) => {
-          if (prev.length === 0) {
-            return sorted
-          }
-          // If we already have conversations, merge and deduplicate
-          const existingIds = new Set(prev.map((c) => c.thread_id))
-          const uniqueNew = sorted.filter((c) => !existingIds.has(c.thread_id))
-          return sortConversationsByUpdatedAt([...prev, ...uniqueNew])
-        })
+        // Always replace conversations to prevent data leakage between users.
+        // When switching users, handleSwitchUser already clears conversations,
+        // but we use replace here as a safety net.
+        setConversations(sorted)
         // Update pagination state based on first load
         setConversationsOffset(sorted.length)
         setHasMoreConversations(sorted.length < total)
 
         const queryThreadId = readThreadIdFromUrl()
-        const queryAgentId = readAgentIdFromUrl()
-
-        // If URL has agent_id parameter, use that agent directly
-        if (queryAgentId) {
-          const validAgentId = agentList.some(
-            (agent) => agent.agent_id === queryAgentId
-          )
-            ? queryAgentId
-            : ""
-          setSelectedAgentId(validAgentId)
-        }
-        // If no agent_id in URL, use default agent
 
         if (queryThreadId) {
           setThreadId(queryThreadId)
-          writeThreadIdToUrl(queryThreadId)
+          writeUrl(queryThreadId)
           setIsLoadingConversation(true)
 
-          // Find the conversation to get its saved agent_id
-          const conversation = sorted.find(
-            (c) => c.thread_id === queryThreadId,
-          )
-          const savedAgentId = conversation?.agent_id
-
-          // Determine agent to use: URL param > saved agent_id > default
-          let agentToUse = defaultAgentId
-          if (queryAgentId && agentList.some((agent) => agent.agent_id === queryAgentId)) {
-            agentToUse = queryAgentId
-          } else if (savedAgentId && agentList.some((agent) => agent.agent_id === savedAgentId)) {
-            agentToUse = savedAgentId
-          }
-
-          // Update selected agent
-          setSelectedAgentId(agentToUse)
-
           const [historyResult, titleResult] = await Promise.allSettled([
-            getHistory(agentToUse, queryThreadId),
+            getHistory(queryThreadId),
             getConversationTitle(queryThreadId),
           ])
 
@@ -1504,11 +1075,18 @@ function App() {
             setMessages(
               historyResult.value.messages.map((message) => toLocalMessage(message)),
             )
-            // Set message sequence for sidebar
-            setMessageSequence(historyResult.value.message_sequence || [])
+            // Auto-select the latest request_id (from last AI message)
+            const lastAiMessage = historyResult.value.messages
+              .filter((m: ChatMessage) => m.type === "ai")
+              .pop()
+            if (lastAiMessage?.request_id) {
+              setSelectedRequestId(lastAiMessage.request_id)
+            } else {
+              setSelectedRequestId(null)
+            }
           } else {
             setMessages([])
-            setMessageSequence([])
+            setSelectedRequestId(null)
           }
 
           if (titleResult.status === "fulfilled" && titleResult.value?.title) {
@@ -1526,14 +1104,12 @@ function App() {
 
           setIsLoadingConversation(false)
         } else {
-          const newThreadId = crypto.randomUUID()
-          setThreadId(newThreadId)
+          // New conversation: delay thread_id creation until first message is sent
+          setThreadId("")
           setConversationTitleState(defaultConversationTitle)
           setDraftTitle(defaultConversationTitle)
           setMessages([])
-          // Use default agent for new conversation
-          setSelectedAgentId(defaultAgentId)
-          writeThreadIdToUrl(null)
+          writeUrl(null)
         }
       } catch (error) {
         if (!cancelled) {
@@ -1547,6 +1123,8 @@ function App() {
         if (!cancelled) {
           setIsLoadingConversation(false)
           setIsInitializing(false)
+          // Reset needsReinit flag after bootstrap completes
+          setNeedsReinit(false)
         }
       }
     }
@@ -1557,7 +1135,34 @@ function App() {
       cancelled = true
       abortControllerRef.current?.abort()
     }
-  }, [writeThreadIdToUrl])
+  }, [writeUrl, needsReinit, isLoggedIn, defaultConversationTitle])
+
+  // Handle user login from home page
+  const handleUserLogin = useCallback((user: UserInfo) => {
+    setUserId(user.id)
+    setCurrentUserId(user.id)
+    // Trigger re-initialization after login to ensure proper data loading
+    setNeedsReinit(true)
+  }, [setUserId])
+
+  // If still loading auth status, show nothing (or loading indicator)
+  if (isAuthLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground">Loading...</div>
+      </div>
+    )
+  }
+
+  // If no user is logged in (neither mock nor WeChat), show the home page
+  if (!isLoggedIn) {
+    return (
+      <>
+        <HomePage onSelectUser={handleUserLogin} />
+        <Toaster />
+      </>
+    )
+  }
 
   return (
     <>
@@ -1571,7 +1176,6 @@ function App() {
             void openConversation(
               conversation.thread_id,
               conversations,
-              agents,
             )
           }}
           onRenameConversation={startRenameConversation}
@@ -1579,6 +1183,8 @@ function App() {
           hasMore={hasMoreConversations}
           isLoadingMore={isLoadingMoreConversations}
           onLoadMore={handleLoadMoreConversations}
+          onSwitchUser={handleSwitchUser}
+          currentUser={currentUser}
         />
 
         <SidebarInset className="min-h-0 overflow-hidden bg-background flex-1">
@@ -1592,108 +1198,13 @@ function App() {
             calledTools={calledTools}
             thinkingContent={thinkingContent}
             messages={messages}
-            agents={agents}
-            selectedAgentId={selectedAgentId}
-            processSession={processSession}
-            messageSequence={messageSequence}
             onSendMessage={handleSendMessage}
             onStopStreaming={stopStreaming}
-            onSelectAgent={pickAgentForCurrentConversation}
-            onEditMessage={handleEditMessage}
             onJumpToMessage={jumpToMessage}
             onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
-            aiMessageSessionIds={useMemo(() => {
-              // Build a map of message index to session_id
-              // Each AI message should have a corresponding session_id from messageSequence
-              if (!messageSequence || messageSequence.length === 0) {
-                return []
-              }
-
-              // Get all AI steps from messageSequence, grouped by session_id
-              const sessionIds: (string | null)[] = []
-
-              // For each message in messages array, determine its session_id
-              // AI messages have session_id from messageSequence
-              // User messages have null
-              messages.forEach((msg, index) => {
-                if (msg.type === "ai") {
-                  // Find the corresponding session_id from messageSequence
-                  // The AI steps in messageSequence are in order
-                  const aiSteps = messageSequence.filter(s => s.message_type === "ai")
-                  const aiIndex = messages.slice(0, index + 1).filter(m => m.type === "ai").length - 1
-                  sessionIds.push(aiSteps[aiIndex]?.session_id || null)
-                } else {
-                  sessionIds.push(null)
-                }
-              })
-
-              return sessionIds
-            }, [messageSequence, messages])}
-            aiMessageHasSteps={useMemo(() => {
-              // For each message, determine if it has steps based on its session_id
-              const hasSteps: boolean[] = []
-
-              // Pre-compute which sessions have steps
-              const sessionsWithSteps = new Set<string>()
-              if (messageSequence && messageSequence.length > 0) {
-                messageSequence.forEach(step => {
-                  if (step.message_type === "tool" || (step.message_type === "ai" && step.thinking?.trim())) {
-                    sessionsWithSteps.add(step.session_id)
-                  }
-                })
-              }
-
-              // Get session IDs for each message (same logic as aiMessageSessionIds)
-              const getSessionId = (msgIndex: number): string | null => {
-                const msg = messages[msgIndex]
-                if (msg?.type !== "ai") return null
-                const aiSteps = messageSequence?.filter(s => s.message_type === "ai") || []
-                const aiIndex = messages.slice(0, msgIndex + 1).filter(m => m.type === "ai").length - 1
-                return aiSteps[aiIndex]?.session_id || null
-              }
-
-              messages.forEach((msg, index) => {
-                if (msg.type !== "ai") {
-                  hasSteps.push(false)
-                  return
-                }
-
-                // Check 1: Does message have process_steps from streaming?
-                const processSteps = msg.custom_data?.process_steps
-                if (Array.isArray(processSteps) && processSteps.length > 0) {
-                  hasSteps.push(true)
-                  return
-                }
-
-                // Check 2: Does message have tool calls?
-                if (msg.tool_calls && msg.tool_calls.length > 0) {
-                  hasSteps.push(true)
-                  return
-                }
-
-                // Check 3: Does message have thinking content?
-                if (msg.custom_data?.thinking || msg.response_metadata?.thinking || msg.reasoning_content) {
-                  hasSteps.push(true)
-                  return
-                }
-
-                // Check 4: Does the message's session have steps?
-                const sessionId = getSessionId(index)
-                if (sessionId && sessionsWithSteps.has(sessionId)) {
-                  hasSteps.push(true)
-                  return
-                }
-
-                hasSteps.push(false)
-              })
-
-              return hasSteps
-            }, [messageSequence, messages])}
-
-
-            onSelectSession={(sessionId: string) => {
-              setSelectedSessionId(sessionId)
-              // Ensure sidebar is visible when selecting a session
+            onSelectRequestId={(requestId: string | null) => {
+              setSelectedRequestId(requestId)
+              // Ensure sidebar is visible
               if (!showSidebarProcess) {
                 setShowSidebarProcess(true)
               }
@@ -1701,10 +1212,9 @@ function App() {
             models={models}
             selectedModel={effectiveSelectedModel}
             onSelectModel={setSelectedModel}
-            onSelectAgentId={pickAgentForCurrentConversation}
             onOpenModelConfig={() => setShowProviderConfig(true)}
             hasAvailableModels={hasAvailableModels}
-            selectedSessionId={selectedSessionId}
+            selectedRequestId={selectedRequestId}
           />
         </SidebarInset>
 
@@ -1770,27 +1280,14 @@ function App() {
 
           </div>
 
-          {/* Middle Section: Agent Process Panel (chat mode) or Agent Sidebar (home mode) */}
+          {/* Middle Section: Turn DAG Sidebar */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {!isInitializing && (
-              messages.length === 0 ? (
-                // Home mode: Show available agents in sidebar
-                <AgentSidebar
-                  agents={agents}
-                  selectedAgentId={selectedAgentId}
-                  onSelectAgent={pickAgentForCurrentConversation}
-                />
-              ) : (
-                // Chat mode: Show agent process panel
-                showSidebarProcess && (messageSequence.length > 0 || (processSession && processSession.steps && processSession.steps.length > 0)) && (
-                  <AgentProcessPanel
-                    session={processSession}
-                    messageSequence={messageSequence}
-                    isStreaming={isStreaming}
-                    selectedSessionId={selectedSessionId}
-                  />
-                )
-              )
+            {!isInitializing && threadId && messages.length > 0 && (
+              <TurnDAGSidebar
+                threadId={threadId || null}
+                isStreaming={isStreaming}
+                requestId={selectedRequestId}
+              />
             )}
           </div>
 

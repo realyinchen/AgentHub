@@ -1,66 +1,80 @@
 # Active Context
 
-## Current Work Focus
-Merged database abstraction architecture documentation from `memory-bank/database-abstraction.md` into bilingual READMEs (`README.md` English, `README.zh.md` Chinese). The standalone file has been removed — documentation is now centralized.
+## Current Focus
 
-## Recent Changes (2026-04-27)
-Code review identified and removed redundant manual commits:
+Memory Bank initialization — no active development task beyond project documentation setup.
 
-### P0 Fix (Best Practice Alignment)
-- **message_utils.py**: Removed 4 instances of `await session.commit()` in `streaming_message_generator()`:
-  - on_tool_start: AI thinking step save
-  - on_tool_end: Tool step save
-  - on_chain_end: Final AI message step save
-  - finally: Token usage update
+## Recent Changes
 
-**Rationale**:
-- `postgres/db.py` `session()` context manager already handles auto-commit on successful exit
-- Manual commits are unnecessary and violate FastAPI + SQLAlchemy best practices
-- Unifies commit behavior across all database operations
+### v0.0.1 (2026-06-05) — Initial Release
 
-### Remaining Manual Commits in Codebase
-The following files still contain manual commits that need review:
-- `app/api/v1/chat.py` — update_conversation_title endpoint
-- `app/api/v1/knowledge.py` — 2 instances (knowledge_base update and document delete)
-- `app/services/chat_service.py` — create_message_and_update_history
-- `app/services/knowledge_service.py` — 3 instances (create_knowledge_base, update_knowledge_base, delete_knowledge_base)
-
-These should be evaluated and removed if they follow the same pattern as message_utils.py.
-
----
-
-## Recent Changes (2026-04-24)
-Code review identified and fixed the following issues across the migration codebase:
-
-### P0 Fixes (Critical)
-- **factory.py**: Fixed `get_database()`/`get_vectorstore()`/`get_checkpointer()` to cache singleton instances (was creating new instances on every call). Split `_BACKENDS` dict into `_DB_BACKENDS`/`_VS_BACKENDS`/`_CP_BACKENDS`. Changed to lazy import via `_import_class()` instead of string paths.
-- **dependencies.py**: Fixed `get_db()` to use factory's `get_database()` instead of creating new `PostgresDatabase()` instances (connection pool leak).
-- **postgres/db.py**: Restored auto-commit in `session()` — `await session.commit()` on successful exit, matching old `AsyncDatabaseManager` behavior. Provides safety net for CRUD operations.
-
-### P1 Fixes (Important)
-- **interfaces.py**: Changed `VectorstoreInterface.initialize()` and `dispose()` to `async def`. Added `dispose()` to `CheckpointInterface`.
-- **postgres/vectorstore.py**: Changed from sync `QdrantClient` to `AsyncQdrantClient` to avoid blocking the FastAPI event loop. Added `_ensure_collection()` for lazy collection creation.
-
-### P2 Fixes (Medium)
-- **config.py**: Fixed default values from `sqlite`/`sqlite_vec` to `postgres`/`qdrant` to match existing deployments.
-- **postgres/checkpointer.py**: Added `dispose()` method. Simplified `get_saver()` — removed pseudo-context-manager pattern.
-- **__init__.py**: Updated exports to match factory.py: `init_all`, `dispose_all`, `get_vectorstore`, `get_checkpointer`, `get_saver`.
-- **main.py**: Changed to use `init_all()` and `dispose_all()` instead of manual per-component initialization/cleanup. Removed `async with checkpointer.get_saver()` pattern.
-
-### P3 Fixes (Low)
-- **base.py**: Simplified to re-export from `interfaces.py` (removed duplicate interface definitions).
-- **test_phase1.py**: Updated to test singleton behavior and lifecycle.
-- **vectorstore_retriever.py**: Cleaned up to use `get_vectorstore()` factory function.
+**Completed Features:**
+- Supervisor Agent basic conversation capabilities
+- Dynamic model switching (runtime LLM switching)
+- Tool calling (time query, web search via Tavily)
+- SSE streaming response
+- Multi-user session isolation
+- Long-term memory (LangGraph Store + PGVector)
+- WeChat integration (WebSocket message push)
+- Docker one-click deployment
 
 ## Next Steps
-- Phase 3: Implement SQLite backend (db.py, checkpointer.py)
-- Phase 4: Implement sqlite-vec vectorstore backend
-- Phase 5: Smart database initialization
-- Phase 6: Configuration and documentation
 
-## Active Decisions
-- Auto-commit in session() is the default behavior (matches old codebase)
-- Factory functions return singleton instances (cached per process)
-- VectorstoreInterface uses async initialize/dispose (required for AsyncQdrantClient)
-- Qdrant uses AsyncQdrantClient instead of sync client (avoids event loop blocking)
-- main.py uses `init_all()`/`dispose_all()` for clean lifecycle management
+### Immediate Priorities (In Development)
+
+1. **ReAct SubAgent** — Add reasoning and acting capabilities for complex multi-step tasks
+2. **RAG SubAgent** — Implement retrieval-augmented generation for knowledge base queries
+3. **Multi-Agent Collaboration** — Enable multiple agents to work together on complex problems
+
+### Future Considerations
+
+- Enhanced tool ecosystem (more built-in tools)
+- Agent orchestration DSL for custom workflows
+- Admin dashboard for monitoring and analytics
+- API rate limiting and usage quotas
+
+## Active Decisions & Considerations
+
+### Architecture Decisions
+
+1. **Supervisor Pattern**: Chosen for simplicity and clear routing. May evolve to more sophisticated patterns as SubAgents are added.
+
+2. **PostgreSQL + pgvector**: Single database for both relational data and vector embeddings. Simplifies deployment and operations.
+
+3. **LiteLLM Router**: Provides unified interface to multiple LLM providers with built-in fallback/retry logic.
+
+4. **Middleware Chain**: LangChain v1 official middleware pattern for request processing (prompt → model selection → content filter → summarization).
+
+### Known Constraints
+
+- LangSmith tracing only allowed in `dev` mode (disabled in `prod`)
+- JWT authentication required for all user-facing APIs
+- API keys stored encrypted in database (AES-256)
+- PostgreSQL is the only supported database (no SQLite/MySQL support)
+
+## Important Patterns & Preferences
+
+### Code Style
+- Python backend: FastAPI async patterns, Pydantic v2 for validation
+- TypeScript frontend: React 19 with hooks, Tailwind CSS for styling
+- All configuration via environment variables (`.env` files)
+- Comprehensive logging with JSON format option for production
+
+### Development Workflow
+- Docker Compose for local development and production
+- `backend/` and `frontend/` directories are independently deployable
+- Database migrations via SQL scripts in `backend/scripts/`
+
+## Project Insights
+
+### What Works Well
+- Four-layer architecture provides clear separation of concerns
+- Middleware pattern allows easy extension of agent behavior
+- SSE streaming gives responsive user experience
+- Docker one-click deployment lowers barrier to entry
+
+### Areas for Improvement
+- Test coverage needs to be established
+- API documentation could be enhanced
+- Error messages could be more user-friendly
+- Performance benchmarking needed for production readiness

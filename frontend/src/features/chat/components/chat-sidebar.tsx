@@ -12,6 +12,7 @@ import {
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
@@ -22,10 +23,12 @@ import {
   SidebarSeparator,
   useSidebar,
 } from "@/components/ui/sidebar"
-import agentHubLogo from "@/assets/agenthub.png"
+import { AgentHubLogo } from "@/components/agenthub-logo"
 
 import { formatUpdatedAt } from "@/features/chat/utils"
 import { useI18n } from "@/i18n"
+
+import type { UserInfo } from "@/types"
 
 type ChatSidebarProps = {
   threadId: string
@@ -38,6 +41,8 @@ type ChatSidebarProps = {
   hasMore?: boolean
   isLoadingMore?: boolean
   onLoadMore?: () => void
+  onSwitchUser?: () => void
+  currentUser?: UserInfo | null
 }
 
 // Search component
@@ -74,6 +79,8 @@ export function ChatSidebar({
   hasMore: hasMoreProp,
   isLoadingMore,
   onLoadMore,
+  onSwitchUser,
+  currentUser,
 }: ChatSidebarProps) {
   const { locale, t } = useI18n()
   const { state, toggleSidebar } = useSidebar()
@@ -114,7 +121,7 @@ export function ChatSidebar({
               title={t("sidebar.logoAlt")}
               className="flex items-center"
             >
-              <img src={agentHubLogo} alt="" className="h-9 w-auto cursor-pointer" />
+              <AgentHubLogo size="sm" className="h-9" />
             </a>
             {/* Collapse button with << arrow */}
             <Button
@@ -266,25 +273,45 @@ export function ChatSidebar({
           </SidebarGroupContent>
         </SidebarGroup>
 
-        {/* Expand button when collapsed - at the bottom */}
-        {isCollapsed && (
-          <SidebarGroup className="mt-auto pt-2">
-            <SidebarGroupContent>
-              <SidebarMenu>
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    className="cursor-pointer"
-                    tooltip={t("sidebar.expand") || "Expand sidebar"}
-                    onClick={() => toggleSidebar()}
-                  >
-                    <ChevronsRight className="size-4" />
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              </SidebarMenu>
-            </SidebarGroupContent>
-          </SidebarGroup>
-        )}
       </SidebarContent>
+
+      {/* Footer with expand button and user switch - fixed at bottom */}
+      <SidebarFooter className={isCollapsed ? "p-2" : "p-3"}>
+        {/* Expand button when collapsed */}
+        {isCollapsed && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="cursor-pointer"
+                tooltip={t("sidebar.expand") || "Expand sidebar"}
+                onClick={() => toggleSidebar()}
+              >
+                <ChevronsRight className="size-4" />
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
+
+        {/* User switch button */}
+        {onSwitchUser && (
+          <SidebarMenu>
+            <SidebarMenuItem>
+              <SidebarMenuButton
+                className="cursor-pointer"
+                tooltip={isCollapsed ? (currentUser?.name ?? t("user.switchUser")) : undefined}
+                onClick={onSwitchUser}
+              >
+                <div className="flex size-6 items-center justify-center rounded-full bg-muted text-xs shrink-0">
+                  {currentUser?.avatar || (currentUser?.gender === "female" ? "👩" : "👨")}
+                </div>
+                {!isCollapsed && (
+                  <span className="truncate">{currentUser?.name ?? t("user.switchUser")}</span>
+                )}
+              </SidebarMenuButton>
+            </SidebarMenuItem>
+          </SidebarMenu>
+        )}
+      </SidebarFooter>
     </Sidebar>
   )
 }

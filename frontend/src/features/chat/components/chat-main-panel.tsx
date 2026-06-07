@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, XIcon } from "lucide-react"
 
-import type { AgentInDB, LocalChatMessage, ToolCallInfo, AgentProcessSession, MessageStep, ModelInfo } from "@/types"
+import type { LocalChatMessage, ToolCallInfo, ModelInfo } from "@/types"
 import { ModelSelector } from "@/features/chat/components/model-selector"
-import { AgentSelector } from "@/features/chat/components/agent-selector"
 import {
   Alert,
   AlertDescription,
@@ -34,25 +33,16 @@ type ChatMainPanelProps = {
   calledTools: ToolCallInfo[]
   thinkingContent: string // Accumulated thinking content
   messages: LocalChatMessage[]
-  agents: AgentInDB[]
-  selectedAgentId: string
-  processSession?: AgentProcessSession | null // Process session for inline display during streaming
-  messageSequence?: MessageStep[] // Message sequence for historical display
-  aiMessageSessionIds?: (string | null)[] // session_id for each AI message (parallel to messages array)
-  aiMessageHasSteps?: boolean[] // Whether each AI message has steps (parallel to messages array)
-  selectedSessionId?: string | null // Currently selected session ID for sidebar
+  selectedRequestId?: string | null // Currently selected request_id for DAG viewing
   onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
   onStopStreaming: () => void
-  onSelectAgent: (agentId: string) => void
-  onEditMessage?: (newContent: string, messageIndex: number) => Promise<void>
   onJumpToMessage?: (localId: string) => void // Jump to quoted message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
-  onSelectSession?: (sessionId: string) => void // Select a specific session to view
-  // Model and Agent selection props
+  onSelectRequestId?: (requestId: string | null) => void // Select request_id for DAG viewing
+  // Model selection props
   models: ModelInfo[]
   selectedModel: string | null
   onSelectModel: (modelId: string | null) => void
-  onSelectAgentId: (agentId: string) => void
   onOpenModelConfig?: () => void // Open model configuration dialog
   hasAvailableModels?: boolean // Whether there are available models to select from
 }
@@ -74,23 +64,15 @@ export function ChatMainPanel({
   calledTools,
   thinkingContent,
   messages,
-  agents,
-  selectedAgentId,
-  processSession,
-  messageSequence,
-  aiMessageSessionIds,
-  aiMessageHasSteps,
-  selectedSessionId,
+  selectedRequestId,
   onSendMessage,
   onStopStreaming,
-  onEditMessage,
   onJumpToMessage,
   onToggleSidebarProcess,
-  onSelectSession,
+  onSelectRequestId,
   models,
   selectedModel,
   onSelectModel,
-  onSelectAgentId,
   onOpenModelConfig,
   hasAvailableModels = true,
 }: ChatMainPanelProps) {
@@ -280,17 +262,6 @@ export function ChatMainPanel({
   const shouldShowScrollButton =
     showScrollButton && !isLoadingConversation
 
-  // Handle quote action - set quoted content and message ID
-  // Use message index as stable ID for jump functionality
-  const handleQuote = useCallback((message: LocalChatMessage, messageIndex: number) => {
-    setQuotedContent(message.content)
-    // Use index as stable ID (works after page refresh)
-    setQuotedMessageId(`msg-${messageIndex}`)
-    // Focus the textarea
-    const textarea = document.querySelector('textarea[name="message"]') as HTMLTextAreaElement
-    textarea?.focus()
-  }, [])
-
   // Clear quoted content
   const clearQuote = useCallback(() => {
     setQuotedContent(null)
@@ -338,42 +309,32 @@ export function ChatMainPanel({
                 {messages.length === 0 ? null : (
                   messages.map((message, index) => {
                     const isLastAIMessage = index === messages.length - 1 && message.type === "ai"
-                    const sessionId = aiMessageSessionIds?.[index]
 
-                    // Determine if this message is "selected" (its steps are shown in sidebar):
+                    // Determine if this message is "selected" (its DAG is shown in sidebar):
                     // 1. During streaming, the last AI message is always "selected" 
-                    // 2. When sidebar shows a specific session: check if sessionId matches
-                    // 3. When sidebar shows default (last message, selectedSessionId is null): last AI message is selected
+                    // 2. When user clicks a brain icon, selectedRequestId is set - check if this message's request_id matches
+                    // 3. When sidebar shows default (selectedRequestId is null): last AI message with request_id is selected
                     const isMessageSelected = message.type === "ai" && (
-                      (isLastAIMessage && isStreaming && processSession?.isActive)
+                      (isLastAIMessage && isStreaming)
                         ? true
-                        : selectedSessionId === null
-                          ? isLastAIMessage  // Default: show last AI message as selected when no specific session selected
-                          : sessionId === selectedSessionId  // Specific session selected
+                        : selectedRequestId !== null
+                          ? message.request_id === selectedRequestId  // User clicked this message's brain icon
+                          : isLastAIMessage && Boolean(message.request_id)  // Default: show last AI message with request_id
                     )
 
                     return (
                       <ChatMessageItem
                         key={`msg-${index}`}
                         message={{ ...message, local_id: `msg-${index}` }}
-                        messageIndex={index}
                         calledTools={isLastAIMessage ? calledTools : []}
                         isAgentThinking={isLastAIMessage ? isAgentThinking : false}
                         thinkingContent={isLastAIMessage ? thinkingContent : ""}
                         isProcessing={isLastAIMessage && isProcessing}
                         isStreaming={message.is_streaming}
-                        processSession={isLastAIMessage ? processSession : null}
-                        messageSequence={isLastAIMessage ? messageSequence : undefined}
-                        sessionId={sessionId}
-                        hasSteps={aiMessageHasSteps?.[index]}
                         isSelected={isMessageSelected}
-                        onEditMessage={onEditMessage}
-                        editDisabled={isStreaming || isComposerDisabled}
-                        onQuote={() => handleQuote(message, index)}
-                        quoteDisabled={isStreaming || isComposerDisabled}
                         onJumpToMessage={onJumpToMessage}
                         onToggleSidebarProcess={onToggleSidebarProcess}
-                        onSelectSession={onSelectSession}
+                        onSelectRequestId={onSelectRequestId}
                       />
                     )
                   })
@@ -486,13 +447,6 @@ export function ChatMainPanel({
             </PromptInputBody>
             <PromptInputFooter className="pb-3 justify-between">
               <div className="flex items-center gap-2">
-                {/* Agent selector */}
-                <AgentSelector
-                  agents={agents}
-                  selectedAgentId={selectedAgentId}
-                  onSelectAgent={onSelectAgentId}
-                  disabled={isStreaming || isInitializing || isLoadingConversation}
-                />
                 {/* Model selector - only show if there are available models */}
                 {hasAvailableModels && (
                   <ModelSelector

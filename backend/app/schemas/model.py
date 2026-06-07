@@ -1,36 +1,55 @@
-from pydantic import BaseModel
+from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Optional, Literal
+
+
+# ==================== Mixin: Mutable Fields ====================
+
+
+class ModelMutableFields(BaseModel):
+    """Fields that can be set on creation and partially updated later.
+
+    All fields are Optional with sensible defaults, enabling both:
+    - ModelCreate: inherits defaults directly for new models
+    - ModelUpdateRequest: inherits Optional types; model_dump(exclude_unset=True)
+      naturally excludes fields that the client didn't send
+    """
+
+    thinking: Optional[bool] = False
+    is_default: Optional[bool] = False
+    is_active: Optional[bool] = True
 
 
 # ==================== Model Schemas ====================
 
 
 class ModelBase(BaseModel):
-    """Model base fields"""
+    """Model base fields (immutable identity fields)."""
 
     provider: str  # e.g. "dashscope", "zai"
-    model_type: Literal["llm", "vlm", "embedding"] = "llm"
-    model_id: str  # e.g. "dashscope/qwen3.5-27b" (with provider prefix)
+    model_type: Literal["llm", "vlm"] = "llm"
+    model_id: str  # e.g. "qwen3.5-32b" (without provider prefix)
 
 
-class ModelCreate(ModelBase):
-    """Create model"""
+class ModelCreate(ModelBase, ModelMutableFields):
+    """Create a new model. Mutable fields inherit sensible defaults from ModelMutableFields."""
 
-    thinking: bool = False
-    is_default: bool = False
-    is_active: bool = True
+    pass
 
 
-class ModelUpdate(BaseModel):
-    """Update model"""
+class ModelUpdateRequest(ModelMutableFields):
+    """Update an existing model (partial update via PATCH /models/{model_id}).
 
+    The model_id comes from the URL path, not the request body.
+    Inherits mutable fields from ModelMutableFields so model_dump(exclude_unset=True)
+    naturally excludes fields the client didn't send.
+    """
+
+    model_id: Optional[str] = None  # New model_id if changing
     provider: Optional[str] = None
-    model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
-    model_id: Optional[str] = None  # Allow updating model_id (primary key)
-    thinking: Optional[bool] = None
-    is_default: Optional[bool] = None
-    is_active: Optional[bool] = None
+    model_type: Optional[Literal["llm", "vlm"]] = None
 
 
 class ModelInDB(BaseModel):
@@ -46,7 +65,15 @@ class ModelInDB(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("id", mode="before")
+    @classmethod
+    def convert_uuid_to_str(cls, v):
+        """Convert UUID to string automatically."""
+        if isinstance(v, UUID):
+            return str(v)
+        return v
 
 
 class ModelInfo(ModelInDB):
@@ -76,18 +103,6 @@ class SetDefaultModelRequest(BaseModel):
     id: str  # UUID primary key
 
 
-class ModelUpdateRequest(BaseModel):
-    """Update model request (with id in body)"""
-
-    id: str  # UUID primary key (used to find the record)
-    model_id: Optional[str] = None  # New model_id if changing
-    provider: Optional[str] = None
-    model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
-    thinking: Optional[bool] = None
-    is_default: Optional[bool] = None
-    is_active: Optional[bool] = None
-
-
 class DeleteModelRequest(BaseModel):
     """Delete model request (with id in body)"""
 
@@ -100,7 +115,7 @@ class TestConnectionRequest(BaseModel):
     provider: str  # e.g. "dashscope", "zai"
     model_id: str  # e.g. "qwen3.5-27b"
     api_key: str
-    model_type: Literal["llm", "vlm", "embedding"] = "llm"
+    model_type: Literal["llm", "vlm"] = "llm"
 
 
 class TestConnectionResponse(BaseModel):
@@ -110,15 +125,10 @@ class TestConnectionResponse(BaseModel):
     message: str
 
 
-class RefreshResponse(BaseModel):
-    """Refresh cache response"""
-
-    success: bool
-    message: str
-    models_count: int = 0
+# ==================== Thinking Mode ====================
 
 
-class ProvidersResponse(BaseModel):
-    """Available providers response"""
+class ThinkingModeStatus(BaseModel):
+    """Response for GET /models/thinking-mode."""
 
-    providers: list[str]
+    available: bool = Field(description="Whether thinking mode is available")
