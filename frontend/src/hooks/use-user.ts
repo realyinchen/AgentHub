@@ -1,72 +1,71 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
-import type { UserInfo } from "@/types"
-import { setCurrentUserId } from "@/lib/api"
-import { readUserIdFromUrl, writeToUrl } from "@/features/chat/utils"
+import { useCallback, useEffect, useState } from "react"
+import { getAuthStatus, mockLogin, logout, type AuthStatus, type MockUser } from "@/lib/api"
+import { useAuth } from "@/contexts/AuthContext"
 
-const STORAGE_KEY = "agenthub_user_id"
+export type { MockUser }
 
-export const USERS: UserInfo[] = [
-  {
-    id: "00000000-0000-0000-0000-000000000001",
-    name: "Jack",
-    gender: "male",
-  },
-  {
-    id: "00000000-0000-0000-0000-000000000002",
-    name: "Rose",
-    gender: "female",
-  },
-]
-
-function readStoredUserId(): string | null {
-  if (typeof window === "undefined") return null
-  // First check URL, then localStorage
-  const urlUserId = readUserIdFromUrl()
-  if (urlUserId) {
-    // Sync to localStorage
-    window.localStorage.setItem(STORAGE_KEY, urlUserId)
-    return urlUserId
-  }
-  return window.localStorage.getItem(STORAGE_KEY)
-}
-
-function writeStoredUserId(userId: string | null): void {
-  if (typeof window === "undefined") return
-  if (userId) {
-    window.localStorage.setItem(STORAGE_KEY, userId)
-  } else {
-    window.localStorage.removeItem(STORAGE_KEY)
-  }
+export type UserInfo = {
+  id: string
+  name: string
+  gender: "male" | "female" | "unknown"
 }
 
 export function useUser() {
-  const [userId, setUserIdState] = useState<string | null>(readStoredUserId)
+  const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const { refreshUser } = useAuth()
 
-  const setUserId = useCallback((id: string | null) => {
-    setUserIdState(id)
-    writeStoredUserId(id)
-    setCurrentUserId(id)
-    // Write to URL (without thread_id)
-    writeToUrl(id, null)
+  // Check auth status on mount
+  useEffect(() => {
+    checkAuth()
   }, [])
 
-  // Sync api module on mount in case localStorage had a value
-  useEffect(() => {
-    const stored = readStoredUserId()
-    if (stored) {
-      setCurrentUserId(stored)
-      // Ensure URL is updated if userId was from localStorage
-      const urlUserId = readUserIdFromUrl()
-      if (!urlUserId && stored) {
-        writeToUrl(stored, null)
-      }
+  const checkAuth = useCallback(async () => {
+    try {
+      const status = await getAuthStatus()
+      setAuthStatus(status)
+    } catch {
+      setAuthStatus({ authenticated: false, user: null })
+    } finally {
+      setLoading(false)
     }
   }, [])
 
-  const currentUser = useMemo<UserInfo | null>(() => {
-    if (!userId) return null
-    return USERS.find((u) => u.id === userId) ?? null
-  }, [userId])
+  const login = useCallback(async (userId: string) => {
+    await mockLogin(userId)
+    await checkAuth()
+  }, [checkAuth])
 
-  return { userId, currentUser, setUserId } as const
+  const signOut = useCallback(async () => {
+    await logout()
+    setAuthStatus({ authenticated: false, user: null })
+    // Refresh AuthContext to sync authentication state
+    await refreshUser()
+  }, [refreshUser])
+
+  // For backward compatibility with existing code
+  const setUserId = useCallback(async (userId: string | null) => {
+    if (userId) {
+      await login(userId)
+    } else {
+      await signOut()
+    }
+  }, [login, signOut])
+
+  const currentUser: UserInfo | null = authStatus?.user ? {
+    id: authStatus.user.id,
+    name: authStatus.user.display_name,
+    gender: "unknown" as const,
+  } : null
+
+  return {
+    userId: authStatus?.user?.id ?? null,
+    currentUser,
+    authenticated: authStatus?.authenticated ?? false,
+    loading,
+    login,
+    signOut,
+    checkAuth,
+    setUserId, // For backward compatibility
+  } as const
 }

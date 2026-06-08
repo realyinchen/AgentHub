@@ -57,7 +57,7 @@ export type MessageStep = {
 export type UserInfo = {
   id: string
   name: string
-  gender: "male" | "female"
+  gender: "male" | "female" | "unknown"
   avatar?: string  // Optional avatar (emoji or URL)
 }
 

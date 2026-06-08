@@ -6,6 +6,9 @@ Routes:
 
 Invoke logic uses ChatService for business logic coordination.
 Streaming logic uses ChatStreamingService from app.utils.sse.
+
+Authentication required for all endpoints. User ID is extracted from JWT token
+and injected into UserInput to ensure proper authorization and audit trail.
 """
 
 import logging
@@ -16,6 +19,7 @@ from fastapi.responses import StreamingResponse
 
 from app.agents import get_agent
 from app.api.v1.dependencies import DBSession
+from app.infra.auth import CurrentUser
 from app.schemas.chat import ChatMessage, UserInput
 from app.services import ChatService, ChatStreamingService
 
@@ -43,7 +47,7 @@ def _sse_response_example() -> dict[int | str, Any]:
 
 
 @api_router.post("/invoke")
-async def invoke(user_input: UserInput, db: DBSession) -> ChatMessage:
+async def invoke(user: CurrentUser, user_input: UserInput, db: DBSession) -> ChatMessage:
     """Async invoke the supervisor agent with user input to retrieve a final response.
 
     After the agent returns, token usage is accumulated across all AI
@@ -51,7 +55,13 @@ async def invoke(user_input: UserInput, db: DBSession) -> ChatMessage:
     is snapshot to ``trace_executions`` for offline trace viewing.
 
     Business logic is delegated to ChatService.invoke().
+
+    Authentication required. User ID from JWT token overrides user_input.user_id
+    to ensure proper authorization.
     """
+    # Override user_id with authenticated user's ID for security
+    user_input.user_id = user.id
+
     supervisor = get_agent()
     service = ChatService(supervisor)
     return await service.invoke(db, user_input)
@@ -62,15 +72,22 @@ async def invoke(user_input: UserInput, db: DBSession) -> ChatMessage:
     response_class=StreamingResponse,
     responses=_sse_response_example(),
 )
-async def stream(user_input: UserInput) -> StreamingResponse:
+async def stream(user: CurrentUser, user_input: UserInput) -> StreamingResponse:
     """Stream the supervisor agent's response, including intermediate messages and tokens.
 
     Business logic is delegated to ChatStreamingService.generate().
+
+    Authentication required. User ID from JWT token overrides user_input.user_id
+    to ensure proper authorization.
     """
+    # Override user_id with authenticated user's ID for security
+    user_input.user_id = user.id
+
     logger.info(
-        "stream endpoint called: thread_id=%s, thinking_mode=%s",
+        "stream endpoint called: thread_id=%s, thinking_mode=%s, user_id=%s",
         user_input.thread_id,
         user_input.thinking_mode,
+        user.id,
     )
 
     supervisor = get_agent()

@@ -17,12 +17,10 @@ import {
   deleteConversation,
   generateTitle,
   getConversationTitle,
-  getCurrentUserId,
   getHistory,
   listConversations,
   loadMoreConversations,
   setConversationTitle,
-  setCurrentUserId,
   streamChat,
 } from "@/lib/api"
 import type {
@@ -82,7 +80,7 @@ function App() {
   const { userId, currentUser, setUserId } = useUser()
 
   // Auth context (for WeChat login)
-  const { user: authUser, isAuthenticated, isLoading: isAuthLoading, logout } = useAuth()
+  const { user: authUser, isAuthenticated, isLoading: isAuthLoading } = useAuth()
 
   // Determine if user is logged in (either via mock user or WeChat)
   // Priority: URL userId > mock userId > AuthContext
@@ -102,6 +100,7 @@ function App() {
     getEffectiveModel,
     getSelectedModelInfo,
     refreshModels,
+    isLoading: isModelsLoading,
   } = useModels(threadId, isLoggedIn)
 
   // Handle user switch - go back to home page
@@ -119,11 +118,9 @@ function App() {
     abortControllerRef.current?.abort()
     setIsStreaming(false)
 
-    setUserId(null)
-    setCurrentUserId(null)
-    // Call AuthContext logout to properly clear auth state (for WeChat users)
-    await logout()
-  }, [setUserId, logout, defaultConversationTitle])
+    // Call setUserId(null) to clear auth state
+    await setUserId(null)
+  }, [setUserId, defaultConversationTitle])
 
   // Track if we need to re-initialize after user login
   const [needsReinit, setNeedsReinit] = useState(false)
@@ -198,14 +195,15 @@ function App() {
   }, [models])
 
   // Show dialog when no models are available after initialization
+  // Wait for models API to return before deciding to show the dialog
   useEffect(() => {
-    if (!isInitializing && !isLoadingConversation) {
+    if (!isInitializing && !isLoadingConversation && !isModelsLoading) {
       // Show dialog when no models are configured (including when models array is empty)
       if (!hasAvailableModels) {
         setShowNoModelDialog(true)
       }
     }
-  }, [isInitializing, isLoadingConversation, hasAvailableModels])
+  }, [isInitializing, isLoadingConversation, isModelsLoading, hasAvailableModels])
 
   // Write userId and threadId to URL
   // Use effectiveUserId to support both mock users and WeChat users
@@ -573,35 +571,29 @@ function App() {
       // Use void to explicitly mark as fire-and-forget
       void (async () => {
         try {
-          // Use the lightweight title generation endpoint
-          const result = await generateTitle({
+          // generateTitle now auto-saves to DB and returns updated conversation
+          const updated = await generateTitle({
             thread_id: targetThreadId,
             user_message: userInput,
             ai_response: aiResponse,
           })
 
-          const generatedTitle = sanitizeTitle(result.title)
+          const generatedTitle = sanitizeTitle(updated.title)
 
           if (!generatedTitle) {
             return
           }
 
-          const updated = await setConversationTitle(
-            targetThreadId,
-            generatedTitle,
-          )
-
           setConversationTitleState(generatedTitle)
           setDraftTitle(generatedTitle)
 
-          if (updated) {
-            setConversations((previous) => {
-              const next = previous.filter(
-                (conversation) => conversation.thread_id !== updated.thread_id,
-              )
-              return sortConversationsByUpdatedAt([updated, ...next])
-            })
-          }
+          // Update conversations list with the returned conversation
+          setConversations((previous) => {
+            const next = previous.filter(
+              (conversation) => conversation.thread_id !== updated.thread_id,
+            )
+            return sortConversationsByUpdatedAt([updated, ...next])
+          })
         } catch {
           // Title generation should never block the main chat flow.
           // Silently fail - user won't notice
@@ -673,7 +665,7 @@ function App() {
           {
             content: trimmed,
             thread_id: targetThreadId,
-            user_id: getCurrentUserId() || "default",
+            user_id: userId || "default", // userId from useUser hook
             request_id: crypto.randomUUID(),
             model_name: currentModel,
             thinking_mode: currentThinkingMode,
@@ -1139,8 +1131,8 @@ function App() {
 
   // Handle user login from home page
   const handleUserLogin = useCallback((user: UserInfo) => {
+    // setUserId now handles both mock login and auth state update
     setUserId(user.id)
-    setCurrentUserId(user.id)
     // Trigger re-initialization after login to ensure proper data loading
     setNeedsReinit(true)
   }, [setUserId])
@@ -1214,6 +1206,7 @@ function App() {
             onSelectModel={setSelectedModel}
             onOpenModelConfig={() => setShowProviderConfig(true)}
             hasAvailableModels={hasAvailableModels}
+            isModelsLoading={isModelsLoading}
             selectedRequestId={selectedRequestId}
           />
         </SidebarInset>

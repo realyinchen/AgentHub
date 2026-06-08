@@ -19,7 +19,6 @@ import CSSTurnDAG from "@/features/kanban/components/dag/CSSTurnDAG"
 import { SciFiLoader } from "@/components/ai/neural-network-loader"
 import { useI18n } from "@/i18n"
 import type { MessageStepRaw } from "@/features/kanban/types/dag"
-import { getCurrentUserId } from "@/lib/api"
 
 // API base URL - same origin
 const API_BASE_URL = "/api/v1"
@@ -52,14 +51,17 @@ function useDagByRequestId(threadId: string | null, requestId: string | null | u
 
     async function fetchDag() {
       try {
-        const userId = getCurrentUserId()
-        if (!userId) {
-          throw new Error('No user selected')
-        }
         const response = await fetch(
-          `${API_BASE_URL}/traces/${threadId}/dag/${requestId}?user_id=${encodeURIComponent(userId)}`,
-          { signal: controller.signal }
+          `${API_BASE_URL}/traces/${threadId}/dag/${requestId}`,
+          {
+            signal: controller.signal,
+            credentials: "include", // Authentication via HTTP-only cookie
+          }
         )
+        if (response.status === 401) {
+          window.location.href = "/login"
+          throw new Error("Unauthorized")
+        }
         if (!response.ok) {
           throw new Error(`Failed to fetch DAG: ${response.status}`)
         }

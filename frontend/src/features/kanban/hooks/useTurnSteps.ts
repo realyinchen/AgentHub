@@ -3,17 +3,16 @@
  * Used by the DAG visualization to render execution flow.
  * 
  * Updated to use backend API: GET /api/v1/traces/{thread_id}/steps
- * with user_id parameter.
- * 
+ * Authentication is handled via HTTP-only JWT cookie.
+ *
  * IMPORTANT: Only fetches when NOT streaming to avoid multiple API calls.
  * The DAG data is only available after streaming ends and is persisted.
- * 
+ *
  * DEBOUNCE: Added debounce logic to prevent duplicate calls when
  * isStreaming changes to false and sessionId changes shortly after.
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { getCurrentUserId } from '@/lib/api';
 import type { MessageStepRaw } from '../types/dag';
 
 interface UseTurnStepsResult {
@@ -42,12 +41,6 @@ export function useTurnSteps(
     if (!threadId) {
       setSteps([]);
       lastFetchedKeyRef.current = '';
-      return;
-    }
-
-    const userId = getCurrentUserId();
-    if (!userId) {
-      setError('No user selected');
       return;
     }
 
@@ -83,9 +76,16 @@ export function useTurnSteps(
       setLoading(true);
       setError(null);
 
-      // Use the correct backend API endpoint with user_id
-      fetch(`/api/v1/traces/${threadId}/steps?user_id=${encodeURIComponent(userId)}`)
+      // Use the correct backend API endpoint
+      // Authentication via HTTP-only cookie
+      fetch(`/api/v1/traces/${threadId}/steps`, {
+        credentials: "include",
+      })
         .then(res => {
+          if (res.status === 401) {
+            window.location.href = "/login";
+            throw new Error("Unauthorized");
+          }
           if (!res.ok) throw new Error(`Failed to fetch turn steps: ${res.status}`);
           return res.json();
         })

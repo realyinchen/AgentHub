@@ -257,7 +257,7 @@ async def weixin_auth_websocket(websocket: WebSocket):
         logger.error(f"[WeChat WebSocket] Error: {e}")
         try:
             await websocket.send_json({"type": "error", "message": str(e)})
-        except:
+        except Exception as e:
             pass
 
 
@@ -278,7 +278,7 @@ async def _create_weixin_user(
             # Create new user
             user = await create_user(
                 session,
-                display_name=f"WeChat User",
+                display_name="WeChat User",
                 is_mock_user=False,
             )
             logger.info(f"[WeChat] Created new user: {user.id}")

@@ -9,6 +9,9 @@ Routes:
     GET    /models/providers                — List all providers
     PATCH  /models/providers/{provider_name}— Update provider API key / base URL
     GET    /models/thinking-mode            — Thinking-mode availability status
+
+Authentication required for all endpoints. These are administrative operations
+that manage system-wide model and provider configurations.
 """
 
 import logging
@@ -20,6 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import get_db
 from app.crud import model as model_crud
 from app.crud import provider as provider_crud
+from app.infra.auth import CurrentUser
 from app.infra.llm import get_model_manager
 from app.schemas.model import (
     ModelCreate,
@@ -45,6 +49,7 @@ api_router = APIRouter(prefix="/models", tags=["Models"])
 
 @api_router.get("", response_model=ModelsResponse)
 async def get_available_models(
+    user: CurrentUser,
     include_inactive: bool = Query(
         False,
         description="When true, return all models including inactive ones (for config page)",
@@ -56,16 +61,22 @@ async def get_available_models(
     Default: only returns models with provider API key configured (for frontend dropdown).
     With ``?include_inactive=true``: returns all models (for configuration page).
     Models are sorted by provider (alphabetically), then by model_id.
+
+    Authentication required.
     """
     return await model_crud.get_models_response(db, active_only=not include_inactive)
 
 
 @api_router.post("", response_model=ModelInfo, status_code=status.HTTP_201_CREATED)
 async def create_model(
+    user: CurrentUser,
     model_data: ModelCreate,
     db: AsyncSession = Depends(get_db),
 ) -> ModelInfo:
-    """Create a new model."""
+    """Create a new model.
+
+    Authentication required.
+    """
     existing = await model_crud.get_model(db, model_data.model_id)
     if existing:
         raise HTTPException(
@@ -88,6 +99,7 @@ async def create_model(
 
 @api_router.patch("/{model_id}", response_model=ModelInfo)
 async def update_model(
+    user: CurrentUser,
     model_id: uuid.UUID,
     request: ModelUpdateRequest,
     db: AsyncSession = Depends(get_db),
@@ -96,6 +108,8 @@ async def update_model(
 
     Only the fields present in the request body will be updated.
     Set ``is_default: true`` to make this the default model for its type.
+
+    Authentication required.
     """
     existing = await model_crud.get_model_by_id(db, model_id)
     if not existing:
@@ -117,10 +131,14 @@ async def update_model(
 
 @api_router.delete("/{model_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_model(
+    user: CurrentUser,
     model_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Delete a model."""
+    """Delete a model.
+
+    Authentication required.
+    """
     deleted = await model_crud.delete_model_by_id(db, model_id)
     if not deleted:
         raise HTTPException(
@@ -148,11 +166,14 @@ def _provider_to_info(provider) -> ProviderInfo:
 
 @api_router.get("/providers", response_model=ProvidersResponse)
 async def get_all_providers(
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ProvidersResponse:
     """Get all providers with their configuration status.
 
     Returns providers sorted alphabetically by name.
+
+    Authentication required.
     """
     providers = await provider_crud.get_all_providers(db)
     return ProvidersResponse(providers=[_provider_to_info(p) for p in providers])
@@ -160,6 +181,7 @@ async def get_all_providers(
 
 @api_router.patch("/providers/{provider_name}", response_model=ProviderInfo)
 async def update_provider(
+    user: CurrentUser,
     provider_name: str,
     request: ProviderUpdateRequest,
     db: AsyncSession = Depends(get_db),
@@ -167,6 +189,8 @@ async def update_provider(
     """Update a provider's API key and/or base URL (partial update via PATCH).
 
     Only allows updating existing providers (no creation).
+
+    Authentication required.
     """
     existing = await provider_crud.get_provider(db, provider_name)
     if not existing:
@@ -202,8 +226,13 @@ async def update_provider(
 
 
 @api_router.get("/thinking-mode", response_model=ThinkingModeStatus)
-async def get_thinking_mode_status() -> ThinkingModeStatus:
-    """Check if thinking mode is available."""
+async def get_thinking_mode_status(
+    user: CurrentUser,
+) -> ThinkingModeStatus:
+    """Check if thinking mode is available.
+
+    Authentication required.
+    """
     return ThinkingModeStatus(
         available=get_model_manager().is_thinking_mode_available()
     )
