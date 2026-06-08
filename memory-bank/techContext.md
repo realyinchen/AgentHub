@@ -188,18 +188,30 @@ services:
 ### Authentication
 - `POST /api/v1/auth/register` — User registration
 - `POST /api/v1/auth/login` — User login
-- `POST /api/v1/auth/logout` — User logout
-- `GET /api/v1/auth/me` — Current user info
+- `POST /api/v1/auth/logout` — User logout (clears JWT cookie)
+- `POST /api/v1/auth/mock-login` — Mock user login (development)
+- `GET /api/v1/auth/mock-users` — List mock users (development)
+- `GET /api/v1/auth/status` — Check authentication status
 
 ### Chat
-- `GET /api/v1/chat/sessions` — List sessions
-- `POST /api/v1/chat/sessions` — Create session
-- `GET /api/v1/chat/sessions/{id}/messages` — Get messages
-- `POST /api/v1/chat/sessions/{id}/stream` — SSE streaming chat
+- `GET /api/v1/chat/conversations` — List conversations (user from JWT)
+- `POST /api/v1/chat/conversations` — Create conversation
+- `GET /api/v1/chat/conversations/{thread_id}` — Get conversation
+- `DELETE /api/v1/chat/conversations/{thread_id}` — Delete conversation
+- `GET /api/v1/chat/conversations/{thread_id}/info` — Get conversation info
+- `PATCH /api/v1/chat/conversations/{thread_id}/title` — Update title
+- `POST /api/v1/chat/conversations/{thread_id}/title/generate` — Generate title
+- `GET /api/v1/chat/history/{thread_id}` — Get chat history
+- `POST /api/v1/chat/run` — SSE streaming chat
+- `GET /api/v1/chat/stats` — Get usage statistics
 
 ### Models
 - `GET /api/v1/models` — List available models
-- `PUT /api/v1/models/{id}` — Update model config
+- `GET /api/v1/models/{model_id}` — Get model config
+- `PUT /api/v1/models/{model_id}` — Update model config
+
+### Traces
+- `GET /api/v1/traces/{thread_id}/steps` — Get conversation steps/traces
 
 ### WeChat
 - `GET /api/v1/weixin/ws` — WebSocket endpoint for WeChat integration

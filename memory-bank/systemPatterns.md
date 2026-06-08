@@ -179,12 +179,51 @@ HTTP Request
 3. Checkpointer uses `thread_id` (user_id + session_id) for state isolation
 4. Store uses `user_id` namespace for memory isolation
 
+## Authentication Flow
+
+AgentHub uses **JWT-based authentication with HTTP-only cookies**:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         Authentication Architecture                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│   Frontend                          Backend                                  │
+│   ─────────                         ─────────                               │
+│                                                                              │
+│   1. Login Request ──────────────────► POST /api/v1/auth/mock-login         │
+│                                                                              │
+│   2. Set-Cookie: jwt_token ──────────► HTTP-only, Secure, SameSite=Lax     │
+│                                                                              │
+│   3. API Request ───────────────────► GET /api/v1/chat/...                  │
+│      + credentials: "include"               │                                │
+│                                             ▼                                │
+│                                      get_current_user()                      │
+│                                             │                                │
+│                                             ▼                                │
+│                                      Verify JWT → Extract user_id            │
+│                                             │                                │
+│                                             ▼                                │
+│                                      User object injected into endpoint      │
+│                                                                              │
+│   4. 401 Response ────────────────────► Redirect to /login                  │
+│      (if cookie invalid/expired)                                             │
+│                                                                              │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Key Points:**
+- No client-side user ID storage (no localStorage/URL params)
+- All API endpoints use `get_current_user` dependency to extract user from JWT
+- Frontend includes `credentials: "include"` for cookie transmission
+- 401 responses trigger automatic redirect to login page
+
 ## Directory Structure Mapping
 
 ```
 backend/app/
 ├── api/                    # Layer 4: HTTP endpoints
-│   ├── auth.py            # Authentication endpoints
+│   ├── auth.py            # Authentication endpoints (login, logout, status)
 │   ├── chat/              # Chat endpoints (sessions, messages, streaming)
 │   ├── models.py          # Model management endpoints
 │   ├── traces.py          # LangSmith trace endpoints

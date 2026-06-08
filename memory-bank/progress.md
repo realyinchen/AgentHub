@@ -2,9 +2,9 @@
 
 ## Current Status
 
-**Version**: v0.0.1 (Initial Release)
-**Release Date**: 2026-06-05
-**Status**: Production-ready core features, SubAgents in development
+**Version**: v0.0.2 (Authentication Refactoring)
+**Release Date**: 2026-06-08
+**Status**: Production-ready core features with improved authentication, SubAgents in development
 
 ## What Works
 
@@ -17,7 +17,8 @@
 | SSE Streaming | ✅ Complete | Token-level streaming via `astream_events` v3 |
 | Multi-User Isolation | ✅ Complete | Per-user sessions with Checkpointer |
 | Long-Term Memory | ✅ Complete | LangGraph Store + PGVector |
-| JWT Authentication | ✅ Complete | HTTP-only cookies, 7-day expiry |
+| JWT Authentication | ✅ Complete | HTTP-only cookies, 7-day expiry, server-side user extraction |
+| Auth Refactoring | ✅ Complete | v0.0.2: Removed client-side user ID, cookie-based auth |
 | API Key Encryption | ✅ Complete | AES-256 encryption for stored keys |
 | Docker Deployment | ✅ Complete | One-click three-container setup |
 
@@ -110,6 +111,20 @@
 | Docker Compose over K8s | Simplicity for target users | ✅ Final |
 
 ## Milestone History
+
+### v0.0.2 (2026-06-08) — Authentication Refactoring
+
+**Security & Architecture Improvements:**
+- Server-side JWT cookie authentication (no client-side user ID storage)
+- All API endpoints use `get_current_user` dependency for user extraction
+- Frontend sends `credentials: "include"` for cookie transmission
+- Automatic 401 handling with redirect to `/login`
+- Consistent JSONResponse format for auth endpoints
+- Deprecated client-side `setCurrentUserId` / `getCurrentUserId` functions
+
+**Files Changed (16 files):**
+- Backend: auth.py, conversations.py, history.py, run.py, stats.py, models.py, traces.py, weixin.py, infra/auth.py
+- Frontend: App.tsx, chat-main-panel.tsx, turn-dag-sidebar.tsx, useTurnSteps.ts, use-user.ts, api.ts, types.ts
 
 ### v0.0.1 (2026-06-05) — Initial Release
 
