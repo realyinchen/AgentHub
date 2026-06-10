@@ -1,0 +1,38 @@
+# Development-only PostgreSQL for local backend runs.
+#
+# Usage:
+#   docker compose -f docker-compose.dev.yml up -d db
+#
+# It maps host port 5433 to avoid clashing with an existing local PostgreSQL
+# on 5432.
+
+networks:
+  agenthub-dev-network:
+    driver: bridge
+
+volumes:
+  postgres_dev_data:
+
+services:
+  db:
+    image: pgvector/pgvector:0.8.2-pg18-trixie
+    container_name: agenthub-dev-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: langchain
+      POSTGRES_PASSWORD: langgraph
+      POSTGRES_DB: agentdb
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql
+      - ./backend/scripts/init-pgvector.sql:/docker-entrypoint-initdb.d/01-init-pgvector.sql
+      - ./backend/scripts/sql/init_database.sql:/docker-entrypoint-initdb.d/02-init_database.sql
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U langchain -d agentdb"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - agenthub-dev-network
