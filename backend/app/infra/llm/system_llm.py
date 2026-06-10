@@ -9,6 +9,7 @@ environment variables. It is used for:
 Configuration:
     - SYSTEM_DEFAULT_LLM_MODEL: Model identifier (e.g., "dashscope/qwen3.6-27b")
     - SYSTEM_DEFAULT_LLM_API_KEY: API key for the model
+    - SYSTEM_DEFAULT_LLM_BASE_URL: Optional OpenAI-compatible API base URL
 
 Usage:
     from app.infra.llm import get_system_llm
@@ -56,12 +57,28 @@ def init_system_llm() -> ChatLiteLLM:
     assert settings.SYSTEM_DEFAULT_LLM_MODEL is not None
     assert settings.SYSTEM_DEFAULT_LLM_API_KEY is not None
 
+    provider, model_id = settings.SYSTEM_DEFAULT_LLM_MODEL.split("/", 1)
+    openai_compatible_provider = provider in {
+        "lmstudio",
+        "ollama",
+        "openai-compatible",
+    }
+    use_openai_compatible = bool(
+        settings.SYSTEM_DEFAULT_LLM_BASE_URL or openai_compatible_provider
+    )
+    litellm_model = (
+        f"openai/{model_id}" if use_openai_compatible else settings.SYSTEM_DEFAULT_LLM_MODEL
+    )
+
     # Build litellm_params for ChatLiteLLM
     litellm_params = {
-        "model": settings.SYSTEM_DEFAULT_LLM_MODEL,
+        "model": litellm_model,
         "api_key": settings.SYSTEM_DEFAULT_LLM_API_KEY.get_secret_value(),
         "temperature": 0,
     }
+
+    if settings.SYSTEM_DEFAULT_LLM_BASE_URL:
+        litellm_params["api_base"] = settings.SYSTEM_DEFAULT_LLM_BASE_URL
 
     # DashScope models: explicitly disable thinking mode via extra_body
     # This ensures title generation and other auxiliary tasks get plain text responses
@@ -73,8 +90,9 @@ def init_system_llm() -> ChatLiteLLM:
     _system_llm_instance = ChatLiteLLM(**litellm_params)
 
     logger.info(
-        "System default LLM initialized: model=%s, thinking_mode=False",
+        "System default LLM initialized: model=%s, litellm_model=%s, thinking_mode=False",
         settings.SYSTEM_DEFAULT_LLM_MODEL,
+        litellm_model,
     )
     return _system_llm_instance
 

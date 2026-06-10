@@ -4,9 +4,9 @@ This module provides factory functions for creating LLM instances that are
 backed by the database (providers + models tables). It directly creates
 ChatLiteLLM instances using API key and base_url from ModelManager.
 
-Provider: DashScope (Alibaba Cloud) only.
-    - Thinking mode controlled via extra_body: {"enable_thinking": bool}
-    - Default: thinking mode DISABLED
+Providers:
+    - Native LiteLLM providers such as DashScope
+    - OpenAI-compatible local providers such as LM Studio and Ollama
 
 Public API:
     - get_llm(model_id, thinking_mode): Get a ChatLiteLLM for runtime use
@@ -59,14 +59,11 @@ def get_llm(
     """
     manager = get_model_manager()
 
-    # Parse provider from model_id (format: "provider/model-id")
-    # Support both "provider/model-id" and plain "model-id" formats
-    if "/" in model_id:
-        short_model_id = model_id.split("/", 1)[1]
-    else:
-        short_model_id = model_id
-
-    model_config = manager.get_model(short_model_id)
+    # Prefer exact DB model_id matching. Some local model names contain "/",
+    # so only fall back to stripping provider prefixes for legacy UI values.
+    model_config = manager.get_model(model_id)
+    if model_config is None and "/" in model_id:
+        model_config = manager.get_model(model_id.split("/", 1)[1])
     if model_config is None:
         raise ValueError(f"Model '{model_id}' not found in database.")
 
@@ -75,8 +72,23 @@ def get_llm(
     if provider_config is None:
         raise ValueError(f"Provider '{model_config.provider}' not found in database.")
 
-    # Get API key (decrypted)
+    configured_model_id = str(model_config.model_id)
+    if configured_model_id.startswith(f"{model_config.provider}/"):
+        provider_model_id = configured_model_id.split("/", 1)[1]
+    elif configured_model_id.startswith("openai/"):
+        provider_model_id = configured_model_id.split("/", 1)[1]
+    else:
+        provider_model_id = configured_model_id
+
+    is_openai_compatible = bool(
+        getattr(provider_config, "is_openai_compatible", False)
+    )
+
+    # Get API key (decrypted). Local OpenAI-compatible servers often accept
+    # any non-empty key, and some ignore it completely.
     api_key = manager.get_api_key(model_config.provider)
+    if not api_key and is_openai_compatible:
+        api_key = "local"
     if not api_key:
         raise ValueError(
             f"No API key available for provider '{model_config.provider}'."
@@ -85,21 +97,26 @@ def get_llm(
     # Get base_url (optional)
     base_url = manager.get_base_url(model_config.provider)
 
-    # Build full model_id with provider prefix (required by LiteLLM)
-    full_model_id = f"{model_config.provider}/{short_model_id}"
+    # LiteLLM routes generic OpenAI-compatible services through the openai/*
+    # provider while api_base points at the local server.
+    if is_openai_compatible:
+        full_model_id = f"openai/{provider_model_id}"
+    else:
+        full_model_id = f"{model_config.provider}/{provider_model_id}"
 
-    # DashScope only: thinking mode controlled via extra_body (disabled by default)
-    # IMPORTANT: extra_body must be passed via model_kwargs, NOT as a direct kwarg.
-    # ChatLiteLLM does NOT have an 'extra_body' field defined,
-    # so passing extra_body=... directly gets ignored by Pydantic.
-    # model_kwargs is merged into _default_params and forwarded to litellm completion.
-    extra_body = {"enable_thinking": thinking_mode}
+    model_kwargs = {"stream_options": {"include_usage": True}}
+
+    # DashScope only: thinking mode is controlled via extra_body. Do not send
+    # this provider-specific field to local OpenAI-compatible servers.
+    if model_config.provider == "dashscope":
+        model_kwargs["extra_body"] = {"enable_thinking": thinking_mode}
 
     logger.info(
-        "get_llm: Creating ChatLiteLLM with model=%s, thinking_mode=%s, extra_body=%s",
+        "get_llm: Creating ChatLiteLLM with model=%s, provider=%s, openai_compatible=%s, thinking_mode=%s",
         full_model_id,
+        model_config.provider,
+        is_openai_compatible,
         thinking_mode,
-        extra_body,
     )
 
     # Build litellm_params for ChatLiteLLM
@@ -116,10 +133,7 @@ def get_llm(
 
     llm = ChatLiteLLM(
         **litellm_params,
-        model_kwargs={
-            "stream_options": {"include_usage": True},
-            "extra_body": extra_body,
-        },
+        model_kwargs=model_kwargs,
     )
 
     logger.debug(

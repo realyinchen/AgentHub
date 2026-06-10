@@ -12,12 +12,12 @@ class Model(Base):
     """
     Model configuration table.
     Users can configure all models in this table.
-    Supports LLM and VLM models only.
+    Supports LLM, VLM, and embedding models.
 
     Fields:
         id: UUID primary key
         provider: e.g. "dashscope", "zai", references providers table
-        model_type: llm, vlm
+        model_type: llm, vlm, embedding
         model_id: model identifier without provider prefix, e.g. "qwen3.5-32b"
         thinking: whether supports thinking mode
         is_default: default model for this model_type
@@ -38,7 +38,7 @@ class Model(Base):
     )  # e.g. "dashscope", "zai" - FK to providers table
     model_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="llm"
-    )  # llm, vlm
+    )  # llm, vlm, embedding
     model_id: Mapped[str] = mapped_column(
         String(128), nullable=False, unique=True
     )  # e.g. "qwen3.5-32b" (without provider prefix)

@@ -29,7 +29,7 @@ class ModelBase(BaseModel):
     """Model base fields (immutable identity fields)."""
 
     provider: str  # e.g. "dashscope", "zai"
-    model_type: Literal["llm", "vlm"] = "llm"
+    model_type: Literal["llm", "vlm", "embedding"] = "llm"
     model_id: str  # e.g. "qwen3.5-32b" (without provider prefix)
 
 
@@ -49,7 +49,7 @@ class ModelUpdateRequest(ModelMutableFields):
 
     model_id: Optional[str] = None  # New model_id if changing
     provider: Optional[str] = None
-    model_type: Optional[Literal["llm", "vlm"]] = None
+    model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
 
 
 class ModelInDB(BaseModel):
@@ -115,7 +115,7 @@ class TestConnectionRequest(BaseModel):
     provider: str  # e.g. "dashscope", "zai"
     model_id: str  # e.g. "qwen3.5-27b"
     api_key: str
-    model_type: Literal["llm", "vlm"] = "llm"
+    model_type: Literal["llm", "vlm", "embedding"] = "llm"
 
 
 class TestConnectionResponse(BaseModel):

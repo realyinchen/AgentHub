@@ -25,7 +25,13 @@ from app.agents.context import AgentRuntimeContext
 from app.agents.middleware.content_filter import content_filter
 from app.agents.middleware.model import dynamic_model
 from app.agents.middleware.prompt import supervisor_prompt
-from app.agents.tools import get_current_time, create_web_search
+from app.agents.tools import (
+    create_web_search,
+    get_current_time,
+    record_book_feedback,
+    remember_reading_preference,
+    search_books,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +69,12 @@ async def init_agent(
     model = get_system_llm()
 
     # Build tools directly (no subagent delegation)
-    tools: list = [get_current_time]
+    tools: list = [
+        get_current_time,
+        search_books,
+        remember_reading_preference,
+        record_book_feedback,
+    ]
     try:
         tools.append(create_web_search())
     except Exception as exc:

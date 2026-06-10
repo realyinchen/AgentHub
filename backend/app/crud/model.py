@@ -1,6 +1,6 @@
 import uuid
 
-from sqlalchemy import select, update, case
+from sqlalchemy import select, update, case, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
@@ -56,7 +56,13 @@ async def get_models_with_provider_config(db: AsyncSession) -> list[Model]:
         .join(Provider, Model.provider == Provider.provider)
         .where(
             Model.is_active.is_(True),
-            Provider.api_key != "",
+            or_(
+                Provider.api_key != "",
+                (
+                    Provider.is_openai_compatible.is_(True)
+                    & Provider.base_url.is_not(None)
+                ),
+            ),
         )
         .order_by(Model.provider, Model.model_id)
     )

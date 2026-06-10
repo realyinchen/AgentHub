@@ -163,6 +163,7 @@ class Settings(BaseSettings):
     # SYSTEM_DEFAULT_LLM_MODEL format: "provider/model-id" (e.g. "zai/glm-5.1")
     SYSTEM_DEFAULT_LLM_MODEL: Optional[str] = None
     SYSTEM_DEFAULT_LLM_API_KEY: Optional[SecretStr] = None
+    SYSTEM_DEFAULT_LLM_BASE_URL: Optional[str] = None
 
     # =========================================================================
     # System-level Default Embedding (Optional — falls back to LLM API key)
@@ -228,6 +229,7 @@ class Settings(BaseSettings):
         "POSTGRES_HOST",
         "POSTGRES_DB",
         "SYSTEM_DEFAULT_LLM_MODEL",
+        "SYSTEM_DEFAULT_LLM_BASE_URL",
         "SYSTEM_DEFAULT_EMBEDDING_MODEL",
         mode="before",
     )

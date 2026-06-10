@@ -13,9 +13,13 @@ Available tools:
 from .time import get_current_time
 from .web import create_web_search
 from .vectorstore_retriever import vectorstore_search
+from .books import search_books, remember_reading_preference, record_book_feedback
 
 __all__ = [
     "get_current_time",
     "create_web_search",
     "vectorstore_search",
+    "search_books",
+    "remember_reading_preference",
+    "record_book_feedback",
 ]
