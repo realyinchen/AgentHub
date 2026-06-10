@@ -1,25 +1,13 @@
-"""Services layer — business logic orchestration.
+"""Services layer - business logic orchestration.
 
-This layer handles:
-- Chat orchestration (invoke/stream)
-- SSE streaming service
-- WeChat listener (per-login message loop)
-
-Services are the glue between API layer (routing) and Agent layer (LangGraph).
-
-Notes:
-- build_agent_kwargs moved to utils/request.py (pure utility, no business logic).
-- persist_agent_trace moved to crud/trace.py (pure CRUD, no orchestration logic).
+This package exposes service classes used by API routes while keeping imports
+lazy. Eagerly importing every service here creates circular imports when agent
+tools import a single submodule such as ``app.services.book_search``.
 """
 
-from app.services.chat import ChatService
-from app.services.streaming import ChatStreamingService
-from app.services.weixin_listener import (
-    WeixinListener,
-    create_listener,
-    stop_listener,
-    get_listener,
-)
+from __future__ import annotations
+
+from typing import Any
 
 __all__ = [
     "ChatService",
@@ -29,3 +17,20 @@ __all__ = [
     "stop_listener",
     "get_listener",
 ]
+
+
+def __getattr__(name: str) -> Any:
+    """Lazily expose service symbols without package-wide side effects."""
+    if name == "ChatService":
+        from app.services.chat import ChatService
+
+        return ChatService
+    if name == "ChatStreamingService":
+        from app.services.streaming import ChatStreamingService
+
+        return ChatStreamingService
+    if name in {"WeixinListener", "create_listener", "stop_listener", "get_listener"}:
+        from app.services import weixin_listener
+
+        return getattr(weixin_listener, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

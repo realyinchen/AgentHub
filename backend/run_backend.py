@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 import sys
 import warnings
 import uvicorn
@@ -39,6 +40,21 @@ if sys.platform == "win32":
 load_dotenv()
 
 settings = get_settings()
+
+
+def _reload_enabled() -> bool:
+    """Allow local dev to disable uvicorn reload without switching MODE=prod."""
+    raw = os.getenv("UVICORN_RELOAD")
+    if raw is None:
+        return settings.is_dev
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def create_event_loop() -> asyncio.AbstractEventLoop:
+    """Create a psycopg-compatible event loop on Windows."""
+    if sys.platform == "win32":
+        return asyncio.SelectorEventLoop()
+    return asyncio.new_event_loop()
 
 
 def configure_logging() -> None:
@@ -101,11 +117,13 @@ if __name__ == "__main__":
     # to ensure it applies in uvicorn --reload mode where child processes
     # re-import modules but don't run this __main__ block.
 
+    reload = _reload_enabled()
     uvicorn.run(
         "app.main:app",
         host=settings.HOST,
         port=settings.PORT,
-        reload=settings.is_dev,
-        reload_dirs=["app"],
+        reload=reload,
+        reload_dirs=["app"] if reload else None,
+        loop="run_backend:create_event_loop",
         timeout_graceful_shutdown=settings.GRACEFUL_SHUTDOWN_TIMEOUT,
     )
