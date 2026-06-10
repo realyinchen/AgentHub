@@ -148,14 +148,22 @@ async def init_database() -> None:
     await _db_instance.initialize()
     logger.info("Database initialized: postgres")
 
-    # Initialize default vectorstore with embedding functions from infra.llm
+    # Initialize default vectorstore only when an embedding model is configured.
+    # Book search and structured preference memory do not require embeddings, so
+    # local-only setups such as LM Studio can still boot without semantic search.
     from app.infra.llm import get_embeddings
 
-    default_vs = PGVectorVectorstore(table_name=_DEFAULT_TABLE)
-    default_vs.set_embed_fn(embeddings=get_embeddings())
-    await default_vs.initialize()
-    _vs_instances[_DEFAULT_TABLE] = default_vs
-    logger.info("Vectorstore initialized: pgvector (table=%s)", _DEFAULT_TABLE)
+    embeddings = get_embeddings()
+    if embeddings is not None:
+        default_vs = PGVectorVectorstore(table_name=_DEFAULT_TABLE)
+        default_vs.set_embed_fn(embeddings=embeddings)
+        await default_vs.initialize()
+        _vs_instances[_DEFAULT_TABLE] = default_vs
+        logger.info("Vectorstore initialized: pgvector (table=%s)", _DEFAULT_TABLE)
+    else:
+        logger.warning(
+            "Embedding model not configured; default vectorstore is disabled"
+        )
 
     # Initialize checkpointer and store in parallel
     async def _init_checkpointer() -> None:
