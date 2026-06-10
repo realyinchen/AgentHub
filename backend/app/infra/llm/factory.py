@@ -25,6 +25,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
 from langchain_litellm import ChatLiteLLM
 
+from app.infra.config import get_settings
 from app.infra.llm.manager import get_model_manager
 
 logger = logging.getLogger(__name__)
@@ -87,7 +88,8 @@ def get_llm(
     # Get API key (decrypted). Local OpenAI-compatible servers often accept
     # any non-empty key, and some ignore it completely.
     api_key = manager.get_api_key(model_config.provider)
-    if not api_key and is_openai_compatible:
+    requires_real_api_key = model_config.provider in {"openrouter"}
+    if not api_key and is_openai_compatible and not requires_real_api_key:
         api_key = "local"
     if not api_key:
         raise ValueError(
@@ -130,6 +132,16 @@ def get_llm(
 
     if base_url:
         litellm_params["api_base"] = base_url
+
+    if model_config.provider == "openrouter":
+        settings = get_settings()
+        extra_headers: dict[str, str] = {}
+        if settings.OPENROUTER_HTTP_REFERER:
+            extra_headers["HTTP-Referer"] = settings.OPENROUTER_HTTP_REFERER
+        if settings.OPENROUTER_X_TITLE:
+            extra_headers["X-Title"] = settings.OPENROUTER_X_TITLE
+        if extra_headers:
+            litellm_params["extra_headers"] = extra_headers
 
     llm = ChatLiteLLM(
         **litellm_params,

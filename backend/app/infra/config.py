@@ -165,6 +165,11 @@ class Settings(BaseSettings):
     SYSTEM_DEFAULT_LLM_API_KEY: Optional[SecretStr] = None
     SYSTEM_DEFAULT_LLM_BASE_URL: Optional[str] = None
 
+    # Optional OpenRouter attribution headers. OpenRouter accepts OpenAI-
+    # compatible requests without these, but they help identify the app.
+    OPENROUTER_HTTP_REFERER: Optional[str] = None
+    OPENROUTER_X_TITLE: str = "AgentHub"
+
     # =========================================================================
     # System-level Default Embedding (Optional — falls back to LLM API key)
     # =========================================================================

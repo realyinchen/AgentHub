@@ -60,6 +60,7 @@ async def get_models_with_provider_config(db: AsyncSession) -> list[Model]:
                 Provider.api_key != "",
                 (
                     Provider.is_openai_compatible.is_(True)
+                    & (Provider.provider != "openrouter")
                     & Provider.base_url.is_not(None)
                 ),
             ),

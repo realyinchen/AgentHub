@@ -62,6 +62,7 @@ def init_system_llm() -> ChatLiteLLM:
         "lmstudio",
         "ollama",
         "openai-compatible",
+        "openrouter",
     }
     use_openai_compatible = bool(
         settings.SYSTEM_DEFAULT_LLM_BASE_URL or openai_compatible_provider
@@ -79,6 +80,15 @@ def init_system_llm() -> ChatLiteLLM:
 
     if settings.SYSTEM_DEFAULT_LLM_BASE_URL:
         litellm_params["api_base"] = settings.SYSTEM_DEFAULT_LLM_BASE_URL
+
+    if provider == "openrouter":
+        extra_headers: dict[str, str] = {}
+        if settings.OPENROUTER_HTTP_REFERER:
+            extra_headers["HTTP-Referer"] = settings.OPENROUTER_HTTP_REFERER
+        if settings.OPENROUTER_X_TITLE:
+            extra_headers["X-Title"] = settings.OPENROUTER_X_TITLE
+        if extra_headers:
+            litellm_params["extra_headers"] = extra_headers
 
     # DashScope models: explicitly disable thinking mode via extra_body
     # This ensures title generation and other auxiliary tasks get plain text responses

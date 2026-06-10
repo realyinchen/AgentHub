@@ -107,6 +107,12 @@ INSERT INTO public.providers (provider, api_key, base_url, is_openai_compatible)
 VALUES ('openai-compatible', 'local', 'http://127.0.0.1:1234/v1', true)
 ON CONFLICT (provider) DO NOTHING;
 
+-- OpenRouter OpenAI-compatible gateway.
+-- Configure api_key before using. Free model IDs usually end with ":free".
+INSERT INTO public.providers (provider, api_key, base_url, is_openai_compatible)
+VALUES ('openrouter', '', 'https://openrouter.ai/api/v1', true)
+ON CONFLICT (provider) DO NOTHING;
+
 -- 5. models table (user maintains all model configurations)
 -- Note: api_key is now stored in providers table
 -- Note: model_id is the plain model name (e.g. "qwen3.5-32b").
@@ -135,6 +141,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_models_model_id ON public.models(model_id)
 -- Models should be configured via web UI after providers are set up
 -- No default models are inserted - configure them in the application
 -- =============================================================================
+
+INSERT INTO public.models (provider, model_type, model_id, thinking, is_default, is_active)
+VALUES ('openrouter', 'llm', 'nex-agi/nex-n2-pro:free', false, false, true)
+ON CONFLICT (model_id) DO NOTHING;
 
 -- 6. trace_executions table (persisted DAG snapshots for offline trace viewing)
 -- Each row = one agent invocation (user→agent turn), identified by request_id.
