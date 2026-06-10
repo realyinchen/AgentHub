@@ -143,7 +143,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_models_model_id ON public.models(model_id)
 -- =============================================================================
 
 INSERT INTO public.models (provider, model_type, model_id, thinking, is_default, is_active)
-VALUES ('openrouter', 'llm', 'nex-agi/nex-n2-pro:free', false, false, true)
+VALUES ('openrouter', 'llm', 'nex-agi/nex-n2-pro:free', true, false, true)
 ON CONFLICT (model_id) DO NOTHING;
 
 -- 6. trace_executions table (persisted DAG snapshots for offline trace viewing)

@@ -112,6 +112,11 @@ def get_llm(
     # this provider-specific field to local OpenAI-compatible servers.
     if model_config.provider == "dashscope":
         model_kwargs["extra_body"] = {"enable_thinking": thinking_mode}
+    elif model_config.provider == "openrouter" and thinking_mode:
+        # OpenRouter exposes reasoning as a top-level OpenAI-compatible
+        # parameter. ChatLiteLLM expands model_kwargs into the completion call.
+        model_kwargs["reasoning"] = {"enabled": True}
+        model_kwargs["include_reasoning"] = True
 
     logger.info(
         "get_llm: Creating ChatLiteLLM with model=%s, provider=%s, openai_compatible=%s, thinking_mode=%s",
