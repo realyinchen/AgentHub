@@ -8,6 +8,7 @@ parameters and response normalization out of the main factory.
 from __future__ import annotations
 
 import time
+import logging
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -16,16 +17,27 @@ import httpx
 from langchain_litellm import ChatLiteLLM
 
 
+logger = logging.getLogger(__name__)
+
+
 class OpenRouterReasoningChatLiteLLM(ChatLiteLLM):
     """Use OpenRouter's raw response shape when reasoning details are requested."""
 
     def completion_with_retry(self, run_manager=None, **kwargs: Any) -> Any:
         if _should_use_openrouter_reasoning(kwargs):
+            logger.debug(
+                "Using raw OpenRouter reasoning completion; stream=%s",
+                kwargs.get("stream"),
+            )
             return _openrouter_completion(kwargs)
         return super().completion_with_retry(run_manager=run_manager, **kwargs)
 
     async def acompletion_with_retry(self, run_manager=None, **kwargs: Any) -> Any:
         if _should_use_openrouter_reasoning(kwargs):
+            logger.debug(
+                "Using raw OpenRouter reasoning completion; stream=%s",
+                kwargs.get("stream"),
+            )
             return await _openrouter_acompletion(kwargs)
         return await super().acompletion_with_retry(
             run_manager=run_manager,
@@ -118,8 +130,6 @@ def get_provider_adapter(provider: str) -> ProviderAdapter:
 
 
 def _should_use_openrouter_reasoning(kwargs: Mapping[str, Any]) -> bool:
-    if kwargs.get("stream"):
-        return False
     extra_body = kwargs.get("extra_body")
     return isinstance(extra_body, dict) and bool(
         extra_body.get("include_reasoning") or extra_body.get("reasoning")
@@ -131,7 +141,9 @@ def _openrouter_completion(kwargs: Mapping[str, Any]) -> dict[str, Any]:
     with httpx.Client(timeout=kwargs.get("timeout") or 120) as client:
         response = client.post(url, headers=headers, json=payload)
         response.raise_for_status()
-        return _normalize_openrouter_response(response.json())
+        data = response.json()
+        _log_openrouter_reasoning_response("sync", payload, data)
+        return _normalize_openrouter_response(data)
 
 
 async def _openrouter_acompletion(kwargs: Mapping[str, Any]) -> dict[str, Any]:
@@ -139,7 +151,9 @@ async def _openrouter_acompletion(kwargs: Mapping[str, Any]) -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=kwargs.get("timeout") or 120) as client:
         response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
-        return _normalize_openrouter_response(response.json())
+        data = response.json()
+        _log_openrouter_reasoning_response("async", payload, data)
+        return _normalize_openrouter_response(data)
 
 
 def _build_openrouter_request(
@@ -199,6 +213,25 @@ def _normalize_openrouter_response(response: Mapping[str, Any]) -> dict[str, Any
     normalized.setdefault("object", "chat.completion")
     normalized.setdefault("created", int(time.time()))
     return normalized
+
+
+def _log_openrouter_reasoning_response(
+    mode: str,
+    payload: Mapping[str, Any],
+    response: Mapping[str, Any],
+) -> None:
+    choices = list(response.get("choices") or [])
+    message = _as_dict(_as_dict(choices[0]).get("message", {})) if choices else {}
+    reasoning_text = _extract_openrouter_reasoning(message)
+    logger.debug(
+        "OpenRouter raw reasoning response: mode=%s messages=%d stream=%s keys=%s reasoning_chars=%d content_type=%s",
+        mode,
+        len(payload.get("messages") or []),
+        payload.get("stream"),
+        sorted(message.keys()),
+        len(reasoning_text),
+        type(message.get("content")).__name__,
+    )
 
 
 def _extract_openrouter_reasoning(payload: Mapping[str, Any]) -> str:

@@ -16,6 +16,7 @@ import logging
 from typing import Callable, cast
 
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
+from langchain_core.messages import AIMessage
 from langchain_core.language_models.chat_models import BaseChatModel
 
 # Lazy import to avoid circular dependency:
@@ -79,6 +80,20 @@ class DynamicModelMiddleware(AgentMiddleware):
             ),
         )
 
+    def _preserve_reasoning(self, response: ModelResponse) -> ModelResponse:
+        """Normalize provider reasoning onto AIMessage.additional_kwargs."""
+        from app.utils.message import extract_thinking
+
+        for message in response.result:
+            if not isinstance(message, AIMessage):
+                continue
+            thinking = extract_thinking(message)
+            if not thinking:
+                continue
+            message.additional_kwargs.setdefault("reasoning_content", thinking)
+            message.additional_kwargs.setdefault("thinking", thinking)
+        return response
+
     def wrap_model_call(
         self,
         request: ModelRequest,
@@ -87,8 +102,8 @@ class DynamicModelMiddleware(AgentMiddleware):
         """Sync version: dynamically select model based on runtime context."""
         model = self._get_model_override(request)
         if model is None:
-            return handler(request)
-        return handler(request.override(model=model))
+            return self._preserve_reasoning(handler(request))
+        return self._preserve_reasoning(handler(request.override(model=model)))
 
     async def awrap_model_call(
         self,
@@ -102,8 +117,10 @@ class DynamicModelMiddleware(AgentMiddleware):
         """
         model = self._get_model_override(request)
         if model is None:
-            return await handler(request)  # type: ignore[misc]
-        return await handler(request.override(model=model))  # type: ignore[misc]
+            response = await handler(request)  # type: ignore[misc]
+        else:
+            response = await handler(request.override(model=model))  # type: ignore[misc]
+        return self._preserve_reasoning(response)
 
 
 # Module-level singleton instance for convenience

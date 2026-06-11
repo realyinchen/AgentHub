@@ -19,6 +19,7 @@ export interface MessageStepRaw {
   message_type: 'human' | 'ai' | 'tool';
   content?: string | null;
   thinking?: string | null;
+  thinking_status?: string | null;
   tool_calls?: ToolCallRaw[] | null;
   tool_name?: string | null;
   tool_args?: Record<string, unknown> | null;
@@ -47,6 +48,7 @@ export interface HumanNodeData extends BaseNodeData {
 export interface AINodeData extends BaseNodeData {
   type: 'ai';
   thinking?: string | null;
+  thinkingStatus?: string | null;
   toolCalls?: ToolCallRaw[] | null;
   content?: string | null;
   modelName?: string | null;

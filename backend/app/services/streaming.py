@@ -29,7 +29,7 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.infra.config import get_settings
 from app.infra.database import get_database
-from app.infra.llm.resolver import resolve_model_name
+from app.infra.llm.resolver import refresh_model_cache_if_missing, resolve_model_name
 from app.schemas.chat import UserInput
 from app.utils.sse import (
     AsyncWriteQueue,
@@ -42,12 +42,32 @@ from app.utils.request import build_agent_kwargs
 from app.utils.message import (
     empty_totals,
     accumulate_usage,
+    extract_usage,
     extract_thinking,
     langchain_to_chat_message,
 )
 
 
 logger = logging.getLogger(__name__)
+
+
+def _should_use_non_streaming_agent_path(model_name: str, thinking_mode: bool) -> bool:
+    """Return True when provider reasoning is not available through streaming."""
+    if not thinking_mode:
+        return False
+
+    from app.infra.llm.manager import get_model_manager
+    from app.infra.llm.provider_adapters import get_provider_adapter
+
+    manager = get_model_manager()
+    model_config = manager.get_model(model_name)
+    if model_config is None and "/" in model_name:
+        model_config = manager.get_model(model_name.split("/", 1)[1])
+    if model_config is None:
+        return False
+
+    adapter = get_provider_adapter(str(model_config.provider))
+    return not adapter.streaming_enabled(thinking_mode)
 
 
 class ChatStreamingService:
@@ -93,6 +113,8 @@ class ChatStreamingService:
                 error_type="no_models_available",
             )
             return
+        if user_input.model_name:
+            await refresh_model_cache_if_missing(initial_model)
         # Pin the chosen model into user_input so build_agent_kwargs + middleware see it
         if not user_input.model_name:
             user_input = user_input.model_copy(update={"model_name": initial_model})
@@ -149,6 +171,7 @@ class ChatStreamingService:
             "accumulated_reasoning": "",  # Current accumulated reasoning (resets per LLM call)
             "last_reasoning": "",  # Most recent AI reasoning for final SSE message
             "reasoning_segments": {},  # reasoning content keyed by message_id
+            "ai_reasoning_index": 0,  # Stable AI-message order for DAG injection
             "final_message": None,
             "final_state_messages": None,
         }
@@ -179,6 +202,24 @@ class ChatStreamingService:
         )
 
         # ── Run stream + consumers concurrently, drained via queue ─
+        if _should_use_non_streaming_agent_path(
+            initial_model,
+            user_input.thinking_mode,
+        ):
+            async for event in self._generate_non_streaming_sse(
+                kwargs=kwargs,
+                config=config,
+                context=context,
+                thread_id=thread_id,
+                request_id=request_id,
+                model_name=initial_model,
+                timeout=stream_timeout,
+                before_checkpoint_id=before_checkpoint_id,
+                before_message_count=before_message_count,
+            ):
+                yield event
+            return
+
         out_queue: asyncio.Queue = asyncio.Queue()
         _SENTINEL = object()
         consumer_tasks: list[asyncio.Task] = []
@@ -335,6 +376,8 @@ class ChatStreamingService:
             # Pass reasoning_segments to persist_agent_trace for DAG reconstruction
             # This maps each AI message to its corresponding reasoning content
             reasoning_segments = state.get("reasoning_segments", {})
+            if user_input.thinking_mode and not reasoning_segments:
+                reasoning_segments = {"__thinking_status__": "requested_no_text"}
 
             async def _persist_tokens_and_dag() -> None:
                 """Persist token usage and execution DAG after stream completes."""
@@ -371,6 +414,109 @@ class ChatStreamingService:
             yield "data: [DONE]\n\n"
 
     # ── Projection consumers (private) ─────────────────────────────────────
+
+    async def _generate_non_streaming_sse(
+        self,
+        *,
+        kwargs: dict,
+        config: dict,
+        context: object,
+        thread_id,
+        request_id: str,
+        model_name: str,
+        timeout: float | None,
+        before_checkpoint_id: str | None,
+        before_message_count: int,
+    ) -> AsyncGenerator[str, None]:
+        """Use agent.ainvoke when provider reasoning is only available non-streaming."""
+        yield sse({"type": "step", "step": 2, "action": "ai_thinking"})
+
+        try:
+            async with asyncio.timeout(timeout):
+                result = await self._agent.ainvoke(
+                    kwargs["input"],
+                    config=config,
+                    context=context,
+                )
+        except asyncio.TimeoutError:
+            yield sse_error(
+                f"Request timed out after {timeout:.0f}s. Please try again with a simpler query.",
+                error_type="timeout",
+            )
+            return
+        except Exception as exc:
+            logger.exception("Non-streaming agent fallback failed: %s", exc)
+            yield sse_error(
+                f"Stream error: {type(exc).__name__}: {str(exc)[:200]}",
+            )
+            return
+
+        messages = result.get("messages", []) if isinstance(result, dict) else []
+        new_messages = messages[before_message_count:]
+        last_ai_msg = None
+        for msg in reversed(messages):
+            if getattr(msg, "type", None) == "ai":
+                last_ai_msg = msg
+                break
+
+        if last_ai_msg is None:
+            yield sse_error("Agent invocation returned no AI message")
+            return
+
+        thinking = extract_thinking(last_ai_msg)
+        if thinking:
+            yield sse({"type": "reasoning", "content": thinking})
+
+        chat_msg = langchain_to_chat_message(last_ai_msg)
+        chat_msg.request_id = request_id
+        if thinking:
+            chat_msg.custom_data["thinking"] = thinking
+
+        if chat_msg.content:
+            yield sse({"type": "token", "content": chat_msg.content})
+        yield sse({"type": "message", "content": chat_msg.model_dump()})
+
+        tokens = empty_totals()
+        for msg in new_messages:
+            if getattr(msg, "type", None) != "ai":
+                continue
+            usage = extract_usage(msg)
+            if usage:
+                accumulate_usage(tokens, usage)
+
+        reasoning_segments: dict[str, str] = {}
+        if thinking:
+            msg_id = getattr(last_ai_msg, "id", None) or str(id(last_ai_msg))
+            ai_messages = [
+                msg for msg in new_messages if getattr(msg, "type", None) == "ai"
+            ]
+            ai_index = max(0, len(ai_messages) - 1)
+            reasoning_segments[msg_id] = thinking
+            reasoning_segments[f"__ai_index_{ai_index}"] = thinking
+            reasoning_segments["__latest__"] = thinking
+        else:
+            reasoning_segments["__thinking_status__"] = "requested_no_text"
+
+        try:
+            from app.crud.trace import persist_agent_trace
+
+            db = get_database()
+            async with db.session() as session:
+                await persist_agent_trace(
+                    db=session,
+                    agent=self._agent,
+                    thread_id=thread_id,
+                    request_id=request_id,
+                    model_name=model_name,
+                    tokens=tokens,
+                    before_checkpoint_id=before_checkpoint_id,
+                    before_message_count=before_message_count,
+                    reasoning_segments=reasoning_segments,
+                )
+        except Exception:
+            logger.exception("Failed to persist non-streaming DAG for %s", request_id)
+
+        yield "data: [DONE]\n\n"
 
     async def _consume_messages(
         self,
@@ -492,11 +638,17 @@ class ChatStreamingService:
 
             msg_id = getattr(final, "id", None) or str(id(final))
             accumulated = state["accumulated_reasoning"]
+            ai_reasoning_index = state["ai_reasoning_index"]
             if accumulated:
                 state["last_reasoning"] = accumulated
                 state["reasoning_segments"][msg_id] = accumulated
+                state["reasoning_segments"][f"__ai_index_{ai_reasoning_index}"] = (
+                    accumulated
+                )
+                state["reasoning_segments"]["__latest__"] = accumulated
                 # Reset accumulated reasoning for next LLM call
                 state["accumulated_reasoning"] = ""
+            state["ai_reasoning_index"] = ai_reasoning_index + 1
 
             node_name = getattr(message, "node", "") or "model"
 

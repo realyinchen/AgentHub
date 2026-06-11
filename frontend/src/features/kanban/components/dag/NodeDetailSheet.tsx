@@ -69,6 +69,13 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
 
   if (!nodeData) return null;
 
+  const getThinkingStatusText = (status?: string | null): string => {
+    if (status === 'requested_no_text') {
+      return t('process.noReasoningText') || 'No reasoning text';
+    }
+    return status || '';
+  };
+
   const getNodeHeader = (): {
     icon: React.ReactNode;
     title: string;
@@ -89,7 +96,7 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
         };
       case 'ai':
         return {
-          icon: nodeData.thinking ? <Brain className="w-5 h-5" /> : <Bot className="w-5 h-5" />,
+          icon: nodeData.thinking || nodeData.thinkingStatus ? <Brain className="w-5 h-5" /> : <Bot className="w-5 h-5" />,
           title: nodeData.isFinal ? (t('process.ai') || 'AI Response') : (t('process.ai') || 'AI Processing'),
           description: nodeData.modelName
             ? `${nodeData.modelName} · Step #${nodeData.stepNumber}`
@@ -129,7 +136,16 @@ function NodeDetailSheet({ nodeData, open, onOpenChange }: NodeDetailSheetProps)
         return nodeData.content ? { label: t('process.input') || 'Message', content: nodeData.content } : null;
       case 'ai':
         // AI node: show thinking process first (推理过程)
-        return nodeData.thinking ? { label: t('process.thinking') || 'Thinking', content: nodeData.thinking } : null;
+        if (nodeData.thinking) {
+          return { label: t('process.thinking') || 'Thinking', content: nodeData.thinking };
+        }
+        if (nodeData.thinkingStatus) {
+          return {
+            label: t('process.thinking') || 'Thinking',
+            content: getThinkingStatusText(nodeData.thinkingStatus),
+          };
+        }
+        return null;
       case 'tool':
         // Tool node: show arguments (入参)
         if (nodeData.toolArgs && Object.keys(nodeData.toolArgs).length > 0) {

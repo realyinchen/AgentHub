@@ -168,6 +168,7 @@ const en = {
   "actions.demo.thumbsDownLog": "Thumbs down!",
   // Agent process panel
   "process.thinking": "Thinking",
+  "process.noReasoningText": "No reasoning text",
   "process.agentWorking": "Agent is working...",
   "process.arguments": "Arguments",
   "process.showProcess": "Show agent process",
@@ -396,6 +397,7 @@ const zh: TranslationDictionary = {
   "actions.demo.thumbsDownLog": "点踩！",
   // Agent process panel
   "process.thinking": "思考",
+  "process.noReasoningText": "无思考文本",
   "process.agentWorking": "智能体正在工作...",
   "process.arguments": "参数",
   "process.showProcess": "展示智能体处理过程",

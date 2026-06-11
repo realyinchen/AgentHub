@@ -4,7 +4,7 @@
  */
 
 import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Minimize2 } from 'lucide-react';
+import { Bot, Brain, CheckCircle2, ZoomIn, ZoomOut, Maximize2, Minimize2 } from 'lucide-react';
 
 import type { MessageStepRaw, LayoutNode, DAGNodeData } from '../../types/dag';
 import { buildDAGFromSteps, calculateBoundingBox } from '../../utils/dagBuilder';
@@ -404,12 +404,20 @@ function HumanCard({ data: _data }: { data: { type: 'human'; content: string; st
 // AI Node — Blue (or Green for Final)
 // ============================================================================
 
-function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFinal: boolean; toolCalls?: { name: string }[] | null; thinking?: string | null } }) {
+function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFinal: boolean; toolCalls?: { name: string }[] | null; thinking?: string | null; thinkingStatus?: string | null } }) {
+  const { t } = useI18n();
+  const hasThinking = Boolean(data.thinking?.trim());
+  const hasThinkingStatus = Boolean(data.thinkingStatus);
+  const thinkingLabel = hasThinking
+    ? t('process.thinking')
+    : hasThinkingStatus
+      ? t('process.noReasoningText')
+      : null;
   // Use different colors for final vs non-final AI nodes
   const bgColor = data.isFinal ? 'var(--dag-node-final-bg)' : 'var(--dag-node-ai-bg)';
   const borderColor = data.isFinal ? 'var(--dag-node-final-border)' : 'var(--dag-node-ai-border)';
   const textColor = data.isFinal ? 'var(--dag-node-final-text)' : 'var(--dag-node-ai-text)';
-  const icon = data.isFinal ? '✅' : '🤖';
+  const Icon = hasThinking || hasThinkingStatus ? Brain : data.isFinal ? CheckCircle2 : Bot;
 
   return (
     <div
@@ -417,16 +425,24 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
         background: bgColor,
         border: `1px solid ${borderColor}`,
         borderRadius: '8px',
-        padding: '10px 14px',
+        padding: thinkingLabel ? '8px 10px' : '10px 14px',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.08)',
       }}
     >
       <div className="flex items-center justify-center gap-2">
-        <span className="text-sm">{icon}</span>
+        <Icon className="w-3.5 h-3.5 flex-shrink-0" style={{ color: textColor }} />
         <span className="text-xs font-medium" style={{ color: textColor }}>
           AI
         </span>
       </div>
+      {thinkingLabel && (
+        <div
+          className="mt-1 text-[10px] leading-none text-center truncate"
+          style={{ color: textColor, opacity: 0.82 }}
+        >
+          {thinkingLabel}
+        </div>
+      )}
     </div>
   );
 }

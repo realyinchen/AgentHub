@@ -249,12 +249,34 @@ class DagBuilder:
         # For each AI node, check if there's a matching reasoning segment from streaming.
         # If the segment is longer than existing thinking (from checkpointer), inject it.
         if reasoning_segments:
-            for node_idx, msg_id in ai_node_indices:
+            thinking_status = reasoning_segments.get("__thinking_status__")
+            raw_segments = [
+                segment
+                for key, segment in reasoning_segments.items()
+                if not key.startswith("__") and segment
+            ]
+            for ai_order, (node_idx, msg_id) in enumerate(ai_node_indices):
                 if 0 <= node_idx < len(nodes):
                     ai_node = nodes[node_idx]
                     if ai_node.message_type == "ai":
-                        # Get reasoning segment for this message
+                        # Prefer exact message id, then fall back to AI order. LangGraph
+                        # can serialize checkpoint messages with ids that differ from the
+                        # streaming projection object, especially for non-streaming provider
+                        # adapters.
                         segment = reasoning_segments.get(msg_id, "")
+                        if not segment:
+                            segment = reasoning_segments.get(
+                                f"__ai_index_{ai_order}",
+                                "",
+                            )
+                        if not segment and len(ai_node_indices) == 1:
+                            segment = reasoning_segments.get("__latest__", "")
+                        if (
+                            not segment
+                            and len(ai_node_indices) == 1
+                            and len(raw_segments) == 1
+                        ):
+                            segment = raw_segments[0]
                         if segment:
                             existing_thinking = ai_node.step.thinking or ""
                             # Replace if segment is longer (more complete)
@@ -264,6 +286,12 @@ class DagBuilder:
                                 # Also update ai_metadata if it exists
                                 if ai_node.step.ai_metadata:
                                     ai_node.step.ai_metadata.thinking = segment
+                        elif thinking_status:
+                            ai_node.step.thinking_status = thinking_status
+                            if ai_node.step.ai_metadata:
+                                ai_node.step.ai_metadata.thinking_status = (
+                                    thinking_status
+                                )
 
         return nodes, edges
 
@@ -284,6 +312,7 @@ class DagBuilder:
             tool_metadata=None,
             # Flattened fields (all None for human messages)
             thinking=None,
+            thinking_status=None,
             tool_calls=None,
             model_name=None,
             tool_name=None,
@@ -321,12 +350,14 @@ class DagBuilder:
             node_name="model",
             ai_metadata=AIStepMetadata(
                 thinking=thinking if thinking else None,
+                thinking_status=None,
                 tool_calls=tool_calls if tool_calls else None,
                 model_name=getattr(msg, "model_name", None),
             ),
             tool_metadata=None,
             # Flattened fields for AI messages
             thinking=thinking if thinking else None,
+            thinking_status=None,
             tool_calls=tool_calls if tool_calls else None,
             model_name=getattr(msg, "model_name", None),
             tool_name=None,
@@ -379,6 +410,7 @@ class DagBuilder:
             ),
             # Flattened fields for tool messages
             thinking=None,
+            thinking_status=None,
             tool_calls=None,
             model_name=None,
             tool_name=tool_name,

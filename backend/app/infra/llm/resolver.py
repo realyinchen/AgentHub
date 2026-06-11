@@ -36,3 +36,23 @@ def resolve_model_name(user_model: str | None) -> str | None:
         return user_model
     manager = _get_model_manager()
     return manager.default_llm_id or manager.get_first_active_llm_id()
+
+
+async def refresh_model_cache_if_missing(model_name: str | None) -> None:
+    """Refresh the DB-backed model cache once when an explicit model is missing.
+
+    Model configuration can be edited while the backend is already running. The
+    chat path uses ModelManager's in-memory cache, so a model inserted outside
+    the model CRUD endpoints can otherwise be visible in `/models` while still
+    failing in runtime model selection.
+    """
+    if not model_name:
+        return
+
+    manager = _get_model_manager()
+    if manager.get_model(model_name):
+        return
+    if "/" in model_name and manager.get_model(model_name.split("/", 1)[1]):
+        return
+
+    await manager.refresh()

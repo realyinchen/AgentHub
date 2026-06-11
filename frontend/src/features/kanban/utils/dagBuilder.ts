@@ -18,8 +18,10 @@ const TOOL_NODE_GAP = 40; // Horizontal gap between parallel tool nodes
 // Node sizing constants
 const HUMAN_NODE_WIDTH = 80;
 const AI_NODE_WIDTH = 80;
+const AI_THINKING_NODE_WIDTH = 112;
 const TOOL_NODE_MIN_WIDTH = 100;
 const NODE_HEIGHT = 44;  // Single line node
+const AI_THINKING_NODE_HEIGHT = 58;
 const TOOL_NODE_HEIGHT = 58;  // Two lines for tool nodes
 const CHAR_WIDTH_APPROX = 8; // Approximate width per character for tool names (more accurate)
 const PADDING_X = 40; // Horizontal padding inside node (extra space for safety)
@@ -32,12 +34,17 @@ function calculateNodeSize(type: 'human' | 'ai' | 'tool', data: {
   modelName?: string | null;
   toolName?: string;
   toolCalls?: { name: string }[] | null;
+  thinking?: string | null;
+  thinkingStatus?: string | null;
 }): { width: number; height: number } {
   switch (type) {
     case 'human':
       // Fixed size for human node
       return { width: HUMAN_NODE_WIDTH, height: NODE_HEIGHT };
     case 'ai':
+      if (data.thinking?.trim() || data.thinkingStatus) {
+        return { width: AI_THINKING_NODE_WIDTH, height: AI_THINKING_NODE_HEIGHT };
+      }
       // Fixed size for AI node - just show "AI"
       return { width: AI_NODE_WIDTH, height: NODE_HEIGHT };
     case 'tool':
@@ -77,7 +84,7 @@ export function buildDAGFromSteps(steps: MessageStepRaw[]): DAGResult {
   for (const step of sortedSteps) {
     if (step.message_type === 'ai') {
       if (step.tool_calls) totalToolCalls += step.tool_calls.length;
-      if (step.thinking) hasThinking = true;
+      if (step.thinking || step.thinking_status) hasThinking = true;
       if (step.model_name && !modelName) modelName = step.model_name;
     }
   }
@@ -241,12 +248,15 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
       const size = calculateNodeSize('ai', {
         modelName: step.model_name,
         toolCalls: step.tool_calls ?? undefined,
+        thinking: step.thinking,
+        thinkingStatus: step.thinking_status,
       });
       nodes.push({
         id: nodeId,
         data: {
           type: 'ai',
           thinking: step.thinking,
+          thinkingStatus: step.thinking_status,
           toolCalls: step.tool_calls ?? undefined,
           content: step.content,
           modelName: step.model_name,

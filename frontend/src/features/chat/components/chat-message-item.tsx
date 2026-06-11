@@ -342,19 +342,17 @@ export function ChatMessageItem({
           ) : null}
 
 
-          {/* Thinking content display - show during streaming when there's thinking content */}
-          {/* Note: DashScope may send reasoning events after text tokens, so we show thinking
-              content whenever it's available during streaming, regardless of text content */}
-          {isAI && isStreaming && thinkingContent ? (
+          {/* Thinking content display - show live reasoning and preserved history. */}
+          {isAI && hasThinkingContent ? (
             <div className="rounded-lg border border-border/60 bg-muted/30 p-3 text-xs mb-2">
               <div className="flex items-center gap-2 mb-2">
-                <BrainIcon className="size-3.5 text-primary animate-pulse" />
+                <BrainIcon className={cn("size-3.5 text-primary", isStreaming && "animate-pulse")} />
                 <span className="font-medium text-muted-foreground">
                   {t("message.thinking") || "Thinking..."}
                 </span>
               </div>
               <div ref={thinkingContentRef} className="whitespace-pre-wrap break-words text-muted-foreground max-h-48 overflow-y-auto">
-                {thinkingContent}
+                {displayThinkingContent}
               </div>
             </div>
           ) : null}

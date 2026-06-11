@@ -44,6 +44,7 @@ class AIStepMetadata(BaseModel):
     """Metadata for AI message steps."""
 
     thinking: str | None = None
+    thinking_status: str | None = None
     tool_calls: list[dict] | None = None
     model_name: str | None = None
 
@@ -86,6 +87,9 @@ class StepOutput(BaseModel):
     # These are convenience fields that duplicate metadata for easier access
     thinking: str | None = Field(
         None, description="AI thinking content (flattened from ai_metadata)"
+    )
+    thinking_status: str | None = Field(
+        None, description="AI thinking status when no thinking text is available"
     )
     tool_calls: list[dict] | None = Field(
         None, description="Tool calls (flattened from ai_metadata)"

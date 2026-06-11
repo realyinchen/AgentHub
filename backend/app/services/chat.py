@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.config import get_settings
 from app.infra.llm import resolve_model_name
+from app.infra.llm.resolver import refresh_model_cache_if_missing
 from app.schemas.chat import ChatMessage, UserInput
 from app.crud.trace import persist_agent_trace
 from app.utils.request import build_agent_kwargs
@@ -83,6 +84,8 @@ class ChatService:
                 status_code=503,
                 detail="No AI models are currently available.",
             )
+        if user_input.model_name:
+            await refresh_model_cache_if_missing(initial_model)
 
         # 2. Build agent parameters
         kwargs = await build_agent_kwargs(user_input)

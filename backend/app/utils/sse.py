@@ -63,6 +63,7 @@ class StreamState(TypedDict):
     accumulated_reasoning: str  # Current accumulated reasoning (resets per LLM call)
     last_reasoning: str  # Most recent AI reasoning for the final message event
     reasoning_segments: dict[str, str]  # reasoning content keyed by message_id
+    ai_reasoning_index: int  # AI message order used as a stable DAG fallback key
     final_message: BaseMessage | None
     final_state_messages: list[BaseMessage] | None
 
