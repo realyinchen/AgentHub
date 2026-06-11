@@ -23,10 +23,10 @@ import logging
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage
 from langchain_core.runnables import Runnable
-from langchain_litellm import ChatLiteLLM
 
 from app.infra.config import get_settings
 from app.infra.llm.manager import get_model_manager
+from app.infra.llm.provider_adapters import get_provider_adapter
 
 logger = logging.getLogger(__name__)
 
@@ -73,13 +73,11 @@ def get_llm(
     if provider_config is None:
         raise ValueError(f"Provider '{model_config.provider}' not found in database.")
 
-    configured_model_id = str(model_config.model_id)
-    if configured_model_id.startswith(f"{model_config.provider}/"):
-        provider_model_id = configured_model_id.split("/", 1)[1]
-    elif configured_model_id.startswith("openai/"):
-        provider_model_id = configured_model_id.split("/", 1)[1]
-    else:
-        provider_model_id = configured_model_id
+    adapter = get_provider_adapter(model_config.provider)
+    provider_model_id = adapter.normalize_model_id(
+        model_config.provider,
+        str(model_config.model_id),
+    )
 
     is_openai_compatible = bool(
         getattr(provider_config, "is_openai_compatible", False)
@@ -88,8 +86,7 @@ def get_llm(
     # Get API key (decrypted). Local OpenAI-compatible servers often accept
     # any non-empty key, and some ignore it completely.
     api_key = manager.get_api_key(model_config.provider)
-    requires_real_api_key = model_config.provider in {"openrouter"}
-    if not api_key and is_openai_compatible and not requires_real_api_key:
+    if not api_key and is_openai_compatible and not adapter.requires_real_api_key:
         api_key = "local"
     if not api_key:
         raise ValueError(
@@ -99,24 +96,12 @@ def get_llm(
     # Get base_url (optional)
     base_url = manager.get_base_url(model_config.provider)
 
-    # LiteLLM routes generic OpenAI-compatible services through the openai/*
-    # provider while api_base points at the local server.
-    if is_openai_compatible:
-        full_model_id = f"openai/{provider_model_id}"
-    else:
-        full_model_id = f"{model_config.provider}/{provider_model_id}"
-
-    model_kwargs = {"stream_options": {"include_usage": True}}
-
-    # DashScope only: thinking mode is controlled via extra_body. Do not send
-    # this provider-specific field to local OpenAI-compatible servers.
-    if model_config.provider == "dashscope":
-        model_kwargs["extra_body"] = {"enable_thinking": thinking_mode}
-    elif model_config.provider == "openrouter" and thinking_mode:
-        # OpenRouter exposes reasoning as a top-level OpenAI-compatible
-        # parameter. ChatLiteLLM expands model_kwargs into the completion call.
-        model_kwargs["reasoning"] = {"enabled": True}
-        model_kwargs["include_reasoning"] = True
+    full_model_id = adapter.litellm_model_name(
+        model_config.provider,
+        provider_model_id,
+        is_openai_compatible,
+    )
+    model_kwargs = adapter.model_kwargs(thinking_mode)
 
     logger.info(
         "get_llm: Creating ChatLiteLLM with model=%s, provider=%s, openai_compatible=%s, thinking_mode=%s",
@@ -131,24 +116,17 @@ def get_llm(
         "model": full_model_id,
         "api_key": api_key,
         "temperature": 0,
-        "streaming": True,
+        "streaming": adapter.streaming_enabled(thinking_mode),
         "drop_params": True,
     }
 
     if base_url:
         litellm_params["api_base"] = base_url
 
-    if model_config.provider == "openrouter":
-        settings = get_settings()
-        extra_headers: dict[str, str] = {}
-        if settings.OPENROUTER_HTTP_REFERER:
-            extra_headers["HTTP-Referer"] = settings.OPENROUTER_HTTP_REFERER
-        if settings.OPENROUTER_X_TITLE:
-            extra_headers["X-Title"] = settings.OPENROUTER_X_TITLE
-        if extra_headers:
-            litellm_params["extra_headers"] = extra_headers
+    litellm_params.update(adapter.extra_litellm_params(get_settings()))
+    chat_model_cls = adapter.chat_model_cls
 
-    llm = ChatLiteLLM(
+    llm = chat_model_cls(
         **litellm_params,
         model_kwargs=model_kwargs,
     )

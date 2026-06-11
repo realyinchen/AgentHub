@@ -61,6 +61,7 @@ class StreamState(TypedDict):
     first_chunk_time: float | None
     accumulated_tokens: dict[str, int]
     accumulated_reasoning: str  # Current accumulated reasoning (resets per LLM call)
+    last_reasoning: str  # Most recent AI reasoning for the final message event
     reasoning_segments: dict[str, str]  # reasoning content keyed by message_id
     final_message: BaseMessage | None
     final_state_messages: list[BaseMessage] | None

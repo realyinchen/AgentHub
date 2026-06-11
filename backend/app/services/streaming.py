@@ -42,6 +42,7 @@ from app.utils.request import build_agent_kwargs
 from app.utils.message import (
     empty_totals,
     accumulate_usage,
+    extract_thinking,
     langchain_to_chat_message,
 )
 
@@ -146,6 +147,7 @@ class ChatStreamingService:
             "first_chunk_time": None,
             "accumulated_tokens": empty_totals(),
             "accumulated_reasoning": "",  # Current accumulated reasoning (resets per LLM call)
+            "last_reasoning": "",  # Most recent AI reasoning for final SSE message
             "reasoning_segments": {},  # reasoning content keyed by message_id
             "final_message": None,
             "final_state_messages": None,
@@ -284,7 +286,9 @@ class ChatStreamingService:
 
             # ── Emit final assembled message ───────────────────────
             final_messages = state.get("final_state_messages")
-            accumulated_reasoning = state.get("accumulated_reasoning", "")
+            accumulated_reasoning = state.get("last_reasoning", "") or state.get(
+                "accumulated_reasoning", ""
+            )
 
             if final_messages:
                 # Find the last AIMessage (skip ToolMessage, HumanMessage, etc.)
@@ -421,6 +425,11 @@ class ChatStreamingService:
             reasoning_delta_count = 0
             async for delta in message.reasoning:
                 if delta:
+                    if (
+                        not state["accumulated_reasoning"]
+                        and not str(delta).strip()
+                    ):
+                        continue
                     reasoning_delta_count += 1
                     # Accumulate reasoning content for later inclusion in final message
                     state["accumulated_reasoning"] += delta
@@ -473,9 +482,18 @@ class ChatStreamingService:
             # When an AIMessage is finalized, save the accumulated reasoning
             # to reasoning_segments keyed by message_id, then reset for next LLM call.
             # This ensures each AI node in the DAG gets its corresponding reasoning.
+            if not state["accumulated_reasoning"]:
+                final_reasoning = extract_thinking(final)
+                if final_reasoning:
+                    state["accumulated_reasoning"] = final_reasoning
+                    await out_queue.put(
+                        sse({"type": "reasoning", "content": final_reasoning})
+                    )
+
             msg_id = getattr(final, "id", None) or str(id(final))
             accumulated = state["accumulated_reasoning"]
             if accumulated:
+                state["last_reasoning"] = accumulated
                 state["reasoning_segments"][msg_id] = accumulated
                 # Reset accumulated reasoning for next LLM call
                 state["accumulated_reasoning"] = ""
