@@ -3,6 +3,7 @@ import type {
   ChatMessage,
   ConversationInDB,
   ModelInfo,
+  ModelCapabilityStatus,
   ModelsResponse,
   ModelCreate,
   ModelUpdate,
@@ -313,6 +314,28 @@ export async function updateModel(id: string, data: ModelUpdate): Promise<ModelI
     method: "PATCH",
     body: JSON.stringify(data),
   })
+}
+
+/**
+ * Run a real model capability check.
+ */
+export async function validateModel(
+  id: string,
+  checkThinking = true,
+): Promise<ModelCapabilityStatus> {
+  return requestJson<ModelCapabilityStatus>(`/models/${id}/validate`, {
+    method: "POST",
+    body: JSON.stringify({ check_thinking: checkThinking }),
+  })
+}
+
+/**
+ * Get the latest model capability check.
+ */
+export async function getModelCapability(
+  id: string,
+): Promise<ModelCapabilityStatus | null> {
+  return requestJson<ModelCapabilityStatus | null>(`/models/${id}/capabilities`)
 }
 
 /**

@@ -73,31 +73,51 @@ def get_llm(
     if provider_config is None:
         raise ValueError(f"Provider '{model_config.provider}' not found in database.")
 
-    adapter = get_provider_adapter(model_config.provider)
-    provider_model_id = adapter.normalize_model_id(
-        model_config.provider,
-        str(model_config.model_id),
-    )
-
     is_openai_compatible = bool(
         getattr(provider_config, "is_openai_compatible", False)
     )
 
-    # Get API key (decrypted). Local OpenAI-compatible servers often accept
-    # any non-empty key, and some ignore it completely.
-    api_key = manager.get_api_key(model_config.provider)
-    if not api_key and is_openai_compatible and not adapter.requires_real_api_key:
-        api_key = "local"
-    if not api_key:
-        raise ValueError(
-            f"No API key available for provider '{model_config.provider}'."
-        )
+    return create_llm_from_config(
+        provider=model_config.provider,
+        model_id=str(model_config.model_id),
+        api_key=manager.get_api_key(model_config.provider),
+        base_url=manager.get_base_url(model_config.provider),
+        is_openai_compatible=is_openai_compatible,
+        thinking_mode=thinking_mode,
+    )
 
-    # Get base_url (optional)
-    base_url = manager.get_base_url(model_config.provider)
+
+def create_llm_from_config(
+    *,
+    provider: str,
+    model_id: str,
+    api_key: str | None,
+    base_url: str | None,
+    is_openai_compatible: bool,
+    thinking_mode: bool = False,
+) -> Runnable[LanguageModelInput, AIMessage]:
+    """Build a ChatLiteLLM from explicit provider/model configuration.
+
+    Runtime calls and validation calls share this function so provider adapter
+    behavior stays identical.
+    """
+    adapter = get_provider_adapter(provider)
+    provider_model_id = adapter.normalize_model_id(provider, model_id)
+
+    # Local OpenAI-compatible servers often accept any non-empty key, and some
+    # ignore it completely.
+    effective_api_key = api_key
+    if (
+        not effective_api_key
+        and is_openai_compatible
+        and not adapter.requires_real_api_key
+    ):
+        effective_api_key = "local"
+    if not effective_api_key:
+        raise ValueError(f"No API key available for provider '{provider}'.")
 
     full_model_id = adapter.litellm_model_name(
-        model_config.provider,
+        provider,
         provider_model_id,
         is_openai_compatible,
     )
@@ -106,7 +126,7 @@ def get_llm(
     logger.info(
         "get_llm: Creating ChatLiteLLM with model=%s, provider=%s, openai_compatible=%s, thinking_mode=%s",
         full_model_id,
-        model_config.provider,
+        provider,
         is_openai_compatible,
         thinking_mode,
     )
@@ -114,7 +134,7 @@ def get_llm(
     # Build litellm_params for ChatLiteLLM
     litellm_params = {
         "model": full_model_id,
-        "api_key": api_key,
+        "api_key": effective_api_key,
         "temperature": 0,
         "streaming": adapter.streaming_enabled(thinking_mode),
         "drop_params": True,
@@ -133,7 +153,7 @@ def get_llm(
 
     logger.debug(
         "Created ChatLiteLLM: model=%s, thinking_mode=%s",
-        model_id,
+        provider_model_id,
         thinking_mode,
     )
     return llm

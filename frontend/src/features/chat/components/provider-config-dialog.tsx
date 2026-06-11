@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react"
-import { Eye, EyeOff, Plus, Trash2, Settings2, HelpCircle, Edit2, ChevronRight, ChevronDown, Server, AlertTriangle } from "lucide-react"
+import { Eye, EyeOff, Plus, Trash2, Settings2, HelpCircle, Edit2, ChevronRight, ChevronDown, Server, AlertTriangle, RefreshCw } from "lucide-react"
 
 import type { ModelInfo, ModelType, ModelCreate, ModelUpdate, ProviderInfo, ProviderUpdate } from "@/types"
-import { getAllModels, createModel, updateModel, deleteModel, setDefaultModel, getProviders, updateProvider } from "@/lib/api"
+import { getAllModels, createModel, updateModel, deleteModel, setDefaultModel, getProviders, updateProvider, validateModel } from "@/lib/api"
 import { useI18n } from "@/i18n"
 import {
   Dialog,
@@ -45,6 +45,8 @@ type ModelChanges = {
   is_default?: boolean
 }
 
+type CapabilityBadgeVariant = "default" | "secondary" | "destructive" | "outline" | "ghost" | "link" | "warm" | "success"
+
 // Editable new model form with unique id
 type EditableNewModel = {
   id: string
@@ -64,6 +66,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
   const [deletingModelIds, setDeletingModelIds] = useState<Set<string>>(new Set())
   const [editingModelIds, setEditingModelIds] = useState<Set<string>>(new Set())
+  const [validatingModelIds, setValidatingModelIds] = useState<Set<string>>(new Set())
 
   // Provider editing state
   const [providerApiKeyEdits, setProviderApiKeyEdits] = useState<Record<string, string>>({})
@@ -317,6 +320,53 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     } finally {
       setDeletingModelIds(prev => { const n = new Set(prev); n.delete(model.model_id); return n })
     }
+  }
+
+  const handleValidateModel = async (model: ModelInfo) => {
+    setValidatingModelIds(prev => new Set(prev).add(model.id))
+    try {
+      await validateModel(model.id, model.model_type !== "embedding")
+      await loadData()
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      errorAlert.showError(t("model.validationError", { details: errorMessage }))
+    } finally {
+      setValidatingModelIds(prev => { const n = new Set(prev); n.delete(model.id); return n })
+    }
+  }
+
+  const getCapabilityStatus = (model: ModelInfo): {
+    label: string
+    variant: CapabilityBadgeVariant
+    tooltip: string
+  } => {
+    const capability = model.capability
+    if (!capability) {
+      return {
+        label: t("model.validationUnchecked"),
+        variant: "outline",
+        tooltip: t("model.validationNoStatus"),
+      }
+    }
+
+    const checkedAt = new Date(capability.checked_at).toLocaleString()
+    const fieldPath = capability.reasoning_field_path ? ` · ${capability.reasoning_field_path}` : ""
+    const errorText = capability.last_error ? ` · ${capability.last_error}` : ""
+    const tooltip = `${t("model.validationLastChecked", { time: checkedAt })}${fieldPath}${errorText}`
+
+    if (!capability.chat_ok) {
+      return { label: t("model.validationFailed"), variant: "destructive", tooltip }
+    }
+    if (capability.thinking_request_ok && capability.reasoning_text_ok) {
+      return { label: t("model.validationThinkingVerified"), variant: "success", tooltip }
+    }
+    if (capability.thinking_request_ok && capability.reasoning_text_ok === false) {
+      return { label: t("model.validationThinkingNoText"), variant: "warm", tooltip }
+    }
+    if (capability.thinking_request_ok === false) {
+      return { label: t("model.validationChatOnly"), variant: "secondary", tooltip }
+    }
+    return { label: t("model.validationChatOk"), variant: "secondary", tooltip }
   }
 
   const getEffectiveValue = (model: ModelInfo, field: keyof ModelChanges): unknown => {
@@ -737,6 +787,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                               const effectiveActive = getEffectiveValue(model, "is_active") as boolean
                               const isDeleting = deletingModelIds.has(model.model_id)
                               const isEditing = isEditingModel(model.model_id)
+                              const isValidating = validatingModelIds.has(model.id)
+                              const capabilityStatus = getCapabilityStatus(model)
 
                               return (
                                 <div
@@ -749,8 +801,38 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                       <span className="font-semibold">{getDisplayName(model.model_id)}</span>
                                       <Badge variant="outline" className="rounded-lg px-2 py-0.5 text-xs">{model.model_type.toUpperCase()}</Badge>
                                       {model.is_default && <Badge variant="secondary" className="rounded-lg px-2 py-0.5 text-xs">{t("model.default")}</Badge>}
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Badge variant={capabilityStatus.variant} className="rounded-lg px-2 py-0.5 text-xs">
+                                              {capabilityStatus.label}
+                                            </Badge>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="max-w-sm">
+                                            <p>{capabilityStatus.tooltip}</p>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                     </div>
                                     <div className="flex items-center gap-1">
+                                      <TooltipProvider>
+                                        <Tooltip>
+                                          <TooltipTrigger asChild>
+                                            <Button
+                                              variant="ghost"
+                                              size="icon"
+                                              className="size-8 rounded-lg text-muted-foreground/60 hover:text-primary transition-all hover:scale-105 active:scale-95"
+                                              onClick={() => void handleValidateModel(model)}
+                                              disabled={isValidating || !selectedProviderInfo.has_api_key}
+                                            >
+                                              <RefreshCw className={`size-4 ${isValidating ? "animate-spin" : ""}`} />
+                                            </Button>
+                                          </TooltipTrigger>
+                                          <TooltipContent side="top" className="max-w-xs">
+                                            <p>{isValidating ? t("model.validating") : t("model.validate")}</p>
+                                          </TooltipContent>
+                                        </Tooltip>
+                                      </TooltipProvider>
                                       {isEditing ? (
                                         <>
                                           <Button

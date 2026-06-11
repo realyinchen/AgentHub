@@ -114,6 +114,23 @@ export type ProviderUpdate = {
 
 export type ModelType = "llm" | "vlm" | "embedding"
 
+export type ModelCapabilityStatus = {
+  id: string
+  model_id: string
+  provider: string
+  provider_model_id: string
+  checked_at: string
+  chat_ok: boolean
+  thinking_request_ok: boolean | null
+  reasoning_text_ok: boolean | null
+  streaming_reasoning_ok: boolean | null
+  reasoning_field_path: string | null
+  latency_ms: number | null
+  error_type: string | null
+  last_error: string | null
+  raw_summary: Record<string, unknown>
+}
+
 export type ModelInfo = {
   id: string  // UUID primary key
   provider: string  // e.g. "dashscope", "zai"
@@ -124,6 +141,7 @@ export type ModelInfo = {
   is_active: boolean
   created_at: string
   updated_at: string
+  capability?: ModelCapabilityStatus | null
 }
 
 export type ModelCreate = {

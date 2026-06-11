@@ -108,7 +108,7 @@ VALUES ('openai-compatible', 'local', 'http://127.0.0.1:1234/v1', true)
 ON CONFLICT (provider) DO NOTHING;
 
 -- OpenRouter OpenAI-compatible gateway.
--- Configure api_key before using. Free model IDs usually end with ":free".
+-- Configure api_key before using. Free model IDs usually use the free suffix.
 INSERT INTO public.providers (provider, api_key, base_url, is_openai_compatible)
 VALUES ('openrouter', '', 'https://openrouter.ai/api/v1', true)
 ON CONFLICT (provider) DO NOTHING;
@@ -146,7 +146,32 @@ INSERT INTO public.models (provider, model_type, model_id, thinking, is_default,
 VALUES ('openrouter', 'llm', 'nex-agi/nex-n2-pro:free', true, false, true)
 ON CONFLICT (model_id) DO NOTHING;
 
--- 6. trace_executions table (persisted DAG snapshots for offline trace viewing)
+-- 6. model_capability_checks table (observed runtime model capability)
+CREATE TABLE IF NOT EXISTS public.model_capability_checks (
+    id                       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    model_id                 UUID NOT NULL REFERENCES public.models(id) ON DELETE CASCADE,
+    provider                 VARCHAR(64) NOT NULL,
+    provider_model_id        VARCHAR(256) NOT NULL,
+    checked_at               TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    chat_ok                  BOOLEAN NOT NULL DEFAULT FALSE,
+    thinking_request_ok      BOOLEAN,
+    reasoning_text_ok        BOOLEAN,
+    streaming_reasoning_ok   BOOLEAN,
+    reasoning_field_path     VARCHAR(128),
+    latency_ms               INTEGER,
+    error_type               VARCHAR(64),
+    last_error               TEXT,
+    raw_summary              JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_model_capability_model_checked
+ON public.model_capability_checks(model_id, checked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_model_capability_provider_model
+ON public.model_capability_checks(provider, provider_model_id);
+CREATE INDEX IF NOT EXISTS idx_model_capability_reasoning
+ON public.model_capability_checks(reasoning_text_ok);
+
+-- 7. trace_executions table (persisted DAG snapshots for offline trace viewing)
 -- Each row = one agent invocation (user→agent turn), identified by request_id.
 -- Contains model used and the full ExecutionDag.
 CREATE TABLE IF NOT EXISTS public.trace_executions (
@@ -166,14 +191,14 @@ ON public.trace_executions (thread_id, created_at DESC);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_trace_exec_request_id
 ON public.trace_executions (request_id);
 
--- 7. langchain_pg_collection table (PGVector — collection registry)
+-- 8. langchain_pg_collection table (PGVector — collection registry)
 CREATE TABLE IF NOT EXISTS public.langchain_pg_collection (
     uuid       UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name       VARCHAR NOT NULL UNIQUE,
     cmetadata  JSON
 );
 
--- 8. langchain_pg_embedding table (PGVector — vector embeddings)
+-- 9. langchain_pg_embedding table (PGVector — vector embeddings)
 -- The vector dimension must match the embedding model output.
 -- Schema matches langchain-postgres v2 PGVectorStore expectations.
 CREATE TABLE IF NOT EXISTS public.langchain_pg_embedding (
@@ -188,7 +213,7 @@ CREATE TABLE IF NOT EXISTS public.langchain_pg_embedding (
 CREATE INDEX IF NOT EXISTS ix_langchain_metadata_gin
     ON public.langchain_pg_embedding USING gin (langchain_metadata jsonb_path_ops);
 
--- 9. books table (cached public book metadata)
+-- 10. books table (cached public book metadata)
 CREATE TABLE IF NOT EXISTS public.books (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     title           VARCHAR(256) NOT NULL,
@@ -215,7 +240,7 @@ CREATE INDEX IF NOT EXISTS idx_books_last_seen_at ON public.books(last_seen_at D
 CREATE INDEX IF NOT EXISTS idx_books_raw_data_gin
     ON public.books USING gin (raw_data jsonb_path_ops);
 
--- 10. book_interactions table (user feedback and reading state)
+-- 11. book_interactions table (user feedback and reading state)
 CREATE TABLE IF NOT EXISTS public.book_interactions (
     id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id           UUID NOT NULL REFERENCES public.users(id) ON DELETE CASCADE,
@@ -236,7 +261,7 @@ ON public.book_interactions(book_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_book_interactions_type
 ON public.book_interactions(interaction_type);
 
--- 11. user_preference_profiles table (structured long-term reading memory)
+-- 12. user_preference_profiles table (structured long-term reading memory)
 CREATE TABLE IF NOT EXISTS public.user_preference_profiles (
     user_id           UUID PRIMARY KEY REFERENCES public.users(id) ON DELETE CASCADE,
     preferred_tags    JSONB NOT NULL DEFAULT '[]'::jsonb,
@@ -259,6 +284,7 @@ ANALYZE public.users;
 ANALYZE public.user_channels;
 ANALYZE public.conversations;
 ANALYZE public.models;
+ANALYZE public.model_capability_checks;
 ANALYZE public.providers;
 ANALYZE public.trace_executions;
 ANALYZE public.langchain_pg_collection;

@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.models.model import Model
-from app.schemas.model import ModelInfo, ModelsResponse
+from app.schemas.model import ModelCapabilityStatus, ModelInfo, ModelsResponse
 
 
 # ==================== Model CRUD ====================
@@ -206,7 +206,10 @@ def get_first_model_by_type(models: list[Model], model_type: str) -> Optional[st
     return None
 
 
-def build_models_response(models: list[Model]) -> ModelsResponse:
+def build_models_response(
+    models: list[Model],
+    capabilities: dict[uuid.UUID, object] | None = None,
+) -> ModelsResponse:
     """Build ModelsResponse from model list.
 
     Optimized to extract default models from the list instead of additional
@@ -214,7 +217,14 @@ def build_models_response(models: list[Model]) -> ModelsResponse:
     - If a model has is_default=True, use that
     - Otherwise, use the first model of that type (sorted alphabetically by provider)
     """
-    model_infos = [ModelInfo.model_validate(m) for m in models]
+    capability_map = capabilities or {}
+    model_infos: list[ModelInfo] = []
+    for m in models:
+        info = ModelInfo.model_validate(m)
+        capability = capability_map.get(m.id)
+        if capability:
+            info.capability = ModelCapabilityStatus.model_validate(capability)
+        model_infos.append(info)
 
     default_llm_id: Optional[str] = None
     default_vlm_id: Optional[str] = None
@@ -254,4 +264,9 @@ async def get_models_response(
     Convenience function that combines get_all_models and build_models_response.
     """
     models = await get_all_models(db, active_only=active_only)
-    return build_models_response(models)
+    from app.crud import model_capability as capability_crud
+
+    capabilities = await capability_crud.get_latest_capability_checks(
+        db, [m.id for m in models]
+    )
+    return build_models_response(models, capabilities=capabilities)

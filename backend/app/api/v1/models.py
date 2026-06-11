@@ -19,11 +19,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
 from app.crud import model as model_crud
+from app.crud import model_capability as capability_crud
 from app.crud import provider as provider_crud
 from app.infra.llm import get_model_manager
 from app.schemas.model import (
+    ModelCapabilityStatus,
     ModelCreate,
     ModelInfo,
+    ModelValidationRequest,
     ModelsResponse,
     ModelUpdateRequest,
     ThinkingModeStatus,
@@ -32,6 +35,10 @@ from app.schemas.provider import (
     ProviderInfo,
     ProvidersResponse,
     ProviderUpdateRequest,
+)
+from app.services.model_validation import (
+    ModelValidationError,
+    validate_model_capability,
 )
 from app.utils.crypto import encrypt_api_key
 
@@ -129,6 +136,52 @@ async def delete_model(
         )
 
     await get_model_manager().refresh()
+
+
+@api_router.post("/{model_id}/validate", response_model=ModelCapabilityStatus)
+async def validate_model(
+    model_id: uuid.UUID,
+    request: ModelValidationRequest | None = None,
+    db: AsyncSession = Depends(get_db),
+) -> ModelCapabilityStatus:
+    """Run a real chat + thinking capability check for one configured model."""
+    try:
+        check = await validate_model_capability(
+            db,
+            model_id,
+            check_thinking=True if request is None else request.check_thinking,
+        )
+    except ModelValidationError as exc:
+        detail = str(exc)
+        raise HTTPException(
+            status_code=(
+                status.HTTP_404_NOT_FOUND
+                if detail == "model_not_found"
+                else status.HTTP_400_BAD_REQUEST
+            ),
+            detail=detail,
+        ) from exc
+
+    return ModelCapabilityStatus.model_validate(check)
+
+
+@api_router.get("/{model_id}/capabilities", response_model=ModelCapabilityStatus | None)
+async def get_model_capability(
+    model_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> ModelCapabilityStatus | None:
+    """Get the latest observed capability check for one model."""
+    existing = await model_crud.get_model_by_id(db, model_id)
+    if not existing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model with id '{model_id}' not found",
+        )
+
+    check = await capability_crud.get_latest_capability_check(db, model_id)
+    if check is None:
+        return None
+    return ModelCapabilityStatus.model_validate(check)
 
 
 # ── Provider (sub-resource of models) ────────────────────────────────────────
