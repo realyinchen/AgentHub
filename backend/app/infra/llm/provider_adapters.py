@@ -7,9 +7,10 @@ parameters and response normalization out of the main factory.
 
 from __future__ import annotations
 
-import time
+import json
 import logging
-from collections.abc import Mapping
+import time
+from collections.abc import AsyncIterator, Iterator, Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +30,8 @@ class OpenRouterReasoningChatLiteLLM(ChatLiteLLM):
                 "Using raw OpenRouter reasoning completion; stream=%s",
                 kwargs.get("stream"),
             )
+            if kwargs.get("stream"):
+                return _openrouter_stream_completion(kwargs)
             return _openrouter_completion(kwargs)
         return super().completion_with_retry(run_manager=run_manager, **kwargs)
 
@@ -38,6 +41,8 @@ class OpenRouterReasoningChatLiteLLM(ChatLiteLLM):
                 "Using raw OpenRouter reasoning completion; stream=%s",
                 kwargs.get("stream"),
             )
+            if kwargs.get("stream"):
+                return _openrouter_astream_completion(kwargs)
             return await _openrouter_acompletion(kwargs)
         return await super().acompletion_with_retry(
             run_manager=run_manager,
@@ -106,9 +111,7 @@ class OpenRouterAdapter(ProviderAdapter):
         return kwargs
 
     def streaming_enabled(self, thinking_mode: bool) -> bool:
-        # OpenRouter may stream only blank reasoning deltas while the useful
-        # reasoning text is returned in final reasoning_details.
-        return not thinking_mode
+        return True
 
     def extra_litellm_params(self, settings: Any) -> dict[str, Any]:
         headers: dict[str, str] = {}
@@ -137,7 +140,7 @@ def _should_use_openrouter_reasoning(kwargs: Mapping[str, Any]) -> bool:
 
 
 def _openrouter_completion(kwargs: Mapping[str, Any]) -> dict[str, Any]:
-    payload, headers, url = _build_openrouter_request(kwargs)
+    payload, headers, url = _build_openrouter_request(kwargs, stream=False)
     with httpx.Client(timeout=kwargs.get("timeout") or 120) as client:
         response = client.post(url, headers=headers, json=payload)
         response.raise_for_status()
@@ -147,7 +150,7 @@ def _openrouter_completion(kwargs: Mapping[str, Any]) -> dict[str, Any]:
 
 
 async def _openrouter_acompletion(kwargs: Mapping[str, Any]) -> dict[str, Any]:
-    payload, headers, url = _build_openrouter_request(kwargs)
+    payload, headers, url = _build_openrouter_request(kwargs, stream=False)
     async with httpx.AsyncClient(timeout=kwargs.get("timeout") or 120) as client:
         response = await client.post(url, headers=headers, json=payload)
         response.raise_for_status()
@@ -156,8 +159,42 @@ async def _openrouter_acompletion(kwargs: Mapping[str, Any]) -> dict[str, Any]:
         return _normalize_openrouter_response(data)
 
 
+def _openrouter_stream_completion(
+    kwargs: Mapping[str, Any],
+) -> Iterator[dict[str, Any]]:
+    payload, headers, url = _build_openrouter_request(kwargs, stream=True)
+    model = str(payload.get("model") or "")
+    with httpx.Client(timeout=kwargs.get("timeout") or 120) as client:
+        with client.stream("POST", url, headers=headers, json=payload) as response:
+            response.raise_for_status()
+            for line in response.iter_lines():
+                chunk = _parse_openrouter_sse_line(line, model)
+                if chunk is _OPENROUTER_SSE_DONE:
+                    break
+                if chunk:
+                    yield chunk
+
+
+async def _openrouter_astream_completion(
+    kwargs: Mapping[str, Any],
+) -> AsyncIterator[dict[str, Any]]:
+    payload, headers, url = _build_openrouter_request(kwargs, stream=True)
+    model = str(payload.get("model") or "")
+    async with httpx.AsyncClient(timeout=kwargs.get("timeout") or 120) as client:
+        async with client.stream("POST", url, headers=headers, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                chunk = _parse_openrouter_sse_line(line, model)
+                if chunk is _OPENROUTER_SSE_DONE:
+                    break
+                if chunk:
+                    yield chunk
+
+
 def _build_openrouter_request(
     kwargs: Mapping[str, Any],
+    *,
+    stream: bool,
 ) -> tuple[dict[str, Any], dict[str, str], str]:
     api_key = str(kwargs.get("api_key") or "")
     api_base = str(kwargs.get("api_base") or "https://openrouter.ai/api/v1").rstrip("/")
@@ -174,11 +211,25 @@ def _build_openrouter_request(
     payload: dict[str, Any] = {
         "model": model,
         "messages": kwargs.get("messages") or [],
-        "stream": False,
+        "stream": stream,
     }
-    for key in ("temperature", "top_p", "max_tokens", "max_completion_tokens"):
+    for key in (
+        "temperature",
+        "top_p",
+        "max_tokens",
+        "max_completion_tokens",
+        "stop",
+        "tools",
+        "tool_choice",
+        "parallel_tool_calls",
+        "response_format",
+    ):
         if kwargs.get(key) is not None:
             payload[key] = kwargs[key]
+
+    stream_options = kwargs.get("stream_options")
+    if stream and isinstance(stream_options, Mapping):
+        payload["stream_options"] = dict(stream_options)
 
     extra_body = kwargs.get("extra_body")
     if isinstance(extra_body, Mapping):
@@ -212,6 +263,79 @@ def _normalize_openrouter_response(response: Mapping[str, Any]) -> dict[str, Any
     normalized.setdefault("id", f"openrouter-{int(time.time() * 1000)}")
     normalized.setdefault("object", "chat.completion")
     normalized.setdefault("created", int(time.time()))
+    return normalized
+
+
+_OPENROUTER_SSE_DONE = object()
+
+
+def _parse_openrouter_sse_line(
+    line: str,
+    fallback_model: str,
+) -> dict[str, Any] | object | None:
+    raw = line.strip()
+    if not raw or raw.startswith(":"):
+        return None
+
+    if not raw.startswith("data:"):
+        return None
+
+    raw = raw.removeprefix("data:").strip()
+    if raw == "[DONE]":
+        return _OPENROUTER_SSE_DONE
+
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError:
+        logger.debug("Ignoring malformed OpenRouter SSE line: %r", raw[:200])
+        return None
+
+    if not isinstance(payload, Mapping):
+        return None
+    error = payload.get("error")
+    if error:
+        if isinstance(error, Mapping):
+            message = error.get("message") or error.get("code") or str(error)
+        else:
+            message = str(error)
+        raise ValueError(f"OpenRouter stream error: {message}")
+    return _normalize_openrouter_stream_chunk(payload, fallback_model)
+
+
+def _normalize_openrouter_stream_chunk(
+    chunk: Mapping[str, Any],
+    fallback_model: str,
+) -> dict[str, Any]:
+    normalized = dict(chunk)
+    choices = list(normalized.get("choices") or [])
+    normalized["choices"] = choices
+
+    for index, choice_value in enumerate(choices):
+        choice = _as_dict(choice_value)
+        delta = _as_dict(choice.get("delta", {}))
+        if not delta:
+            delta = _as_dict(choice.get("message", {}))
+
+        if "content" not in delta and choice.get("text") is not None:
+            delta["content"] = choice.get("text")
+
+        reasoning_content = _extract_openrouter_reasoning(delta)
+        if not reasoning_content:
+            reasoning_content = _extract_openrouter_reasoning(choice)
+        if reasoning_content:
+            delta["reasoning_content"] = reasoning_content
+
+        choice["delta"] = delta
+        choice.setdefault("index", index)
+        if "finish_reason" not in choice:
+            choice["finish_reason"] = choice.get("native_finish_reason")
+        choices[index] = choice
+
+    normalized.setdefault("id", f"openrouter-{int(time.time() * 1000)}")
+    normalized.setdefault("object", "chat.completion.chunk")
+    normalized.setdefault("created", int(time.time()))
+    if fallback_model:
+        normalized.setdefault("model", fallback_model)
     return normalized
 
 
