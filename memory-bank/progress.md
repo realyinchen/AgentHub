@@ -4,7 +4,7 @@
 
 **Version**: v0.0.2 (Authentication Refactoring)
 **Release Date**: 2026-06-08
-**Status**: Production-ready core features with improved authentication, SubAgents in development
+**Status**: Production-ready core features with improved authentication, standardized logging, SubAgents in development
 
 ## What Works
 
@@ -19,6 +19,7 @@
 | Long-Term Memory | ✅ Complete | LangGraph Store + PGVector |
 | JWT Authentication | ✅ Complete | HTTP-only cookies, 7-day expiry, server-side user extraction |
 | Auth Refactoring | ✅ Complete | v0.0.2: Removed client-side user ID, cookie-based auth |
+| Logging Standardization | ✅ Complete | 2026-06-12: Structured format with auto-injected context fields |
 | API Key Encryption | ✅ Complete | AES-256 encryption for stored keys |
 | Docker Deployment | ✅ Complete | One-click three-container setup |
 

@@ -102,7 +102,7 @@ class WeixinListener:
                 for msg in msgs:
                     asyncio.create_task(self._handle_message(msg))
             except Exception as e:
-                logger.error(f"[WeChat] Message loop error: {e}")
+                logger.warning(f"[WeChat] Message loop error, retrying: {e}")
                 await asyncio.sleep(1)
 
     async def _get_updates(self) -> list[dict[str, Any]]:
@@ -153,18 +153,18 @@ class WeixinListener:
                 )
 
                 # Invoke agent
+                request_id = f"weixin-{uuid4().hex[:8]}"
                 user_input = UserInput(
                     content=text,
-                    user_id=self.user_id,
-                    thread_id=self.thread_id,
-                    request_id=f"weixin-{uuid4().hex[:8]}",
                     timezone="Asia/Shanghai",
                 )
 
                 agent = get_agent()
                 service = ChatService(agent)
 
-                response = await service.invoke(session, user_input)
+                response = await service.invoke(
+                    session, user_input, self.thread_id, self.user_id, request_id
+                )
 
             # Send response
             await self.weixin.send_message(
@@ -177,7 +177,7 @@ class WeixinListener:
             logger.info(f"[WeChat] Sent: {response.content[:50]}...")
 
         except Exception as e:
-            logger.error(f"[WeChat] Handle message error: {e}")
+            logger.error(f"[WeChat] Handle message error: {e}", exc_info=True)
             await self.weixin.send_message(
                 self.bot_token,
                 from_user_id,

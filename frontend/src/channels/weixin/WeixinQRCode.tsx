@@ -55,13 +55,13 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
   }, [clearTimer]);
 
   // Handle confirmed login - directly login without dialog
-  const handleConfirmed = useCallback((token: string, userId: string) => {
+  const handleConfirmed = useCallback((token: string, _userId: string) => {
     setState('confirmed');
     clearTimer();
 
     // Set cookie and navigate directly
     document.cookie = `agenthub_token=${token}; path=/; max-age=${60 * 60 * 24 * 7}; SameSite=Lax`;
-    writeToUrl(userId, null);
+    writeToUrl(null);
     onLoginSuccess?.();
     window.location.reload();
   }, [clearTimer, onLoginSuccess]);
@@ -78,16 +78,12 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
     const readyState = ws.readyState;
 
     if (readyState === WebSocket.OPEN) {
-      console.log('[WeChat] Closing open WebSocket connection');
       wsRef.current = null;
       ws.close(1000, 'Component cleanup');
     } else if (readyState === WebSocket.CONNECTING) {
       if (force) {
-        console.log('[WeChat] Force closing connecting WebSocket');
         wsRef.current = null;
         ws.close(1000, 'Force cleanup');
-      } else {
-        console.log('[WeChat] Keeping CONNECTING WebSocket for reuse');
       }
     } else {
       wsRef.current = null;
@@ -97,12 +93,10 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
   // Connect WebSocket
   const connectWebSocket = useCallback(() => {
     if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
-      console.log('[WeChat] Reusing existing open WebSocket connection');
       return;
     }
 
     if (wsRef.current && wsRef.current.readyState === WebSocket.CONNECTING) {
-      console.log('[WeChat] Connection already in progress, waiting...');
       return;
     }
 
@@ -113,18 +107,14 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
     const host = window.location.host;
     const wsUrl = `${protocol}//${host}/api/v1/ws/weixin/auth`;
 
-    console.log('[WeChat] Connecting to:', wsUrl);
     const ws = new WebSocket(wsUrl);
     wsRef.current = ws;
 
-    ws.onopen = () => {
-      console.log('[WeChat] WebSocket connected successfully');
-    };
+    ws.onopen = () => {};
 
     ws.onmessage = (event) => {
       try {
         const msg = JSON.parse(event.data);
-        console.log('[WeChat] Received:', msg);
 
         switch (msg.type) {
           case 'qrcode':
@@ -143,7 +133,7 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
 
           case 'expired':
             setState('expired');
-            setError('二维码已过期');
+            setError('QR code expired');
             clearTimer();
             break;
 
@@ -153,19 +143,16 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
             clearTimer();
             break;
         }
-      } catch (e) {
-        console.error('[WeChat] Parse error:', e);
+      } catch (_e) {
       }
     };
 
-    ws.onerror = (e) => {
-      console.error('[WeChat] WebSocket error:', e);
+    ws.onerror = () => {
       setState('error');
-      setError('连接失败，请检查后端服务是否启动');
+      setError('Connection failed, please check if backend is running');
     };
 
-    ws.onclose = (e) => {
-      console.log('[WeChat] WebSocket closed:', e.code, e.reason);
+    ws.onclose = () => {
       wsRef.current = null;
     };
   }, [startTimer, handleConfirmed, clearTimer]);
@@ -187,26 +174,19 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
 
   // Main effect - connect on mount, with deferred cleanup for StrictMode
   useEffect(() => {
-    console.log('[WeChat] Main useEffect running');
     isEffectStaleRef.current = false;
 
     if (!wsRef.current || wsRef.current.readyState >= WebSocket.CLOSING) {
       connectWebSocket();
-    } else {
-      console.log('[WeChat] Reusing existing connection, readyState:', wsRef.current.readyState);
     }
 
     return () => {
-      console.log('[WeChat] Main useEffect cleanup');
       isEffectStaleRef.current = true;
 
       setTimeout(() => {
         if (isEffectStaleRef.current) {
-          console.log('[WeChat] Deferred cleanup executing');
           clearTimer();
           closeWebSocket(false);
-        } else {
-          console.log('[WeChat] Cleanup cancelled (StrictMode remount)');
         }
       }, 50);
     };
@@ -232,8 +212,8 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
               <div className="absolute inset-0 bg-background/80 flex items-center justify-center rounded-lg">
                 <div className="text-center">
                   <CheckCircle className="h-10 w-10 text-green-500 mx-auto" />
-                  <p className="mt-1 text-sm font-medium">已扫描</p>
-                  <p className="text-xs text-muted-foreground">请在手机确认</p>
+                  <p className="mt-1 text-sm font-medium">Scanned</p>
+                  <p className="text-xs text-muted-foreground">Please confirm on your phone</p>
                 </div>
               </div>
             )}
@@ -253,7 +233,7 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
             <p className="mt-2 text-xs text-muted-foreground">{error}</p>
             <Button variant="outline" size="sm" className="mt-2" onClick={handleRetry}>
               <RefreshCw className="h-3 w-3 mr-1" />
-              刷新
+              Refresh
             </Button>
           </div>
         )}
@@ -262,14 +242,14 @@ export function WeixinQRCode({ onLoginSuccess }: WeixinQRCodeProps) {
       <div className="mt-3 text-center">
         {state === 'waiting' && timeLeft > 0 && (
           <p className="text-xs text-muted-foreground">
-            扫码登录 · {timeLeft}秒后刷新
+            Scan to login · Refresh in {timeLeft}s
           </p>
         )}
         {state === 'scaned' && (
-          <p className="text-xs text-muted-foreground">请在手机上点击确认</p>
+          <p className="text-xs text-muted-foreground">Please tap confirm on your phone</p>
         )}
         {state === 'connecting' && (
-          <p className="text-xs text-muted-foreground">正在获取二维码...</p>
+          <p className="text-xs text-muted-foreground">Fetching QR code...</p>
         )}
         {state === 'confirmed' && (
           <p className="text-xs text-muted-foreground">&nbsp;</p>

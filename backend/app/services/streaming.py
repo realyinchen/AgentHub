@@ -70,15 +70,24 @@ class ChatStreamingService:
 
     # ── Public API ────────────────────────────────────────────────
 
-    async def generate(self, user_input: UserInput) -> AsyncGenerator[str, None]:
+    async def generate(
+        self,
+        user_input: UserInput,
+        thread_id: uuid.UUID,
+        user_id: uuid.UUID,
+        request_id: str,
+    ) -> AsyncGenerator[str, None]:
         """Generate SSE events from agent execution using LangChain v3 event streaming.
 
-        This is the main entry point called by ``/chat/stream``. Model fallback is
-        handled inside the agent graph by ``@wrap_model_call`` middleware, so this
-        method does **not** wrap an outer retry loop.
+        This is the main entry point called by ``/chat/{thread_id}/stream``. Model
+        fallback is handled inside the agent graph by ``@wrap_model_call`` middleware,
+        so this method does **not** wrap an outer retry loop.
 
         Args:
             user_input: Validated user input from the request.
+            thread_id: Conversation thread identifier (path parameter).
+            user_id: Authenticated user identifier (from JWT).
+            request_id: Request identifier for tracing (from X-Request-ID header).
 
         Yields:
             SSE-formatted strings (e.g. ``"data: {...}\\n\\n"``).
@@ -97,26 +106,15 @@ class ChatStreamingService:
             user_input = user_input.model_copy(update={"model_name": initial_model})
 
         # ── Build agent invocation kwargs ──────────────────────────
-        kwargs = await build_agent_kwargs(user_input)
+        thread_id_str = str(thread_id)
+        kwargs = await build_agent_kwargs(
+            user_input, thread_id_str, user_id, request_id
+        )
         config = kwargs["config"]
         context = kwargs["context"]
 
-        # `thread_id` is the only field carried in configurable (checkpointer
-        # contract). All other runtime fields live on `context` (AgentRuntimeContext).
-        thread_id_str = config.get("configurable", {}).get("thread_id", "")
-        user_id = context.user_id or "unknown"
-        request_id = context.request_id or "unknown"
-        thread_id = (
-            uuid.UUID(thread_id_str)
-            if isinstance(thread_id_str, str)
-            else thread_id_str
-        )
-
         logger.info(
-            "[request_id=%s][user_id=%s][thread_id=%s] Starting stream with model=%s",
-            request_id,
-            user_id,
-            thread_id_str,
+            "Starting stream with model=%s",
             initial_model,
         )
 
@@ -239,9 +237,8 @@ class ChatStreamingService:
 
         except asyncio.TimeoutError:
             logger.error(
-                "Stream timed out after %.0fs: thread_id=%s",
+                "Stream timed out after %.0fs",
                 stream_timeout,
-                thread_id_str,
             )
             yield sse_error(
                 f"Request timed out after {stream_timeout:.0f}s. Please try again with a simpler query.",

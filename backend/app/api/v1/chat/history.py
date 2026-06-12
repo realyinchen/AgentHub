@@ -48,11 +48,7 @@ async def history(
     # Verify conversation ownership — prevent cross-user data leakage
     conversation = await read_conversation_by_thread_id(db, thread_id, user.id)
     if conversation is None:
-        logger.warning(
-            "History access denied: thread_id=%s does not belong to user_id=%s",
-            thread_id,
-            user.id,
-        )
+        logger.warning("History access denied")
         return ChatHistory(messages=[], message_sequence=[])
 
     supervisor = get_agent()

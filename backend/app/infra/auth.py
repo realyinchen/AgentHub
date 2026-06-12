@@ -19,6 +19,7 @@ from app.infra.database import get_async_session
 from app.crud import get_user
 from app.crud.chat import read_conversation_by_thread_id
 from app.models.user import User
+from app.utils.logging import user_id_context
 
 
 logger = logging.getLogger(__name__)
@@ -102,6 +103,7 @@ async def get_current_user(
             detail="User not found",
         )
 
+    user_id_context.set(str(user.id))
     return user
 
 

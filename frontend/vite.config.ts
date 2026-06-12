@@ -27,7 +27,8 @@ export default defineConfig(({ mode }) => {
         // SSE streaming endpoint — use selfHandleResponse to bypass
         // http-proxy's internal buffering. We manually forward each chunk
         // immediately for true real-time streaming.
-        "/api/v1/chat/stream": {
+        // Pattern matches /api/v1/chat/{thread_id}/stream
+        "/api/v1/chat/**/stream": {
           target: proxyTarget,
           changeOrigin: true,
           selfHandleResponse: true,

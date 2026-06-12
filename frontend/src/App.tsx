@@ -83,7 +83,6 @@ function App() {
   const { user: authUser, isAuthenticated, isLoading: isAuthLoading } = useAuth()
 
   // Determine if user is logged in (either via mock user or WeChat)
-  // Priority: URL userId > mock userId > AuthContext
   const effectiveUserId = userId || (authUser?.id) || null
   const isLoggedIn = !!effectiveUserId || isAuthenticated
 
@@ -117,6 +116,9 @@ function App() {
     setAppError(null)
     abortControllerRef.current?.abort()
     setIsStreaming(false)
+
+    // Clear browser URL to go back to root
+    window.history.replaceState({}, "", "/")
 
     // Call setUserId(null) to clear auth state
     await setUserId(null)
@@ -205,11 +207,10 @@ function App() {
     }
   }, [isInitializing, isLoadingConversation, isModelsLoading, hasAvailableModels])
 
-  // Write userId and threadId to URL
-  // Use effectiveUserId to support both mock users and WeChat users
+  // Write threadId to URL path.
   const writeUrl = useCallback((nextThreadId: string | null) => {
-    writeToUrl(effectiveUserId, nextThreadId)
-  }, [effectiveUserId])
+    writeToUrl(nextThreadId)
+  }, [])
 
   const refreshConversations = useCallback(async () => {
     const { conversations: latest, total } = await listConversations(10, 0)
@@ -662,11 +663,9 @@ function App() {
         const currentModel = effectiveModelRef.current
 
         await streamChat(
+          targetThreadId,
           {
             content: trimmed,
-            thread_id: targetThreadId,
-            user_id: userId || "default", // userId from useUser hook
-            request_id: crypto.randomUUID(),
             model_name: currentModel,
             thinking_mode: currentThinkingMode,
             custom_data: quotedMessageId ? {
@@ -1135,6 +1134,8 @@ function App() {
     setUserId(user.id)
     // Trigger re-initialization after login to ensure proper data loading
     setNeedsReinit(true)
+    // Set URL to root after login
+    window.history.replaceState({}, "", "/")
   }, [setUserId])
 
   // If still loading auth status, show nothing (or loading indicator)
@@ -1148,6 +1149,10 @@ function App() {
 
   // If no user is logged in (neither mock nor WeChat), show the home page
   if (!isLoggedIn) {
+    // Set URL to /login when not authenticated
+    if (window.location.pathname !== "/login") {
+      window.history.replaceState({}, "", "/login")
+    }
     return (
       <>
         <HomePage onSelectUser={handleUserLogin} />

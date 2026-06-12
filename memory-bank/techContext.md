@@ -179,9 +179,11 @@ services:
 
 ### Logging
 
-- **Format**: Console (dev) or JSON (prod)
+- **Console format (dev)**: `LEVEL: TIMESTAMP: FILENAME: REQUEST_ID: USER_ID: MESSAGE`
+- **JSON format (prod)**: `{"level", "timestamp", "filename", "request_id", "user_id", "thread_id", "message"}`
 - **Level**: INFO default, configurable via `LOG_LEVEL`
-- **Request ID**: Injected via `RequestIdFilter` for tracing
+- **Context injection**: `request_id`, `user_id`, `thread_id` auto-injected via `ContextVar` + `RequestIdFilter` — no manual prefix needed in log messages
+- **Context sources**: `request_id` from `X-Request-ID` header, `user_id` from JWT auth, `thread_id` from request path
 
 ## API Endpoints
 

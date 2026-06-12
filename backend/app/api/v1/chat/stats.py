@@ -14,10 +14,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.v1.dependencies import get_db
-from app.crud.chat import (
-    get_daily_conversation_stats,
-    read_conversation_by_thread_id,
-)
+from app.crud.chat import read_conversation_by_thread_id
+from app.crud.trace import get_daily_trace_stats
 from app.infra.auth import CurrentUser
 from app.schemas.chat import (
     ConversationInDB,
@@ -44,7 +42,7 @@ async def get_daily_stats(
 
     Authentication required. User ID is extracted from JWT token.
     """
-    stats = await get_daily_conversation_stats(db=db, days=days, user_id=user.id)
+    stats = await get_daily_trace_stats(db=db, days=days, user_id=user.id)
     return [DailyStatsItem(**s) for s in stats]
 
 

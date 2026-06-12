@@ -78,9 +78,6 @@ export type ConversationInDB = {
 
 export type UserInput = {
   content: string
-  user_id: string
-  thread_id: string
-  request_id: string
   model_name?: string | null
   thinking_mode?: boolean
   timezone?: string

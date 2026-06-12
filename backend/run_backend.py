@@ -46,14 +46,14 @@ def configure_logging() -> None:
 
     Two formats are supported, controlled by ``LOG_FORMAT``:
 
-    - ``console`` (default for dev): Human-readable with timestamp, logger
-      name, request_id, and message.
+    - ``console`` (default for dev): Human-readable with timestamp, filename,
+      request_id, user_id, thread_id, and message.
     - ``json`` (recommended for prod): One JSON object per line, compatible
       with log aggregation systems (ELK, Loki, Datadog, etc.). Uses only
       stdlib ``json`` — no external dependencies.
 
-    Both formats automatically include ``request_id`` via the
-    ``RequestIdFilter`` registered in ``app.main``.
+    Both formats automatically include ``request_id``, ``user_id``, and
+    ``thread_id`` via the ``RequestIdFilter``.
 
     Third-party library noise is suppressed (httpcore, httpx, langchain,
     langgraph) regardless of format.
@@ -77,7 +77,11 @@ def configure_logging() -> None:
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)-8s [%(name)s] %(message)s")
+            logging.Formatter(
+                "%(asctime)s %(levelname)s "
+                "user_id=%(user_id)s thread_id=%(thread_id)s request_id=%(request_id)s "
+                "[%(filename)s] %(message)s"
+            )
         )
 
     root.addHandler(handler)

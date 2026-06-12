@@ -28,23 +28,16 @@ class ToolCall(BaseModel):
 
 
 class UserInput(BaseModel):
-    """Basic user input for the agent."""
+    """Basic user input for the agent.
+
+    ``user_id`` is injected from the JWT token by the endpoint.
+    ``thread_id`` is provided as a path parameter in the URL.
+    ``request_id`` is extracted from the ``X-Request-ID`` header.
+    """
 
     content: str = Field(
         description="User input to the agent.",
         examples=["What is the weather in Hefei?"],
-    )
-    user_id: UUID = Field(
-        description="User ID for long-term memory and personalization.",
-        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
-    )
-    thread_id: UUID = Field(
-        description="Thread ID to persist and continue a multi-turn conversation.",
-        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
-    )
-    request_id: str = Field(
-        description="Request ID for end-to-end tracing and idempotency.",
-        examples=["req-abc-123"],
     )
     model_name: str | None = Field(
         description="The model name to use for this request. If not provided, uses the default model.",

@@ -6,6 +6,26 @@ Authentication refactoring completed. System now uses server-side JWT cookie aut
 
 ## Recent Changes
 
+### 2026-06-12 — Logging Format Standardization
+
+**Logging System Overhaul:**
+- Console format: `TIMESTAMP LEVEL user_id=xxx thread_id=xxx request_id=xxxx [filename] log content`
+- JSON format (prod): `{"timestamp", "level", "user_id", "thread_id", "request_id", "code_file_path", "message"}`
+- `request_id`, `user_id`, `thread_id` auto-injected via `ContextVar` + `logging.Filter` — no manual prefix in log messages
+- `user_id` set in `get_current_user` (auth.py), `thread_id` set in `build_agent_kwargs` (request.py)
+- Cleaned all manual `[request_id=...][thread_id=...]` prefixes from log messages across the codebase
+
+**Files Changed:**
+- `backend/app/utils/logging.py` — Added `user_id_context`/`thread_id_context` ContextVars, updated `RequestIdFilter` and `JsonFormatter`
+- `backend/app/infra/auth.py` — Set `user_id_context` in `get_current_user`
+- `backend/app/utils/request.py` — Set `thread_id_context` in `build_agent_kwargs`, cleaned log prefixes
+- `backend/app/services/streaming.py` — Cleaned manual log prefixes
+- `backend/app/services/chat.py` — Cleaned manual log prefixes
+- `backend/app/api/v1/chat/run.py` — Cleaned manual log prefixes
+- `backend/app/api/v1/chat/history.py` — Cleaned manual log prefixes
+- `backend/run_backend.py` — Updated console formatter
+- `backend/app/main.py` — Updated console formatter
+
 ### v0.0.2 (2026-06-08) — Authentication Refactoring
 
 **Authentication System Overhaul:**

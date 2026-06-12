@@ -1,20 +1,23 @@
 """Agent run endpoints — invoke and streaming.
 
 Routes:
-    POST /chat/invoke  — One-shot (non-streaming) agent response
-    POST /chat/stream  — SSE streaming agent response
+    POST /chat/{thread_id}/invoke  — One-shot (non-streaming) agent response
+    POST /chat/{thread_id}/stream  — SSE streaming agent response
 
 Invoke logic uses ChatService for business logic coordination.
 Streaming logic uses ChatStreamingService from app.utils.sse.
 
-Authentication required for all endpoints. User ID is extracted from JWT token
-and injected into UserInput to ensure proper authorization and audit trail.
+Authentication required for all endpoints. User ID is extracted from JWT token.
+``thread_id`` is a path parameter. ``request_id`` is extracted from the
+``X-Request-ID`` header (auto-generated if not provided).
 """
 
 import logging
+import uuid
 from typing import Any
+from uuid import UUID
 
-from fastapi import APIRouter, status
+from fastapi import APIRouter, Header, status
 from fastapi.responses import StreamingResponse
 
 from app.agents import get_agent
@@ -46,8 +49,14 @@ def _sse_response_example() -> dict[int | str, Any]:
     }
 
 
-@api_router.post("/invoke")
-async def invoke(user: CurrentUser, user_input: UserInput, db: DBSession) -> ChatMessage:
+@api_router.post("/{thread_id}/invoke")
+async def invoke(
+    thread_id: UUID,
+    user: CurrentUser,
+    user_input: UserInput,
+    db: DBSession,
+    x_request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> ChatMessage:
     """Async invoke the supervisor agent with user input to retrieve a final response.
 
     After the agent returns, token usage is accumulated across all AI
@@ -56,45 +65,44 @@ async def invoke(user: CurrentUser, user_input: UserInput, db: DBSession) -> Cha
 
     Business logic is delegated to ChatService.invoke().
 
-    Authentication required. User ID from JWT token overrides user_input.user_id
-    to ensure proper authorization.
+    Authentication required. User ID from JWT token.
     """
-    # Override user_id with authenticated user's ID for security
-    user_input.user_id = user.id
+    request_id = x_request_id or str(uuid.uuid4())
 
     supervisor = get_agent()
     service = ChatService(supervisor)
-    return await service.invoke(db, user_input)
+    return await service.invoke(db, user_input, thread_id, user.id, request_id)
 
 
 @api_router.post(
-    "/stream",
+    "/{thread_id}/stream",
     response_class=StreamingResponse,
     responses=_sse_response_example(),
 )
-async def stream(user: CurrentUser, user_input: UserInput) -> StreamingResponse:
+async def stream(
+    thread_id: UUID,
+    user: CurrentUser,
+    user_input: UserInput,
+    x_request_id: str | None = Header(default=None, alias="X-Request-ID"),
+) -> StreamingResponse:
     """Stream the supervisor agent's response, including intermediate messages and tokens.
 
     Business logic is delegated to ChatStreamingService.generate().
 
-    Authentication required. User ID from JWT token overrides user_input.user_id
-    to ensure proper authorization.
+    Authentication required. User ID from JWT token.
     """
-    # Override user_id with authenticated user's ID for security
-    user_input.user_id = user.id
+    request_id = x_request_id or str(uuid.uuid4())
 
     logger.info(
-        "stream endpoint called: thread_id=%s, thinking_mode=%s, user_id=%s",
-        user_input.thread_id,
+        "stream endpoint called: thinking_mode=%s",
         user_input.thinking_mode,
-        user.id,
     )
 
     supervisor = get_agent()
     service = ChatStreamingService(supervisor)
 
     return StreamingResponse(
-        service.generate(user_input),
+        service.generate(user_input, thread_id, user.id, request_id),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache, no-transform",

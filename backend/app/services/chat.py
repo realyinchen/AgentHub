@@ -62,12 +62,18 @@ class ChatService:
         self,
         db: AsyncSession,
         user_input: UserInput,
+        thread_id: UUID,
+        user_id: UUID,
+        request_id: str,
     ) -> ChatMessage:
         """Invoke the agent synchronously and return the final response.
 
         Args:
             db: Database session for persistence.
             user_input: Validated user input.
+            thread_id: Conversation thread identifier (path parameter).
+            user_id: Authenticated user identifier (from JWT).
+            request_id: Request identifier for tracing (from X-Request-ID header).
 
         Returns:
             The final ChatMessage from the agent.
@@ -85,20 +91,14 @@ class ChatService:
             )
 
         # 2. Build agent parameters
-        kwargs = await build_agent_kwargs(user_input)
-        config = kwargs["config"]
-        context = kwargs["context"]
-
-        thread_id_str = config.get("configurable", {}).get("thread_id", "")
-        thread_id = (
-            UUID(thread_id_str) if isinstance(thread_id_str, str) else thread_id_str
+        thread_id_str = str(thread_id)
+        kwargs = await build_agent_kwargs(
+            user_input, thread_id_str, user_id, request_id
         )
-        request_id = context.request_id or "unknown"
+        config = kwargs["config"]
 
         logger.info(
-            "[request_id=%s][thread_id=%s] Invoke with model=%s",
-            request_id,
-            thread_id_str,
+            "Invoke with model=%s",
             initial_model,
         )
 
@@ -182,6 +182,9 @@ class ChatService:
     async def stream(
         self,
         user_input: UserInput,
+        thread_id: UUID,
+        user_id: UUID,
+        request_id: str,
     ) -> AsyncGenerator[str, None]:
         """Stream the agent response via SSE.
 
@@ -190,6 +193,9 @@ class ChatService:
 
         Args:
             user_input: Validated user input.
+            thread_id: Conversation thread identifier (path parameter).
+            user_id: Authenticated user identifier (from JWT).
+            request_id: Request identifier for tracing (from X-Request-ID header).
 
         Yields:
             SSE-formatted strings.
@@ -199,7 +205,9 @@ class ChatService:
         # 2. Agent parameter building
         # 3. SSE projection
         # 4. Persistence in finally block
-        async for event in self._streaming.generate(user_input):
+        async for event in self._streaming.generate(
+            user_input, thread_id, user_id, request_id
+        ):
             yield event
 
     def _accumulate_tokens_from_events(

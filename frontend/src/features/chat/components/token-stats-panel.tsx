@@ -297,10 +297,10 @@ export function TokenStatsPanel({ currentConversation }: TokenStatsPanelProps) {
 
   // Fetch data when flipped
   useEffect(() => {
-    if (isFlipped && dailyStats.length === 0) {
+    if (isFlipped) {
       fetchDailyStats()
     }
-  }, [isFlipped, dailyStats.length, fetchDailyStats])
+  }, [isFlipped, fetchDailyStats])
 
   // Handle transition end to trigger chart render after animation completes
   const handleTransitionEnd = useCallback(() => {

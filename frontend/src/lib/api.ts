@@ -236,11 +236,21 @@ export async function getHistory(threadId: string): Promise<ChatHistory> {
 
 // ── Invoke / Stream ───────────────────────────────────────────────────────────
 
-export async function invoke(input: UserInput): Promise<ChatMessage> {
-  return requestJson<ChatMessage>("/chat/invoke", {
-    method: "POST",
-    body: JSON.stringify(input),
-  })
+export async function invoke(
+  threadId: string,
+  input: UserInput,
+): Promise<ChatMessage> {
+  const requestId = crypto.randomUUID()
+  return requestJson<ChatMessage>(
+    `/chat/${encodeURIComponent(threadId)}/invoke`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      headers: {
+        "X-Request-ID": requestId,
+      },
+    },
+  )
 }
 
 function parseStreamChunk(
@@ -269,19 +279,25 @@ function parseStreamChunk(
 }
 
 export async function streamChat(
+  threadId: string,
   input: UserInput,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/chat/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const requestId = crypto.randomUUID()
+  const response = await fetch(
+    `${apiBaseUrl}/chat/${encodeURIComponent(threadId)}/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-ID": requestId,
+      },
+      body: JSON.stringify(input),
+      signal,
+      credentials: "include", // Include HTTP-only cookies
     },
-    body: JSON.stringify(input),
-    signal,
-    credentials: "include", // Include HTTP-only cookies
-  })
+  )
 
   if (response.status === 401) {
     handleUnauthorized()
