@@ -38,6 +38,18 @@ function getShortModelName(modelId: string): string {
   return parts.length > 1 ? parts.slice(1).join("/") : modelId
 }
 
+function getModelKey(model: ModelInfo): string {
+  return model.model_uuid || model.id
+}
+
+function getModelProvider(model: ModelInfo): string {
+  return model.provider_key || model.provider
+}
+
+function getModelConnectionName(model: ModelInfo): string {
+  return model.connection_name || getProviderDisplayName(getModelProvider(model))
+}
+
 /**
  * Model type icon component
  */
@@ -64,28 +76,28 @@ export function ModelSelector({
 }: ModelSelectorProps) {
   const { t } = useI18n()
 
-  // Group models by provider
+  // Group models by provider + connection
   const groupedModels = useMemo(() => {
     // Filter to show only LLM and VLM models that are active
     const availableModels = models.filter(
       m => (m.model_type === "llm" || m.model_type === "vlm") && m.is_active
     )
 
-    // Group by provider
+    // Group by provider/connection so duplicate provider model IDs do not collide visually.
     const groups: Record<string, ModelInfo[]> = {}
     availableModels.forEach(model => {
-      if (!groups[model.provider]) {
-        groups[model.provider] = []
+      const groupKey = `${getModelProvider(model)}:${model.connection_id || "legacy"}`
+      if (!groups[groupKey]) {
+        groups[groupKey] = []
       }
-      groups[model.provider].push(model)
+      groups[groupKey].push(model)
     })
 
-    // Sort providers alphabetically and sort models within each group
-    const sortedProviders = Object.keys(groups).sort()
-    return sortedProviders.map(provider => ({
-      provider,
-      displayName: getProviderDisplayName(provider),
-      models: groups[provider].sort((a, b) => getShortModelName(a.model_id).localeCompare(getShortModelName(b.model_id))),
+    const sortedGroups = Object.keys(groups).sort()
+    return sortedGroups.map(groupKey => ({
+      groupKey,
+      displayName: getModelConnectionName(groups[groupKey][0]),
+      models: groups[groupKey].sort((a, b) => getShortModelName(a.provider_model_id || a.model_id).localeCompare(getShortModelName(b.provider_model_id || b.model_id))),
     }))
   }, [models])
 
@@ -95,7 +107,7 @@ export function ModelSelector({
   }
 
   // Get selected model info for display
-  const selectedModelInfo = models.find(m => m.model_id === selectedModel)
+  const selectedModelInfo = models.find(m => getModelKey(m) === selectedModel)
 
   return (
     <Select
@@ -123,7 +135,7 @@ export function ModelSelector({
               />
               {/* Display as provider/model_id */}
               <span className="truncate text-xs">
-                {selectedModelInfo.provider}/{getShortModelName(selectedModelInfo.model_id)}
+                {getModelConnectionName(selectedModelInfo)}/{getShortModelName(selectedModelInfo.provider_model_id || selectedModelInfo.model_id)}
               </span>
             </span>
           )}
@@ -135,15 +147,15 @@ export function ModelSelector({
         align="start"
         className="max-h-[320px] w-[240px] border-border/60 bg-popover/95 backdrop-blur-md"
       >
-        {groupedModels.map(({ provider, displayName, models: providerModels }) => (
-          <SelectGroup key={provider}>
+        {groupedModels.map(({ groupKey, displayName, models: providerModels }) => (
+          <SelectGroup key={groupKey}>
             <SelectLabel className="px-2 py-1.5 text-xs font-semibold text-muted-foreground/80 uppercase tracking-wider">
               {displayName}
             </SelectLabel>
             {providerModels.map((model) => (
               <SelectItem
-                key={model.model_id}
-                value={model.model_id}
+                key={getModelKey(model)}
+                value={getModelKey(model)}
                 className="py-2 px-2 cursor-pointer focus:bg-accent/50"
               >
                 <span className="flex items-center gap-2 w-full">
@@ -154,7 +166,7 @@ export function ModelSelector({
                   />
                   {/* Short model name */}
                   <span className="flex-1 truncate text-sm">
-                    {getShortModelName(model.model_id)}
+                    {getShortModelName(model.provider_model_id || model.model_id)}
                   </span>
                   {/* VLM badge */}
                   {model.model_type === "vlm" && (

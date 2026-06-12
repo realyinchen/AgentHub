@@ -12,6 +12,10 @@ import type {
   ProviderInfo,
   ProvidersResponse,
   ProviderUpdate,
+  ProviderConnectionInfo,
+  ProviderConnectionsResponse,
+  ProviderConnectionCreate,
+  ProviderConnectionUpdate,
 } from "@/types"
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
@@ -293,7 +297,7 @@ export async function getAllModels(): Promise<ModelsResponse> {
 export async function createModel(data: ModelCreate): Promise<ModelInfo> {
   // Normalize model_id: strip provider prefix if present
   let normalizedModelId = data.model_id
-  if (normalizedModelId.startsWith(`${data.provider}/`)) {
+  if (data.provider && normalizedModelId.startsWith(`${data.provider}/`)) {
     normalizedModelId = normalizedModelId.slice(data.provider.length + 1)
   }
 
@@ -376,6 +380,32 @@ export async function setDefaultThinkingModel(modelId: string): Promise<ModelInf
  */
 export async function getProviders(): Promise<ProvidersResponse> {
   return requestJson<ProvidersResponse>("/models/providers")
+}
+
+export async function getProviderConnections(
+  providerKey?: string,
+): Promise<ProviderConnectionsResponse> {
+  const query = providerKey ? `?provider_key=${encodeURIComponent(providerKey)}` : ""
+  return requestJson<ProviderConnectionsResponse>(`/models/connections${query}`)
+}
+
+export async function createProviderConnection(
+  data: ProviderConnectionCreate,
+): Promise<ProviderConnectionInfo> {
+  return requestJson<ProviderConnectionInfo>("/models/connections", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateProviderConnection(
+  connectionId: string,
+  data: ProviderConnectionUpdate,
+): Promise<ProviderConnectionInfo> {
+  return requestJson<ProviderConnectionInfo>(`/models/connections/${connectionId}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  })
 }
 
 /**

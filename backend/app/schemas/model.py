@@ -28,7 +28,8 @@ class ModelMutableFields(BaseModel):
 class ModelBase(BaseModel):
     """Model base fields (immutable identity fields)."""
 
-    provider: str  # e.g. "dashscope", "zai"
+    provider: str | None = None  # legacy/provider adapter key
+    connection_id: Optional[str] = None
     model_type: Literal["llm", "vlm", "embedding"] = "llm"
     model_id: str  # e.g. "qwen3.5-32b" (without provider prefix)
 
@@ -49,6 +50,7 @@ class ModelUpdateRequest(ModelMutableFields):
 
     model_id: Optional[str] = None  # New model_id if changing
     provider: Optional[str] = None
+    connection_id: Optional[str] = None
     model_type: Optional[Literal["llm", "vlm", "embedding"]] = None
 
 
@@ -57,6 +59,7 @@ class ModelInDB(BaseModel):
 
     id: str  # UUID primary key
     provider: str
+    connection_id: Optional[str] = None
     model_type: str
     model_id: str
     thinking: bool
@@ -67,7 +70,7 @@ class ModelInDB(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    @field_validator("id", mode="before")
+    @field_validator("id", "connection_id", mode="before")
     @classmethod
     def convert_uuid_to_str(cls, v):
         """Convert UUID to string automatically."""
@@ -108,6 +111,12 @@ class ModelCapabilityStatus(BaseModel):
 class ModelInfo(ModelInDB):
     """Model info for frontend model selector"""
 
+    model_uuid: Optional[str] = None
+    provider_key: Optional[str] = None
+    connection_name: Optional[str] = None
+    provider_model_id: Optional[str] = None
+    display_name: Optional[str] = None
+    thinking_requested: Optional[bool] = None
     capability: Optional[ModelCapabilityStatus] = None
 
 

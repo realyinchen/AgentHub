@@ -82,6 +82,7 @@ export type UserInput = {
   thread_id: string
   request_id: string
   model_name?: string | null
+  model_uuid?: string | null
   thinking_mode?: boolean
   timezone?: string
   custom_data?: Record<string, unknown> | null
@@ -93,6 +94,14 @@ export type UserInput = {
 
 export type ProviderInfo = {
   provider: string  // e.g. "dashscope", "zai", "openai-compatible"
+  provider_key?: string | null
+  display_name?: string | null
+  adapter_type?: string | null
+  supports_connections?: boolean
+  enabled?: boolean
+  legacy?: boolean
+  connection_count?: number
+  model_count?: number
   has_api_key: boolean
   base_url: string | null
   is_openai_compatible: boolean
@@ -101,6 +110,7 @@ export type ProviderInfo = {
 }
 
 export type ProvidersResponse = {
+  contract_version?: string
   providers: ProviderInfo[]
 }
 
@@ -131,9 +141,54 @@ export type ModelCapabilityStatus = {
   raw_summary: Record<string, unknown>
 }
 
+export type ProviderConnectionInfo = {
+  connection_id: string
+  provider_key: string
+  name: string
+  preset_type: string
+  base_url: string | null
+  has_api_key: boolean
+  enabled: boolean
+  model_count: number
+  extra_headers_json: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type ProviderConnectionsResponse = {
+  connections: ProviderConnectionInfo[]
+}
+
+export type ProviderConnectionCreate = {
+  provider_key: string
+  name: string
+  preset_type: string
+  api_key?: string | null
+  base_url?: string | null
+  enabled?: boolean
+  extra_headers_json?: Record<string, unknown> | null
+}
+
+export type ProviderConnectionUpdate = {
+  name?: string
+  preset_type?: string
+  api_key?: string | null
+  clear_api_key?: boolean
+  base_url?: string | null
+  enabled?: boolean
+  extra_headers_json?: Record<string, unknown> | null
+}
+
 export type ModelInfo = {
   id: string  // UUID primary key
   provider: string  // e.g. "dashscope", "zai"
+  connection_id?: string | null
+  model_uuid?: string | null
+  provider_key?: string | null
+  connection_name?: string | null
+  provider_model_id?: string | null
+  display_name?: string | null
+  thinking_requested?: boolean | null
   model_type: ModelType
   model_id: string  // e.g. "dashscope/qwen3.5-27b"
   thinking: boolean  // whether supports thinking mode
@@ -145,7 +200,8 @@ export type ModelInfo = {
 }
 
 export type ModelCreate = {
-  provider: string  // e.g. "dashscope", "zai", "openai"
+  provider?: string  // legacy fallback provider
+  connection_id?: string | null
   model_type: ModelType
   model_id: string  // Model name WITHOUT provider prefix, e.g. "qwen3.5-27b" (NOT "dashscope/qwen3.5-27b")
   thinking?: boolean
@@ -155,6 +211,7 @@ export type ModelCreate = {
 
 export type ModelUpdate = {
   provider?: string
+  connection_id?: string | null
   model_type?: ModelType
   model_id?: string  // Allow updating model_id (will create new record, delete old one)
   thinking?: boolean

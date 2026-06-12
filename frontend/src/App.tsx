@@ -675,7 +675,7 @@ function App() {
             thread_id: targetThreadId,
             user_id: getCurrentUserId() || "default",
             request_id: crypto.randomUUID(),
-            model_name: currentModel,
+            model_uuid: currentModel,
             thinking_mode: currentThinkingMode,
             custom_data: quotedMessageId ? {
               quoted_message_id: quotedMessageId,

@@ -2,6 +2,10 @@ import { useState, useEffect, useCallback, useRef } from "react"
 import { getAvailableModels } from "@/lib/api"
 import type { ModelInfo } from "@/types"
 
+function getModelKey(model: ModelInfo): string {
+  return model.model_uuid || model.id
+}
+
 /**
  * Hook to manage model selection per conversation.
  *
@@ -100,7 +104,7 @@ export function useModels(threadId: string | null, isLoggedIn: boolean) {
   // Get the selected model's info
   const getSelectedModelInfo = useCallback((): ModelInfo | undefined => {
     const modelId = selectedModel || defaultModel
-    return models.find(m => m.model_id === modelId)
+    return models.find(m => getModelKey(m) === modelId)
   }, [selectedModel, defaultModel, models])
 
   // Get effective model ID (selected or default)

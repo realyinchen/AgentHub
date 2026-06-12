@@ -31,6 +31,7 @@ import litellm
 
 from app.crud import model as model_crud
 from app.crud import provider as provider_crud
+from app.crud import provider_connection as connection_crud
 from app.infra.database import get_database
 from app.utils.crypto import decrypt_api_key
 
@@ -66,6 +67,7 @@ class ModelManager:
     def __init__(self) -> None:
         self._models_cache: dict = {}
         self._providers_cache: dict = {}
+        self._connections_cache: dict = {}
         self._default_llm_id: Optional[str] = None
         self._default_vlm_id: Optional[str] = None
         self._initialized: bool = False
@@ -87,11 +89,20 @@ class ModelManager:
         db = get_database()
         async with db.session() as session:
             providers = await provider_crud.get_all_providers(session)
+            connections = await connection_crud.get_connections(session)
             models = await model_crud.get_models_with_provider_config(session)
 
         # Build new caches
         new_providers = {p.provider: p for p in providers}
-        new_models = {m.model_id: m for m in models}
+        new_connections = {str(c.id): c for c in connections}
+        new_models: dict[str, object] = {}
+        for m in models:
+            model_uuid = str(m.id)
+            provider_model_id = str(m.model_id)
+            provider_key = str(m.provider)
+            new_models[model_uuid] = m
+            new_models.setdefault(provider_model_id, m)
+            new_models.setdefault(f"{provider_key}/{provider_model_id}", m)
 
         new_default_llm: Optional[str] = None
         new_default_vlm: Optional[str] = None
@@ -100,13 +111,14 @@ class ModelManager:
                 continue
             mt = getattr(m, "model_type", "llm")
             if mt == "llm":
-                new_default_llm = str(m.model_id)
+                new_default_llm = str(m.id)
             elif mt == "vlm":
-                new_default_vlm = str(m.model_id)
+                new_default_vlm = str(m.id)
 
         # Atomic swap under lock
         async with self.cache_lock:
             self._providers_cache = new_providers
+            self._connections_cache = new_connections
             self._models_cache = new_models
             self._default_llm_id = new_default_llm
             self._default_vlm_id = new_default_vlm
@@ -132,6 +144,24 @@ class ModelManager:
             return provider_config.base_url
         return None
 
+    def get_connection(self, connection_id: str | None):
+        """Get provider connection config from cache."""
+        if not connection_id:
+            return None
+        return self._connections_cache.get(str(connection_id))
+
+    def get_connection_api_key(self, connection_id: str | None) -> Optional[str]:
+        connection = self.get_connection(connection_id)
+        if connection and connection.api_key:
+            return decrypt_api_key(connection.api_key)
+        return None
+
+    def get_connection_base_url(self, connection_id: str | None) -> Optional[str]:
+        connection = self.get_connection(connection_id)
+        if connection and connection.base_url:
+            return connection.base_url
+        return None
+
     # ── Model accessors ───────────────────────────────────────────────
 
     def get_model(self, model_id: str):
@@ -151,7 +181,12 @@ class ModelManager:
         from app.schemas.model import ModelInfo
 
         result: list[ModelInfo] = []
+        seen: set[str] = set()
         for m in self._models_cache.values():
+            model_uuid = str(getattr(m, "id", ""))
+            if model_uuid in seen:
+                continue
+            seen.add(model_uuid)
             if active_only and not getattr(m, "is_active", False):
                 continue
             try:
@@ -177,15 +212,20 @@ class ModelManager:
 
     def get_first_active_llm_id(self) -> Optional[str]:
         """Return the first active LLM model_id from cache, or None."""
+        seen: set[str] = set()
         for m in self._models_cache.values():
+            model_uuid = str(getattr(m, "id", ""))
+            if model_uuid in seen:
+                continue
+            seen.add(model_uuid)
             if getattr(m, "model_type", "llm") == "llm" and getattr(
                 m, "is_active", False
             ):
-                return str(m.model_id)
+                return str(m.id)
         return None
 
     def get_models_count(self) -> int:
-        return len(self._models_cache)
+        return len({str(getattr(m, "id", "")) for m in self._models_cache.values()})
 
 
 @lru_cache(maxsize=1)

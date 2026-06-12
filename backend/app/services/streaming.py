@@ -105,7 +105,8 @@ class ChatStreamingService:
             SSE-formatted strings (e.g. ``"data: {...}\\n\\n"``).
         """
         # ── Validate model availability ────────────────────────────
-        initial_model = resolve_model_name(user_input.model_name)
+        requested_model = user_input.model_uuid or user_input.model_name
+        initial_model = resolve_model_name(requested_model)
         if not initial_model:
             logger.error("No models available for streaming")
             yield sse_error(
@@ -113,10 +114,10 @@ class ChatStreamingService:
                 error_type="no_models_available",
             )
             return
-        if user_input.model_name:
+        if requested_model:
             await refresh_model_cache_if_missing(initial_model)
         # Pin the chosen model into user_input so build_agent_kwargs + middleware see it
-        if not user_input.model_name:
+        if not user_input.model_name or user_input.model_name != initial_model:
             user_input = user_input.model_copy(update={"model_name": initial_model})
 
         # ── Build agent invocation kwargs ──────────────────────────

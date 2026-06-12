@@ -71,11 +71,11 @@ CREATE INDEX IF NOT EXISTS idx_conversations_created_at
 ON public.conversations (created_at DESC) 
 WHERE is_deleted = FALSE;
 
--- 4. providers table (stores provider API keys and base URLs)
+-- 4. providers table (protocol/adapter registry)
 CREATE TABLE IF NOT EXISTS public.providers (
     provider               VARCHAR(64) PRIMARY KEY,   -- e.g. "dashscope", "zai", "openai-compatible"
-    api_key                TEXT NOT NULL DEFAULT '',  -- encrypted API key
-    base_url               VARCHAR(512),              -- base URL for OpenAI-Compatible providers
+    api_key                TEXT NOT NULL DEFAULT '',  -- legacy encrypted API key; new code uses provider_connections
+    base_url               VARCHAR(512),              -- legacy base URL; new code uses provider_connections
     is_openai_compatible   BOOLEAN NOT NULL DEFAULT FALSE,
     created_at             TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -95,13 +95,6 @@ INSERT INTO public.providers (provider, api_key, is_openai_compatible)
 VALUES ('dashscope', '', false)
 ON CONFLICT (provider) DO NOTHING;
 
--- LM Studio local OpenAI-compatible server.
--- If backend runs in Docker and LM Studio runs on the host, change base_url to:
--- http://host.docker.internal:1234/v1
-INSERT INTO public.providers (provider, api_key, base_url, is_openai_compatible)
-VALUES ('lmstudio', 'lm-studio', 'http://127.0.0.1:1234/v1', true)
-ON CONFLICT (provider) DO NOTHING;
-
 -- Generic OpenAI-compatible provider for custom gateways.
 INSERT INTO public.providers (provider, api_key, base_url, is_openai_compatible)
 VALUES ('openai-compatible', 'local', 'http://127.0.0.1:1234/v1', true)
@@ -113,6 +106,37 @@ INSERT INTO public.providers (provider, api_key, base_url, is_openai_compatible)
 VALUES ('openrouter', '', 'https://openrouter.ai/api/v1', true)
 ON CONFLICT (provider) DO NOTHING;
 
+-- 4.1 provider_connections table (concrete endpoint/account config)
+CREATE TABLE IF NOT EXISTS public.provider_connections (
+    id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    provider             VARCHAR(64) NOT NULL REFERENCES public.providers(provider),
+    name                 VARCHAR(128) NOT NULL,
+    preset_type          VARCHAR(32) NOT NULL DEFAULT 'default',
+    api_key              TEXT NOT NULL DEFAULT '',
+    base_url             VARCHAR(512),
+    extra_headers_json   JSONB NOT NULL DEFAULT '{}'::jsonb,
+    is_active            BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_provider_connections_provider_name
+ON public.provider_connections(provider, name);
+CREATE INDEX IF NOT EXISTS idx_provider_connections_provider
+ON public.provider_connections(provider);
+CREATE INDEX IF NOT EXISTS idx_provider_connections_active
+ON public.provider_connections(is_active);
+
+INSERT INTO public.provider_connections (provider, name, preset_type, api_key, base_url, is_active)
+VALUES
+    ('dashscope', 'DashScope 默认', 'default', '', NULL, true),
+    ('openrouter', 'OpenRouter 默认', 'default', '', 'https://openrouter.ai/api/v1', true),
+    ('openai-compatible', 'LM Studio 本地', 'lmstudio', 'local', 'http://127.0.0.1:1234/v1', true),
+    ('openai-compatible', 'Ollama 本地', 'ollama', 'local', 'http://127.0.0.1:11434/v1', false),
+    ('openai-compatible', 'vLLM', 'vllm', 'local', 'http://127.0.0.1:8000/v1', false),
+    ('openai-compatible', '自定义 API', 'custom', '', NULL, false)
+ON CONFLICT (provider, name) DO NOTHING;
+
 -- 5. models table (user maintains all model configurations)
 -- Note: api_key is now stored in providers table
 -- Note: model_id is the plain model name (e.g. "qwen3.5-32b").
@@ -120,8 +144,9 @@ ON CONFLICT (provider) DO NOTHING;
 CREATE TABLE IF NOT EXISTS public.models (
     id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),  -- UUID primary key
     provider               VARCHAR(64) NOT NULL REFERENCES public.providers(provider),  -- FK to providers
+    connection_id          UUID REFERENCES public.provider_connections(id),
     model_type             VARCHAR(16) NOT NULL DEFAULT 'llm',  -- llm, vlm, embedding
-    model_id               VARCHAR(128) NOT NULL UNIQUE,  -- plain model name, e.g. "qwen3.5-32b"
+    model_id               VARCHAR(128) NOT NULL,  -- provider model name, e.g. "qwen3.5-32b"
     thinking               BOOLEAN NOT NULL DEFAULT FALSE,  -- whether supports thinking mode
     is_default             BOOLEAN NOT NULL DEFAULT FALSE,
     is_active              BOOLEAN NOT NULL DEFAULT TRUE,
@@ -131,20 +156,26 @@ CREATE TABLE IF NOT EXISTS public.models (
 
 -- Indexes for models
 CREATE INDEX IF NOT EXISTS idx_models_provider ON public.models(provider);
+CREATE INDEX IF NOT EXISTS idx_models_connection_id ON public.models(connection_id);
 CREATE INDEX IF NOT EXISTS idx_models_model_type ON public.models(model_type);
 CREATE INDEX IF NOT EXISTS idx_models_thinking ON public.models(thinking);
 CREATE INDEX IF NOT EXISTS idx_models_is_active ON public.models(is_active);
 CREATE INDEX IF NOT EXISTS idx_models_is_default ON public.models(is_default);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_models_model_id ON public.models(model_id);
+CREATE INDEX IF NOT EXISTS idx_models_model_id ON public.models(model_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_models_connection_model_id
+ON public.models(connection_id, model_id)
+WHERE connection_id IS NOT NULL;
 
 -- =============================================================================
 -- Models should be configured via web UI after providers are set up
 -- No default models are inserted - configure them in the application
 -- =============================================================================
 
-INSERT INTO public.models (provider, model_type, model_id, thinking, is_default, is_active)
-VALUES ('openrouter', 'llm', 'nex-agi/nex-n2-pro:free', true, false, true)
-ON CONFLICT (model_id) DO NOTHING;
+INSERT INTO public.models (provider, connection_id, model_type, model_id, thinking, is_default, is_active)
+SELECT 'openrouter', pc.id, 'llm', 'nex-agi/nex-n2-pro:free', true, false, true
+FROM public.provider_connections pc
+WHERE pc.provider = 'openrouter' AND pc.name = 'OpenRouter 默认'
+ON CONFLICT DO NOTHING;
 
 -- 6. model_capability_checks table (observed runtime model capability)
 CREATE TABLE IF NOT EXISTS public.model_capability_checks (

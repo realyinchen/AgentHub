@@ -68,20 +68,33 @@ def get_llm(
     if model_config is None:
         raise ValueError(f"Model '{model_id}' not found in database.")
 
-    # Get provider config for API key and base_url
-    provider_config = manager.get_provider(model_config.provider)
+    connection = manager.get_connection(str(model_config.connection_id))
+    provider_key = connection.provider if connection is not None else model_config.provider
+
+    # Get provider config for adapter metadata.
+    provider_config = manager.get_provider(provider_key)
     if provider_config is None:
-        raise ValueError(f"Provider '{model_config.provider}' not found in database.")
+        raise ValueError(f"Provider '{provider_key}' not found in database.")
 
     is_openai_compatible = bool(
         getattr(provider_config, "is_openai_compatible", False)
     )
+    api_key = (
+        manager.get_connection_api_key(str(model_config.connection_id))
+        if model_config.connection_id
+        else None
+    )
+    base_url = (
+        manager.get_connection_base_url(str(model_config.connection_id))
+        if model_config.connection_id
+        else None
+    )
 
     return create_llm_from_config(
-        provider=model_config.provider,
+        provider=provider_key,
         model_id=str(model_config.model_id),
-        api_key=manager.get_api_key(model_config.provider),
-        base_url=manager.get_base_url(model_config.provider),
+        api_key=api_key or manager.get_api_key(provider_key),
+        base_url=base_url or manager.get_base_url(provider_key),
         is_openai_compatible=is_openai_compatible,
         thinking_mode=thinking_mode,
     )

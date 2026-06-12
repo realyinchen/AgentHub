@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback } from "react"
 import { Eye, EyeOff, Plus, Trash2, Settings2, HelpCircle, Edit2, ChevronRight, ChevronDown, Server, AlertTriangle, RefreshCw } from "lucide-react"
 
-import type { ModelInfo, ModelType, ModelCreate, ModelUpdate, ProviderInfo, ProviderUpdate } from "@/types"
-import { getAllModels, createModel, updateModel, deleteModel, setDefaultModel, getProviders, updateProvider, validateModel } from "@/lib/api"
+import type { ModelInfo, ModelType, ModelCreate, ModelUpdate, ProviderInfo, ProviderUpdate, ProviderConnectionInfo, ProviderConnectionUpdate } from "@/types"
+import { getAllModels, createModel, updateModel, deleteModel, setDefaultModel, getProviders, updateProvider, validateModel, getProviderConnections, updateProviderConnection } from "@/lib/api"
 import { useI18n } from "@/i18n"
 import {
   Dialog,
@@ -57,12 +57,18 @@ const getDisplayName = (modelId: string): string => {
   return modelId.split("/").pop() || modelId
 }
 
+const getProviderKey = (provider: ProviderInfo): string => provider.provider_key || provider.provider
+
+const getModelProviderKey = (model: ModelInfo): string => model.provider_key || model.provider
+
 export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialogProps) {
   const { t } = useI18n()
   const [models, setModels] = useState<ModelInfo[]>([])
   const [providers, setProviders] = useState<ProviderInfo[]>([])
+  const [connections, setConnections] = useState<ProviderConnectionInfo[]>([])
   const [isLoading, setIsLoading] = useState(false)
   const [selectedProvider, setSelectedProvider] = useState<string | null>(null)
+  const [selectedConnection, setSelectedConnection] = useState<string | null>(null)
   const [expandedProviders, setExpandedProviders] = useState<Set<string>>(new Set())
   const [deletingModelIds, setDeletingModelIds] = useState<Set<string>>(new Set())
   const [editingModelIds, setEditingModelIds] = useState<Set<string>>(new Set())
@@ -93,12 +99,14 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   const loadData = useCallback(async () => {
     setIsLoading(true)
     try {
-      const [modelsResult, providersResult] = await Promise.all([
+      const [modelsResult, providersResult, connectionsResult] = await Promise.all([
         getAllModels(),
         getProviders(),
+        getProviderConnections(),
       ])
       setModels(modelsResult.models)
       setProviders(providersResult.providers)
+      setConnections(connectionsResult.connections)
     } catch (error) {
       console.error("Failed to load data:", error)
     } finally {
@@ -109,9 +117,24 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   // Auto-select first provider when data is loaded and no provider is selected
   useEffect(() => {
     if (providers.length > 0 && !selectedProvider) {
-      setSelectedProvider(providers[0].provider)
+      setSelectedProvider(getProviderKey(providers[0]))
     }
   }, [providers, selectedProvider])
+
+  useEffect(() => {
+    if (!selectedProvider) {
+      setSelectedConnection(null)
+      return
+    }
+    const providerConnections = connections.filter(c => c.provider_key === selectedProvider)
+    if (providerConnections.length === 0) {
+      setSelectedConnection(null)
+      return
+    }
+    if (!selectedConnection || !providerConnections.some(c => c.connection_id === selectedConnection)) {
+      setSelectedConnection(providerConnections[0].connection_id)
+    }
+  }, [connections, selectedProvider, selectedConnection])
 
   useEffect(() => {
     if (open) {
@@ -175,6 +198,32 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     }
   }
 
+  const saveConnectionConfig = async (connectionId: string) => {
+    const updateData: ProviderConnectionUpdate = {}
+    const apiKey = providerApiKeyEdits[connectionId]
+    const baseUrl = providerBaseUrlEdits[connectionId]
+
+    if (apiKey !== undefined && apiKey.trim() !== "") {
+      updateData.api_key = apiKey
+    }
+    if (baseUrl !== undefined) {
+      updateData.base_url = baseUrl.trim() || null
+    }
+
+    if (updateData.api_key || updateData.base_url !== undefined) {
+      try {
+        await updateProviderConnection(connectionId, updateData)
+        setProviderApiKeyEdits(prev => { const n = { ...prev }; delete n[connectionId]; return n })
+        setProviderBaseUrlEdits(prev => { const n = { ...prev }; delete n[connectionId]; return n })
+        const connectionsResult = await getProviderConnections()
+        setConnections(connectionsResult.connections)
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error)
+        errorAlert.showError(t("error.saveFailed", { details: errorMessage }))
+      }
+    }
+  }
+
   // Model handlers
   const handleModelIdChange = (modelId: string, value: string) => {
     setModelIdEdits(prev => ({ ...prev, [modelId]: value }))
@@ -213,7 +262,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       const updateData: ModelUpdate = {}
       if (changes.model_id !== undefined && changes.model_id.trim()) {
         const newModelId = changes.model_id.trim()
-        updateData.model_id = newModelId.includes("/") ? newModelId : `${model.provider}/${newModelId}`
+        updateData.model_id = newModelId
       }
       if (changes.model_type !== undefined) updateData.model_type = changes.model_type
       if (changes.thinking !== undefined) updateData.thinking = changes.thinking
@@ -231,7 +280,9 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       setEditingModelIds(prev => { const n = new Set(prev); n.delete(modelId); return n })
 
       const modelsResult = await getAllModels()
+      const connectionsResult = await getProviderConnections()
       setModels(modelsResult.models)
+      setConnections(connectionsResult.connections)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error)
       errorAlert.showError(t("error.saveFailed", { details: errorMessage }))
@@ -244,6 +295,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
       id: crypto.randomUUID(),
       data: {
         provider: selectedProvider || "",
+        connection_id: selectedConnection,
         model_type: "llm",
         model_id: "",
         thinking: false,
@@ -277,13 +329,11 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     if (validForms.length === 0) return
 
     const saveOperations = validForms.map(form => {
-      const fullModelId = form.data.model_id.includes("/")
-        ? form.data.model_id
-        : `${selectedProvider}/${form.data.model_id.trim()}`
       return createModel({
         ...form.data,
-        model_id: fullModelId,
+        model_id: form.data.model_id.trim(),
         provider: selectedProvider || "",
+        connection_id: selectedConnection,
       })
     })
 
@@ -385,8 +435,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
   const isEditingModel = (modelId: string): boolean => editingModelIds.has(modelId)
 
-  const selectedProviderInfo = providers.find(p => p.provider === selectedProvider)
-  const selectedProviderModels = models.filter(m => m.provider === selectedProvider)
+  const selectedProviderInfo = providers.find(p => getProviderKey(p) === selectedProvider)
+  const selectedConnectionInfo = connections.find(c => c.connection_id === selectedConnection)
+  const selectedConfigKey = selectedConnectionInfo?.connection_id || selectedProviderInfo?.provider || ""
+  const selectedProviderModels = models.filter(m => {
+    if (selectedConnection) return m.connection_id === selectedConnection
+    return getModelProviderKey(m) === selectedProvider
+  })
   const hasNewModelForms = newModelForms.length > 0
   const validNewModelCount = newModelForms.filter(f => f.data.model_id?.trim()).length
 
@@ -504,20 +559,23 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
                 <div className="flex-1 overflow-y-auto p-3 space-y-1">
                   {providers.map((provider) => {
-                    const isExpanded = expandedProviders.has(provider.provider)
-                    const isSelected = selectedProvider === provider.provider
-                    const providerModelCount = models.filter(m => m.provider === provider.provider).length
+                    const providerKey = getProviderKey(provider)
+                    const providerConnections = connections.filter(c => c.provider_key === providerKey)
+                    const isExpanded = expandedProviders.has(providerKey)
+                    const isSelected = selectedProvider === providerKey
+                    const providerModelCount = provider.model_count ?? models.filter(m => getModelProviderKey(m) === providerKey).length
 
                     return (
-                      <div key={provider.provider}>
+                      <div key={providerKey}>
                         <button
                           onClick={() => {
-                            if (selectedProvider && hasUnsavedProviderChanges(selectedProvider) && selectedProvider !== provider.provider) {
-                              setPendingProviderSwitch(provider.provider)
+                            if (selectedProvider && hasUnsavedProviderChanges(selectedProvider) && selectedProvider !== providerKey) {
+                              setPendingProviderSwitch(providerKey)
                               return
                             }
-                            setSelectedProvider(provider.provider)
-                            toggleProviderExpand(provider.provider)
+                            setSelectedProvider(providerKey)
+                            setSelectedConnection(providerConnections[0]?.connection_id || null)
+                            toggleProviderExpand(providerKey)
                           }}
                           className={`w-full flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm transition-colors
                             ${isSelected
@@ -530,26 +588,32 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                           ) : (
                             <ChevronRight className="size-4 text-muted-foreground" />
                           )}
-                          <span className="font-medium flex-1 text-left">{provider.provider}</span>
+                          <span className="font-medium flex-1 text-left">{provider.display_name || providerKey}</span>
                           <Badge variant="secondary" className="text-xs">{providerModelCount}</Badge>
                         </button>
 
                         {isExpanded && (
                           <div className="ml-4 mt-1 space-y-0.5">
-                            {models
-                              .filter(m => m.provider === provider.provider)
-                              .sort((a, b) => getDisplayName(a.model_id).localeCompare(getDisplayName(b.model_id)))
-                              .map(model => (
-                                <div
-                                  key={model.model_id}
-                                  className="flex items-center gap-2 px-3 py-1.5 rounded-md text-xs text-muted-foreground hover:text-foreground hover:bg-muted/50"
+                            {providerConnections
+                              .sort((a, b) => a.name.localeCompare(b.name))
+                              .map(connection => (
+                                <button
+                                  key={connection.connection_id}
+                                  onClick={() => {
+                                    setSelectedProvider(providerKey)
+                                    setSelectedConnection(connection.connection_id)
+                                  }}
+                                  className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-md text-xs text-left transition-colors
+                                    ${selectedConnection === connection.connection_id
+                                      ? 'bg-primary/10 text-primary'
+                                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
+                                    }`}
                                 >
-                                  <span className="truncate">{getDisplayName(model.model_id)}</span>
-                                  <Badge variant="outline" className="text-[10px] px-1 py-0">{model.model_type}</Badge>
-                                  {model.is_default && (
-                                    <Badge variant="secondary" className="text-[10px] px-1 py-0">{t("model.default")}</Badge>
-                                  )}
-                                </div>
+                                  <span className="truncate flex-1">{connection.name}</span>
+                                  <Badge variant={connection.enabled ? "outline" : "secondary"} className="text-[10px] px-1 py-0">
+                                    {connection.model_count}
+                                  </Badge>
+                                </button>
                               ))}
                           </div>
                         )}
@@ -574,36 +638,36 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                       <div className="flex items-center gap-2">
                         <div className="flex-1 relative">
                           <Input
-                            type={providerApiKeyVisible[selectedProviderInfo.provider] ? "text" : "password"}
-                            placeholder={selectedProviderInfo.has_api_key ? "••••••••••••••••" : t("provider.apiKeyPlaceholder")}
-                            value={providerApiKeyEdits[selectedProviderInfo.provider] || ""}
-                            onChange={(e) => handleProviderApiKeyChange(selectedProviderInfo.provider, e.target.value)}
+                            type={providerApiKeyVisible[selectedConfigKey] ? "text" : "password"}
+                            placeholder={(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key) ? "••••••••••••••••" : t("provider.apiKeyPlaceholder")}
+                            value={providerApiKeyEdits[selectedConfigKey] || ""}
+                            onChange={(e) => handleProviderApiKeyChange(selectedConfigKey, e.target.value)}
                             className="pr-10"
                           />
                           <button
                             type="button"
-                            onClick={() => toggleProviderApiKeyVisible(selectedProviderInfo.provider)}
+                            onClick={() => toggleProviderApiKeyVisible(selectedConfigKey)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
                           >
-                            {providerApiKeyVisible[selectedProviderInfo.provider] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                            {providerApiKeyVisible[selectedConfigKey] ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
                           </button>
                         </div>
                         <Button
                           size="sm"
-                          onClick={() => saveProviderConfig(selectedProviderInfo.provider)}
-                          disabled={!providerApiKeyEdits[selectedProviderInfo.provider] && !providerBaseUrlEdits[selectedProviderInfo.provider]}
+                          onClick={() => selectedConnectionInfo ? void saveConnectionConfig(selectedConnectionInfo.connection_id) : void saveProviderConfig(selectedProviderInfo.provider)}
+                          disabled={!selectedConfigKey || (!providerApiKeyEdits[selectedConfigKey] && !providerBaseUrlEdits[selectedConfigKey])}
                           className="h-9 px-3"
                         >
                           {t("common.save")}
                         </Button>
                       </div>
 
-                      {selectedProviderInfo.is_openai_compatible && (
+                      {selectedConnectionInfo && (
                         <div>
                           <Input
                             placeholder={t("provider.baseUrlPlaceholder") || "http://localhost:11434/v1"}
-                            value={providerBaseUrlEdits[selectedProviderInfo.provider] ?? selectedProviderInfo.base_url ?? ""}
-                            onChange={(e) => handleProviderBaseUrlChange(selectedProviderInfo.provider, e.target.value)}
+                            value={providerBaseUrlEdits[selectedConfigKey] ?? selectedConnectionInfo?.base_url ?? selectedProviderInfo.base_url ?? ""}
+                            onChange={(e) => handleProviderBaseUrlChange(selectedConfigKey, e.target.value)}
                           />
                         </div>
                       )}
@@ -648,13 +712,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                     size="sm"
                                     onClick={addNewModelForm}
                                     className="gap-1"
-                                    disabled={!selectedProviderInfo.has_api_key}
+                                    disabled={!(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key)}
                                   >
                                     <Plus className="size-3.5" />
                                     {t("model.addModel")}
                                   </Button>
                                 </TooltipTrigger>
-                                {!selectedProviderInfo.has_api_key && (
+                                {!(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key) && (
                                   <TooltipContent side="top" className="max-w-xs">
                                     <p>{t("model.needApiKeyFirst")}</p>
                                   </TooltipContent>
@@ -753,13 +817,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                   size="sm"
                                   onClick={addNewModelForm}
                                   className="w-full gap-1"
-                                  disabled={!selectedProviderInfo.has_api_key}
+                                  disabled={!(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key)}
                                 >
                                   <Plus className="size-3.5" />
                                   {t("model.continueAdd")}
                                 </Button>
                               </TooltipTrigger>
-                              {!selectedProviderInfo.has_api_key && (
+                              {!(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key) && (
                                 <TooltipContent side="top" className="max-w-xs">
                                   <p>{t("model.needApiKeyFirst")}</p>
                                 </TooltipContent>
@@ -773,7 +837,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                       <div className="space-y-3">
                         {selectedProviderModels.length === 0 && newModelForms.length === 0 ? (
                           <div className="text-center py-8 text-muted-foreground text-sm border border-dashed border-border rounded-lg">
-                            {!selectedProviderInfo.has_api_key
+                            {!(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key)
                               ? (t("model.needApiKeyFirstThenAdd"))
                               : (t("model.noModelsForProvider") || "No models configured for this provider")
                             }
@@ -823,7 +887,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                               size="icon"
                                               className="size-8 rounded-lg text-muted-foreground/60 hover:text-primary transition-all hover:scale-105 active:scale-95"
                                               onClick={() => void handleValidateModel(model)}
-                                              disabled={isValidating || !selectedProviderInfo.has_api_key}
+                                              disabled={isValidating || !(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key)}
                                             >
                                               <RefreshCw className={`size-4 ${isValidating ? "animate-spin" : ""}`} />
                                             </Button>
@@ -861,12 +925,12 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                                 size="icon"
                                                 className="size-8 rounded-lg text-muted-foreground/60 hover:text-primary transition-all hover:scale-105 active:scale-95"
                                                 onClick={() => toggleModelEdit(model.model_id)}
-                                                disabled={!selectedProviderInfo.has_api_key}
+                                                disabled={!(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key)}
                                               >
                                                 <Edit2 className="size-4" />
                                               </Button>
                                             </TooltipTrigger>
-                                            {!selectedProviderInfo.has_api_key && (
+                                            {!(selectedConnectionInfo?.has_api_key ?? selectedProviderInfo.has_api_key) && (
                                               <TooltipContent side="top" className="max-w-xs">
                                                 <p>{t("model.needApiKeyFirst")}</p>
                                               </TooltipContent>

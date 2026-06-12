@@ -77,15 +77,18 @@ class ChatService:
             HTTPException: If no models available or agent returns no events.
         """
         # 1. Resolve model (with default → first-active fallback)
-        initial_model = resolve_model_name(user_input.model_name)
+        requested_model = user_input.model_uuid or user_input.model_name
+        initial_model = resolve_model_name(requested_model)
         if not initial_model:
             logger.error("No models available for invoke")
             raise HTTPException(
                 status_code=503,
                 detail="No AI models are currently available.",
             )
-        if user_input.model_name:
+        if requested_model:
             await refresh_model_cache_if_missing(initial_model)
+        if not user_input.model_name or user_input.model_name != initial_model:
+            user_input = user_input.model_copy(update={"model_name": initial_model})
 
         # 2. Build agent parameters
         kwargs = await build_agent_kwargs(user_input)

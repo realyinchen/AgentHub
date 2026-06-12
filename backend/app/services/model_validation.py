@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.crud import model as model_crud
 from app.crud import model_capability as capability_crud
 from app.crud import provider as provider_crud
+from app.crud import provider_connection as connection_crud
 from app.infra.llm.factory import create_llm_from_config
 from app.models.model_capability import ModelCapabilityCheck
 from app.utils.crypto import decrypt_api_key
@@ -41,14 +42,27 @@ async def validate_model_capability(
     if model is None:
         raise ModelValidationError("model_not_found")
 
-    provider = await provider_crud.get_provider(db, model.provider)
+    connection = (
+        await connection_crud.get_connection(db, model.connection_id)
+        if model.connection_id
+        else None
+    )
+    provider_key = connection.provider if connection is not None else model.provider
+    provider = await provider_crud.get_provider(db, provider_key)
     if provider is None:
         raise ModelValidationError("provider_not_found")
+
+    api_key = (
+        decrypt_api_key(connection.api_key or "")
+        if connection is not None
+        else decrypt_api_key(provider.api_key or "")
+    )
+    base_url = connection.base_url if connection is not None else provider.base_url
 
     started = time.perf_counter()
     result: dict[str, Any] = {
         "model_id": model.id,
-        "provider": model.provider,
+        "provider": provider_key,
         "provider_model_id": str(model.model_id),
         "chat_ok": False,
         "thinking_request_ok": None,
@@ -64,10 +78,10 @@ async def validate_model_capability(
 
     try:
         basic_response = await _invoke_model(
-            provider=provider.provider,
+            provider=provider_key,
             provider_model_id=str(model.model_id),
-            api_key=decrypt_api_key(provider.api_key or ""),
-            base_url=provider.base_url,
+            api_key=api_key,
+            base_url=base_url,
             is_openai_compatible=bool(provider.is_openai_compatible),
             thinking_mode=False,
             prompt=BASIC_PROMPT,
@@ -91,10 +105,10 @@ async def validate_model_capability(
     if check_thinking and str(model.model_type) != "embedding":
         try:
             thinking_response = await _invoke_model(
-                provider=provider.provider,
+                provider=provider_key,
                 provider_model_id=str(model.model_id),
-                api_key=decrypt_api_key(provider.api_key or ""),
-                base_url=provider.base_url,
+                api_key=api_key,
+                base_url=base_url,
                 is_openai_compatible=bool(provider.is_openai_compatible),
                 thinking_mode=True,
                 prompt=THINKING_PROMPT,

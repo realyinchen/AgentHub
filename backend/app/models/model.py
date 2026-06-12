@@ -36,11 +36,14 @@ class Model(Base):
     provider: Mapped[str] = mapped_column(
         String(64), ForeignKey("providers.provider"), nullable=False
     )  # e.g. "dashscope", "zai" - FK to providers table
+    connection_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("provider_connections.id"), nullable=True
+    )
     model_type: Mapped[str] = mapped_column(
         String(16), nullable=False, default="llm"
     )  # llm, vlm, embedding
     model_id: Mapped[str] = mapped_column(
-        String(128), nullable=False, unique=True
+        String(128), nullable=False
     )  # e.g. "qwen3.5-32b" (without provider prefix)
     thinking: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False

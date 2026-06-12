@@ -1,10 +1,11 @@
 import uuid
 
-from sqlalchemy import select, update, case, or_
+from sqlalchemy import and_, select, update, case, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import Optional
 
 from app.models.model import Model
+from app.models.provider_connection import ProviderConnection
 from app.schemas.model import ModelCapabilityStatus, ModelInfo, ModelsResponse
 
 
@@ -20,6 +21,20 @@ async def get_model_by_id(db: AsyncSession, id: uuid.UUID) -> Optional[Model]:
 async def get_model(db: AsyncSession, model_id: str) -> Optional[Model]:
     """Get a single model by model_id string"""
     result = await db.execute(select(Model).where(Model.model_id == model_id))
+    return result.scalars().first()
+
+
+async def get_model_by_connection_model(
+    db: AsyncSession,
+    connection_id: uuid.UUID,
+    model_id: str,
+) -> Optional[Model]:
+    result = await db.execute(
+        select(Model).where(
+            Model.connection_id == connection_id,
+            Model.model_id == model_id,
+        )
+    )
     return result.scalar_one_or_none()
 
 
@@ -53,19 +68,37 @@ async def get_models_with_provider_config(db: AsyncSession) -> list[Model]:
 
     result = await db.execute(
         select(Model)
+        .outerjoin(ProviderConnection, Model.connection_id == ProviderConnection.id)
         .join(Provider, Model.provider == Provider.provider)
         .where(
             Model.is_active.is_(True),
             or_(
-                Provider.api_key != "",
-                (
-                    Provider.is_openai_compatible.is_(True)
-                    & (Provider.provider != "openrouter")
-                    & Provider.base_url.is_not(None)
+                and_(
+                    Model.connection_id.is_not(None),
+                    ProviderConnection.is_active.is_(True),
+                    or_(
+                        ProviderConnection.api_key != "",
+                        and_(
+                            Provider.is_openai_compatible.is_(True),
+                            Provider.provider != "openrouter",
+                            ProviderConnection.base_url.is_not(None),
+                        ),
+                    ),
+                ),
+                and_(
+                    Model.connection_id.is_(None),
+                    or_(
+                        Provider.api_key != "",
+                        and_(
+                            Provider.is_openai_compatible.is_(True),
+                            Provider.provider != "openrouter",
+                            Provider.base_url.is_not(None),
+                        ),
+                    ),
                 ),
             ),
         )
-        .order_by(Model.provider, Model.model_id)
+        .order_by(Model.provider, Model.model_id, Model.id)
     )
     return list(result.scalars().all())
 
@@ -202,13 +235,14 @@ def get_first_model_by_type(models: list[Model], model_type: str) -> Optional[st
     """
     for model in models:
         if model.model_type == model_type:
-            return model.model_id
+            return str(model.id)
     return None
 
 
 def build_models_response(
     models: list[Model],
     capabilities: dict[uuid.UUID, object] | None = None,
+    connections: dict[uuid.UUID, ProviderConnection] | None = None,
 ) -> ModelsResponse:
     """Build ModelsResponse from model list.
 
@@ -218,9 +252,19 @@ def build_models_response(
     - Otherwise, use the first model of that type (sorted alphabetically by provider)
     """
     capability_map = capabilities or {}
+    connection_map = connections or {}
     model_infos: list[ModelInfo] = []
     for m in models:
         info = ModelInfo.model_validate(m)
+        info.model_uuid = str(m.id)
+        info.provider_key = str(m.provider)
+        info.provider_model_id = str(m.model_id)
+        info.display_name = str(m.model_id)
+        info.thinking_requested = bool(m.thinking)
+        if m.connection_id:
+            connection = connection_map.get(m.connection_id)
+            if connection:
+                info.connection_name = connection.name
         capability = capability_map.get(m.id)
         if capability:
             info.capability = ModelCapabilityStatus.model_validate(capability)
@@ -234,11 +278,11 @@ def build_models_response(
         if getattr(m, "is_default", False):
             model_type = getattr(m, "model_type", "llm")
             if model_type == "llm" and default_llm_id is None:
-                default_llm_id = str(m.model_id)
+                default_llm_id = str(m.id)
             elif model_type == "vlm" and default_vlm_id is None:
-                default_vlm_id = str(m.model_id)
+                default_vlm_id = str(m.id)
             elif model_type == "embedding" and default_embedding_id is None:
-                default_embedding_id = str(m.model_id)
+                default_embedding_id = str(m.id)
 
     if default_llm_id is None:
         default_llm_id = get_first_model_by_type(models, "llm")
@@ -265,8 +309,15 @@ async def get_models_response(
     """
     models = await get_all_models(db, active_only=active_only)
     from app.crud import model_capability as capability_crud
+    from app.crud import provider_connection as connection_crud
 
     capabilities = await capability_crud.get_latest_capability_checks(
         db, [m.id for m in models]
     )
-    return build_models_response(models, capabilities=capabilities)
+    connections_list = await connection_crud.get_connections(db)
+    connections = {c.id: c for c in connections_list}
+    return build_models_response(
+        models,
+        capabilities=capabilities,
+        connections=connections,
+    )

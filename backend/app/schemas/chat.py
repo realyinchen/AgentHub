@@ -51,6 +51,11 @@ class UserInput(BaseModel):
         default=None,
         examples=["qwen3.5-27b", "glm-4"],
     )
+    model_uuid: str | None = Field(
+        description="Stable configured model UUID. Takes precedence over legacy model_name.",
+        default=None,
+        examples=["f47ac10b-58cc-4342-b6c8-9e5a1d2f3b4c"],
+    )
     thinking_mode: bool = Field(
         description="Whether to enable thinking mode for models that support it (e.g., DeepSeek-R1, Qwen3).",
         default=False,

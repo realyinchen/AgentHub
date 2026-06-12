@@ -38,7 +38,7 @@ def _build_context(user_input: UserInput) -> AgentRuntimeContext:
     return AgentRuntimeContext(
         user_id=user_input.user_id or "",
         request_id=user_input.request_id or "",
-        model_name=user_input.model_name or "",
+        model_name=user_input.model_uuid or user_input.model_name or "",
         thinking_mode=bool(user_input.thinking_mode),
         timezone=user_input.timezone or "Asia/Shanghai",
         file=str(custom.get("file", "")),
@@ -82,10 +82,10 @@ async def build_agent_kwargs(user_input: UserInput) -> AgentKwargs:
     request_id_context.set(user_input.request_id or "-")
 
     logger.info(
-        "build_agent_kwargs: thread_id=%s, thinking_mode=%s, model_name=%s, has_custom_data=%s",
+        "build_agent_kwargs: thread_id=%s, thinking_mode=%s, model_key=%s, has_custom_data=%s",
         thread_id,
         user_input.thinking_mode,
-        user_input.model_name,
+        user_input.model_uuid or user_input.model_name,
         bool(user_input.custom_data),
     )
 
