@@ -15,10 +15,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 
-import CSSTurnDAG from "@/features/kanban/components/dag/CSSTurnDAG"
+import ReactFlowDAG from "@/features/kanban/components/dag/ReactFlowDAG"
+import NodeDetailSheet from "@/features/kanban/components/dag/NodeDetailSheet"
 import { SciFiLoader } from "@/components/ai/neural-network-loader"
 import { useI18n } from "@/i18n"
-import type { MessageStepRaw } from "@/features/kanban/types/dag"
+import type { MessageStepRaw, DAGNodeData } from "@/features/kanban/types/dag"
 
 // API base URL - same origin
 const API_BASE_URL = "/api/v1"
@@ -96,6 +97,7 @@ export function TurnDAGSidebar({
 }: TurnDAGSidebarProps) {
   const { t } = useI18n()
   const [isDialogOpen, setIsDialogOpen] = useState(false)
+  const [selectedNode, setSelectedNode] = useState<DAGNodeData | null>(null)
 
   // Fetch DAG by request_id
   const { steps: fetchedSteps, loading: fetchedLoading, error } = useDagByRequestId(threadId, requestId)
@@ -199,7 +201,7 @@ export function TurnDAGSidebar({
   return (
     <>
       <div
-        className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden backdrop-blur-sm shadow-lg flex flex-col h-full animate-in fade-in duration-500"
+        className="rounded-2xl bg-muted/30 border border-border/50 overflow-hidden backdrop-blur-sm shadow-lg flex flex-col flex-1 min-h-0 animate-in fade-in duration-500"
       >
         {/* Header */}
         <div className="p-3 flex items-center justify-between border-b border-border/30 bg-muted/20">
@@ -227,25 +229,45 @@ export function TurnDAGSidebar({
         </div>
 
         {/* DAG container - compact mode, fills available space */}
-        <div className="flex-1 min-h-0 p-2">
-          <CSSTurnDAG steps={steps} compact={true} className="w-full h-full" />
+        <div className="flex-1 min-h-0 relative">
+          <ReactFlowDAG
+            steps={steps}
+            compact={true}
+            className="absolute inset-0"
+            onNodeClick={setSelectedNode}
+          />
         </div>
       </div>
 
       {/* Full DAG Dialog */}
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-        <DialogContent className="max-w-4xl w-[90vw] max-h-[85vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-4xl w-[90vw] h-[85vh] overflow-hidden flex flex-col">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               {t("process.executionSteps") || "Execution Steps"}
             </DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 overflow-auto">
-            <CSSTurnDAG steps={dialogSteps} compact={false} className="w-full min-h-[400px]" />
+          <div className="flex-1 min-h-0 relative">
+            <ReactFlowDAG
+              steps={dialogSteps}
+              compact={false}
+              hideMiniMap
+              className="absolute inset-0"
+              onNodeClick={setSelectedNode}
+            />
           </div>
         </DialogContent>
       </Dialog>
+
+      {/* Node Detail Sheet */}
+      <NodeDetailSheet
+        nodeData={selectedNode}
+        open={selectedNode !== null}
+        onOpenChange={(open) => {
+          if (!open) setSelectedNode(null);
+        }}
+      />
     </>
   )
 }

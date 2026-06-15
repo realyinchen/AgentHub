@@ -1004,3 +1004,64 @@
   border-bottom: 2px solid currentColor;
   transform: translateY(-50%) rotate(45deg);
 }
+
+/* ==========================================================================
+   DAG (React Flow) Cyberpunk Animations
+   ========================================================================== */
+
+/* Node pulse animation - subtle breathing glow */
+@keyframes dag-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--dag-glow, #3B82F6), 0 0 20px var(--dag-glow, #3B82F6), 0 0 40px var(--dag-primary, #3B82F6)20;
+  }
+  50% {
+    box-shadow: 0 0 12px var(--dag-glow, #3B82F6), 0 0 30px var(--dag-glow, #3B82F6), 0 0 60px var(--dag-primary, #3B82F6)40;
+  }
+}
+
+/* Edge flowing dash animation */
+@keyframes dag-flow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Code background floating animation */
+@keyframes dag-float {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.04;
+  }
+  25% {
+    transform: translateY(-10px) translateX(5px);
+    opacity: 0.06;
+  }
+  50% {
+    transform: translateY(-5px) translateX(-3px);
+    opacity: 0.05;
+  }
+  75% {
+    transform: translateY(-15px) translateX(2px);
+    opacity: 0.03;
+  }
+}
+
+/* Node appear animation */
+@keyframes dag-node-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Apply node appear to wrapper */
+.dag-node-wrapper {
+  animation: dag-node-appear 0.4s ease-out both;
+}
