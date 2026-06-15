@@ -8,19 +8,14 @@ from dotenv import load_dotenv
 from app.infra.config import get_settings
 from app.utils.logging import JsonFormatter, RequestIdFilter
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Suppress third-party warnings BEFORE any imports that might trigger them
-# ─────────────────────────────────────────────────────────────────────────────
-
 # Suppress Pydantic serialization warnings from LiteLLM
 # These are benign type hints that don't affect functionality
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
-# Suppress LiteLLM INFO/WARNING logs (keep only ERROR)
-# Must be set before litellm is imported anywhere in the application
+# Suppress LiteLLM INFO/WARNING logs (keep only ERROR).
+# Must be set before litellm is imported anywhere in the application.
+logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 logging.getLogger("litellm").setLevel(logging.ERROR)
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 # Set Compatible event loop policy on Windows Systems.
 # On Windows systems, the default ProactorEventLoop can cause issues with

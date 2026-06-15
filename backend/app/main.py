@@ -69,6 +69,7 @@ def _configure_logging() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("langchain").setLevel(logging.WARNING)
     logging.getLogger("langgraph").setLevel(logging.WARNING)
+    logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 
 
 # Configure logging at module import time

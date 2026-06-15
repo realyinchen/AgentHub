@@ -2,9 +2,25 @@
 
 ## Current Focus
 
-Authentication refactoring completed. System now uses server-side JWT cookie authentication instead of client-side user ID management.
+OpenAI-Compatible LLM provider integration. System now supports any OpenAI Chat Completions API compatible endpoint (vLLM, Ollama, LM Studio, LiteLLM Proxy, etc.) alongside the existing DashScope provider.
 
 ## Recent Changes
+
+### 2026-06-15 — Local / Self-Hosted LLM Provider
+
+**New Provider: `local`**
+- Added `local` provider to `000_init_database.sql` (idempotent INSERT, `is_openai_compatible=true`)
+- `factory.py` added special-casing: when `is_openai_compatible=true`, LiteLLM model name is `openai/{short_model_id}` (protocol prefix hardcoded), otherwise `{provider}/{short_model_id}`
+- Provider name `local` is semantically clear (self-hosted/on-premise) and doesn't conflict with future official OpenAI provider
+- `base_url` configured per-provider in Web UI, shared by all models under that provider
+- `extra_body.enable_thinking` + `drop_params=True` handles thinking mode gracefully (unrecognized params dropped)
+- Test script `backend/scripts/test_openai_compatible_llm.py` validates 6 combinations (sync/async × streaming/non-streaming × thinking on/off)
+- README.zh.md updated with "接入本地 / 自托管 LLM" configuration guide
+
+**Design Decision:**
+- Provider identifier is `local` (not `openai`) — avoids confusion with official OpenAI, leaves room for future `openai` provider
+- `is_openai_compatible` field now drives factory routing: when true, `openai/` protocol prefix is hardcoded regardless of provider name
+- This means any future OpenAI-compatible provider (e.g. `deepseek`, `zhipu`) only needs `is_openai_compatible=true` in DB — no factory.py changes needed
 
 ### 2026-06-12 — Logging Format Standardization
 

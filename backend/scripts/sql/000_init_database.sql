@@ -95,6 +95,13 @@ INSERT INTO public.providers (provider, api_key, is_openai_compatible)
 VALUES ('dashscope', '', false)
 ON CONFLICT (provider) DO NOTHING;
 
+-- Local / Self-hosted provider (any OpenAI Chat Completions API compatible endpoint)
+-- Examples: vLLM, Ollama, LM Studio, LiteLLM Proxy, self-hosted models, etc.
+-- Set your base_url in the Web UI (e.g. http://localhost:11434/v1 for Ollama)
+INSERT INTO public.providers (provider, api_key, base_url, is_openai_compatible)
+VALUES ('local', '', '', true)
+ON CONFLICT (provider) DO NOTHING;
+
 -- 5. models table (user maintains all model configurations)
 -- Note: api_key is now stored in providers table
 -- Note: model_id is the plain model name (e.g. "qwen3.5-32b").
