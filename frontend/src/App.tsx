@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Languages, Moon, Share2, Sun, Settings } from "lucide-react"
+import { Brain, Languages, Moon, Share2, Sun, Settings } from "lucide-react"
 
 import {
   AlertDialog,
@@ -44,6 +44,7 @@ import {
   ChatSidebar,
   ConversationRenameDialog,
   DeleteConversationDialog,
+  MemoryManagementDialog,
   ShareDialog,
   TokenStatsPanel,
   TurnDAGSidebar,
@@ -170,6 +171,7 @@ function App() {
   const [renameTarget, setRenameTarget] = useState<ConversationInDB | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<ConversationInDB | null>(null)
   const [showShareDialog, setShowShareDialog] = useState(false)
+  const [showMemoryDialog, setShowMemoryDialog] = useState(false)
   const [showProviderConfig, setShowProviderConfig] = useState(false)
   const [showNoModelDialog, setShowNoModelDialog] = useState(false)
 
@@ -1222,7 +1224,7 @@ function App() {
         <aside className="hidden md:flex flex-col gap-2 border-l border-border bg-background p-2 w-64 min-w-64">
           {/* Top Section: Configuration */}
           <div className="space-y-2">
-            {/* Four buttons horizontally */}
+            {/* Utility buttons */}
             <div className="flex gap-1 w-full">
               <Button
                 type="button"
@@ -1264,6 +1266,18 @@ function App() {
                 title={t("language.switch")}
               >
                 <Languages className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="outline"
+                className="cursor-pointer size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
+                onClick={() => setShowMemoryDialog(true)}
+                aria-label={t("memory.open")}
+                title={t("memory.open")}
+                disabled={!effectiveUserId}
+              >
+                <Brain className="size-4" />
               </Button>
               <Button
                 type="button"
@@ -1324,6 +1338,12 @@ function App() {
       <ShareDialog
         open={showShareDialog}
         onOpenChange={setShowShareDialog}
+      />
+
+      <MemoryManagementDialog
+        open={showMemoryDialog}
+        onOpenChange={setShowMemoryDialog}
+        userId={effectiveUserId}
       />
 
       {/* Provider Config Dialog */}

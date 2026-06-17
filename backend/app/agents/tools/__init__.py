@@ -14,12 +14,33 @@ from .time import get_current_time
 from .web import create_web_search
 from .vectorstore_retriever import vectorstore_search
 from .books import search_books, remember_reading_preference, record_book_feedback
+from .memory import search_memory, remember_memory, revise_memory, forget_memory
+from .research import (
+    add_evidence,
+    finish_research,
+    inspect_research_state,
+    search_research,
+    start_research,
+    update_research_state,
+    visit_source,
+)
 
 __all__ = [
     "get_current_time",
     "create_web_search",
     "vectorstore_search",
+    "search_memory",
+    "remember_memory",
+    "revise_memory",
+    "forget_memory",
     "search_books",
     "remember_reading_preference",
     "record_book_feedback",
+    "start_research",
+    "inspect_research_state",
+    "search_research",
+    "visit_source",
+    "add_evidence",
+    "update_research_state",
+    "finish_research",
 ]

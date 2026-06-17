@@ -126,10 +126,11 @@ def _inject_runtime_context(
     template: str,
     timezone: str,
     user_id: str = "",
+    thread_id: str = "",
 ) -> str:
     """Replace runtime placeholders in template."""
     time_ctx = _build_time_context(timezone)
-    return template.format(**time_ctx, user_id=user_id)
+    return template.format(**time_ctx, user_id=user_id, thread_id=thread_id)
 
 
 # ── Dynamic prompt middlewares ──────────────────────────────────────────────
@@ -152,11 +153,18 @@ async def supervisor_prompt(request: ModelRequest) -> str:
         if tz:
             timezone = tz
         user_id = str(getattr(request.runtime.context, "user_id", "") or "")
+        thread_id = str(getattr(request.runtime.context, "thread_id", "") or "")
     else:
         user_id = ""
+        thread_id = ""
 
     # Get template (from cache or file)
     template = await _get_template("supervisor")
 
     # Inject runtime context
-    return _inject_runtime_context(template, timezone, user_id=user_id)
+    return _inject_runtime_context(
+        template,
+        timezone,
+        user_id=user_id,
+        thread_id=thread_id,
+    )

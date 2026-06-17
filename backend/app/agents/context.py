@@ -19,6 +19,7 @@ class AgentRuntimeContext:
 
     Attributes:
         user_id: User identifier for long-term memory and multi-tenancy.
+        thread_id: Conversation identifier for memory traceability.
         request_id: Request identifier for end-to-end tracing.
         model_name: Override model for this request (e.g. "dashscope/qwen3.5-27b").
         thinking_mode: Enable thinking/reasoning mode for the model.
@@ -27,6 +28,7 @@ class AgentRuntimeContext:
     """
 
     user_id: UUID | None = None
+    thread_id: UUID | None = None
     request_id: str = ""
     model_name: str = ""
     thinking_mode: bool = False

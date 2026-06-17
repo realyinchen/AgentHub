@@ -77,6 +77,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   // Provider editing state
   const [providerApiKeyEdits, setProviderApiKeyEdits] = useState<Record<string, string>>({})
   const [providerBaseUrlEdits, setProviderBaseUrlEdits] = useState<Record<string, string>>({})
+  const [providerEnabledEdits, setProviderEnabledEdits] = useState<Record<string, boolean>>({})
   const [providerApiKeyVisible, setProviderApiKeyVisible] = useState<Record<string, boolean>>({})
 
   // Multiple editable new model forms
@@ -93,7 +94,17 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
 
   // Check if current provider has unsaved changes
   const hasUnsavedProviderChanges = (provider: string): boolean => {
-    return providerApiKeyEdits[provider] !== undefined || providerBaseUrlEdits[provider] !== undefined
+    if (providerApiKeyEdits[provider] !== undefined || providerBaseUrlEdits[provider] !== undefined) {
+      return true
+    }
+
+    return connections
+      .filter(connection => connection.provider_key === provider)
+      .some(connection =>
+        providerApiKeyEdits[connection.connection_id] !== undefined ||
+        providerBaseUrlEdits[connection.connection_id] !== undefined ||
+        providerEnabledEdits[connection.connection_id] !== undefined
+      )
   }
 
   const loadData = useCallback(async () => {
@@ -166,6 +177,10 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     setProviderBaseUrlEdits(prev => ({ ...prev, [provider]: value }))
   }
 
+  const handleProviderEnabledChange = (provider: string, value: boolean) => {
+    setProviderEnabledEdits(prev => ({ ...prev, [provider]: value }))
+  }
+
   const toggleProviderApiKeyVisible = (provider: string) => {
     setProviderApiKeyVisible(prev => ({ ...prev, [provider]: !prev[provider] }))
   }
@@ -202,6 +217,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     const updateData: ProviderConnectionUpdate = {}
     const apiKey = providerApiKeyEdits[connectionId]
     const baseUrl = providerBaseUrlEdits[connectionId]
+    const enabled = providerEnabledEdits[connectionId]
 
     if (apiKey !== undefined && apiKey.trim() !== "") {
       updateData.api_key = apiKey
@@ -209,18 +225,32 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
     if (baseUrl !== undefined) {
       updateData.base_url = baseUrl.trim() || null
     }
+    if (enabled !== undefined) {
+      updateData.enabled = enabled
+    }
 
-    if (updateData.api_key || updateData.base_url !== undefined) {
+    if (updateData.api_key || updateData.base_url !== undefined || updateData.enabled !== undefined) {
       try {
         await updateProviderConnection(connectionId, updateData)
         setProviderApiKeyEdits(prev => { const n = { ...prev }; delete n[connectionId]; return n })
         setProviderBaseUrlEdits(prev => { const n = { ...prev }; delete n[connectionId]; return n })
+        setProviderEnabledEdits(prev => { const n = { ...prev }; delete n[connectionId]; return n })
         const connectionsResult = await getProviderConnections()
         setConnections(connectionsResult.connections)
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error)
         errorAlert.showError(t("error.saveFailed", { details: errorMessage }))
       }
+    }
+  }
+
+  const saveCurrentProviderConfig = async () => {
+    if (selectedConnection) {
+      await saveConnectionConfig(selectedConnection)
+      return
+    }
+    if (selectedProvider) {
+      await saveProviderConfig(selectedProvider)
     }
   }
 
@@ -438,6 +468,14 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
   const selectedProviderInfo = providers.find(p => getProviderKey(p) === selectedProvider)
   const selectedConnectionInfo = connections.find(c => c.connection_id === selectedConnection)
   const selectedConfigKey = selectedConnectionInfo?.connection_id || selectedProviderInfo?.provider || ""
+  const hasSelectedConfigChanges = !!selectedConfigKey && (
+    providerApiKeyEdits[selectedConfigKey] !== undefined ||
+    providerBaseUrlEdits[selectedConfigKey] !== undefined ||
+    providerEnabledEdits[selectedConfigKey] !== undefined
+  )
+  const selectedConnectionEnabled = selectedConnectionInfo
+    ? (providerEnabledEdits[selectedConfigKey] ?? selectedConnectionInfo.enabled)
+    : true
   const selectedProviderModels = models.filter(m => {
     if (selectedConnection) return m.connection_id === selectedConnection
     return getModelProviderKey(m) === selectedProvider
@@ -472,6 +510,13 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                   if (selectedProvider) {
                     setProviderApiKeyEdits(prev => { const n = { ...prev }; delete n[selectedProvider]; return n })
                     setProviderBaseUrlEdits(prev => { const n = { ...prev }; delete n[selectedProvider]; return n })
+                    setProviderEnabledEdits(prev => {
+                      const n = { ...prev }
+                      connections
+                        .filter(connection => connection.provider_key === selectedProvider)
+                        .forEach(connection => { delete n[connection.connection_id] })
+                      return n
+                    })
                   }
                   setPendingProviderSwitch(null)
                   setTimeout(() => {
@@ -485,8 +530,8 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
             </Button>
             <Button
               onClick={() => {
-                if (pendingProviderSwitch && selectedProvider) {
-                  void saveProviderConfig(selectedProvider).then(() => {
+                if (pendingProviderSwitch) {
+                  void saveCurrentProviderConfig().then(() => {
                     setPendingProviderSwitch(null)
                     setTimeout(() => {
                       setSelectedProvider(pendingProviderSwitch)
@@ -610,6 +655,11 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                                     }`}
                                 >
                                   <span className="truncate flex-1">{connection.name}</span>
+                                  {!connection.enabled && (
+                                    <Badge variant="secondary" className="text-[10px] px-1 py-0">
+                                      {t("provider.disabled")}
+                                    </Badge>
+                                  )}
                                   <Badge variant={connection.enabled ? "outline" : "secondary"} className="text-[10px] px-1 py-0">
                                     {connection.model_count}
                                   </Badge>
@@ -655,7 +705,7 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                         <Button
                           size="sm"
                           onClick={() => selectedConnectionInfo ? void saveConnectionConfig(selectedConnectionInfo.connection_id) : void saveProviderConfig(selectedProviderInfo.provider)}
-                          disabled={!selectedConfigKey || (!providerApiKeyEdits[selectedConfigKey] && !providerBaseUrlEdits[selectedConfigKey])}
+                          disabled={!hasSelectedConfigChanges}
                           className="h-9 px-3"
                         >
                           {t("common.save")}
@@ -668,6 +718,25 @@ export function ProviderConfigDialog({ open, onOpenChange }: ProviderConfigDialo
                             placeholder={t("provider.baseUrlPlaceholder") || "http://localhost:11434/v1"}
                             value={providerBaseUrlEdits[selectedConfigKey] ?? selectedConnectionInfo?.base_url ?? selectedProviderInfo.base_url ?? ""}
                             onChange={(e) => handleProviderBaseUrlChange(selectedConfigKey, e.target.value)}
+                          />
+                        </div>
+                      )}
+
+                      {selectedConnectionInfo && (
+                        <div className="flex items-center justify-between gap-4 rounded-lg border border-border/60 bg-muted/30 px-4 py-3">
+                          <div className="min-w-0">
+                            <label htmlFor={`connection-enabled-${selectedConnectionInfo.connection_id}`} className="text-sm font-medium">
+                              {t("provider.enabled")}
+                            </label>
+                            <p className="text-xs text-muted-foreground">
+                              {t("provider.enabledDescription")}
+                            </p>
+                          </div>
+                          <Switch
+                            id={`connection-enabled-${selectedConnectionInfo.connection_id}`}
+                            checked={selectedConnectionEnabled}
+                            onCheckedChange={(checked) => handleProviderEnabledChange(selectedConnectionInfo.connection_id, checked)}
+                            className="shrink-0"
                           />
                         </div>
                       )}

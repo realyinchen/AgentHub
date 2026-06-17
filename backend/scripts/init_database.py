@@ -24,11 +24,12 @@ SQL_DIR = Path(__file__).parent / "sql"
 
 def _build_postgres_url() -> str:
     """Build PostgreSQL connection URL from env vars."""
+    ssl_mode = os.environ.get("POSTGRES_SSL_MODE", "disable")
     return (
         f"postgresql+psycopg://{os.environ.get('POSTGRES_USER')}:"
         f"{os.environ.get('POSTGRES_PASSWORD')}@"
         f"{os.environ.get('POSTGRES_HOST')}:{os.environ.get('POSTGRES_PORT')}/"
-        f"{os.environ.get('POSTGRES_DB')}"
+        f"{os.environ.get('POSTGRES_DB')}?sslmode={ssl_mode}&connect_timeout=5"
     )
 
 
@@ -64,6 +65,7 @@ def _execute_sql_file_sync(engine: sa.engine.Engine, file_path: str) -> None:
         print(f"  -> Success: {Path(file_path).name}")
     except Exception as e:
         print(f"  -> Error in {Path(file_path).name}: {e}")
+        raise
 
 
 def _init_postgres() -> None:

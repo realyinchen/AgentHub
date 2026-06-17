@@ -21,7 +21,7 @@ from app.schemas.book import (
     UserPreferenceProfileInDB,
     UserPreferenceProfileUpdate,
 )
-from app.services.book_search import search_and_cache_books
+from app.services.book_search import search_and_cache_books_with_status
 
 api_router = APIRouter(prefix="/books", tags=["Books"])
 
@@ -43,10 +43,16 @@ async def search_books(
     limit: int = Query(default=5, ge=1, le=10),
     db: AsyncSession = Depends(get_db),
 ) -> BookSearchResponse:
-    books = await search_and_cache_books(db=db, query=query, limit=limit)
+    result = await search_and_cache_books_with_status(db=db, query=query, limit=limit)
     return BookSearchResponse(
         query=query,
-        books=[BookInDB.model_validate(book) for book in books],
+        status=result.status,
+        books=[BookInDB.model_validate(book) for book in result.books],
+        result_count=result.result_count,
+        source=result.source,
+        next_action_hint=result.next_action_hint,
+        error=result.error,
+        duration_ms=result.duration_ms,
     )
 
 

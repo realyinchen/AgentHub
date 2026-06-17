@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.services.book_search_contracts import BookSearchStatus
+
 
 class BookBase(BaseModel):
     title: str = Field(..., min_length=1, max_length=256)
@@ -37,7 +39,13 @@ class BookSearchRequest(BaseModel):
 
 class BookSearchResponse(BaseModel):
     query: str
+    status: BookSearchStatus = "ok"
     books: list[BookInDB]
+    result_count: int = 0
+    source: str = "duckduckgo"
+    next_action_hint: str = ""
+    error: str | None = None
+    duration_ms: int = 0
 
 
 class BookInteractionCreate(BaseModel):

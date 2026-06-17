@@ -26,11 +26,22 @@ from app.agents.middleware.content_filter import content_filter
 from app.agents.middleware.model import dynamic_model
 from app.agents.middleware.prompt import supervisor_prompt
 from app.agents.tools import (
+    add_evidence,
     create_web_search,
+    finish_research,
+    forget_memory,
     get_current_time,
+    inspect_research_state,
     record_book_feedback,
+    remember_memory,
     remember_reading_preference,
+    revise_memory,
     search_books,
+    search_memory,
+    search_research,
+    start_research,
+    update_research_state,
+    visit_source,
 )
 
 logger = logging.getLogger(__name__)
@@ -71,9 +82,20 @@ async def init_agent(
     # Build tools directly (no subagent delegation)
     tools: list = [
         get_current_time,
+        search_memory,
+        remember_memory,
+        revise_memory,
+        forget_memory,
         search_books,
         remember_reading_preference,
         record_book_feedback,
+        start_research,
+        inspect_research_state,
+        search_research,
+        visit_source,
+        add_evidence,
+        update_research_state,
+        finish_research,
     ]
     try:
         tools.append(create_web_search())

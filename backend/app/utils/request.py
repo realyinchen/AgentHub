@@ -37,6 +37,7 @@ def _build_context(user_input: UserInput) -> AgentRuntimeContext:
     custom = user_input.custom_data or {}
     return AgentRuntimeContext(
         user_id=user_input.user_id or "",
+        thread_id=user_input.thread_id,
         request_id=user_input.request_id or "",
         model_name=user_input.model_uuid or user_input.model_name or "",
         thinking_mode=bool(user_input.thinking_mode),

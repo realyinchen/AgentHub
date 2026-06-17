@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import re
+import time
+from dataclasses import dataclass
 from html import unescape
 from html.parser import HTMLParser
 from urllib.parse import parse_qs, unquote, urlparse
@@ -18,10 +20,32 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.book import upsert_book
 from app.models.book import Book
+from app.services.book_search_contracts import (
+    BookCandidateSearchResult,
+    BookSearchStatus,
+    get_book_search_hint,
+)
 
 logger = logging.getLogger(__name__)
 
 DUCKDUCKGO_HTML_URL = "https://html.duckduckgo.com/html/"
+
+
+@dataclass(frozen=True)
+class BookSearchCacheResult:
+    """Result of one ordinary book search after local cache upsert."""
+
+    query: str
+    status: BookSearchStatus
+    books: list[Book]
+    source: str = "duckduckgo"
+    next_action_hint: str = ""
+    error: str | None = None
+    duration_ms: int = 0
+
+    @property
+    def result_count(self) -> int:
+        return len(self.books)
 
 
 class _DuckDuckGoResultParser(HTMLParser):
@@ -139,9 +163,21 @@ def _candidate_to_book_data(candidate: dict[str, str]) -> dict:
     }
 
 
-async def search_duckduckgo_books(query: str, limit: int = 5) -> list[dict]:
-    """Search public book pages with DuckDuckGo and return normalized data."""
-    params = {"q": _build_duckduckgo_query(query)}
+def _classify_empty_response(html: str) -> BookSearchStatus:
+    if not html.strip():
+        return "garbage"
+    if "result__a" not in html and "result__snippet" not in html:
+        return "garbage"
+    return "empty_result"
+
+
+async def search_duckduckgo_book_candidates(
+    query: str,
+    limit: int = 5,
+) -> BookCandidateSearchResult:
+    """Search public book pages and return structured ordinary search state."""
+    provider_query = _build_duckduckgo_query(query)
+    params = {"q": provider_query}
     timeout = aiohttp.ClientTimeout(total=12)
     headers = {
         "User-Agent": (
@@ -149,15 +185,46 @@ async def search_duckduckgo_books(query: str, limit: int = 5) -> list[dict]:
             "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
         )
     }
+    started_at = time.perf_counter()
 
     try:
         async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
             async with session.get(DUCKDUCKGO_HTML_URL, params=params) as response:
                 response.raise_for_status()
                 html = await response.text()
-    except Exception as exc:
+    except TimeoutError as exc:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.warning("DuckDuckGo book search timed out: %s", exc)
+        return BookCandidateSearchResult(
+            query=query,
+            provider_query=provider_query,
+            status="timeout",
+            next_action_hint=get_book_search_hint("timeout"),
+            error=str(exc) or exc.__class__.__name__,
+            duration_ms=duration_ms,
+        )
+    except aiohttp.ClientError as exc:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
         logger.warning("DuckDuckGo book search failed: %s", exc)
-        return []
+        return BookCandidateSearchResult(
+            query=query,
+            provider_query=provider_query,
+            status="hard_error",
+            next_action_hint=get_book_search_hint("hard_error"),
+            error=str(exc) or exc.__class__.__name__,
+            duration_ms=duration_ms,
+        )
+    except Exception as exc:
+        duration_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.warning("DuckDuckGo book search failed: %s", exc)
+        return BookCandidateSearchResult(
+            query=query,
+            provider_query=provider_query,
+            status="hard_error",
+            next_action_hint=get_book_search_hint("hard_error"),
+            error=str(exc) or exc.__class__.__name__,
+            duration_ms=duration_ms,
+        )
 
     parser = _DuckDuckGoResultParser()
     parser.feed(html)
@@ -173,7 +240,42 @@ async def search_duckduckgo_books(query: str, limit: int = 5) -> list[dict]:
         if len(books) >= limit:
             break
 
-    return books
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    status: BookSearchStatus = "ok" if books else _classify_empty_response(html)
+    return BookCandidateSearchResult(
+        query=query,
+        provider_query=provider_query,
+        status=status,
+        candidates=books,
+        next_action_hint=get_book_search_hint(status),
+        duration_ms=duration_ms,
+    )
+
+
+async def search_duckduckgo_books(query: str, limit: int = 5) -> list[dict]:
+    """Search public book pages with DuckDuckGo and return normalized data."""
+    result = await search_duckduckgo_book_candidates(query=query, limit=limit)
+    return result.candidates
+
+
+async def search_and_cache_books_with_status(
+    db: AsyncSession,
+    query: str,
+    limit: int = 5,
+) -> BookSearchCacheResult:
+    result = await search_duckduckgo_book_candidates(query=query, limit=limit)
+    books: list[Book] = []
+    for candidate in result.candidates:
+        books.append(await upsert_book(db, candidate))
+    return BookSearchCacheResult(
+        query=query,
+        status=result.status,
+        books=books,
+        source=result.source,
+        next_action_hint=result.next_action_hint,
+        error=result.error,
+        duration_ms=result.duration_ms,
+    )
 
 
 async def search_and_cache_books(
@@ -181,8 +283,5 @@ async def search_and_cache_books(
     query: str,
     limit: int = 5,
 ) -> list[Book]:
-    candidates = await search_duckduckgo_books(query=query, limit=limit)
-    books: list[Book] = []
-    for candidate in candidates:
-        books.append(await upsert_book(db, candidate))
-    return books
+    result = await search_and_cache_books_with_status(db=db, query=query, limit=limit)
+    return result.books

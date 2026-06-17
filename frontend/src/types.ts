@@ -88,6 +88,52 @@ export type UserInput = {
   custom_data?: Record<string, unknown> | null
 }
 
+// ==================== Memory Types ====================
+
+export type MemoryEvent = {
+  id: string | null
+  type: string
+  subject: string
+  value: string
+  polarity: string
+  confidence: number
+  user_id: string
+  thread_id: string | null
+  source: string
+  metadata: Record<string, unknown>
+  revision_of: string | null
+  superseded_by: string | null
+  forgotten: boolean
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type CurrentMemoryListResult = {
+  user_id: string
+  memories: MemoryEvent[]
+  total: number
+  limit: number
+  offset: number
+  provider_sources: string[]
+}
+
+export type MemoryForgetRequest = {
+  user_id: string
+  memory_id?: string | null
+  subject?: string
+  value?: string
+  memory_type?: string
+  thread_id?: string | null
+  reason?: string
+}
+
+export type MemoryForgetResult = {
+  user_id: string
+  forgotten_count: number
+  forgotten_event_ids: string[]
+  provider_sources: string[]
+}
+
 // ==================== Model Types ====================
 
 // ==================== Provider Types ====================

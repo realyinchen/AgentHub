@@ -16,6 +16,9 @@ import type {
   ProviderConnectionsResponse,
   ProviderConnectionCreate,
   ProviderConnectionUpdate,
+  CurrentMemoryListResult,
+  MemoryForgetRequest,
+  MemoryForgetResult,
 } from "@/types"
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
@@ -173,6 +176,23 @@ export async function getHistory(
   return requestJson<ChatHistory>(
     `/chat/history/${encodeURIComponent(threadId)}?${userIdQuery()}`,
   )
+}
+
+export async function getCurrentMemories(
+  userId: string,
+): Promise<CurrentMemoryListResult> {
+  return requestJson<CurrentMemoryListResult>(
+    `/memory/${encodeURIComponent(userId)}/current`,
+  )
+}
+
+export async function forgetMemory(
+  input: MemoryForgetRequest,
+): Promise<MemoryForgetResult> {
+  return requestJson<MemoryForgetResult>("/memory/forget", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
 }
 
 // ── Invoke / Stream ───────────────────────────────────────────────────────────

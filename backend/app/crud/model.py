@@ -307,7 +307,11 @@ async def get_models_response(
 
     Convenience function that combines get_all_models and build_models_response.
     """
-    models = await get_all_models(db, active_only=active_only)
+    models = (
+        await get_models_with_provider_config(db)
+        if active_only
+        else await get_all_models(db, active_only=False)
+    )
     from app.crud import model_capability as capability_crud
     from app.crud import provider_connection as connection_crud
 

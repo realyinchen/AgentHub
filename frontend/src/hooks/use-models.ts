@@ -41,8 +41,12 @@ export function useModels(threadId: string | null, isLoggedIn: boolean) {
     try {
       const result = await getAvailableModels()
       if (mountedRef.current) {
+        const availableKeys = new Set(result.models.map(getModelKey))
         setModels(result.models)
         setDefaultModel(result.default_llm)
+        setSelectedModelState(current =>
+          current && !availableKeys.has(current) ? result.default_llm : current
+        )
         setError(null)
         hasFetchedRef.current = true
       }
