@@ -1,6 +1,6 @@
 /**
  * useDAGFlow - Converts MessageStepRaw[] to React Flow nodes and edges.
- * Fixed dark cyberpunk theme — all colors hardcoded, no CSS variable dependencies.
+ * Theme-aware via CSS custom properties — follows light/dark mode.
  */
 
 import { useMemo } from 'react';
@@ -24,7 +24,9 @@ export interface FlowNodeData extends Record<string, unknown> {
 }
 
 // ============================================================================
-// Color palette (hardcoded — does NOT follow system theme)
+// Color palette (theme-aware via CSS custom properties)
+// Maps FlowNodeType to CSS variable references for each visual property.
+// These resolve differently under :root (light) vs .dark (dark) themes.
 // ============================================================================
 
 export const NODE_COLORS: Record<FlowNodeType, {
@@ -34,28 +36,28 @@ export const NODE_COLORS: Record<FlowNodeType, {
   bg: string;
 }> = {
   'user': {
-    primary: '#3B82F6',
-    glow: 'rgba(59, 130, 246, 0.4)',
-    border: 'rgba(59, 130, 246, 0.6)',
-    bg: 'rgba(59, 130, 246, 0.08)',
+    primary: 'var(--dag-node-human-border)',
+    glow: 'var(--dag-node-human-glow)',
+    border: 'var(--dag-node-human-border)',
+    bg: 'var(--dag-node-human-bg)',
   },
   'tool': {
-    primary: '#8B5CF6',
-    glow: 'rgba(139, 92, 246, 0.4)',
-    border: 'rgba(139, 92, 246, 0.6)',
-    bg: 'rgba(139, 92, 246, 0.08)',
+    primary: 'var(--dag-node-tool-border)',
+    glow: 'var(--dag-node-tool-glow)',
+    border: 'var(--dag-node-tool-border)',
+    bg: 'var(--dag-node-tool-bg)',
   },
   'middle-ai': {
-    primary: '#F59E0B',
-    glow: 'rgba(245, 158, 11, 0.4)',
-    border: 'rgba(245, 158, 11, 0.6)',
-    bg: 'rgba(245, 158, 11, 0.08)',
+    primary: 'var(--dag-node-ai-border)',
+    glow: 'var(--dag-node-ai-glow)',
+    border: 'var(--dag-node-ai-border)',
+    bg: 'var(--dag-node-ai-bg)',
   },
   'final-ai': {
-    primary: '#10B981',
-    glow: 'rgba(16, 185, 129, 0.4)',
-    border: 'rgba(16, 185, 129, 0.6)',
-    bg: 'rgba(16, 185, 129, 0.08)',
+    primary: 'var(--dag-node-final-border)',
+    glow: 'var(--dag-node-final-glow)',
+    border: 'var(--dag-node-final-border)',
+    bg: 'var(--dag-node-final-bg)',
   },
 };
 

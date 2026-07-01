@@ -1,6 +1,6 @@
 /**
- * ReactFlowDAG - Cyberpunk-themed DAG visualization using React Flow.
- * Fixed dark theme (#0a0e17 background) — all colors hardcoded.
+ * ReactFlowDAG - Theme-aware DAG visualization using React Flow.
+ * All colors are CSS custom properties — adapts to light/dark themes.
  *
  * Features:
  * - Rounded-rectangle glow nodes with color-coded roles
@@ -10,7 +10,7 @@
  * - onNodeClick callback for detail sheet integration
  */
 
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -82,17 +82,17 @@ const compactFitViewOptions: FitViewOptions = {
 };
 
 // ============================================================================
-// MiniMap node colors
+// MiniMap node colors (theme-aware via CSS variables)
 // ============================================================================
 
 const minimapNodeColor = (node: Node) => {
   const data = node.data as FlowNodeData | undefined;
   switch (data?.type) {
-    case 'user': return '#3B82F6';
-    case 'tool': return '#8B5CF6';
-    case 'middle-ai': return '#F59E0B';
-    case 'final-ai': return '#10B981';
-    default: return '#6B7A90';
+    case 'user': return 'var(--dag-node-human-border)';
+    case 'tool': return 'var(--dag-node-tool-border)';
+    case 'middle-ai': return 'var(--dag-node-ai-border)';
+    case 'final-ai': return 'var(--dag-node-final-border)';
+    default: return 'var(--dag-text-dim)';
   }
 };
 
@@ -103,29 +103,49 @@ const minimapNodeColor = (node: Node) => {
 interface DAGCanvasProps {
   compact: boolean;
   hideMiniMap?: boolean;
+  containerRef: React.RefObject<HTMLDivElement | null>;
 }
 
-function DAGCanvas({ compact, hideMiniMap = false }: DAGCanvasProps) {
+function DAGCanvas({ compact, hideMiniMap = false, containerRef }: DAGCanvasProps) {
   const { fitView } = useReactFlow();
+  const [containerSize, setContainerSize] = useState({ width: 0, height: 0 });
+  const initialFitDone = useRef(false);
 
-  // One-time fitView after mount — use rAF to avoid visible jump
-  const hasFitted = useRef(false);
-
+  // ResizeObserver: track container dimensions so DAG always fits
   useEffect(() => {
-    if (!hasFitted.current) {
-      const raf = requestAnimationFrame(() => {
-        fitView(compact ? compactFitViewOptions : defaultFitViewOptions);
-        hasFitted.current = true;
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-  }, [fitView, compact]);
+    const el = containerRef.current;
+    if (!el) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) {
+        const { width, height } = entry.contentRect;
+        if (width > 0 && height > 0) {
+          setContainerSize({ width, height });
+        }
+      }
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [containerRef]);
+
+  // Re-fit whenever container size or data/compact mode changes
+  useEffect(() => {
+    const options = compact ? compactFitViewOptions : defaultFitViewOptions;
+    if (containerSize.width === 0 && containerSize.height === 0) return;
+
+    const delay = initialFitDone.current ? 50 : 100; // shorter delay for subsequent fits
+    const timer = setTimeout(() => {
+      fitView(options);
+      initialFitDone.current = true;
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [fitView, compact, containerSize.width, containerSize.height]);
 
   return (
     <>
-      {/* Grid background (subtle) */}
+      {/* Grid background (subtle, theme-aware) */}
       <Background
-        color="#1A2540"
+        color="var(--dag-rf-grid)"
         gap={40}
         size={0.5}
       />
@@ -134,10 +154,10 @@ function DAGCanvas({ compact, hideMiniMap = false }: DAGCanvasProps) {
       {!compact && (
         <Controls
           showInteractive={false}
-          className="[&>button]:!bg-[#111827] [&>button]:!border-[#1E293B] [&>button]:!text-[#6B7A90] [&>button:hover]:!bg-[#1E293B] [&>button:hover]:!text-[#E6EDF3] [&>svg]:!fill-[#6B7A90]"
+          className="dag-rf-controls"
           style={{
-            background: '#111827',
-            border: '1px solid #1E293B',
+            background: 'var(--dag-rf-controls-bg)',
+            border: '1px solid var(--dag-rf-controls-border)',
             borderRadius: '8px',
           }}
         />
@@ -147,10 +167,10 @@ function DAGCanvas({ compact, hideMiniMap = false }: DAGCanvasProps) {
       {!compact && !hideMiniMap && (
         <MiniMap
           nodeColor={minimapNodeColor}
-          maskColor="rgba(10, 14, 23, 0.7)"
+          maskColor="var(--dag-rf-minimap-mask)"
           style={{
-            background: '#111827',
-            border: '1px solid #1E293B',
+            background: 'var(--dag-rf-minimap-bg)',
+            border: '1px solid var(--dag-rf-controls-border)',
             borderRadius: '8px',
           }}
         />
@@ -195,19 +215,23 @@ function ReactFlowDAG({ steps, compact = false, className = '', onNodeClick, hid
     return (
       <div
         className={`flex items-center justify-center ${className}`}
-        style={{ background: '#0a0e17', minHeight: 200 }}
+        style={{ background: 'var(--dag-rf-background)', minHeight: 200 }}
       >
-        <span style={{ color: '#6B7A90', fontSize: 13 }}>
+        <span style={{ color: 'var(--dag-rf-controls-text)', fontSize: 13 }}>
           No execution steps
         </span>
       </div>
     );
   }
 
+  // Ref for the outer container div (used by ResizeObserver in DAGCanvas)
+  const containerRef = useRef<HTMLDivElement | null>(null);
+
   return (
     <div
+      ref={containerRef}
       className={className || 'relative h-full'}
-      style={{ background: '#0a0e17', borderRadius: '12px', overflow: 'hidden' }}
+      style={{ background: 'var(--dag-rf-background)', borderRadius: '12px', overflow: 'hidden' }}
     >
       <ReactFlow
         nodes={nodes}
@@ -227,12 +251,13 @@ function ReactFlowDAG({ steps, compact = false, className = '', onNodeClick, hid
         maxZoom={compact ? 0.8 : 2}
         defaultViewport={{ x: 0, y: 0, zoom: compact ? 0.4 : 0.8 }}
         proOptions={{ hideAttribution: true }}
-        style={{ background: '#0a0e17', width: '100%', height: '100%' }}
+        style={{ background: 'var(--dag-rf-background)', width: '100%', height: '100%' }}
       >
         <DAGCanvas
           key={dataVersionRef.current}
           compact={compact}
           hideMiniMap={hideMiniMap}
+          containerRef={containerRef}
         />
       </ReactFlow>
     </div>

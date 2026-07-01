@@ -1,7 +1,7 @@
 /**
- * BaseNode - Cyberpunk-style rounded-rectangle node with glow border.
+ * BaseNode - Theme-aware rounded-rectangle node with glow border.
  * Icon + label/subtitle inside the node body.
- * Fixed dark theme — all colors hardcoded.
+ * All colors are CSS custom properties — adapts to light/dark themes.
  */
 
 import { memo } from 'react';
@@ -39,9 +39,10 @@ function BaseNode({ data, selected }: BaseNodeProps) {
   const colors = NODE_COLORS[data.type];
   const Icon = NODE_ICONS[data.type];
 
+  // Glow uses the CSS variable directly — intensity varies by selection state
   const glowStyle = selected
-    ? `0 0 12px ${colors.glow}, 0 0 30px ${colors.glow}, 0 0 60px ${colors.primary}40`
-    : `0 0 8px ${colors.glow}, 0 0 20px ${colors.glow}, 0 0 40px ${colors.primary}20`;
+    ? `0 0 12px ${colors.glow}, 0 0 30px ${colors.glow}, 0 0 60px color-mix(in srgb, ${colors.primary} 25%, transparent)`
+    : `0 0 8px ${colors.glow}, 0 0 20px ${colors.glow}, 0 0 40px color-mix(in srgb, ${colors.primary} 13%, transparent)`;
 
   return (
     <div
@@ -107,7 +108,7 @@ function BaseNode({ data, selected }: BaseNodeProps) {
             style={{
               fontSize: '12px',
               fontWeight: 600,
-              color: '#E6EDF3',
+              color: 'var(--dag-rf-node-label)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',
@@ -120,7 +121,7 @@ function BaseNode({ data, selected }: BaseNodeProps) {
             className="dag-node-subtitle"
             style={{
               fontSize: '10px',
-              color: '#8B9AB5',
+              color: 'var(--dag-rf-node-subtitle)',
               overflow: 'hidden',
               textOverflow: 'ellipsis',
               whiteSpace: 'nowrap',

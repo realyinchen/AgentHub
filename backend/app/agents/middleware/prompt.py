@@ -123,9 +123,17 @@ def _build_time_context(timezone: str) -> dict[str, str | int]:
 
 
 def _inject_time_context(template: str, timezone: str) -> str:
-    """Replace time placeholders in template."""
+    """Replace time placeholders in template.
+
+    Uses ``str.replace()`` per variable instead of ``str.format()`` so that
+    other curly braces in the template (e.g. JSON snippets, code blocks) are
+    left untouched and won't cause ``KeyError`` or ``ValueError``.
+    """
     time_ctx = _build_time_context(timezone)
-    return template.format(**time_ctx)
+    result = template
+    for key, value in time_ctx.items():
+        result = result.replace(f"{{{key}}}", str(value))
+    return result
 
 
 # ── Dynamic prompt middlewares ──────────────────────────────────────────────

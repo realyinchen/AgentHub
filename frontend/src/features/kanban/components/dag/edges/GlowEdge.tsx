@@ -1,14 +1,58 @@
 /**
- * GlowEdge - Cyberpunk-style bezier edge with gradient glow.
- * Fixed dark theme — all colors hardcoded.
+ * GlowEdge - Theme-aware bezier edge with gradient glow.
+ * Resolves CSS custom properties at render time so SVG gradient stops
+ * and marker fills get real color values.
+ * Subscribes to <html> class changes for theme reactivity.
  */
 
-import { memo } from 'react';
+import { memo, useEffect, useState, useCallback } from 'react';
 import {
   BaseEdge,
   getBezierPath,
   type EdgeProps,
 } from '@xyflow/react';
+
+// ============================================================================
+// Resolve a CSS custom property to its computed value
+// ============================================================================
+
+function resolveCSSVar(varRef: string): string {
+  if (typeof document === 'undefined') return '#3B82F6';
+  const name = varRef.replace(/^var\(|\)$/g, '').trim();
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || '#3B82F6';
+}
+
+// ============================================================================
+// Hook: subscribes to theme changes (dark class toggle on <html>)
+// ============================================================================
+
+function useResolvedColors(sourceVar: string, targetVar: string) {
+  const resolve = useCallback(() => ({
+    source: resolveCSSVar(sourceVar),
+    target: resolveCSSVar(targetVar),
+  }), [sourceVar, targetVar]);
+
+  const [colors, setColors] = useState(resolve);
+
+  useEffect(() => {
+    // Re-resolve on mount
+    setColors(resolve());
+
+    // Watch for class changes on <html> (theme toggle adds/removes .dark)
+    const observer = new MutationObserver(() => {
+      setColors(resolve());
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+    return () => observer.disconnect();
+  }, [resolve]);
+
+  return colors;
+}
+
+// ============================================================================
+// Props
+// ============================================================================
 
 interface GlowEdgeData {
   sourceColor?: string;
@@ -27,8 +71,11 @@ function GlowEdge({
   selected,
 }: EdgeProps) {
   const edgeData = (data ?? {}) as GlowEdgeData;
-  const sourceColor = edgeData.sourceColor ?? '#3B82F6';
-  const targetColor = edgeData.targetColor ?? '#10B981';
+  const sourceVar = edgeData.sourceColor ?? 'var(--dag-node-ai-border)';
+  const targetVar = edgeData.targetColor ?? 'var(--dag-node-final-border)';
+
+  // Resolve CSS variables → actual hex/rgb colors for SVG attributes
+  const { source: sourceColor, target: targetColor } = useResolvedColors(sourceVar, targetVar);
 
   const [edgePath] = getBezierPath({
     sourceX,
@@ -45,7 +92,7 @@ function GlowEdge({
   const glowFilterSelectedId = `glow-filter-selected-${id}`;
   const markerId = `arrow-${id}`;
 
-  const strokeColor = selected ? '#FFFFFF' : `url(#${gradientId})`;
+  const strokeColor = selected ? 'var(--dag-rf-node-label)' : `url(#${gradientId})`;
   const strokeWidth = selected ? 2.5 : 1.5;
   const glowFilter = selected ? `url(#${glowFilterSelectedId})` : `url(#${glowFilterId})`;
 

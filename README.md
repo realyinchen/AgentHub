@@ -50,26 +50,36 @@ It is **not** another Agent orchestration framework, but a true **Agent Runtime 
 
 AgentHub adopts the **Supervisor Pattern**: A super Agent (Supervisor) serves as the unified entry point, automatically identifying user intent and dispatching to the corresponding SubAgent to complete tasks.
 
-```
-User Request → Supervisor (Intent Recognition + Task Routing)
-                    │
-                    ├── Chat SubAgent (Available Now)
-                    │
-                    ├── ReAct SubAgent (In Development)
-                    │
-                    ├── RAG SubAgent (In Development)
-                    │
-                    └── Multi-Agent Collaboration (In Development)
-```
+<p align="center">
+  <img src="https://github.com/realyinchen/AgentHub/blob/dev/imgs/architecture.png" alt="architecture"><br>
+</p>
 
-**Current Status**: Supervisor has basic conversation capabilities and tool calling (time query, web search). SubAgent dispatching capabilities are under development.
+### Directory Structure
+
+```
+AgentHub/
+├── backend/                    # Backend Service
+│   ├── app/
+│   │   ├── api/               # API Layer: HTTP Endpoints
+│   │   ├── agents/            # Agent Layer: Supervisor + Middleware + Tools
+│   │   ├── infra/             # Infrastructure Layer: Database, LLM, Config
+│   │   ├── crud/              # Database CRUD Operations
+│   │   ├── models/            # SQLAlchemy ORM Models
+│   │   └── schemas/           # Pydantic Request/Response Models
+│   └── requirements.txt
+├── frontend/                   # Frontend Service
+│   └── src/
+│       ├── components/        # Common Components
+│       ├── features/          # Feature Modules (chat, settings, etc.)
+│       └── lib/               # Utility Libraries
+└── docker-compose.yml         # Docker Orchestration Configuration
+```
 
 ### Core Features
 
 | Feature | Description |
 |---------|-------------|
 | ⚡ **High Concurrency & Low Latency** | FastAPI async + SSE token-level streaming + LiteLLM Router automatic fallback/retry |
-| 🧠 **LangChain v1 Official Paradigm** | `create_agent` + Middleware Chain + `astream_events` v3, following production best practices |
 | 👥 **Multi-User Isolation** | Independent session spaces + LangGraph Checkpointer state persistence, complete data isolation |
 | 🔄 **Dynamic Model Switching** | Runtime LLM switching (OpenAI, Anthropic, Groq, Ollama, etc.) without session restart |
 | 💾 **Long-Term Memory** | LangGraph Store + PGVector semantic retrieval, cross-session user preference persistence |
@@ -130,85 +140,6 @@ docker compose logs -f
 - Server: http://your-server-ip
 
 > ✅ Defaults to **PostgreSQL + pgvector**, data persisted to Docker named volumes
-
----
-
-## Technical Architecture
-
-### Four-Layer Architecture
-
-AgentHub adopts a clean four-layer architecture with strictly unidirectional dependencies: `API → Agent → Service → Infra`.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Layer 4: API Layer (HTTP Interface)                   │
-│                                                                              │
-│   auth.py · chat/ · models.py · traces.py · weixin.py                       │
-│                                                                              │
-│   Responsibilities: HTTP endpoints, parameter validation, SSE streaming,     │
-│                     global exception handling                                │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     Layer 3: Agent Layer (Business Logic)                    │
-│                                                                              │
-│   supervisor.py · middleware/ · prompts/ · tools/                           │
-│                                                                              │
-│   Responsibilities: Agent compilation, middleware chain, tool execution,     │
-│                     state management                                         │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      Layer 2: Service Layer (Business Services)              │
-│                                                                              │
-│   streaming.py · chat.py · weixin_listener.py                               │
-│                                                                              │
-│   Responsibilities: Session management, message persistence, SSE streaming,  │
-│                     WeChat message listening                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Layer 1: Infrastructure Layer (Foundation)                │
-│                                                                              │
-│   config.py · database/ · llm/ · security/ · auth.py                        │
-│                                                                              │
-│   Responsibilities: Database connection pool, LLM gateway, vector store,     │
-│                     JWT authentication, configuration management             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### Request Processing Flow
-
-```
-User Request → API Validation → Service Context Building → Agent Middleware Chain → LLM Call → SSE Streaming Response
-                                                    ↓
-                                            Tool Execution (Time/Search)
-                                                    ↓
-                                        Checkpointer State Persistence
-                                                    ↓
-                                        Store Long-Term Memory Semantic Retrieval
-```
-
-### Directory Structure
-
-```
-AgentHub/
-├── backend/                    # Backend Service
-│   ├── app/
-│   │   ├── api/               # API Layer: HTTP Endpoints
-│   │   ├── agents/            # Agent Layer: Supervisor + Middleware + Tools
-│   │   ├── infra/             # Infrastructure Layer: Database, LLM, Config
-│   │   ├── crud/              # Database CRUD Operations
-│   │   ├── models/            # SQLAlchemy ORM Models
-│   │   └── schemas/           # Pydantic Request/Response Models
-│   └── requirements.txt
-├── frontend/                   # Frontend Service
-│   └── src/
-│       ├── components/        # Common Components
-│       ├── features/          # Feature Modules (chat, settings, etc.)
-│       └── lib/               # Utility Libraries
-└── docker-compose.yml         # Docker Orchestration Configuration
-```
 
 ---
 
