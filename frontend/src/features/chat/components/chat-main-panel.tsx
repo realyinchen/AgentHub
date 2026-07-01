@@ -45,6 +45,7 @@ type ChatMainPanelProps = {
   onSelectModel: (modelId: string | null) => void
   onOpenModelConfig?: () => void // Open model configuration dialog
   hasAvailableModels?: boolean // Whether there are available models to select from
+  isModelsLoading?: boolean // Whether models are being fetched
 }
 
 const SCROLL_BOTTOM_HIDE_THRESHOLD = 24
@@ -75,6 +76,7 @@ export function ChatMainPanel({
   onSelectModel,
   onOpenModelConfig,
   hasAvailableModels = true,
+  isModelsLoading = false,
 }: ChatMainPanelProps) {
   const { t } = useI18n()
   const [inputValue, setInputValue] = useState("")
@@ -114,7 +116,7 @@ export function ChatMainPanel({
   }, [isInitializing, isLoadingConversation, isStreaming])
 
   const isComposerDisabled =
-    isInitializing || isLoadingConversation || !hasAvailableModels
+    isInitializing || isLoadingConversation || isModelsLoading || !hasAvailableModels
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const element = conversationRef.current

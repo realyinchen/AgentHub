@@ -10,7 +10,7 @@ from fastapi.routing import APIRoute
 from app.agents import init_agent
 from app.agents.middleware.prompt import preload_templates
 from app.infra.config import get_settings
-from app.utils.logging import JsonFormatter, RequestIdFilter
+from app.utils.logging import ColoredFormatter, JsonFormatter, RequestIdFilter, mark_startup_complete
 from app.infra.llm.manager import get_model_manager
 from app.infra.llm.system_llm import init_system_llm
 from app.infra.llm.embedding import init_embedding_model
@@ -52,7 +52,11 @@ def _configure_logging() -> None:
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)-8s [%(name)s] %(message)s")
+            ColoredFormatter(
+                "%(asctime)s %(levelname)s "
+                "user_id=%(user_id)s thread_id=%(thread_id)s request_id=%(request_id)s "
+                "[%(pathname)s:%(lineno)d] %(message)s"
+            )
         )
 
     root.addHandler(handler)
@@ -65,6 +69,7 @@ def _configure_logging() -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("langchain").setLevel(logging.WARNING)
     logging.getLogger("langgraph").setLevel(logging.WARNING)
+    logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 
 
 # Configure logging at module import time
@@ -115,7 +120,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             store=store.get_store() if store else None,
         )
 
-        # WeChat listener is now per-login, started in WebSocket endpoint
+        # Mark startup complete so RequestIdFilter begins dropping
+        # no-context INFO/DEBUG logs.
+        mark_startup_complete()
+
     except Exception as e:
         logger.critical("Application startup failed, exiting: %s", e)
         sys.exit(1)

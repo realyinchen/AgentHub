@@ -26,6 +26,7 @@ from app.crud.chat import (
     update_conversation_by_thread_id,
     get_latest_model_name,
 )
+from app.infra.auth import CurrentUser
 from app.infra.llm import get_model_manager, get_system_llm
 from app.schemas.chat import (
     ConversationCreate,
@@ -33,7 +34,6 @@ from app.schemas.chat import (
     ConversationInfoResponse,
     ConversationUpdate,
     TitleGenerateRequest,
-    TitleGenerateResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -46,8 +46,8 @@ api_router = APIRouter(tags=["Chat"])
 
 @api_router.get("/conversations", response_model=list[ConversationInDB])
 async def get_conversations(
+    user: CurrentUser,
     response: Response,
-    user_id: UUID = Query(..., description="User ID to scope conversations"),
     limit: int = Query(
         20,
         ge=1,
@@ -59,9 +59,12 @@ async def get_conversations(
     ),
     db: AsyncSession = Depends(get_db),
 ) -> list[ConversationInDB]:
-    """Get a list of recent conversations for a user (most recently updated first)."""
+    """Get a list of recent conversations for the current user (most recently updated first).
+
+    Authentication required. User ID is extracted from JWT token.
+    """
     conversations, total = await list_conversations(
-        db=db, user_id=user_id, limit=limit, offset=offset
+        db=db, user_id=user.id, limit=limit, offset=offset
     )
 
     response.headers["X-Total-Count"] = str(total)
@@ -71,12 +74,15 @@ async def get_conversations(
 @api_router.post("/conversations", response_model=ConversationInDB)
 async def save_conversation(
     conversation_in: ConversationCreate,
-    user_id: UUID = Query(..., description="User ID who owns this conversation"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB:
-    """Create a conversation in DB."""
+    """Create a conversation in DB.
+
+    Authentication required. User ID is extracted from JWT token.
+    """
     conv = await create_conversation(
-        db=db, conversation_in=conversation_in, user_id=user_id
+        db=db, conversation_in=conversation_in, user_id=user.id
     )
     return ConversationInDB.model_validate(conv)
 
@@ -84,12 +90,15 @@ async def save_conversation(
 @api_router.delete("/conversations/{thread_id}", status_code=204)
 async def delete_conversation(
     thread_id: UUID,
-    user_id: UUID = Query(..., description="User ID who owns this conversation"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> None:
-    """Soft-delete a conversation by thread_id."""
+    """Soft-delete a conversation by thread_id.
+
+    Authentication required. User ID is extracted from JWT token.
+    """
     deleted = await soft_delete_conversation_by_thread_id(
-        db=db, thread_id=thread_id, user_id=user_id
+        db=db, thread_id=thread_id, user_id=user.id
     )
     if not deleted:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -103,7 +112,7 @@ async def delete_conversation(
 )
 async def get_conversation_info(
     thread_id: UUID,
-    user_id: UUID = Query(..., description="User ID who owns this conversation"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInfoResponse:
     """Get the last-used model for a conversation.
@@ -111,10 +120,12 @@ async def get_conversation_info(
     Used when entering a historical conversation. Returns the model_name
     from the most recent trace execution. If the model is no longer
     active, falls back to the system default.
+
+    Authentication required. User ID is extracted from JWT token.
     """
     # Verify the conversation belongs to the user
     conv = await read_conversation_by_thread_id(
-        db=db, thread_id=thread_id, user_id=user_id
+        db=db, thread_id=thread_id, user_id=user.id
     )
     if conv is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
@@ -143,15 +154,18 @@ async def get_conversation_info(
 @api_router.get("/conversations/{thread_id}/title")
 async def get_conversation_title(
     thread_id: UUID,
-    user_id: UUID = Query(..., description="User ID who owns this conversation"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB | None:
-    """Get the title of a conversation."""
+    """Get the title of a conversation.
+
+    Authentication required. User ID is extracted from JWT token.
+    """
     if not thread_id:
         raise HTTPException(status_code=400, detail="thread_id is not provided")
 
     conv = await read_conversation_by_thread_id(
-        db=db, thread_id=thread_id, user_id=user_id
+        db=db, thread_id=thread_id, user_id=user.id
     )
     if conv is None:
         return None
@@ -162,10 +176,13 @@ async def get_conversation_title(
 async def update_conversation_title(
     thread_id: UUID,
     conversation_title: ConversationUpdate,
-    user_id: UUID = Query(..., description="User ID who owns this conversation"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ConversationInDB | None:
-    """Set or update the title of a conversation (partial update via PATCH)."""
+    """Set or update the title of a conversation (partial update via PATCH).
+
+    Authentication required. User ID is extracted from JWT token.
+    """
     if not thread_id:
         raise HTTPException(
             status_code=400, detail="thread_id is required to set conversation title."
@@ -177,7 +194,7 @@ async def update_conversation_title(
         )
 
     conv = await update_conversation_by_thread_id(
-        db=db, thread_id=thread_id, update_data=conversation_title, user_id=user_id
+        db=db, thread_id=thread_id, update_data=conversation_title, user_id=user.id
     )
     if conv is None:
         return None
@@ -186,22 +203,33 @@ async def update_conversation_title(
 
 @api_router.post(
     "/conversations/{thread_id}/title/generate",
-    response_model=TitleGenerateResponse,
+    response_model=ConversationInDB,
 )
 async def generate_title(
     thread_id: UUID,
     request: TitleGenerateRequest,
-) -> TitleGenerateResponse:
-    """Generate a conversation title using the system default LLM.
+    user: CurrentUser,
+    db: AsyncSession = Depends(get_db),
+) -> ConversationInDB:
+    """Generate a conversation title using the system default LLM and save it.
 
     Uses LangChain message types (SystemMessage / HumanMessage) for unified
     LLM invocation — consistent with all other LLM calls in the platform.
     System/user message separation prevents prompt injection.
 
-    On any failure, returns a truncated fallback title instead of raising
+    On any failure, uses a truncated fallback title instead of raising
     an exception — this endpoint is called during conversation creation and
     should not block the user flow.
+
+    Authentication required. Authorization: user must own the conversation.
     """
+    # 1. Authorization check: verify conversation belongs to user
+    conv = await read_conversation_by_thread_id(
+        db=db, thread_id=thread_id, user_id=user.id
+    )
+    if conv is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
     try:
         llm = get_system_llm()
 
@@ -264,11 +292,18 @@ async def generate_title(
         if len(title) > 50:
             title = title[:47] + "..."
 
-        return TitleGenerateResponse(title=title)
-
     except Exception as e:
         logger.error("Error generating title: %s", e)
-        fallback = request.user_message[:30]
+        title = request.user_message[:30]
         if len(request.user_message) > 30:
-            fallback += "..."
-        return TitleGenerateResponse(title=fallback)
+            title += "..."
+
+    # 2. Save the generated title to database
+    update_data = ConversationUpdate(title=title)
+    updated_conv = await update_conversation_by_thread_id(
+        db=db, thread_id=thread_id, update_data=update_data, user_id=user.id
+    )
+    if updated_conv is None:
+        raise HTTPException(status_code=500, detail="Failed to save title")
+
+    return ConversationInDB.model_validate(updated_conv)

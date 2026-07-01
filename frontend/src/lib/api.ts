@@ -16,14 +16,34 @@ import type {
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
 const apiBaseUrl = rawBaseUrl.replace(/\/$/, "")
 
+// ── Auth helpers ───────────────────────────────────────────────────────────────
+
+/** Check if current path is login page */
+function isLoginPage(): boolean {
+  return window.location.pathname === "/login"
+}
+
+/** Redirect to login page on 401 */
+function handleUnauthorized(): void {
+  if (!isLoginPage()) {
+    window.location.href = "/login"
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, {
     ...init,
+    credentials: "include", // Include HTTP-only cookies
     headers: {
       "Content-Type": "application/json",
       ...(init?.headers ?? {}),
     },
   })
+
+  if (response.status === 401) {
+    handleUnauthorized()
+    throw new Error("Unauthorized")
+  }
 
   if (!response.ok) {
     let details = ""
@@ -39,22 +59,56 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return (await response.json()) as T
 }
 
-// ── User scoping helper ───────────────────────────────────────────────────────
+// ── Deprecated: kept for backward compatibility ───────────────────────────────
+// These functions are no longer used but exported to prevent breaking changes
 
-let _currentUserId: string | null = null
-
-export function setCurrentUserId(userId: string | null): void {
-  _currentUserId = userId
+/** @deprecated User ID is now managed server-side via JWT cookie */
+export function setCurrentUserId(_userId: string | null): void {
+  // No-op: user ID comes from JWT cookie
 }
 
+/** @deprecated User ID is now managed server-side via JWT cookie */
 export function getCurrentUserId(): string | null {
-  return _currentUserId
+  console.warn("getCurrentUserId() is deprecated. Use /auth/status instead.")
+  return null
 }
 
-function userIdQuery(): string {
-  const id = _currentUserId
-  if (!id) throw new Error("No user selected. Please select a user first.")
-  return `user_id=${encodeURIComponent(id)}`
+// ── Auth API ──────────────────────────────────────────────────────────────────
+
+export interface AuthStatus {
+  authenticated: boolean
+  user: {
+    id: string
+    display_name: string
+    is_mock_user: boolean
+  } | null
+}
+
+export async function getAuthStatus(): Promise<AuthStatus> {
+  return requestJson<AuthStatus>("/auth/status")
+}
+
+export interface MockUser {
+  id: string
+  display_name: string
+  is_mock_user: boolean
+}
+
+export async function getMockUsers(): Promise<MockUser[]> {
+  return requestJson<MockUser[]>("/auth/mock-users")
+}
+
+export async function mockLogin(userId: string): Promise<void> {
+  await requestJson<void>("/auth/mock-login", {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId }),
+  })
+}
+
+export async function logout(): Promise<void> {
+  await requestJson<void>("/auth/logout", {
+    method: "POST",
+  })
 }
 
 // ── Conversations ─────────────────────────────────────────────────────────────
@@ -64,8 +118,13 @@ export async function listConversations(
   offset = 0,
 ): Promise<{ conversations: ConversationInDB[]; total: number }> {
   const response = await fetch(
-    `${apiBaseUrl}/chat/conversations?${userIdQuery()}&limit=${limit}&offset=${offset}`,
+    `${apiBaseUrl}/chat/conversations?limit=${limit}&offset=${offset}`,
+    { credentials: "include" },
   )
+  if (response.status === 401) {
+    handleUnauthorized()
+    throw new Error("Unauthorized")
+  }
   if (!response.ok) {
     throw new Error(`HTTP ${response.status}`)
   }
@@ -87,22 +146,24 @@ export async function createConversation(input: {
   thread_id: string
   title: string
 }): Promise<ConversationInDB> {
-  return requestJson<ConversationInDB>(
-    `/chat/conversations?${userIdQuery()}`,
-    {
-      method: "POST",
-      body: JSON.stringify(input),
-    },
-  )
+  return requestJson<ConversationInDB>("/chat/conversations", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
 }
 
-export async function deleteConversation(
-  threadId: string,
-): Promise<void> {
-  await fetch(
-    `${apiBaseUrl}/chat/conversations/${encodeURIComponent(threadId)}?${userIdQuery()}`,
-    { method: "DELETE" },
+export async function deleteConversation(threadId: string): Promise<void> {
+  const response = await fetch(
+    `${apiBaseUrl}/chat/conversations/${encodeURIComponent(threadId)}`,
+    {
+      method: "DELETE",
+      credentials: "include",
+    },
   )
+  if (response.status === 401) {
+    handleUnauthorized()
+    throw new Error("Unauthorized")
+  }
 }
 
 // ── Conversation info (model fallback) ────────────────────────────────────────
@@ -116,7 +177,7 @@ export async function getConversationInfo(
   threadId: string,
 ): Promise<ConversationInfoResponse> {
   return requestJson<ConversationInfoResponse>(
-    `/chat/conversations/${encodeURIComponent(threadId)}/info?${userIdQuery()}`,
+    `/chat/conversations/${encodeURIComponent(threadId)}/info`,
   )
 }
 
@@ -126,7 +187,7 @@ export async function getConversationTitle(
   threadId: string,
 ): Promise<ConversationInDB | null> {
   return requestJson<ConversationInDB | null>(
-    `/chat/conversations/${encodeURIComponent(threadId)}/title?${userIdQuery()}`,
+    `/chat/conversations/${encodeURIComponent(threadId)}/title`,
   )
 }
 
@@ -135,7 +196,7 @@ export async function setConversationTitle(
   title: string,
 ): Promise<ConversationInDB | null> {
   return requestJson<ConversationInDB | null>(
-    `/chat/conversations/${encodeURIComponent(threadId)}/title?${userIdQuery()}`,
+    `/chat/conversations/${encodeURIComponent(threadId)}/title`,
     {
       method: "PATCH",
       body: JSON.stringify({ title }),
@@ -143,12 +204,17 @@ export async function setConversationTitle(
   )
 }
 
+/**
+ * Generate and save conversation title using LLM.
+ * The generated title is automatically saved to the database.
+ * Returns the updated conversation object.
+ */
 export async function generateTitle(input: {
   thread_id: string
   user_message: string
   ai_response?: string
-}): Promise<{ title: string }> {
-  return requestJson<{ title: string }>(
+}): Promise<ConversationInDB> {
+  return requestJson<ConversationInDB>(
     `/chat/conversations/${encodeURIComponent(input.thread_id)}/title/generate`,
     {
       method: "POST",
@@ -162,21 +228,29 @@ export async function generateTitle(input: {
 
 // ── History ───────────────────────────────────────────────────────────────────
 
-export async function getHistory(
-  threadId: string,
-): Promise<ChatHistory> {
+export async function getHistory(threadId: string): Promise<ChatHistory> {
   return requestJson<ChatHistory>(
-    `/chat/history/${encodeURIComponent(threadId)}?${userIdQuery()}`,
+    `/chat/history/${encodeURIComponent(threadId)}`,
   )
 }
 
 // ── Invoke / Stream ───────────────────────────────────────────────────────────
 
-export async function invoke(input: UserInput): Promise<ChatMessage> {
-  return requestJson<ChatMessage>("/chat/invoke", {
-    method: "POST",
-    body: JSON.stringify(input),
-  })
+export async function invoke(
+  threadId: string,
+  input: UserInput,
+): Promise<ChatMessage> {
+  const requestId = crypto.randomUUID()
+  return requestJson<ChatMessage>(
+    `/chat/${encodeURIComponent(threadId)}/invoke`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+      headers: {
+        "X-Request-ID": requestId,
+      },
+    },
+  )
 }
 
 function parseStreamChunk(
@@ -205,18 +279,30 @@ function parseStreamChunk(
 }
 
 export async function streamChat(
+  threadId: string,
   input: UserInput,
   onEvent: (event: StreamEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/chat/stream`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
+  const requestId = crypto.randomUUID()
+  const response = await fetch(
+    `${apiBaseUrl}/chat/${encodeURIComponent(threadId)}/stream`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Request-ID": requestId,
+      },
+      body: JSON.stringify(input),
+      signal,
+      credentials: "include", // Include HTTP-only cookies
     },
-    body: JSON.stringify(input),
-    signal,
-  })
+  )
+
+  if (response.status === 401) {
+    handleUnauthorized()
+    throw new Error("Unauthorized")
+  }
 
   if (!response.ok) {
     let details = ""

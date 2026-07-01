@@ -6,8 +6,10 @@ Multi-turn conversation state is maintained by the checkpointer.
 Architecture (simplified — no subagent delegation):
     User → Agent (checkpointer + dynamic prompt + dynamic model)
                 │
-                ├── get_current_time  (@tool: time queries)
                 └── web_search        (@tool: web search)
+
+Time context is injected into the system prompt by supervisor_prompt middleware
+— no separate ``get_current_time`` tool call needed.
 
 Tools are injected directly — no list_agents/task delegation overhead.
 """
@@ -25,7 +27,7 @@ from app.agents.context import AgentRuntimeContext
 from app.agents.middleware.content_filter import content_filter
 from app.agents.middleware.model import dynamic_model
 from app.agents.middleware.prompt import supervisor_prompt
-from app.agents.tools import get_current_time, create_web_search
+from app.agents.tools import create_web_search
 
 logger = logging.getLogger(__name__)
 
@@ -63,12 +65,13 @@ async def init_agent(
     model = get_system_llm()
 
     # Build tools directly (no subagent delegation)
-    tools: list = [get_current_time]
+    # Time is injected into system prompt — no need for get_current_time tool.
+    tools: list = []
     try:
         tools.append(create_web_search())
     except Exception as exc:
         logger.warning(
-            "Web search unavailable (%s), agent uses time-only tools",
+            "Web search unavailable (%s), agent has no tools",
             exc,
         )
 

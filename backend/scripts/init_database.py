@@ -34,19 +34,15 @@ def _build_postgres_url() -> str:
 
 def _get_sorted_sql_files() -> list[str]:
     """
-    Get all .sql files from the sql/ directory, sorted by name.
+    Get all .sql files from the sql/ directory, sorted by numeric prefix.
 
-    Sort order: init_database.sql first, then change_*.sql files by numeric suffix.
+    Files are named like ``000_init_database.sql``, ``001_add_trace_tokens.sql``.
+    The numeric prefix (e.g. ``000``) determines execution order.
     """
     sql_files = list(SQL_DIR.glob("*.sql"))
     sorted_files = sorted(
         sql_files,
-        key=lambda p: (
-            0 if p.name == "init_database.sql" else 1,
-            int("".join(filter(str.isdigit, p.stem)))
-            if "change_" in p.name
-            else 9999,
-        ),
+        key=lambda p: int(p.stem.split("_")[0]),
     )
     return [str(f) for f in sorted_files]
 

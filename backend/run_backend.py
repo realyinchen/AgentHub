@@ -8,19 +8,14 @@ from dotenv import load_dotenv
 from app.infra.config import get_settings
 from app.utils.logging import JsonFormatter, RequestIdFilter
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Suppress third-party warnings BEFORE any imports that might trigger them
-# ─────────────────────────────────────────────────────────────────────────────
-
 # Suppress Pydantic serialization warnings from LiteLLM
 # These are benign type hints that don't affect functionality
 warnings.filterwarnings("ignore", category=UserWarning, module="pydantic")
 
-# Suppress LiteLLM INFO/WARNING logs (keep only ERROR)
-# Must be set before litellm is imported anywhere in the application
+# Suppress LiteLLM INFO/WARNING logs (keep only ERROR).
+# Must be set before litellm is imported anywhere in the application.
+logging.getLogger("LiteLLM").setLevel(logging.ERROR)
 logging.getLogger("litellm").setLevel(logging.ERROR)
-
-# ─────────────────────────────────────────────────────────────────────────────
 
 # Set Compatible event loop policy on Windows Systems.
 # On Windows systems, the default ProactorEventLoop can cause issues with
@@ -46,14 +41,14 @@ def configure_logging() -> None:
 
     Two formats are supported, controlled by ``LOG_FORMAT``:
 
-    - ``console`` (default for dev): Human-readable with timestamp, logger
-      name, request_id, and message.
+    - ``console`` (default for dev): Human-readable with timestamp, filename,
+      request_id, user_id, thread_id, and message.
     - ``json`` (recommended for prod): One JSON object per line, compatible
       with log aggregation systems (ELK, Loki, Datadog, etc.). Uses only
       stdlib ``json`` — no external dependencies.
 
-    Both formats automatically include ``request_id`` via the
-    ``RequestIdFilter`` registered in ``app.main``.
+    Both formats automatically include ``request_id``, ``user_id``, and
+    ``thread_id`` via the ``RequestIdFilter``.
 
     Third-party library noise is suppressed (httpcore, httpx, langchain,
     langgraph) regardless of format.
@@ -77,7 +72,11 @@ def configure_logging() -> None:
         handler.setFormatter(JsonFormatter())
     else:
         handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)-8s [%(name)s] %(message)s")
+            logging.Formatter(
+                "%(asctime)s %(levelname)s "
+                "user_id=%(user_id)s thread_id=%(thread_id)s request_id=%(request_id)s "
+                "[%(filename)s] %(message)s"
+            )
         )
 
     root.addHandler(handler)

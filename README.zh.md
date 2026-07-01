@@ -50,26 +50,36 @@
 
 AgentHub 采用 **Supervisor 模式**：一个超级 Agent（Supervisor）作为统一入口，自动识别用户意图并调度相应的 SubAgent 完成任务。
 
-```
-用户请求 → Supervisor（意图识别 + 任务路由）
-                    │
-                    ├── 闲聊 SubAgent（当前可用）
-                    │
-                    ├── ReAct SubAgent（规划中）
-                    │
-                    ├── RAG SubAgent（规划中）
-                    │
-                    └── 多 Agent 协作（规划中）
-```
+<p align="center">
+  <img src="https://github.com/realyinchen/AgentHub/blob/dev/imgs/architecture.png" alt="architecture"><br>
+</p>
 
-**当前状态**：Supervisor 已具备基础对话能力和工具调用（时间查询、网络搜索），SubAgent 调度能力正在开发中。
+### 目录结构
+
+```
+AgentHub/
+├── backend/                    # 后端服务
+│   ├── app/
+│   │   ├── api/               # API 层：HTTP 接口
+│   │   ├── agents/            # Agent 层：Supervisor + Middleware + Tools
+│   │   ├── infra/             # 基础设施层：数据库、LLM、配置
+│   │   ├── crud/              # 数据库 CRUD 操作
+│   │   ├── models/            # SQLAlchemy ORM 模型
+│   │   └── schemas/           # Pydantic 请求/响应模型
+│   └── requirements.txt
+├── frontend/                   # 前端服务
+│   └── src/
+│       ├── components/        # 通用组件
+│       ├── features/          # 功能模块（chat、settings 等）
+│       └── lib/               # 工具库
+└── docker-compose.yml         # Docker 编排配置
+```
 
 ### 核心特点
 
 | 特点 | 说明 |
 |------|------|
 | ⚡ **高并发低延迟** | FastAPI async + SSE token 级流式响应 + LiteLLM Router 自动 fallback/retry |
-| 🧠 **LangChain v1 官方范式** | `create_agent` + Middleware Chain + `astream_events` v3，符合生产最佳实践 |
 | 👥 **多用户隔离** | 独立会话空间 + LangGraph Checkpointer 状态持久化，数据完全隔离 |
 | 🔄 **动态模型切换** | 运行时切换 LLM（OpenAI、Anthropic、Groq、Ollama 等），无需重启会话 |
 | 💾 **长期记忆** | LangGraph Store + PGVector 语义检索，跨会话持久化用户偏好 |
@@ -130,81 +140,6 @@ docker compose logs -f
 - 服务器：http://your-server-ip
 
 > ✅ 默认使用 **PostgreSQL + pgvector**，数据持久化到 Docker 命名卷
-
----
-
-## 技术架构
-
-### 四层架构
-
-AgentHub 采用清晰的四层架构，依赖方向严格单向：`API → Agent → Service → Infra`。
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        Layer 4: API Layer (HTTP Interface)                   │
-│                                                                              │
-│   auth.py · chat/ · models.py · traces.py · weixin.py                       │
-│                                                                              │
-│   职责：HTTP 接口、参数校验、SSE 流式响应、全局异常处理                          │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     Layer 3: Agent Layer (Business Logic)                    │
-│                                                                              │
-│   supervisor.py · middleware/ · prompts/ · tools/                           │
-│                                                                              │
-│   职责：Agent 编译、中间件链、工具执行、状态管理                                  │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      Layer 2: Service Layer (Business Services)              │
-│                                                                              │
-│   streaming.py · chat.py · weixin_listener.py                               │
-│                                                                              │
-│   职责：会话管理、消息持久化、SSE 流式处理、微信消息监听                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                       ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    Layer 1: Infrastructure Layer (Foundation)                │
-│                                                                              │
-│   config.py · database/ · llm/ · security/ · auth.py                        │
-│                                                                              │
-│   职责：数据库连接池、LLM 网关、向量存储、JWT 认证、配置管理                       │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 请求处理流程
-
-```
-用户请求 → API 校验 → Service 构建上下文 → Agent 中间件链 → LLM 调用 → SSE 流式返回
-                                                    ↓
-                                            工具执行（时间/搜索）
-                                                    ↓
-                                        Checkpointer 持久化状态
-                                                    ↓
-                                        Store 长期记忆语义检索
-```
-
-### 目录结构
-
-```
-AgentHub/
-├── backend/                    # 后端服务
-│   ├── app/
-│   │   ├── api/               # API 层：HTTP 接口
-│   │   ├── agents/            # Agent 层：Supervisor + Middleware + Tools
-│   │   ├── infra/             # 基础设施层：数据库、LLM、配置
-│   │   ├── crud/              # 数据库 CRUD 操作
-│   │   ├── models/            # SQLAlchemy ORM 模型
-│   │   └── schemas/           # Pydantic 请求/响应模型
-│   └── requirements.txt
-├── frontend/                   # 前端服务
-│   └── src/
-│       ├── components/        # 通用组件
-│       ├── features/          # 功能模块（chat、settings 等）
-│       └── lib/               # 工具库
-└── docker-compose.yml         # Docker 编排配置
-```
 
 ---
 

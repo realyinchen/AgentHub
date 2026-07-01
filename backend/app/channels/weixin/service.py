@@ -108,13 +108,13 @@ class WeixinService:
         try:
             async with session.get(url, headers=self._make_headers(token)) as resp:
                 text = await resp.text()
-                logger.debug(f"[GET {path}] HTTP {resp.status} → {text[:200]}")
+                logger.debug(f"[WeChat] GET {path} HTTP {resp.status} → {text[:200]}")
                 try:
                     return json.loads(text)
                 except json.JSONDecodeError:
                     return {}
         except Exception as e:
-            logger.error(f"[GET {path}] Request failed: {e}")
+            logger.error(f"[WeChat] GET {path} request failed: {e}")
             raise
 
     async def _api_post(
@@ -143,13 +143,13 @@ class WeixinService:
                 url, json=body, headers=self._make_headers(token)
             ) as resp:
                 text = await resp.text()
-                logger.debug(f"[POST {path}] HTTP {resp.status} → {text[:200]}")
+                logger.debug(f"[WeChat] POST {path} HTTP {resp.status} → {text[:200]}")
                 try:
                     return json.loads(text)
                 except json.JSONDecodeError:
                     return {}
         except Exception as e:
-            logger.error(f"[POST {path}] Request failed: {e}")
+            logger.error(f"[WeChat] POST {path} request failed: {e}")
             raise
 
     async def get_qrcode(
@@ -173,7 +173,7 @@ class WeixinService:
             if data.get("qrcode"):
                 return data
         except Exception as e:
-            logger.warning(f"POST get_bot_qrcode failed: {e}")
+            logger.warning(f"[WeChat] POST get_bot_qrcode failed, falling back to GET: {e}")
 
         # Fallback to GET (1.x style)
         return await self._api_get("ilink/bot/get_bot_qrcode?bot_type=3")
@@ -238,7 +238,7 @@ class WeixinService:
                     qrcode, pending_verify_code, current_base_url
                 )
             except Exception as e:
-                logger.error(f"Poll status failed: {e}")
+                logger.warning(f"[WeChat] Poll status failed, retrying: {e}")
                 await asyncio.sleep(1)
                 continue
 
@@ -268,14 +268,14 @@ class WeixinService:
                 redirect_host = result.get("redirect_host")
                 if redirect_host:
                     current_base_url = f"https://{redirect_host}"
-                    logger.info(f"Polling redirected to: {current_base_url}")
+                    logger.info(f"[WeChat] Polling redirected to: {current_base_url}")
                 continue
 
             # User scanned, waiting for confirmation
             if status == "scaned":
                 if pending_verify_code and result.get("verify_code_accepted"):
                     pending_verify_code = None
-                logger.info("QR code scanned, waiting for confirmation...")
+                logger.info("[WeChat] QR code scanned, waiting for confirmation...")
 
             # Need verification code
             if status in ("need_verifycode", "verify_code_blocked") or result.get(
@@ -316,6 +316,7 @@ class WeixinService:
             "get_updates_buf": get_updates_buf,
             "base_info": self._base_info(),
         }
+        logger.info("[WeChat] Long-polling for updates...")
         return await self._api_post("ilink/bot/getupdates", body, token, base_url)
 
     async def get_config(
@@ -337,6 +338,7 @@ class WeixinService:
             "context_token": context_token,
             "base_info": self._base_info(),
         }
+        logger.info(f"[WeChat] Getting config for user: {user_id}")
         return await self._api_post("ilink/bot/getconfig", body, token, base_url)
 
     async def send_typing(
@@ -365,6 +367,7 @@ class WeixinService:
             "status": status,
             "base_info": self._base_info(),
         }
+        logger.info(f"[WeChat] Sending typing indicator (status={status}) to: {user_id}")
         return await self._api_post("ilink/bot/sendtyping", body, token, base_url)
 
     async def send_message(
@@ -400,6 +403,7 @@ class WeixinService:
             },
             "base_info": self._base_info(),
         }
+        logger.info(f"[WeChat] Sending message to: {to_user_id} (client_id={client_id})")
         return await self._api_post("ilink/bot/sendmessage", body, token, base_url)
 
 

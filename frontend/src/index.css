@@ -166,6 +166,25 @@
   --dag-error-border: #EF4444;
 
   --dag-edge: rgba(0, 0, 0, 0.25);
+
+  /* ReactFlow-specific colors */
+  --dag-rf-background: #EEF2F6;
+  --dag-rf-grid: #CBD5E1;
+  --dag-rf-controls-bg: #FFFFFF;
+  --dag-rf-controls-border: #E2E8F0;
+  --dag-rf-controls-text: #64748B;
+  --dag-rf-controls-hover-bg: #F1F5F9;
+  --dag-rf-controls-hover-text: #1E293B;
+  --dag-rf-minimap-bg: #F8FAFC;
+  --dag-rf-minimap-mask: rgba(238, 242, 246, 0.7);
+  --dag-rf-node-label: #1A1A1A;
+  --dag-rf-node-subtitle: #666666;
+
+  /* Node glow colors */
+  --dag-node-human-glow: rgba(148, 163, 184, 0.4);
+  --dag-node-ai-glow: rgba(59, 130, 246, 0.4);
+  --dag-node-final-glow: rgba(34, 197, 94, 0.4);
+  --dag-node-tool-glow: rgba(168, 85, 247, 0.4);
 }
 
 .dark {
@@ -330,6 +349,25 @@
   --dag-error-border: #F87171;
 
   --dag-edge: rgba(255, 255, 255, 0.25);
+
+  /* ReactFlow-specific colors */
+  --dag-rf-background: #0A0E17;
+  --dag-rf-grid: #1E293B;
+  --dag-rf-controls-bg: #1A2332;
+  --dag-rf-controls-border: #334155;
+  --dag-rf-controls-text: #94A3B8;
+  --dag-rf-controls-hover-bg: #1E293B;
+  --dag-rf-controls-hover-text: #E6EDF3;
+  --dag-rf-minimap-bg: #0F172A;
+  --dag-rf-minimap-mask: rgba(10, 14, 23, 0.8);
+  --dag-rf-node-label: #E6EDF3;
+  --dag-rf-node-subtitle: #9FB0C3;
+
+  /* Node glow colors */
+  --dag-node-human-glow: rgba(148, 163, 184, 0.5);
+  --dag-node-ai-glow: rgba(96, 165, 250, 0.5);
+  --dag-node-final-glow: rgba(74, 222, 128, 0.5);
+  --dag-node-tool-glow: rgba(192, 132, 252, 0.5);
 }
 
 @theme inline {
@@ -1003,4 +1041,93 @@
   border-left: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
   transform: translateY(-50%) rotate(45deg);
+}
+
+/* ==========================================================================
+   DAG (React Flow) Cyberpunk Animations
+   ========================================================================== */
+
+/* Node pulse animation - subtle breathing glow */
+@keyframes dag-pulse {
+  0%, 100% {
+    box-shadow: 0 0 8px var(--dag-glow, #3B82F6), 0 0 20px var(--dag-glow, #3B82F6), 0 0 40px var(--dag-primary, #3B82F6)20;
+  }
+  50% {
+    box-shadow: 0 0 12px var(--dag-glow, #3B82F6), 0 0 30px var(--dag-glow, #3B82F6), 0 0 60px var(--dag-primary, #3B82F6)40;
+  }
+}
+
+/* Edge flowing dash animation */
+@keyframes dag-flow {
+  from {
+    stroke-dashoffset: 24;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* Code background floating animation */
+@keyframes dag-float {
+  0%, 100% {
+    transform: translateY(0px) translateX(0px);
+    opacity: 0.04;
+  }
+  25% {
+    transform: translateY(-10px) translateX(5px);
+    opacity: 0.06;
+  }
+  50% {
+    transform: translateY(-5px) translateX(-3px);
+    opacity: 0.05;
+  }
+  75% {
+    transform: translateY(-15px) translateX(2px);
+    opacity: 0.03;
+  }
+}
+
+/* Node appear animation */
+@keyframes dag-node-appear {
+  from {
+    opacity: 0;
+    transform: scale(0.8);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Apply node appear to wrapper */
+.dag-node-wrapper {
+  animation: dag-node-appear 0.4s ease-out both;
+}
+
+/* ==========================================================================
+   React Flow Controls — theme-aware button overrides
+   ========================================================================== */
+
+.dag-rf-controls {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15) !important;
+}
+
+.dag-rf-controls button {
+  background: var(--dag-rf-controls-bg) !important;
+  border-color: var(--dag-rf-controls-border) !important;
+  color: var(--dag-rf-controls-text) !important;
+  transition: background 0.2s ease, color 0.2s ease !important;
+}
+
+.dag-rf-controls button:hover {
+  background: var(--dag-rf-controls-hover-bg) !important;
+  color: var(--dag-rf-controls-hover-text) !important;
+}
+
+.dag-rf-controls svg {
+  fill: var(--dag-rf-controls-text) !important;
+}
+
+.dag-rf-controls button:hover svg {
+  fill: var(--dag-rf-controls-hover-text) !important;
 }

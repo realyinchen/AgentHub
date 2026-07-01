@@ -7,6 +7,8 @@ Exception handling for uncaught errors is delegated to the centralized
 ``general_exception_handler`` registered in ``app.api.errors``. Route
 handlers only re-raise ``HTTPException`` (e.g., 404 for not-found resources)
 and let the global handler deal with everything else.
+
+Authentication required for all endpoints. User ID is extracted from JWT token.
 """
 
 import logging
@@ -19,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.v1.dependencies import get_db
 from app.crud import chat as chat_crud
 from app.crud import trace as trace_crud
+from app.infra.auth import CurrentUser
 from app.models.trace import TraceExecution
 from app.schemas.trace import (
     TraceListItem,
@@ -55,6 +58,7 @@ async def _verify_trace_owner(
 
 @api_router.get("", response_model=TraceListResponse)
 async def list_traces(
+    user: CurrentUser,
     page: int = Query(0, ge=0, description="Page number (0-indexed)"),
     page_size: int = Query(10, ge=1, le=100, description="Number of traces per page"),
     hours: int = Query(
@@ -63,7 +67,6 @@ async def list_traces(
         le=168,
         description="Filter by hours back from now (max 168 hours / 7 days)",
     ),
-    user_id: UUID = Query(..., description="User ID to scope traces"),
     db: AsyncSession = Depends(get_db),
 ):
     """List traces with pagination and time filtering.
@@ -73,13 +76,15 @@ async def list_traces(
 
     Step counts come from the persisted ``trace_executions`` table rather
     than live checkpointer queries — no graph compilation needed.
+
+    Authentication required. User ID is extracted from JWT token.
     """
     convs, total = await chat_crud.list_traces(
         db,
         hours=hours,
         page=page,
         page_size=page_size,
-        user_id=user_id,
+        user_id=user.id,
     )
 
     total_pages = (total + page_size - 1) // page_size if total > 0 else 0
@@ -150,7 +155,7 @@ async def _batch_fetch_step_counts(
 @api_router.get("/{thread_id}/steps", response_model=list[StepOutput])
 async def get_trace_steps(
     thread_id: UUID,
-    user_id: UUID = Query(..., description="User ID to verify ownership"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Get all execution steps for a specific thread from persisted DAG.
@@ -159,8 +164,10 @@ async def get_trace_steps(
 
     Returns an empty list if the conversation exists but has no trace yet
     (e.g., new conversation before first agent response).
+
+    Authentication required. User ID is extracted from JWT token.
     """
-    await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user.id)
 
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
     # Return empty list for new conversations without trace data yet
@@ -173,15 +180,17 @@ async def get_trace_steps(
 @api_router.get("/{thread_id}/dag", response_model=ExecutionDag)
 async def get_trace_dag(
     thread_id: UUID,
-    user_id: UUID = Query(..., description="User ID to verify ownership"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Get the execution DAG for a specific thread from persisted data.
 
     Reads from ``trace_executions`` table — no graph compilation required.
     Returns the full execution DAG with nodes and edges for visualization.
+
+    Authentication required. User ID is extracted from JWT token.
     """
-    await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user.id)
 
     dag_data, _, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
     if dag_data is None:
@@ -196,7 +205,7 @@ async def get_trace_dag(
 async def get_trace_dag_by_request_id(
     thread_id: UUID,
     request_id: str,
-    user_id: UUID = Query(..., description="User ID to verify ownership"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Get the execution DAG for a specific request_id.
@@ -206,8 +215,10 @@ async def get_trace_dag_by_request_id(
 
     This endpoint is used when viewing historical messages to see the
     exact DAG that was generated during that specific request.
+
+    Authentication required. User ID is extracted from JWT token.
     """
-    await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user.id)
 
     dag_data = await trace_crud.get_dag_by_request_id(db, request_id)
     if dag_data is None:
@@ -222,14 +233,16 @@ async def get_trace_dag_by_request_id(
 async def get_trace_step_by_number(
     thread_id: UUID,
     step_number: int,
-    user_id: UUID = Query(..., description="User ID to verify ownership"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific step by number from persisted DAG.
 
     Reads from ``trace_executions`` — no graph compilation required.
+
+    Authentication required. User ID is extracted from JWT token.
     """
-    await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user.id)
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
     if not steps:
         raise HTTPException(
@@ -247,14 +260,16 @@ async def get_trace_step_by_number(
 async def get_trace_step_by_checkpoint(
     thread_id: UUID,
     checkpoint_id: str,
-    user_id: UUID = Query(..., description="User ID to verify ownership"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ):
     """Get a specific step by checkpoint ID from persisted DAG.
 
     Reads from ``trace_executions`` — no graph compilation required.
+
+    Authentication required. User ID is extracted from JWT token.
     """
-    await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user.id)
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
     if not steps:
         raise HTTPException(
@@ -271,16 +286,18 @@ async def get_trace_step_by_checkpoint(
 @api_router.get("/{thread_id}/replay", response_model=list[StepOutput])
 async def replay_trace(
     thread_id: UUID,
+    user: CurrentUser,
     from_step: int = Query(1, ge=1, description="Start from this step number"),
     to_step: int | None = Query(None, ge=1, description="End at this step number"),
-    user_id: UUID = Query(..., description="User ID to verify ownership"),
     db: AsyncSession = Depends(get_db),
 ):
     """Replay a trace from a specific step range from persisted DAG.
 
     Reads from ``trace_executions`` — no graph compilation required.
+
+    Authentication required. User ID is extracted from JWT token.
     """
-    await _verify_trace_owner(db, thread_id, user_id)
+    await _verify_trace_owner(db, thread_id, user.id)
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
     if not steps:
         raise HTTPException(

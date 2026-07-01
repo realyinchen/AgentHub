@@ -9,15 +9,17 @@ Persistence Function:
 """
 
 import logging
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from langgraph.graph.state import CompiledStateGraph
 
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud import chat as chat_crud
+from app.models.chat import Conversation
 from app.models.trace import TraceExecution
 from app.utils.dag import DagBuilder
 
@@ -119,6 +121,9 @@ async def upsert_trace(
     dag_data: dict,
     total_steps: int,
     model_name: str | None = None,
+    input_tokens: int = 0,
+    output_tokens: int = 0,
+    total_tokens: int = 0,
 ) -> TraceExecution:
     """Insert or update a trace execution for the given request_id.
 
@@ -132,6 +137,9 @@ async def upsert_trace(
         dag_data: Complete ExecutionDag as a dict.
         total_steps: Number of steps in the DAG.
         model_name: LLM model name used for this turn.
+        input_tokens: Input tokens consumed in this turn.
+        output_tokens: Output tokens consumed in this turn.
+        total_tokens: Total tokens consumed in this turn.
     """
     stmt = select(TraceExecution).where(
         TraceExecution.request_id == request_id,
@@ -143,6 +151,9 @@ async def upsert_trace(
         existing.dag_data = dag_data
         existing.total_steps = total_steps
         existing.model_name = model_name
+        existing.input_tokens = input_tokens
+        existing.output_tokens = output_tokens
+        existing.total_tokens = total_tokens
         await db.flush()
         return existing
 
@@ -152,6 +163,9 @@ async def upsert_trace(
         dag_data=dag_data,
         total_steps=total_steps,
         model_name=model_name,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        total_tokens=total_tokens,
     )
     db.add(row)
     await db.flush()
@@ -229,6 +243,68 @@ async def persist_agent_trace(
             dag_data=dag.model_dump(),
             total_steps=len(dag.steps),
             model_name=model_name,
+            input_tokens=tokens.get("input_tokens", 0),
+            output_tokens=tokens.get("output_tokens", 0),
+            total_tokens=tokens.get("total_tokens", 0),
         )
     except Exception:
         logger.exception("Failed to persist DAG for %s", request_id)
+
+
+async def get_daily_trace_stats(
+    db: AsyncSession,
+    days: int = 30,
+    user_id: UUID | None = None,
+) -> list[dict]:
+    """Return daily token usage statistics grouped by trace_executions.created_at.
+
+    Uses trace_executions table (which records per-turn timestamps) instead
+    of conversations.created_at, so that long-lived conversations (e.g.
+    WeChat) report tokens on the actual day they were consumed.
+
+    Args:
+        db: Database session.
+        days: Number of days to look back from now.
+        user_id: Optional user filter. When provided, only traces belonging
+            to conversations owned by this user are included.
+
+    Returns:
+        List of dicts with date, conversation_count, input_tokens,
+        output_tokens, total_tokens, ordered by date ascending.
+    """
+    start_date = datetime.now(timezone.utc) - timedelta(days=days)
+
+    conditions = [
+        TraceExecution.created_at >= start_date,
+    ]
+    if user_id:
+        conditions.append(Conversation.user_id == user_id)
+        conditions.append(Conversation.is_deleted.is_(False))
+
+    stmt = (
+        select(
+            func.date(TraceExecution.created_at).label("date"),
+            func.count(TraceExecution.id).label("conversation_count"),
+            func.sum(TraceExecution.input_tokens).label("input_tokens"),
+            func.sum(TraceExecution.output_tokens).label("output_tokens"),
+            func.sum(TraceExecution.total_tokens).label("total_tokens"),
+        )
+        .join(Conversation, TraceExecution.thread_id == Conversation.thread_id)
+        .where(*conditions)
+        .group_by(func.date(TraceExecution.created_at))
+        .order_by("date")
+    )
+
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    return [
+        {
+            "date": str(row.date),
+            "conversation_count": row.conversation_count,
+            "input_tokens": row.input_tokens,
+            "output_tokens": row.output_tokens,
+            "total_tokens": row.total_tokens,
+        }
+        for row in rows
+    ]

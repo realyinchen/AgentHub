@@ -8,18 +8,17 @@ This module provides:
 
 import logging
 from uuid import UUID
-from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.config import get_settings
 from app.infra.database import get_async_session
-from app.infra.security import create_access_token, verify_token
+from app.infra.security import create_access_token
 from app.infra.auth import get_current_user_optional
-from app.crud import get_user, get_mock_users, get_user_by_channel_user_id
+from app.crud import get_user, get_mock_users
 from app.models.user import User
 
 
@@ -63,25 +62,24 @@ class AuthStatusResponse(BaseModel):
 # ============================================================================
 
 
-def _create_auth_cookie_response(user: User) -> Response:
+def _create_auth_cookie_response(user: User) -> JSONResponse:
     """Create a response with JWT cookie set.
 
     Args:
         user: User instance
 
     Returns:
-        Response with HTTP-only cookie set
+        JSONResponse with HTTP-only cookie set
     """
     settings = get_settings()
 
     # Create JWT token
     token = create_access_token(subject=str(user.id))
 
-    # Build cookie response
-    response = Response(
+    # Build cookie response with JSON body
+    response = JSONResponse(
         status_code=status.HTTP_200_OK,
-        content="Login successful",
-        media_type="text/plain",
+        content={"message": "Login successful"},
     )
 
     response.set_cookie(
@@ -167,17 +165,16 @@ async def mock_login(
 
 
 @router.post("/logout")
-async def logout() -> Response:
+async def logout() -> JSONResponse:
     """Logout by clearing the auth cookie.
 
     Returns a response that clears the JWT cookie.
     """
     settings = get_settings()
 
-    response = Response(
+    response = JSONResponse(
         status_code=status.HTTP_200_OK,
-        content="Logout successful",
-        media_type="text/plain",
+        content={"message": "Logout successful"},
     )
 
     response.delete_cookie(

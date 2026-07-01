@@ -2,12 +2,14 @@
 
 Route (under parent prefix /chat):
     GET /history/{thread_id}  — Conversation history + step sequence for sidebar
+
+Authentication required. User ID is extracted from JWT token.
 """
 
 import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends
 from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,6 +18,7 @@ from app.agents import get_agent
 from app.api.v1.dependencies import get_db
 from app.crud import trace as trace_crud
 from app.crud.chat import read_conversation_by_thread_id
+from app.infra.auth import CurrentUser
 from app.schemas.chat import ChatHistory, ChatMessage
 from app.schemas.trace import StepOutput
 from app.utils.message import (
@@ -31,25 +34,21 @@ api_router = APIRouter(tags=["Chat"])
 @api_router.get("/history/{thread_id}")
 async def history(
     thread_id: UUID,
-    user_id: UUID = Query(..., description="User ID for ownership verification"),
+    user: CurrentUser,
     db: AsyncSession = Depends(get_db),
 ) -> ChatHistory:
     """Get chat history with message sequence for sidebar.
 
-    Requires user_id to verify the conversation belongs to the requesting user.
+    Authentication required. User ID is extracted from JWT token.
     Returns empty history if the conversation does not belong to the user.
     """
     if not thread_id:
         return ChatHistory(messages=[], message_sequence=[])
 
     # Verify conversation ownership — prevent cross-user data leakage
-    conversation = await read_conversation_by_thread_id(db, thread_id, user_id)
+    conversation = await read_conversation_by_thread_id(db, thread_id, user.id)
     if conversation is None:
-        logger.warning(
-            "History access denied: thread_id=%s does not belong to user_id=%s",
-            thread_id,
-            user_id,
-        )
+        logger.warning("History access denied")
         return ChatHistory(messages=[], message_sequence=[])
 
     supervisor = get_agent()

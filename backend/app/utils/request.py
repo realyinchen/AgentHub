@@ -9,13 +9,14 @@ beyond LangChain types and schemas.
 
 import logging
 from typing import TypedDict
+from uuid import UUID
 
 from langchain_core.messages import HumanMessage
 from langchain_core.runnables import RunnableConfig
 
 from app.agents.context import AgentRuntimeContext
 from app.schemas.chat import UserInput
-from app.utils.logging import request_id_context
+from app.utils.logging import request_id_context, thread_id_context
 
 logger = logging.getLogger(__name__)
 
@@ -28,16 +29,20 @@ class AgentKwargs(TypedDict):
     context: AgentRuntimeContext
 
 
-def _build_context(user_input: UserInput) -> AgentRuntimeContext:
-    """Build an AgentRuntimeContext from user input.
+def _build_context(
+    user_input: UserInput,
+    user_id: UUID,
+    request_id: str,
+) -> AgentRuntimeContext:
+    """Build an AgentRuntimeContext from user input and extracted parameters.
 
     All fields have safe defaults — the context is always valid even when
     optional UserInput fields are None.
     """
     custom = user_input.custom_data or {}
     return AgentRuntimeContext(
-        user_id=user_input.user_id or "",
-        request_id=user_input.request_id or "",
+        user_id=user_id,
+        request_id=request_id,
         model_name=user_input.model_name or "",
         thinking_mode=bool(user_input.thinking_mode),
         timezone=user_input.timezone or "Asia/Shanghai",
@@ -45,7 +50,12 @@ def _build_context(user_input: UserInput) -> AgentRuntimeContext:
     )
 
 
-async def build_agent_kwargs(user_input: UserInput) -> AgentKwargs:
+async def build_agent_kwargs(
+    user_input: UserInput,
+    thread_id: str,
+    user_id: UUID,
+    request_id: str,
+) -> AgentKwargs:
     """Convert UserInput to parameters for supervisor.invoke/astream.
 
     Two channels for passing runtime data:
@@ -61,8 +71,6 @@ async def build_agent_kwargs(user_input: UserInput) -> AgentKwargs:
     ``custom_data`` is stored in ``HumanMessage.additional_kwargs`` for persistence
     and restored when loading history.
     """
-    thread_id = str(user_input.thread_id)
-
     # configurable only stores thread_id — LangGraph checkpointer convention
     config = RunnableConfig(configurable={"thread_id": thread_id})
 
@@ -75,15 +83,15 @@ async def build_agent_kwargs(user_input: UserInput) -> AgentKwargs:
         "messages": [human_message],
     }
 
-    context = _build_context(user_input)
+    context = _build_context(user_input, user_id, request_id)
 
-    # Set request_id context variable so all downstream log records
-    # automatically include it (via RequestIdFilter on root logger).
-    request_id_context.set(user_input.request_id or "-")
+    # Set context variables so all downstream log records automatically
+    # include request_id and thread_id (via RequestIdFilter on root logger).
+    request_id_context.set(request_id or "-")
+    thread_id_context.set(thread_id or "-")
 
     logger.info(
-        "build_agent_kwargs: thread_id=%s, thinking_mode=%s, model_name=%s, has_custom_data=%s",
-        thread_id,
+        "build_agent_kwargs: thinking_mode=%s, model_name=%s, has_custom_data=%s",
         user_input.thinking_mode,
         user_input.model_name,
         bool(user_input.custom_data),

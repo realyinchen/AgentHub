@@ -3,6 +3,7 @@
 Provides:
 - get_current_user: Dependency to get the current authenticated user
 - get_current_user_optional: Optional dependency (returns None if not authenticated)
+- verify_thread_access: Verify user owns a conversation thread
 """
 
 import logging
@@ -16,7 +17,9 @@ from app.infra.config import get_settings
 from app.infra.security import verify_token
 from app.infra.database import get_async_session
 from app.crud import get_user
+from app.crud.chat import read_conversation_by_thread_id
 from app.models.user import User
+from app.utils.logging import user_id_context
 
 
 logger = logging.getLogger(__name__)
@@ -100,6 +103,7 @@ async def get_current_user(
             detail="User not found",
         )
 
+    user_id_context.set(str(user.id))
     return user
 
 
@@ -139,3 +143,37 @@ async def get_current_user_optional(
 # Type aliases for dependency injection
 CurrentUser = Annotated[User, Depends(get_current_user)]
 OptionalUser = Annotated[User | None, Depends(get_current_user_optional)]
+
+
+async def verify_thread_access(
+    thread_id: UUID,
+    user: User,
+    session: AsyncSession,
+) -> None:
+    """Verify that a user owns a conversation thread.
+
+    This prevents horizontal privilege escalation where one user could
+    access another user's conversations by guessing the thread_id.
+
+    Args:
+        thread_id: The thread ID to check ownership of.
+        user: The current authenticated user.
+        session: Database session for querying.
+
+    Raises:
+        HTTPException: 404 if conversation not found.
+        HTTPException: 403 if conversation belongs to another user.
+    """
+
+    conv = await read_conversation_by_thread_id(
+        db=session, thread_id=thread_id, user_id=user.id
+    )
+    if conv is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation not found",
+        )
+    # Note: read_conversation_by_thread_id already filters by user_id,
+    # so if we get here, the user owns the conversation.
+    # This function is kept for explicit verification in endpoints
+    # that need to check ownership before performing operations.

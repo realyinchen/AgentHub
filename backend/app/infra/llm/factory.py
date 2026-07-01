@@ -86,7 +86,12 @@ def get_llm(
     base_url = manager.get_base_url(model_config.provider)
 
     # Build full model_id with provider prefix (required by LiteLLM)
-    full_model_id = f"{model_config.provider}/{short_model_id}"
+    # OpenAI-compatible providers use the "openai/" protocol prefix so LiteLLM
+    # routes them to the configured api_base endpoint.
+    if provider_config.is_openai_compatible:
+        full_model_id = f"openai/{short_model_id}"
+    else:
+        full_model_id = f"{model_config.provider}/{short_model_id}"
 
     # DashScope only: thinking mode controlled via extra_body (disabled by default)
     # IMPORTANT: extra_body must be passed via model_kwargs, NOT as a direct kwarg.

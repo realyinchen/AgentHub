@@ -92,35 +92,29 @@ export function formatUpdatedAt(isoString: string, locale: Locale): string {
   })
 }
 
+/**
+ * Read thread_id from URL query parameter.
+ *
+ * Supports URL patterns:
+ * - ``/chat`` → no active conversation (home page)
+ * - ``/chat?thread_id={threadId}`` → active conversation
+ */
 export function readThreadIdFromUrl(): string | null {
-  const value = new URLSearchParams(window.location.search).get("thread_id")
-  return value && value.trim() ? value : null
-}
-
-export function readUserIdFromUrl(): string | null {
-  const value = new URLSearchParams(window.location.search).get("userId")
-  return value && value.trim() ? value : null
+  const url = new URL(window.location.href)
+  if (url.pathname !== "/chat") return null
+  return url.searchParams.get("thread_id") || null
 }
 
 /**
- * Write userId and thread_id to URL.
- * If thread_id is null, only userId is shown.
- * If both are null, URL is cleared to root.
+ * Write thread_id to URL query parameter.
+ *
+ * - ``threadId`` is non-null → ``/chat?thread_id={threadId}``
+ * - ``threadId`` is null → ``/chat`` (home, no conversation selected)
  */
-export function writeToUrl(userId: string | null, threadId: string | null): void {
-  const url = new URL(window.location.href)
-
-  // Clear existing params
-  url.searchParams.delete("userId")
-  url.searchParams.delete("thread_id")
-
-  // Add params if provided
-  if (userId) {
-    url.searchParams.set("userId", userId)
-  }
+export function writeToUrl(threadId: string | null): void {
   if (threadId) {
-    url.searchParams.set("thread_id", threadId)
+    window.history.replaceState({}, "", `/chat?thread_id=${encodeURIComponent(threadId)}`)
+  } else {
+    window.history.replaceState({}, "", "/chat")
   }
-
-  window.history.replaceState({}, "", `${url.pathname}${url.search}${url.hash}`)
 }
