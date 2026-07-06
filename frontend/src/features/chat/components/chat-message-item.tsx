@@ -13,6 +13,10 @@ import type { LocalChatMessage, ToolCallInfo, StoredToolCallInfo } from "@/types
 import { MarkdownContent } from "@/components/ui/markdown-content"
 import { Separator } from "@/components/ui/separator"
 import { useI18n } from "@/i18n"
+import {
+  extractFollowUpQuestions,
+  type FollowUpQuestionOption,
+} from "@/features/chat/recommendation-followups"
 
 type ChatMessageItemProps = {
   message: LocalChatMessage
@@ -28,6 +32,7 @@ type ChatMessageItemProps = {
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
   onSelectSession?: (sessionId: string) => void // Select a specific session to view
   onSelectRequestId?: (requestId: string | null) => void // Select request_id for DAG viewing
+  onFollowUpQuestionClick?: (question: FollowUpQuestionOption, message: LocalChatMessage) => void
 }
 
 type SourceLink = {
@@ -198,6 +203,7 @@ export function ChatMessageItem({
   isSelected = false,
   onJumpToMessage,
   onSelectRequestId,
+  onFollowUpQuestionClick,
 }: ChatMessageItemProps) {
   const { t } = useI18n()
   const isUser = message.type === "human"
@@ -225,6 +231,10 @@ export function ChatMessageItem({
   // For streaming messages, use calledTools; for history messages, use stored tool_info
   const allTools = calledTools.length > 0 ? calledTools : parseStoredToolInfo(message)
   const hasToolCalls = allTools.length > 0
+  const followUpQuestions =
+    isAI && !isStreaming
+      ? extractFollowUpQuestions(message, calledTools)
+      : []
 
   useEffect(() => {
     if (!copied) {
@@ -432,6 +442,23 @@ export function ChatMessageItem({
               {message.content}
             </p>
           )}
+
+          {isAI && followUpQuestions.length > 0 ? (
+            <div className="mt-3 flex flex-wrap gap-2 border-t border-border/60 pt-3">
+              {followUpQuestions.map((question) => (
+                <button
+                  key={`${question.toolCallId}-${question.id}`}
+                  type="button"
+                  onClick={() => onFollowUpQuestionClick?.(question, message)}
+                  className="max-w-full rounded-lg border border-border/70 bg-background/70 px-3 py-1.5 text-left text-xs leading-5 text-muted-foreground transition-colors hover:border-primary/40 hover:bg-primary/5 hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                  disabled={!onFollowUpQuestionClick}
+                  title={question.reason || undefined}
+                >
+                  {question.question}
+                </button>
+              ))}
+            </div>
+          ) : null}
         </MessageContent>
 
         {/* AI message actions: copy, DAG view - below the bubble */}

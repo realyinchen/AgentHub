@@ -449,6 +449,25 @@ async def update_connection(
     return _connection_to_info(connection, model_counts.get(connection.id, 0))
 
 
+@api_router.delete(
+    "/connections/{connection_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def delete_connection(
+    connection_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+) -> None:
+    """Delete a provider connection and its configured models."""
+    deleted = await connection_crud.delete_connection(db, connection_id)
+    if not deleted:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="connection_not_found",
+        )
+
+    await get_model_manager().refresh()
+
+
 @api_router.patch("/providers/{provider_name}", response_model=ProviderInfo)
 async def update_provider(
     provider_name: str,

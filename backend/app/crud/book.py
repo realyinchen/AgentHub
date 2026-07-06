@@ -1,12 +1,17 @@
 from collections.abc import Iterable
 from uuid import UUID
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models.book import Book, BookInteraction, UserPreferenceProfile
+from app.models.book import Book, BookInteraction, RecommendationEvent, UserPreferenceProfile
 from app.models.base import utc_now
 from app.schemas.book import BookInteractionCreate, UserPreferenceProfileUpdate
+from app.services.recommendation_signals import (
+    RecommendationSignalCreate,
+    SUPPRESSION_EVENT_TYPES,
+    normalize_recommendation_text,
+)
 
 
 def _clean_list(values: Iterable[str] | None) -> list[str]:
@@ -110,6 +115,88 @@ async def create_book_interaction(
     await db.flush()
     await db.refresh(obj)
     return obj
+
+
+async def create_recommendation_event(
+    db: AsyncSession,
+    signal: RecommendationSignalCreate,
+) -> RecommendationEvent:
+    data = signal.model_dump()
+    data["metadata_json"] = data.pop("metadata", {})
+    if data.get("book_title"):
+        data["book_title"] = normalize_recommendation_text(data["book_title"])
+    obj = RecommendationEvent(**data)
+    db.add(obj)
+    await db.flush()
+    await db.refresh(obj)
+    return obj
+
+
+async def list_recommendation_events(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+    book_title: str = "",
+    event_types: list[str] | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[RecommendationEvent]:
+    stmt = select(RecommendationEvent).where(RecommendationEvent.user_id == user_id)
+    if book_title.strip():
+        stmt = stmt.where(
+            func.lower(RecommendationEvent.book_title) == book_title.strip().lower()
+        )
+    if event_types:
+        stmt = stmt.where(RecommendationEvent.event_type.in_(event_types))
+    result = await db.execute(
+        stmt.order_by(RecommendationEvent.created_at.desc())
+        .offset(max(0, offset))
+        .limit(max(1, min(limit, 100)))
+    )
+    return list(result.scalars().all())
+
+
+async def get_suppressed_book_titles(
+    db: AsyncSession,
+    *,
+    user_id: UUID,
+) -> set[str]:
+    interaction_types = {
+        "read",
+        "finished",
+        "already_read",
+        "dislike",
+        "disliked",
+        "not_interested",
+        "avoid",
+    }
+    titles: set[str] = set()
+
+    interaction_result = await db.execute(
+        select(BookInteraction.book_title).where(
+            BookInteraction.user_id == user_id,
+            BookInteraction.book_title.is_not(None),
+            BookInteraction.interaction_type.in_(interaction_types),
+        )
+    )
+    for title in interaction_result.scalars().all():
+        normalized = normalize_recommendation_text(title).lower()
+        if normalized:
+            titles.add(normalized)
+
+    event_result = await db.execute(
+        select(RecommendationEvent.book_title).where(
+            RecommendationEvent.user_id == user_id,
+            RecommendationEvent.book_title.is_not(None),
+            RecommendationEvent.event_type.in_(list(SUPPRESSION_EVENT_TYPES)),
+        )
+    )
+    for title in event_result.scalars().all():
+        normalized = normalize_recommendation_text(title).lower()
+        if normalized:
+            titles.add(normalized)
+
+    return titles
 
 
 async def get_or_create_preference_profile(

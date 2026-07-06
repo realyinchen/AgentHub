@@ -10,6 +10,27 @@ from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
 from app.services.research import ResearchEvidence, get_research_orchestrator
+from app.services.tool_admission import (
+    ToolAdmissionResult,
+    ToolPolicyDeclaration,
+    get_tool_admission_gate,
+)
+
+
+START_RESEARCH_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="start_research",
+    required_policy_flags=["can_start_research"],
+    side_effect_scope="research_state",
+    writes_research_state=True,
+    blocked_status="tool_blocked",
+)
+RESEARCH_STATE_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="research_state_tool",
+    required_policy_flags=["can_use_research_tools"],
+    side_effect_scope="research_state",
+    writes_research_state=True,
+    blocked_status="tool_blocked",
+)
 
 
 class StartResearchInput(BaseModel):
@@ -139,6 +160,33 @@ def _dump_result(result) -> str:
     return json.dumps(result.model_dump(mode="json"), ensure_ascii=False)
 
 
+def _tool_blocked_payload(
+    admission: ToolAdmissionResult,
+    *,
+    writes_research_state: bool,
+) -> str:
+    return json.dumps(
+        {
+            "status": admission.blocked_status or "tool_blocked",
+            "tool_name": admission.tool_name,
+            "run": None,
+            "state": None,
+            "steps": [],
+            "evidence": [],
+            "provider_sources": [],
+            "tool_admission": admission.model_dump(mode="json"),
+            "writes_research_state": writes_research_state,
+        },
+        ensure_ascii=False,
+    )
+
+
+def _admit_research_state_tool(tool_name: str) -> ToolAdmissionResult:
+    return get_tool_admission_gate().admit_current_turn(
+        RESEARCH_STATE_TOOL_POLICY.model_copy(update={"tool_name": tool_name})
+    )
+
+
 @tool(args_schema=StartResearchInput)
 async def start_research(
     user_id: UUID,
@@ -153,6 +201,10 @@ async def start_research(
     metadata: dict[str, Any] | None = None,
 ) -> str:
     """Start a structured Deep Search / Deep Research run."""
+    admission = get_tool_admission_gate().admit_current_turn(START_RESEARCH_TOOL_POLICY)
+    if not admission.allowed:
+        return _tool_blocked_payload(admission, writes_research_state=True)
+
     result = await get_research_orchestrator().start_research(
         user_id=user_id,
         objective=objective,
@@ -176,6 +228,10 @@ async def inspect_research_state(
     limit_evidence: int = 20,
 ) -> str:
     """Inspect the current structured state for a research run."""
+    admission = _admit_research_state_tool("inspect_research_state")
+    if not admission.allowed:
+        return _tool_blocked_payload(admission, writes_research_state=False)
+
     result = await get_research_orchestrator().inspect_research_state(
         user_id=user_id,
         run_id=run_id,
@@ -198,6 +254,10 @@ async def search_research(
     error: str | None = None,
 ) -> str:
     """Record one research search attempt and update structured state."""
+    admission = _admit_research_state_tool("search_research")
+    if not admission.allowed:
+        return _tool_blocked_payload(admission, writes_research_state=True)
+
     result = await get_research_orchestrator().search_research(
         user_id=user_id,
         run_id=run_id,
@@ -225,6 +285,10 @@ async def visit_source(
     error: str | None = None,
 ) -> str:
     """Record a source visit inside a research run."""
+    admission = _admit_research_state_tool("visit_source")
+    if not admission.allowed:
+        return _tool_blocked_payload(admission, writes_research_state=True)
+
     result = await get_research_orchestrator().visit_source(
         user_id=user_id,
         run_id=run_id,
@@ -257,6 +321,10 @@ async def add_evidence(
     next_actions: list[str] | None = None,
 ) -> str:
     """Add evidence to research state. This does not write long-term memory."""
+    admission = _admit_research_state_tool("add_evidence")
+    if not admission.allowed:
+        return _tool_blocked_payload(admission, writes_research_state=True)
+
     evidence = ResearchEvidence(
         run_id=run_id,
         source_type=source_type,
@@ -296,6 +364,10 @@ async def update_research_state(
     replace: bool = False,
 ) -> str:
     """Update structured research state without writing long-term memory."""
+    admission = _admit_research_state_tool("update_research_state")
+    if not admission.allowed:
+        return _tool_blocked_payload(admission, writes_research_state=True)
+
     result = await get_research_orchestrator().update_research_state(
         user_id=user_id,
         run_id=run_id,
@@ -325,6 +397,10 @@ async def finish_research(
     metadata: dict[str, Any] | None = None,
 ) -> str:
     """Finish a research run with final state and stopping rationale."""
+    admission = _admit_research_state_tool("finish_research")
+    if not admission.allowed:
+        return _tool_blocked_payload(admission, writes_research_state=True)
+
     result = await get_research_orchestrator().finish_research(
         user_id=user_id,
         run_id=run_id,

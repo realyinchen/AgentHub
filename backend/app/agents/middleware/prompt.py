@@ -24,10 +24,15 @@ import asyncio
 import time
 from datetime import datetime
 from pathlib import Path
+from uuid import UUID
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from cachetools import TTLCache
 from langchain.agents.middleware import dynamic_prompt, ModelRequest
+
+from app.services.book_intent import build_turn_policy
+from app.services.context_pack import ContextBuilder, render_context_pack_prompt
+from app.utils.turn_context import get_current_user_message
 
 # ── Constants ───────────────────────────────────────────────────────────────
 
@@ -127,10 +132,16 @@ def _inject_runtime_context(
     timezone: str,
     user_id: str = "",
     thread_id: str = "",
+    context_pack: str = "",
 ) -> str:
     """Replace runtime placeholders in template."""
     time_ctx = _build_time_context(timezone)
-    return template.format(**time_ctx, user_id=user_id, thread_id=thread_id)
+    return template.format(
+        **time_ctx,
+        user_id=user_id,
+        thread_id=thread_id,
+        context_pack=context_pack,
+    )
 
 
 # ── Dynamic prompt middlewares ──────────────────────────────────────────────
@@ -162,9 +173,27 @@ async def supervisor_prompt(request: ModelRequest) -> str:
     template = await _get_template("supervisor")
 
     # Inject runtime context
+    user_message = get_current_user_message()
+    turn_policy = build_turn_policy(user_message)
+    context_pack = await ContextBuilder().build(
+        user_id=_coerce_uuid(user_id),
+        thread_id=_coerce_uuid(thread_id),
+        user_message=user_message,
+        messages=getattr(request, "messages", []),
+        turn_policy=turn_policy,
+    )
+    context_pack_prompt = render_context_pack_prompt(context_pack)
     return _inject_runtime_context(
         template,
         timezone,
         user_id=user_id,
         thread_id=thread_id,
+        context_pack=context_pack_prompt,
     )
+
+
+def _coerce_uuid(value: str) -> UUID | None:
+    try:
+        return UUID(str(value))
+    except (TypeError, ValueError):
+        return None

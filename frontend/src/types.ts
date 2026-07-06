@@ -134,6 +134,236 @@ export type MemoryForgetResult = {
   provider_sources: string[]
 }
 
+// ==================== Recommendation Signal Types ====================
+
+export type RecommendationEventType =
+  | "candidate_retrieved"
+  | "recommended"
+  | "followup_suggested"
+  | "followup_clicked"
+  | "followup_matched"
+  | "detail_requested"
+  | "want_to_read"
+  | "read"
+  | "liked"
+  | "disliked"
+  | "not_interested"
+  | "suppressed"
+
+export type RecommendationSignalPolarity = "positive" | "negative" | "neutral"
+export type RecommendationSignalSource =
+  | "agent_tool"
+  | "book_feedback"
+  | "followup_question"
+  | "api"
+  | "system"
+
+export type RecommendationSignal = {
+  id: string
+  user_id: string
+  event_type: RecommendationEventType
+  signal_polarity: RecommendationSignalPolarity
+  signal_strength: number
+  book_id: string | null
+  book_title: string
+  thread_id: string | null
+  request_id: string
+  message_id: string
+  source: RecommendationSignalSource
+  metadata: Record<string, unknown>
+  created_at: string
+  updated_at: string
+}
+
+export type RecommendationSignalCreate = {
+  user_id: string
+  event_type: RecommendationEventType
+  signal_polarity?: RecommendationSignalPolarity
+  signal_strength?: number
+  book_id?: string | null
+  book_title?: string
+  thread_id?: string | null
+  request_id?: string
+  message_id?: string
+  source?: RecommendationSignalSource
+  metadata?: Record<string, unknown>
+}
+
+// ==================== Research Types ====================
+
+export type ResearchRunStatus = "active" | "completed" | "cancelled" | "failed"
+export type ResearchMode = "deep_search" | "deep_research"
+export type ResearchStepType =
+  | "plan"
+  | "search"
+  | "visit"
+  | "add_evidence"
+  | "update_state"
+  | "finish"
+export type ResearchStepStatus =
+  | "planned"
+  | "running"
+  | "completed"
+  | "empty_result"
+  | "timeout"
+  | "failed"
+  | "skipped"
+export type ResearchEvidenceQuality = "high" | "medium" | "low" | "unknown"
+
+export type ResearchRun = {
+  id: string | null
+  user_id: string
+  thread_id: string | null
+  objective: string
+  status: ResearchRunStatus
+  mode: ResearchMode
+  budget: Record<string, unknown>
+  stop_criteria: string[]
+  metadata: Record<string, unknown>
+  started_at: string | null
+  finished_at: string | null
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type ResearchStep = {
+  id: string | null
+  run_id: string
+  step_type: ResearchStepType
+  status: ResearchStepStatus
+  title: string
+  query: string
+  url: string
+  rationale: string
+  input: Record<string, unknown>
+  output: Record<string, unknown>
+  error: string | null
+  duration_ms: number
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type ResearchEvidence = {
+  id: string | null
+  run_id: string
+  step_id: string | null
+  source_type: string
+  source_title: string
+  source_url: string
+  claim: string
+  excerpt: string
+  quality: ResearchEvidenceQuality
+  relevance: number
+  metadata: Record<string, unknown>
+  created_at: string | null
+  updated_at: string | null
+}
+
+export type ResearchStateSnapshot = {
+  id: string | null
+  run_id: string
+  step_id: string | null
+  objective: string
+  status: ResearchRunStatus
+  subquestions: string[]
+  known_facts: string[]
+  gaps: string[]
+  conflicts: string[]
+  exhausted_queries: string[]
+  next_actions: string[]
+  evidence_ids: string[]
+  budget: Record<string, unknown>
+  stop_criteria: string[]
+  metadata: Record<string, unknown>
+  created_at: string | null
+}
+
+export type ResearchStateResult = {
+  run: ResearchRun
+  state: ResearchStateSnapshot
+  steps: ResearchStep[]
+  evidence: ResearchEvidence[]
+  provider_sources: string[]
+}
+
+export type ResearchRunListResult = {
+  user_id: string
+  runs: ResearchRun[]
+  total: number
+  limit: number
+  offset: number
+  provider_sources: string[]
+}
+
+export type ResearchFinishRequest = {
+  user_id: string
+  run_id: string
+  conclusion: string
+  status?: ResearchRunStatus
+  known_facts?: string[]
+  gaps?: string[]
+  conflicts?: string[]
+  metadata?: Record<string, unknown>
+}
+
+// ==================== App Provider Config Types ====================
+
+export type AppProviderType = "memory" | "research_observation"
+export type AppProviderScope = "global" | "workspace" | "user"
+export type AppProviderCapability =
+  | "memory_recall"
+  | "research_observation"
+  | "source_visit"
+  | "semantic_search"
+export type AppProviderCredentialStatus = "none" | "configured" | "missing"
+export type AppProviderHealthStatus =
+  | "unknown"
+  | "disabled"
+  | "ok"
+  | "missing_credentials"
+  | "timeout"
+  | "failed"
+
+export type AppProviderHealth = {
+  status: AppProviderHealthStatus
+  error_type: string
+  error: string
+  duration_ms: number
+  checked_at: string | null
+  metadata: Record<string, unknown>
+}
+
+export type AppProviderConfig = {
+  provider_key: string
+  provider_type: AppProviderType
+  scope: AppProviderScope
+  enabled: boolean
+  display_name: string
+  capabilities: AppProviderCapability[]
+  settings: Record<string, unknown>
+  credentials_ref: string
+  credential_status: AppProviderCredentialStatus
+  health: AppProviderHealth
+  metadata: Record<string, unknown>
+}
+
+export type AppProviderConfigList = {
+  contract_version: string
+  providers: AppProviderConfig[]
+}
+
+export type AppProviderConfigUpdate = {
+  enabled?: boolean | null
+  scope?: AppProviderScope | null
+  display_name?: string | null
+  capabilities?: AppProviderCapability[] | null
+  settings?: Record<string, unknown> | null
+  credentials_ref?: string | null
+  api_key?: string | null
+  clear_credentials?: boolean
+  metadata?: Record<string, unknown> | null
+}
+
 // ==================== Model Types ====================
 
 // ==================== Provider Types ====================

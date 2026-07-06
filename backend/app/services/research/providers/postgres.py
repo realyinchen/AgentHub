@@ -366,7 +366,12 @@ class PostgresResearchProvider(ResearchProvider):
             evidence_ids=self._merge_ids(previous.evidence_ids, None, False),
             budget=previous.budget,
             stop_criteria=previous.stop_criteria,
-            metadata={"event": "finish_research", "conclusion": conclusion},
+            metadata={
+                **(previous.metadata_json or {}),
+                "event": "finish_research",
+                "conclusion": conclusion,
+                **(metadata or {}),
+            },
         )
         await self._touch_run(run)
         return await self.inspect_run(user_id=user_id, run_id=run.id)

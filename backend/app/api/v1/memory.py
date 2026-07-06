@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.schemas.memory import (
     MemoryContractResponse,
@@ -12,6 +12,7 @@ from app.schemas.memory import (
 )
 from app.services.memory import (
     CurrentMemoryListResult,
+    MemoryAdmissionError,
     MemoryEvent,
     MemoryEventListResult,
     MemoryForgetResult,
@@ -19,6 +20,12 @@ from app.services.memory import (
     get_memory_orchestrator,
 )
 from app.services.memory.contracts import (
+    INFORMATION_SCOPES,
+    MEMORY_ADMISSION_DECISIONS,
+    MEMORY_CANDIDATE_SOURCE_KINDS,
+    MEMORY_CONFLICT_DECISIONS,
+    MEMORY_CONFLICT_SEVERITIES,
+    MEMORY_CONFLICT_TYPES,
     MEMORY_POLARITIES,
     MEMORY_SOURCES,
     MEMORY_SUBJECTS,
@@ -36,6 +43,12 @@ async def get_memory_contract() -> MemoryContractResponse:
         subjects=sorted(MEMORY_SUBJECTS),
         polarities=sorted(MEMORY_POLARITIES),
         sources=sorted(MEMORY_SOURCES),
+        information_scopes=sorted(INFORMATION_SCOPES),
+        candidate_source_kinds=sorted(MEMORY_CANDIDATE_SOURCE_KINDS),
+        admission_decisions=sorted(MEMORY_ADMISSION_DECISIONS),
+        conflict_types=sorted(MEMORY_CONFLICT_TYPES),
+        conflict_severities=sorted(MEMORY_CONFLICT_SEVERITIES),
+        conflict_decisions=sorted(MEMORY_CONFLICT_DECISIONS),
     )
 
 
@@ -117,7 +130,18 @@ async def remember_user_memory(request: MemoryRememberRequest) -> MemoryEvent:
         source=request.source,
         metadata=request.metadata,
     )
-    return await get_memory_orchestrator().remember_memory(event)
+    try:
+        return await get_memory_orchestrator().remember_memory(
+            event,
+            scope=request.scope,
+            source_text=request.source_text,
+            source_kind=request.source_kind,
+        )
+    except MemoryAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.decision.model_dump(mode="json"),
+        ) from exc
 
 
 @api_router.patch("", response_model=MemoryEvent)
@@ -134,14 +158,20 @@ async def revise_user_memory(request: MemoryReviseRequest) -> MemoryEvent:
         source=request.source,
         metadata=request.metadata,
     )
-    return await get_memory_orchestrator().revise_memory(
-        user_id=request.user_id,
-        new_event=new_event,
-        memory_id=request.memory_id,
-        old_value=request.old_value,
-        old_subject=request.old_subject,
-        old_type=request.old_type,
-    )
+    try:
+        return await get_memory_orchestrator().revise_memory(
+            user_id=request.user_id,
+            new_event=new_event,
+            memory_id=request.memory_id,
+            old_value=request.old_value,
+            old_subject=request.old_subject,
+            old_type=request.old_type,
+        )
+    except MemoryAdmissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=exc.decision.model_dump(mode="json"),
+        ) from exc
 
 
 @api_router.post("/forget", response_model=MemoryForgetResult)

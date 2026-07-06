@@ -1,0 +1,35 @@
+from app.services.research.harness.contracts import (
+    AggregationResult,
+    CandidateClaim,
+    FinalizationResult,
+    GapFillingResult,
+    ObservationBatch,
+    ResearchHarnessInput,
+    ResearchHarnessResult,
+    ResearchHarnessResumeState,
+    ResearchObservation,
+    ResearchPlan,
+    SearchTask,
+    StepFieldConfirmation,
+    VerificationResult,
+    VerifiedClaim,
+)
+from app.services.research.harness.runtime import ResearchHarnessRuntime
+
+__all__ = [
+    "AggregationResult",
+    "CandidateClaim",
+    "FinalizationResult",
+    "GapFillingResult",
+    "ObservationBatch",
+    "ResearchHarnessInput",
+    "ResearchHarnessResult",
+    "ResearchHarnessResumeState",
+    "ResearchHarnessRuntime",
+    "ResearchObservation",
+    "ResearchPlan",
+    "SearchTask",
+    "StepFieldConfirmation",
+    "VerificationResult",
+    "VerifiedClaim",
+]

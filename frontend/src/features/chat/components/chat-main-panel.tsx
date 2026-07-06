@@ -21,6 +21,10 @@ import { ChatMessageItem } from "@/features/chat/components/chat-message-item"
 import { SciFiLoader } from "@/components/ai/neural-network-loader"
 import { useI18n } from "@/i18n"
 import { cn } from "@/lib/utils"
+import type {
+  FollowUpQuestionOption,
+  FollowUpSendContext,
+} from "@/features/chat/recommendation-followups"
 
 
 type ChatMainPanelProps = {
@@ -34,7 +38,12 @@ type ChatMainPanelProps = {
   thinkingContent: string // Accumulated thinking content
   messages: LocalChatMessage[]
   selectedRequestId?: string | null // Currently selected request_id for DAG viewing
-  onSendMessage: (rawInput: string, quotedMessageId?: string, userContent?: string) => Promise<void>
+  onSendMessage: (
+    rawInput: string,
+    quotedMessageId?: string,
+    userContent?: string,
+    followUpContext?: FollowUpSendContext,
+  ) => Promise<void>
   onStopStreaming: () => void
   onJumpToMessage?: (localId: string) => void // Jump to quoted message callback
   onToggleSidebarProcess?: () => void // Toggle sidebar process panel visibility
@@ -226,7 +235,7 @@ export function ChatMainPanel({
     setShowScrollButton(!isAtBottom && distanceFromBottom > SCROLL_BUTTON_SHOW_OFFSET)
   }, [startStreamFollow, stopStreamFollow])
 
-  const submitMessage = useCallback((rawInput: string) => {
+  const submitMessage = useCallback((rawInput: string, followUpContext?: FollowUpSendContext) => {
     const trimmed = rawInput.trim()
     if (!trimmed || isStreaming || isComposerDisabled) {
       return
@@ -243,7 +252,7 @@ export function ChatMainPanel({
     setQuotedMessageId(null)
 
     // Pass quotedMessageId and userContent for display purposes
-    void onSendMessage(finalContent, currentQuotedMessageId || undefined, trimmed)
+    void onSendMessage(finalContent, currentQuotedMessageId || undefined, trimmed, followUpContext)
   }, [isComposerDisabled, isStreaming, onSendMessage, quotedContent, quotedMessageId])
 
   const handleSuggestionClick = useCallback(
@@ -252,6 +261,20 @@ export function ChatMainPanel({
         return
       }
       submitMessage(value)
+    },
+    [isComposerDisabled, isStreaming, submitMessage],
+  )
+
+  const handleFollowUpQuestionClick = useCallback(
+    (question: FollowUpQuestionOption, message: LocalChatMessage) => {
+      if (isStreaming || isComposerDisabled) {
+        return
+      }
+      submitMessage(question.question, {
+        followUpQuestion: question,
+        parentMessageId: message.local_id,
+        parentRequestId: message.request_id ?? null,
+      })
     },
     [isComposerDisabled, isStreaming, submitMessage],
   )
@@ -335,6 +358,7 @@ export function ChatMainPanel({
                         onJumpToMessage={onJumpToMessage}
                         onToggleSidebarProcess={onToggleSidebarProcess}
                         onSelectRequestId={onSelectRequestId}
+                        onFollowUpQuestionClick={handleFollowUpQuestionClick}
                       />
                     )
                   })

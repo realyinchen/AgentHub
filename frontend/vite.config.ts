@@ -16,10 +16,18 @@ export default defineConfig(({ mode }) => {
   console.log("[Vite Proxy] Target:", proxyTarget)
 
   return {
+    root: __dirname,
     plugins: [react(), tailwindcss()] as PluginOption[],
     resolve: {
       alias: {
         "@": path.resolve(__dirname, "./src"),
+      },
+    },
+    build: {
+      rollupOptions: {
+        input: {
+          index: path.resolve(__dirname, "index.html"),
+        },
       },
     },
     server: {

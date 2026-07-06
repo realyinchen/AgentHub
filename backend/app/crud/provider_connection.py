@@ -84,6 +84,25 @@ async def update_connection(
     return connection
 
 
+async def delete_connection(
+    db: AsyncSession,
+    connection_id: uuid.UUID,
+) -> bool:
+    connection = await get_connection(db, connection_id)
+    if not connection:
+        return False
+
+    result = await db.execute(
+        select(Model).where(Model.connection_id == connection_id)
+    )
+    for model in result.scalars().all():
+        await db.delete(model)
+
+    await db.delete(connection)
+    await db.flush()
+    return True
+
+
 async def get_first_active_connection_for_provider(
     db: AsyncSession,
     provider: str,
@@ -111,4 +130,3 @@ async def assign_provider_models_to_connection(
         .values(connection_id=connection_id)
     )
     await db.flush()
-

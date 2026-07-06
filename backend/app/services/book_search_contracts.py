@@ -12,6 +12,7 @@ BookSearchStatus = Literal[
     "garbage",
     "hard_error",
     "loop_detected",
+    "intent_blocked",
 ]
 
 BOOK_SEARCH_STATUSES = frozenset(
@@ -22,6 +23,7 @@ BOOK_SEARCH_STATUSES = frozenset(
         "garbage",
         "hard_error",
         "loop_detected",
+        "intent_blocked",
     }
 )
 
@@ -52,6 +54,12 @@ BOOK_SEARCH_NEXT_ACTION_HINTS: dict[BookSearchStatus, str] = {
         "A search has already been attempted in this ordinary recommendation turn. "
         "Stop searching and produce the best answer from existing results, memory, "
         "and general knowledge."
+    ),
+    "intent_blocked": (
+        "The user did not explicitly request book recommendations or book search. "
+        "Do not recommend books in this turn. Answer only the user's stated "
+        "question, and optionally offer concise follow-up questions the user may "
+        "ask next."
     ),
 }
 

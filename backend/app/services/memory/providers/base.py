@@ -8,6 +8,8 @@ from app.services.memory.contracts import (
     MemoryEvent,
     MemoryEventListResult,
     MemoryForgetResult,
+    MemoryRecallProviderRequest,
+    MemoryRecallProviderResult,
     MemorySearchResult,
 )
 
@@ -86,3 +88,16 @@ class MemoryProvider(ABC):
         reason: str = "",
     ) -> MemoryForgetResult:
         """Forget matching current memories for a user."""
+
+
+class MemoryRecallProvider(ABC):
+    """Recall-only provider interface for external memory enhancers."""
+
+    provider_name: str
+
+    @abstractmethod
+    async def search(
+        self,
+        request: MemoryRecallProviderRequest,
+    ) -> MemoryRecallProviderResult:
+        """Return candidate current memories through app-owned fields."""

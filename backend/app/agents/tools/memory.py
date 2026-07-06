@@ -9,7 +9,46 @@ from uuid import UUID
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.services.memory import MemoryEvent, get_memory_orchestrator
+from app.services.memory import (
+    MemoryAdmissionError,
+    MemoryCandidate,
+    MemoryEvent,
+    get_memory_orchestrator,
+)
+from app.services.tool_admission import (
+    ToolAdmissionResult,
+    ToolPolicyDeclaration,
+    get_tool_admission_gate,
+)
+
+
+SEARCH_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="search_memory",
+    required_policy_flags=["can_search_memory"],
+    side_effect_scope="memory_read",
+    blocked_status="tool_blocked",
+)
+REMEMBER_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="remember_memory",
+    required_policy_flags=["can_write_memory"],
+    side_effect_scope="long_term_memory",
+    writes_long_term_memory=True,
+    blocked_status="tool_blocked",
+)
+REVISE_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="revise_memory",
+    required_policy_flags=["can_write_memory"],
+    side_effect_scope="long_term_memory",
+    writes_long_term_memory=True,
+    blocked_status="tool_blocked",
+)
+FORGET_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="forget_memory",
+    required_policy_flags=["can_manage_memory"],
+    side_effect_scope="long_term_memory",
+    writes_long_term_memory=True,
+    blocked_status="tool_blocked",
+)
 
 
 class SearchMemoryInput(BaseModel):
@@ -43,6 +82,9 @@ class RememberMemoryInput(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     thread_id: UUID | None = None
     source: str = Field(default="chat_turn")
+    scope: str = Field(default="long_term_memory")
+    source_text: str = Field(default="")
+    source_kind: str = Field(default="user_message")
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -81,6 +123,20 @@ class ForgetMemoryInput(BaseModel):
     reason: str = Field(default="", description="Brief forgetting/correction reason.")
 
 
+def _tool_blocked_payload(
+    admission: ToolAdmissionResult,
+    *,
+    extra: dict[str, Any] | None = None,
+) -> str:
+    payload = {
+        "status": admission.blocked_status or "tool_blocked",
+        "tool_name": admission.tool_name,
+        "tool_admission": admission.model_dump(mode="json"),
+    }
+    payload.update(extra or {})
+    return json.dumps(payload, ensure_ascii=False)
+
+
 @tool(args_schema=SearchMemoryInput)
 async def search_memory(
     user_id: UUID,
@@ -90,6 +146,22 @@ async def search_memory(
     limit: int = 10,
 ) -> str:
     """Search the user's active long-term reading memory."""
+    admission = get_tool_admission_gate().admit_current_turn(SEARCH_MEMORY_TOOL_POLICY)
+    if not admission.allowed:
+        return _tool_blocked_payload(
+            admission,
+            extra={
+                "profile_summary": "",
+                "preferred_tags": [],
+                "disliked_tags": [],
+                "favorite_authors": [],
+                "disliked_authors": [],
+                "reading_states": [],
+                "relevant_events": [],
+                "provider_sources": [],
+                "provider_telemetry": [],
+            },
+        )
     result = await get_memory_orchestrator().search_memory(
         user_id=user_id,
         query=query,
@@ -110,10 +182,21 @@ async def remember_memory(
     confidence: float = 1.0,
     thread_id: UUID | None = None,
     source: str = "chat_turn",
+    scope: str = "long_term_memory",
+    source_text: str = "",
+    source_kind: str = "user_message",
     metadata: dict[str, Any] | None = None,
 ) -> str:
     """Persist a new user memory event."""
-    event = MemoryEvent(
+    tool_admission = get_tool_admission_gate().admit_current_turn(
+        REMEMBER_MEMORY_TOOL_POLICY
+    )
+    if not tool_admission.allowed:
+        return _tool_blocked_payload(tool_admission, extra={"memory": None})
+
+    candidate_metadata = dict(metadata or {})
+    candidate_metadata.setdefault("event_source", source)
+    candidate = MemoryCandidate(
         user_id=user_id,
         thread_id=thread_id,
         type=type,
@@ -121,11 +204,26 @@ async def remember_memory(
         value=value,
         polarity=polarity,
         confidence=confidence,
-        source=source,
-        metadata=metadata or {},
+        scope=scope,
+        source_text=source_text,
+        source_kind=source_kind,
+        metadata=candidate_metadata,
     )
-    saved = await get_memory_orchestrator().remember_memory(event)
-    return json.dumps(saved.model_dump(mode="json"), ensure_ascii=False)
+    result = await get_memory_orchestrator().remember_candidate(candidate)
+    if result.memory is not None:
+        return json.dumps(result.memory.model_dump(mode="json"), ensure_ascii=False)
+    return json.dumps(
+        {
+            "status": result.decision.decision,
+            "tool_admission": tool_admission.model_dump(mode="json"),
+            "admission": result.decision.model_dump(mode="json"),
+            "conflicts": [
+                conflict.model_dump(mode="json") for conflict in result.conflicts
+            ],
+            "memory": None,
+        },
+        ensure_ascii=False,
+    )
 
 
 @tool(args_schema=ReviseMemoryInput)
@@ -145,6 +243,12 @@ async def revise_memory(
     metadata: dict[str, Any] | None = None,
 ) -> str:
     """Revise a prior memory by superseding it with a corrected event."""
+    tool_admission = get_tool_admission_gate().admit_current_turn(
+        REVISE_MEMORY_TOOL_POLICY
+    )
+    if not tool_admission.allowed:
+        return _tool_blocked_payload(tool_admission, extra={"memory": None})
+
     new_event = MemoryEvent(
         user_id=user_id,
         thread_id=thread_id,
@@ -156,14 +260,26 @@ async def revise_memory(
         source=source,
         metadata=metadata or {},
     )
-    saved = await get_memory_orchestrator().revise_memory(
-        user_id=user_id,
-        new_event=new_event,
-        memory_id=memory_id,
-        old_value=old_value,
-        old_subject=old_subject,
-        old_type=old_type,
-    )
+    try:
+        saved = await get_memory_orchestrator().revise_memory(
+            user_id=user_id,
+            new_event=new_event,
+            memory_id=memory_id,
+            old_value=old_value,
+            old_subject=old_subject,
+            old_type=old_type,
+        )
+    except MemoryAdmissionError as exc:
+        return json.dumps(
+            {
+                "status": exc.decision.decision,
+                "tool_admission": tool_admission.model_dump(mode="json"),
+                "admission": exc.decision.model_dump(mode="json"),
+                "conflicts": [],
+                "memory": None,
+            },
+            ensure_ascii=False,
+        )
     return json.dumps(saved.model_dump(mode="json"), ensure_ascii=False)
 
 
@@ -178,6 +294,16 @@ async def forget_memory(
     reason: str = "",
 ) -> str:
     """Forget matching user memories so they no longer affect recommendations."""
+    admission = get_tool_admission_gate().admit_current_turn(FORGET_MEMORY_TOOL_POLICY)
+    if not admission.allowed:
+        return _tool_blocked_payload(
+            admission,
+            extra={
+                "forgotten_count": 0,
+                "forgotten_event_ids": [],
+                "provider_sources": [],
+            },
+        )
     result = await get_memory_orchestrator().forget_memory(
         user_id=user_id,
         memory_id=memory_id,

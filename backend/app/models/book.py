@@ -70,6 +70,46 @@ class BookInteraction(Base):
     )
 
 
+class RecommendationEvent(Base):
+    """Recommendation-system behavior signal, separate from long-term memory."""
+
+    __tablename__ = "recommendation_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    thread_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("conversations.thread_id", ondelete="SET NULL"), nullable=True
+    )
+    request_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    book_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("books.id", ondelete="SET NULL"), nullable=True
+    )
+    book_title: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    event_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    signal_polarity: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="neutral"
+    )
+    signal_strength: Mapped[Decimal] = mapped_column(
+        Numeric(4, 3), nullable=False, default=Decimal("0.000")
+    )
+    source: Mapped[str] = mapped_column(String(32), nullable=False, default="agent_tool")
+    metadata_json: Mapped[dict] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=utc_now,
+        onupdate=utc_now,
+    )
+
+
 class UserPreferenceProfile(Base):
     """Structured long-term reading preference profile for a user."""
 

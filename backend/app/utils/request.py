@@ -16,6 +16,7 @@ from langchain_core.runnables import RunnableConfig
 from app.agents.context import AgentRuntimeContext
 from app.schemas.chat import UserInput
 from app.utils.logging import request_id_context
+from app.utils.turn_context import current_user_message_context
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +82,7 @@ async def build_agent_kwargs(user_input: UserInput) -> AgentKwargs:
     # Set request_id context variable so all downstream log records
     # automatically include it (via RequestIdFilter on root logger).
     request_id_context.set(user_input.request_id or "-")
+    current_user_message_context.set(user_input.content or "")
 
     logger.info(
         "build_agent_kwargs: thread_id=%s, thinking_mode=%s, model_key=%s, has_custom_data=%s",

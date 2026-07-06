@@ -16,10 +16,29 @@ from app.services.research.orchestrator import (
     ResearchOrchestrator,
     get_research_orchestrator,
 )
+from app.services.research.observation_providers import (
+    GBrainObservationProvider,
+    ObservationProvider,
+    ObservationProviderRequest,
+    ObservationProviderResult,
+    ResearchObservation,
+    SourceObservationProvider,
+    get_default_observation_provider,
+    map_provider_status,
+)
+from app.services.research.verifier import (
+    ResearchVerifier,
+    VerifierAdmissionInput,
+    VerifierAdmissionResult,
+)
 
 __all__ = [
     "EVIDENCE_QUALITIES",
     "EVIDENCE_SOURCE_TYPES",
+    "GBrainObservationProvider",
+    "ObservationProvider",
+    "ObservationProviderRequest",
+    "ObservationProviderResult",
     "RESEARCH_MODES",
     "RESEARCH_RUN_STATUSES",
     "RESEARCH_STEP_STATUSES",
@@ -31,5 +50,12 @@ __all__ = [
     "ResearchStateResult",
     "ResearchStateSnapshot",
     "ResearchStep",
+    "ResearchObservation",
+    "ResearchVerifier",
+    "SourceObservationProvider",
+    "VerifierAdmissionInput",
+    "VerifierAdmissionResult",
+    "get_default_observation_provider",
     "get_research_orchestrator",
+    "map_provider_status",
 ]

@@ -146,6 +146,10 @@ class Settings(BaseSettings):
     # Tavily Search API
     TAVILY_API_KEY: Optional[SecretStr] = None
 
+    # App-owned external provider configuration. This JSON may define providers
+    # such as mem0 and gbrain, but their fields still map into app contracts.
+    APP_PROVIDER_CONFIGS_JSON: str = ""
+
     # API Key Encryption Configuration
     # This is the AES-256 key used to encrypt API keys stored in the database
     # MUST be set in .env for ALL environments!

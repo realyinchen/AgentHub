@@ -7,6 +7,7 @@ from app.api.v1.books import api_router as books_router
 from app.api.v1.chat import api_router as chat_router
 from app.api.v1.memory import api_router as memory_router
 from app.api.v1.models import api_router as models_router
+from app.api.v1.provider_configs import api_router as provider_configs_router
 from app.api.v1.research import api_router as research_router
 from app.api.v1.traces import api_router as traces_router
 from app.api.v1.weixin import api_router as weixin_router
@@ -18,6 +19,7 @@ api_router.include_router(books_router)
 api_router.include_router(chat_router)
 api_router.include_router(memory_router)
 api_router.include_router(models_router)
+api_router.include_router(provider_configs_router)
 api_router.include_router(research_router)
 api_router.include_router(traces_router)
 api_router.include_router(weixin_router)

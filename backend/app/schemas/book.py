@@ -5,6 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.services.book_search_contracts import BookSearchStatus
+from app.services.recommendation_signals import RecommendationSignal
 
 
 class BookBase(BaseModel):
@@ -68,6 +69,10 @@ class BookInteractionInDB(BookInteractionCreate):
     created_at: datetime
     updated_at: datetime
 
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RecommendationSignalInDB(RecommendationSignal):
     model_config = ConfigDict(from_attributes=True)
 
 

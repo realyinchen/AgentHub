@@ -6,6 +6,11 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.memory.contracts import (
+    INFORMATION_SCOPES,
+    MEMORY_CANDIDATE_SOURCE_KINDS,
+    MEMORY_CONFLICT_DECISIONS,
+    MEMORY_CONFLICT_SEVERITIES,
+    MEMORY_CONFLICT_TYPES,
     MEMORY_POLARITIES,
     MEMORY_SOURCES,
     MEMORY_SUBJECTS,
@@ -21,6 +26,12 @@ class MemoryContractResponse(BaseModel):
     subjects: list[str]
     polarities: list[str]
     sources: list[str]
+    information_scopes: list[str]
+    candidate_source_kinds: list[str]
+    admission_decisions: list[str]
+    conflict_types: list[str]
+    conflict_severities: list[str]
+    conflict_decisions: list[str]
 
 
 class MemoryRememberRequest(BaseModel):
@@ -32,6 +43,9 @@ class MemoryRememberRequest(BaseModel):
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     thread_id: UUID | None = None
     source: str = Field(default="manual")
+    scope: str = Field(default="long_term_memory")
+    source_kind: str = Field(default="manual")
+    source_text: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("type", mode="before")
@@ -53,6 +67,25 @@ class MemoryRememberRequest(BaseModel):
     @classmethod
     def validate_source(cls, value: Any) -> str:
         return validate_memory_token("source", value, MEMORY_SOURCES)
+
+    @field_validator("scope", mode="before")
+    @classmethod
+    def validate_scope(cls, value: Any) -> str:
+        return validate_memory_token("scope", value, INFORMATION_SCOPES)
+
+    @field_validator("source_kind", mode="before")
+    @classmethod
+    def validate_source_kind(cls, value: Any) -> str:
+        return validate_memory_token(
+            "source_kind",
+            value,
+            MEMORY_CANDIDATE_SOURCE_KINDS,
+        )
+
+    @field_validator("source_text", mode="before")
+    @classmethod
+    def clean_source_text(cls, value: Any) -> str:
+        return normalize_memory_value(value)
 
     @field_validator("value", mode="before")
     @classmethod

@@ -1,5 +1,11 @@
 from app.models.chat import Conversation
-from app.models.book import Book, BookInteraction, UserPreferenceProfile
+from app.models.book import (
+    Book,
+    BookInteraction,
+    RecommendationEvent,
+    UserPreferenceProfile,
+)
+from app.models.app_provider_config import AppProviderConfigRecord
 from app.models.memory import MemoryEventRecord
 from app.models.model import Model
 from app.models.model_capability import ModelCapabilityCheck
@@ -18,6 +24,8 @@ from app.models.user_channel import UserChannel
 __all__ = [
     "Book",
     "BookInteraction",
+    "RecommendationEvent",
+    "AppProviderConfigRecord",
     "Conversation",
     "Model",
     "ModelCapabilityCheck",

@@ -41,6 +41,66 @@ MEMORY_POLARITIES = frozenset(
     }
 )
 MEMORY_SOURCES = frozenset({"chat_turn", "tool", "manual"})
+INFORMATION_SCOPES = frozenset(
+    {
+        "long_term_memory",
+        "short_term_thread_state",
+        "temporary_turn_state",
+        "research_state",
+        "search_state",
+    }
+)
+MEMORY_CANDIDATE_SOURCE_KINDS = frozenset(
+    {
+        "user_message",
+        "book_feedback",
+        "manual",
+        "tool",
+        "model_inference",
+        "search_result",
+        "research_evidence",
+        "provider_raw",
+        "thread_summary",
+        "temporary_turn_state",
+    }
+)
+MEMORY_ADMISSION_DECISIONS = frozenset(
+    {"allow", "reject", "revise_existing", "needs_confirmation"}
+)
+MEMORY_CONFLICT_TYPES = frozenset(
+    {
+        "direct_polarity_conflict",
+        "preference_refinement",
+        "state_progression",
+        "duplicate",
+        "explicit_correction",
+        "ambiguous_conflict",
+    }
+)
+MEMORY_CONFLICT_SEVERITIES = frozenset({"low", "medium", "high"})
+MEMORY_CONFLICT_DECISIONS = frozenset(
+    {"allow", "skip_duplicate", "revise_existing", "needs_confirmation"}
+)
+MEMORY_PROVIDER_STATUSES = frozenset(
+    {"completed", "empty_result", "timeout", "failed", "skipped"}
+)
+MEMORY_PROVIDER_STATUS_TO_CONTRACT = {
+    "ok": "completed",
+    "success": "completed",
+    "completed": "completed",
+    "empty": "empty_result",
+    "empty_result": "empty_result",
+    "no_result": "empty_result",
+    "no_results": "empty_result",
+    "timeout": "timeout",
+    "timed_out": "timeout",
+    "failed": "failed",
+    "failure": "failed",
+    "error": "failed",
+    "hard_error": "failed",
+    "rate_limited": "failed",
+    "skipped": "skipped",
+}
 
 
 def normalize_memory_token(value: Any) -> str:
@@ -73,6 +133,12 @@ def validate_optional_memory_token(
         allowed_values = ", ".join(sorted(allowed))
         raise ValueError(f"{field_name} must be empty or one of: {allowed_values}")
     return token
+
+
+def map_memory_provider_status(value: Any) -> str:
+    token = normalize_memory_token(value)
+    mapped = MEMORY_PROVIDER_STATUS_TO_CONTRACT.get(token, "failed")
+    return validate_memory_token("status", mapped, MEMORY_PROVIDER_STATUSES)
 
 
 class MemoryEvent(BaseModel):
@@ -139,6 +205,196 @@ class MemoryEvent(BaseModel):
         return text
 
 
+def memory_source_for_candidate_source_kind(source_kind: str) -> str:
+    """Map granular candidate provenance into the existing MemoryEvent source enum."""
+    token = validate_memory_token(
+        "source_kind",
+        source_kind,
+        MEMORY_CANDIDATE_SOURCE_KINDS,
+    )
+    if token == "manual":
+        return "manual"
+    if token == "user_message":
+        return "chat_turn"
+    return "tool"
+
+
+class MemoryCandidate(BaseModel):
+    """Candidate long-term memory proposed by an agent, tool, API, or provider."""
+
+    type: str = Field(description="Memory type proposed for persistence.")
+    subject: str = Field(description="Memory subject proposed for persistence.")
+    value: str = Field(description="Concise memory value proposed for persistence.")
+    polarity: str = Field(default="neutral")
+    scope: str = Field(default="long_term_memory")
+    source_text: str = Field(
+        default="",
+        description="The user text or operation text that produced the candidate.",
+    )
+    source_kind: str = Field(default="user_message")
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    user_id: UUID
+    thread_id: UUID | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("type", mode="before")
+    @classmethod
+    def validate_type(cls, value: Any) -> str:
+        return validate_memory_token("type", value, MEMORY_TYPES)
+
+    @field_validator("subject", mode="before")
+    @classmethod
+    def validate_subject(cls, value: Any) -> str:
+        return validate_memory_token("subject", value, MEMORY_SUBJECTS)
+
+    @field_validator("polarity", mode="before")
+    @classmethod
+    def validate_polarity(cls, value: Any) -> str:
+        return validate_memory_token("polarity", value, MEMORY_POLARITIES)
+
+    @field_validator("scope", mode="before")
+    @classmethod
+    def validate_scope(cls, value: Any) -> str:
+        return validate_memory_token("scope", value, INFORMATION_SCOPES)
+
+    @field_validator("source_kind", mode="before")
+    @classmethod
+    def validate_source_kind(cls, value: Any) -> str:
+        return validate_memory_token(
+            "source_kind",
+            value,
+            MEMORY_CANDIDATE_SOURCE_KINDS,
+        )
+
+    @field_validator("value", mode="before")
+    @classmethod
+    def clean_value(cls, value: Any) -> str:
+        text = normalize_memory_value(value)
+        if not text:
+            raise ValueError("value cannot be empty")
+        return text
+
+    @field_validator("source_text", mode="before")
+    @classmethod
+    def clean_source_text(cls, value: Any) -> str:
+        return normalize_memory_value(value)
+
+    def to_memory_event(self) -> MemoryEvent:
+        metadata = dict(self.metadata)
+        admission_metadata = dict(metadata.get("admission") or {})
+        admission_metadata.update(
+            {
+                "scope": self.scope,
+                "source_kind": self.source_kind,
+                "source_text": self.source_text,
+            }
+        )
+        metadata["admission"] = admission_metadata
+        return MemoryEvent(
+            user_id=self.user_id,
+            thread_id=self.thread_id,
+            type=self.type,
+            subject=self.subject,
+            value=self.value,
+            polarity=self.polarity,
+            confidence=self.confidence,
+            source=memory_source_for_candidate_source_kind(self.source_kind),
+            metadata=metadata,
+        )
+
+
+class MemoryAdmissionDecision(BaseModel):
+    """Decision returned before a candidate can become long-term memory."""
+
+    decision: str
+    reason: str = ""
+    candidate: MemoryCandidate
+    target_memory_id: UUID | None = None
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("decision", mode="before")
+    @classmethod
+    def validate_decision(cls, value: Any) -> str:
+        return validate_memory_token(
+            "decision",
+            value,
+            MEMORY_ADMISSION_DECISIONS,
+        )
+
+    @property
+    def allowed(self) -> bool:
+        return self.decision == "allow"
+
+
+class MemoryConflict(BaseModel):
+    """Structured relation between a new candidate and one current memory."""
+
+    conflict_type: str
+    existing_memory_id: UUID | None = None
+    candidate: MemoryCandidate
+    severity: str = "medium"
+    suggested_decision: str
+    reason: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("conflict_type", mode="before")
+    @classmethod
+    def validate_conflict_type(cls, value: Any) -> str:
+        return validate_memory_token(
+            "conflict_type",
+            value,
+            MEMORY_CONFLICT_TYPES,
+        )
+
+    @field_validator("severity", mode="before")
+    @classmethod
+    def validate_severity(cls, value: Any) -> str:
+        return validate_memory_token(
+            "severity",
+            value,
+            MEMORY_CONFLICT_SEVERITIES,
+        )
+
+    @field_validator("suggested_decision", mode="before")
+    @classmethod
+    def validate_suggested_decision(cls, value: Any) -> str:
+        return validate_memory_token(
+            "suggested_decision",
+            value,
+            MEMORY_CONFLICT_DECISIONS,
+        )
+
+
+class MemoryConflictResolution(BaseModel):
+    """Resolver decision after comparing a candidate with current memories."""
+
+    decision: str = "allow"
+    reason: str = ""
+    candidate: MemoryCandidate
+    target_memory_id: UUID | None = None
+    conflicts: list[MemoryConflict] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("decision", mode="before")
+    @classmethod
+    def validate_decision(cls, value: Any) -> str:
+        return validate_memory_token(
+            "decision",
+            value,
+            MEMORY_CONFLICT_DECISIONS,
+        )
+
+
+class MemoryAdmissionResult(BaseModel):
+    """Result of admission plus optional committed memory event."""
+
+    decision: MemoryAdmissionDecision
+    memory: MemoryEvent | None = None
+    conflicts: list[MemoryConflict] = Field(default_factory=list)
+    provider_sources: list[str] = Field(default_factory=list)
+
+
 class MemorySearchResult(BaseModel):
     """Aggregated memory search result returned to agents."""
 
@@ -150,6 +406,67 @@ class MemorySearchResult(BaseModel):
     reading_states: list[dict[str, Any]] = Field(default_factory=list)
     relevant_events: list[MemoryEvent] = Field(default_factory=list)
     provider_sources: list[str] = Field(default_factory=list)
+    provider_telemetry: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class MemoryRecallProviderRequest(BaseModel):
+    """Input envelope for long-term memory recall enhancers such as mem0."""
+
+    user_id: UUID
+    thread_id: UUID | None = None
+    query: str = ""
+    limit: int = Field(default=10, ge=1, le=50)
+    filters: dict[str, Any] = Field(default_factory=dict)
+    current_memories: list[MemoryEvent] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("query", mode="before")
+    @classmethod
+    def clean_query(cls, value: Any) -> str:
+        return normalize_memory_value(value)
+
+
+class MemoryRecallProviderResult(BaseModel):
+    """Provider output envelope for app-owned memory recall."""
+
+    provider_name: str
+    status: str
+    memories: list[MemoryEvent] = Field(default_factory=list)
+    error: str | None = None
+    duration_ms: int = Field(default=0, ge=0)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("provider_name", mode="before")
+    @classmethod
+    def clean_provider_name(cls, value: Any) -> str:
+        text = normalize_memory_value(value)
+        if not text:
+            raise ValueError("provider_name cannot be empty")
+        return text
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def validate_status(cls, value: Any) -> str:
+        return map_memory_provider_status(value)
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def clean_error(cls, value: Any) -> str | None:
+        text = normalize_memory_value(value)
+        return text or None
+
+    @field_validator("memories", mode="after")
+    @classmethod
+    def validate_memory_metadata(
+        cls,
+        value: list[MemoryEvent],
+    ) -> list[MemoryEvent]:
+        for memory in value:
+            if not memory.metadata.get("provider_source"):
+                raise ValueError("memory metadata.provider_source is required")
+            if memory.metadata.get("provider_raw") is None:
+                raise ValueError("memory metadata.provider_raw is required")
+        return value
 
 
 class CurrentMemoryListResult(BaseModel):

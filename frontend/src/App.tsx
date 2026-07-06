@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
-import { Brain, Languages, Moon, Share2, Sun, Settings } from "lucide-react"
+import { Brain, Languages, MessageSquare, Moon, PlugZap, SearchCheck, Share2, Sun, Settings } from "lucide-react"
 
 import {
   AlertDialog,
@@ -21,6 +21,7 @@ import {
   getHistory,
   listConversations,
   loadMoreConversations,
+  recordRecommendationSignal,
   setConversationTitle,
   setCurrentUserId,
   streamChat,
@@ -50,6 +51,8 @@ import {
   TurnDAGSidebar,
 } from "@/features/chat/components"
 import { ProviderConfigDialog } from "@/features/chat/components/provider-config-dialog"
+import { AppProviderConfigDialog } from "@/features/chat/components/app-provider-config-dialog"
+import { ResearchView } from "@/features/research/components/research-view"
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import {
@@ -66,6 +69,15 @@ import {
 import { useI18n } from "@/i18n"
 import { HomePage } from "@/pages/home-page"
 import { Toaster } from "@/components/ui/toaster"
+import {
+  findRecentDetailRequestTarget,
+  findRecentFollowUpMatch,
+  type FollowUpQuestionOption,
+  type FollowUpSendContext,
+} from "@/features/chat/recommendation-followups"
+
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 function App() {
   const { t, toggleLocale } = useI18n()
@@ -117,6 +129,7 @@ function App() {
     setHasMoreConversations(false)
     setSelectedRequestId(null)
     setAppError(null)
+    setMainView("chat")
     abortControllerRef.current?.abort()
     setIsStreaming(false)
 
@@ -173,7 +186,9 @@ function App() {
   const [showShareDialog, setShowShareDialog] = useState(false)
   const [showMemoryDialog, setShowMemoryDialog] = useState(false)
   const [showProviderConfig, setShowProviderConfig] = useState(false)
+  const [showAppProviderConfig, setShowAppProviderConfig] = useState(false)
   const [showNoModelDialog, setShowNoModelDialog] = useState(false)
+  const [mainView, setMainView] = useState<"chat" | "research">("chat")
 
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamingPlaceholderIdRef = useRef<string | null>(null)
@@ -181,6 +196,7 @@ function App() {
   const isProcessingRef = useRef(false)
   const thinkingModeRef = useRef(thinkingMode)
   const effectiveModelRef = useRef<string | null>(null)
+  const recordedFollowUpSignalsRef = useRef<Set<string>>(new Set())
 
   // Keep refs in sync with state
   useEffect(() => {
@@ -190,6 +206,74 @@ function App() {
   useEffect(() => {
     effectiveModelRef.current = effectiveSelectedModel
   }, [effectiveSelectedModel])
+
+  const recordFollowUpSignal = useCallback(
+    (
+      eventType: "followup_clicked" | "followup_matched" | "detail_requested",
+      question: FollowUpQuestionOption,
+      targetThreadId: string,
+      options?: {
+        similarity?: number
+        parentMessageId?: string | null
+        parentRequestId?: string | null
+      },
+    ) => {
+      const signalUserId = effectiveUserId || getCurrentUserId()
+      if (!signalUserId || !UUID_PATTERN.test(signalUserId)) {
+        return
+      }
+
+      const messageId = options?.parentMessageId || question.messageId || ""
+      const requestId =
+        options?.parentRequestId ||
+        question.requestId ||
+        currentRequestIdRef.current ||
+        ""
+      const dedupeKey = [
+        eventType,
+        signalUserId,
+        targetThreadId,
+        messageId,
+        question.id,
+        question.question,
+      ].join(":")
+
+      if (recordedFollowUpSignalsRef.current.has(dedupeKey)) {
+        return
+      }
+      recordedFollowUpSignalsRef.current.add(dedupeKey)
+
+      void recordRecommendationSignal({
+        user_id: signalUserId,
+        event_type: eventType,
+        signal_polarity: "positive",
+        signal_strength:
+          eventType === "detail_requested"
+            ? 0.8
+            : eventType === "followup_clicked"
+              ? 0.7
+              : 0.55,
+        book_title: question.bookTitle,
+        thread_id: targetThreadId,
+        request_id: requestId,
+        message_id: messageId,
+        source: "followup_question",
+        metadata: {
+          followup_id: question.id,
+          followup_text: question.question,
+          followup_reason: question.reason,
+          parent_book_title: question.bookTitle,
+          parent_tool_call_id: question.toolCallId,
+          parent_tool_name: question.toolName,
+          similarity: options?.similarity ?? null,
+          writes_long_term_memory: false,
+        },
+      }).catch((error: unknown) => {
+        console.warn("Failed to record follow-up recommendation signal", error)
+      })
+    },
+    [effectiveUserId],
+  )
 
   // Check if there are available models (active LLM/VLM)
   const hasAvailableModels = useMemo(() => {
@@ -614,7 +698,12 @@ function App() {
   )
 
   const handleSendMessage = useCallback(
-    async (rawInput: string, quotedMessageId?: string, userContent?: string) => {
+    async (
+      rawInput: string,
+      quotedMessageId?: string,
+      userContent?: string,
+      followUpContext?: FollowUpSendContext,
+    ) => {
       const trimmed = rawInput.trim()
       if (
         !trimmed ||
@@ -628,6 +717,45 @@ function App() {
       if (!targetThreadId) {
         targetThreadId = crypto.randomUUID()
         setThreadId(targetThreadId)
+      }
+
+      if (followUpContext?.followUpQuestion) {
+        recordFollowUpSignal(
+          "followup_clicked",
+          followUpContext.followUpQuestion,
+          targetThreadId,
+          {
+            parentMessageId: followUpContext.parentMessageId,
+            parentRequestId: followUpContext.parentRequestId,
+          },
+        )
+      } else {
+        const match = findRecentFollowUpMatch(trimmed, messages, calledTools)
+        if (match) {
+          recordFollowUpSignal(
+            "followup_matched",
+            match.question,
+            targetThreadId,
+            {
+              similarity: match.similarity,
+              parentMessageId: match.question.messageId,
+              parentRequestId: match.question.requestId,
+            },
+          )
+        } else {
+          const detailTarget = findRecentDetailRequestTarget(trimmed, messages, calledTools)
+          if (detailTarget) {
+            recordFollowUpSignal(
+              "detail_requested",
+              detailTarget,
+              targetThreadId,
+              {
+                parentMessageId: detailTarget.messageId,
+                parentRequestId: detailTarget.requestId,
+              },
+            )
+          }
+        }
       }
 
       setAppError(null)
@@ -883,11 +1011,14 @@ function App() {
     [
       addMessageFromStream,
       addStreamToken,
+      calledTools,
       conversationTitle,
       createStreamingPlaceholder,
       ensureConversationExists,
       isStreaming,
       maybeGenerateTitle,
+      messages,
+      recordFollowUpSignal,
       refreshConversations,
       t,
       threadId,
@@ -1190,34 +1321,38 @@ function App() {
         />
 
         <SidebarInset className="min-h-0 overflow-hidden bg-background flex-1">
-          <ChatMainPanel
-            appError={appError}
-            isStreaming={isStreaming}
-            isInitializing={isInitializing}
-            isLoadingConversation={isLoadingConversation}
-            isProcessing={isProcessing}
-            isAgentThinking={isAgentThinking}
-            calledTools={calledTools}
-            thinkingContent={thinkingContent}
-            messages={messages}
-            onSendMessage={handleSendMessage}
-            onStopStreaming={stopStreaming}
-            onJumpToMessage={jumpToMessage}
-            onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
-            onSelectRequestId={(requestId: string | null) => {
-              setSelectedRequestId(requestId)
-              // Ensure sidebar is visible
-              if (!showSidebarProcess) {
-                setShowSidebarProcess(true)
-              }
-            }}
-            models={models}
-            selectedModel={effectiveSelectedModel}
-            onSelectModel={setSelectedModel}
-            onOpenModelConfig={() => setShowProviderConfig(true)}
-            hasAvailableModels={hasAvailableModels}
-            selectedRequestId={selectedRequestId}
-          />
+          {mainView === "chat" ? (
+            <ChatMainPanel
+              appError={appError}
+              isStreaming={isStreaming}
+              isInitializing={isInitializing}
+              isLoadingConversation={isLoadingConversation}
+              isProcessing={isProcessing}
+              isAgentThinking={isAgentThinking}
+              calledTools={calledTools}
+              thinkingContent={thinkingContent}
+              messages={messages}
+              onSendMessage={handleSendMessage}
+              onStopStreaming={stopStreaming}
+              onJumpToMessage={jumpToMessage}
+              onToggleSidebarProcess={() => setShowSidebarProcess(prev => !prev)}
+              onSelectRequestId={(requestId: string | null) => {
+                setSelectedRequestId(requestId)
+                // Ensure sidebar is visible
+                if (!showSidebarProcess) {
+                  setShowSidebarProcess(true)
+                }
+              }}
+              models={models}
+              selectedModel={effectiveSelectedModel}
+              onSelectModel={setSelectedModel}
+              onOpenModelConfig={() => setShowProviderConfig(true)}
+              hasAvailableModels={hasAvailableModels}
+              selectedRequestId={selectedRequestId}
+            />
+          ) : (
+            <ResearchView userId={effectiveUserId} />
+          )}
         </SidebarInset>
 
         {/* Right Panel - same width as left sidebar (16rem) */}
@@ -1226,6 +1361,29 @@ function App() {
           <div className="space-y-2">
             {/* Utility buttons */}
             <div className="flex gap-1 w-full">
+              <Button
+                type="button"
+                size="icon"
+                variant={mainView === "chat" ? "default" : "outline"}
+                className="size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
+                onClick={() => setMainView("chat")}
+                aria-label="Chat"
+                title="Chat"
+              >
+                <MessageSquare className="size-4" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant={mainView === "research" ? "default" : "outline"}
+                className="size-8 flex-1 hover:bg-primary/10 hover:border-primary/40 hover:text-primary dark:hover:bg-primary/20 dark:hover:border-primary/60 dark:hover:text-primary"
+                onClick={() => setMainView("research")}
+                aria-label="Research"
+                title="Research"
+                disabled={!effectiveUserId}
+              >
+                <SearchCheck className="size-4" />
+              </Button>
               <Button
                 type="button"
                 size="icon"
@@ -1292,11 +1450,24 @@ function App() {
               </Button>
             </div>
 
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="h-8 w-full justify-start gap-2"
+              onClick={() => setShowAppProviderConfig(true)}
+              aria-label="App Providers"
+              title="App Providers"
+            >
+              <PlugZap className="size-4" />
+              <span className="truncate text-xs">App Providers</span>
+            </Button>
+
           </div>
 
           {/* Middle Section: Turn DAG Sidebar */}
           <div className="flex-1 min-h-0 overflow-hidden">
-            {!isInitializing && threadId && messages.length > 0 && (
+            {mainView === "chat" && !isInitializing && threadId && messages.length > 0 && (
               <TurnDAGSidebar
                 threadId={threadId || null}
                 isStreaming={isStreaming}
@@ -1306,7 +1477,7 @@ function App() {
           </div>
 
           {/* Bottom Section: Token Stats - only show in chat mode */}
-          {!isInitializing && messages.length > 0 && (
+          {mainView === "chat" && !isInitializing && messages.length > 0 && (
             <TokenStatsPanel
               currentConversation={conversations.find(c => c.thread_id === threadId) ?? null}
             />
@@ -1349,12 +1520,18 @@ function App() {
       {/* Provider Config Dialog */}
       <ProviderConfigDialog
         open={showProviderConfig}
+        onConfigChanged={refreshModels}
         onOpenChange={(open) => {
           setShowProviderConfig(open)
           if (!open) {
             void refreshModels()
           }
         }}
+      />
+
+      <AppProviderConfigDialog
+        open={showAppProviderConfig}
+        onOpenChange={setShowAppProviderConfig}
       />
 
       {/* No Model Dialog */}

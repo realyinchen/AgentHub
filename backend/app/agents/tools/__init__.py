@@ -13,7 +13,12 @@ Available tools:
 from .time import get_current_time
 from .web import create_web_search
 from .vectorstore_retriever import vectorstore_search
-from .books import search_books, remember_reading_preference, record_book_feedback
+from .books import (
+    record_book_feedback,
+    record_recommendation_signal,
+    remember_reading_preference,
+    search_books,
+)
 from .memory import search_memory, remember_memory, revise_memory, forget_memory
 from .research import (
     add_evidence,
@@ -36,6 +41,7 @@ __all__ = [
     "search_books",
     "remember_reading_preference",
     "record_book_feedback",
+    "record_recommendation_signal",
     "start_research",
     "inspect_research_state",
     "search_research",

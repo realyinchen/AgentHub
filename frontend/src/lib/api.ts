@@ -1,4 +1,7 @@
 import type {
+  AppProviderConfigList,
+  AppProviderConfig,
+  AppProviderConfigUpdate,
   ChatHistory,
   ChatMessage,
   ConversationInDB,
@@ -19,6 +22,13 @@ import type {
   CurrentMemoryListResult,
   MemoryForgetRequest,
   MemoryForgetResult,
+  RecommendationEventType,
+  RecommendationSignal,
+  RecommendationSignalCreate,
+  ResearchFinishRequest,
+  ResearchRunListResult,
+  ResearchRunStatus,
+  ResearchStateResult,
 } from "@/types"
 
 const rawBaseUrl = import.meta.env.VITE_API_BASE_URL || "/api/v1"
@@ -44,7 +54,15 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`HTTP ${response.status}${details}`)
   }
 
-  return (await response.json()) as T
+  if (response.status === 204) {
+    return undefined as T
+  }
+
+  const text = await response.text()
+  if (!text) {
+    return undefined as T
+  }
+  return JSON.parse(text) as T
 }
 
 // ── User scoping helper ───────────────────────────────────────────────────────
@@ -196,6 +214,121 @@ export async function forgetMemory(
 }
 
 // ── Invoke / Stream ───────────────────────────────────────────────────────────
+
+export async function recordRecommendationSignal(
+  input: RecommendationSignalCreate,
+): Promise<RecommendationSignal> {
+  return requestJson<RecommendationSignal>("/books/recommendation-events", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function listRecommendationSignals(input: {
+  userId: string
+  bookTitle?: string
+  eventType?: RecommendationEventType[]
+  limit?: number
+  offset?: number
+}): Promise<RecommendationSignal[]> {
+  const params = new URLSearchParams({
+    limit: String(input.limit ?? 50),
+    offset: String(input.offset ?? 0),
+  })
+  if (input.bookTitle) {
+    params.set("book_title", input.bookTitle)
+  }
+  for (const eventType of input.eventType ?? []) {
+    params.append("event_type", eventType)
+  }
+  return requestJson<RecommendationSignal[]>(
+    `/books/recommendation-events/${encodeURIComponent(input.userId)}?${params.toString()}`,
+  )
+}
+
+export async function listResearchRuns(input: {
+  userId: string
+  status?: ResearchRunStatus | ""
+  limit?: number
+  offset?: number
+}): Promise<ResearchRunListResult> {
+  const params = new URLSearchParams({
+    user_id: input.userId,
+    limit: String(input.limit ?? 50),
+    offset: String(input.offset ?? 0),
+  })
+  if (input.status) {
+    params.set("status", input.status)
+  }
+  return requestJson<ResearchRunListResult>(`/research/runs?${params.toString()}`)
+}
+
+export async function getResearchState(input: {
+  userId: string
+  runId: string
+  limitSteps?: number
+  limitEvidence?: number
+}): Promise<ResearchStateResult> {
+  const params = new URLSearchParams({
+    user_id: input.userId,
+    limit_steps: String(input.limitSteps ?? 100),
+    limit_evidence: String(input.limitEvidence ?? 100),
+  })
+  return requestJson<ResearchStateResult>(
+    `/research/${encodeURIComponent(input.runId)}?${params.toString()}`,
+  )
+}
+
+export async function finishResearch(
+  input: ResearchFinishRequest,
+): Promise<ResearchStateResult> {
+  return requestJson<ResearchStateResult>("/research/finish", {
+    method: "POST",
+    body: JSON.stringify(input),
+  })
+}
+
+export async function cancelResearchRun(input: {
+  userId: string
+  runId: string
+  reason?: string
+}): Promise<ResearchStateResult> {
+  return finishResearch({
+    user_id: input.userId,
+    run_id: input.runId,
+    status: "cancelled",
+    conclusion: input.reason || "Research run cancelled from research view.",
+    metadata: {
+      cancelled_from: "research_view",
+    },
+  })
+}
+
+export async function getAppProviderConfigs(): Promise<AppProviderConfigList> {
+  return requestJson<AppProviderConfigList>("/provider-configs")
+}
+
+export async function updateAppProviderConfig(
+  providerKey: string,
+  input: AppProviderConfigUpdate,
+): Promise<AppProviderConfig> {
+  return requestJson<AppProviderConfig>(
+    `/provider-configs/${encodeURIComponent(providerKey)}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  )
+}
+
+export async function checkAppProviderHealth(
+  providerKey: string,
+): Promise<AppProviderConfig> {
+  return requestJson<AppProviderConfig>(
+    `/provider-configs/${encodeURIComponent(providerKey)}/health`,
+    { method: "POST" },
+  )
+}
 
 export async function invoke(input: UserInput): Promise<ChatMessage> {
   return requestJson<ChatMessage>("/chat/invoke", {
@@ -425,6 +558,12 @@ export async function updateProviderConnection(
   return requestJson<ProviderConnectionInfo>(`/models/connections/${connectionId}`, {
     method: "PATCH",
     body: JSON.stringify(data),
+  })
+}
+
+export async function deleteProviderConnection(connectionId: string): Promise<void> {
+  await requestJson<void>(`/models/connections/${connectionId}`, {
+    method: "DELETE",
   })
 }
 
