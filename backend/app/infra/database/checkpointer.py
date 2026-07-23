@@ -12,6 +12,8 @@ import logging
 from typing import AsyncContextManager
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
+from psycopg.rows import dict_row
+from psycopg_pool import AsyncConnectionPool
 
 from app.infra.config import get_settings
 from app.infra.errors import CheckpointerError
@@ -25,6 +27,7 @@ class PostgresCheckpointer:
     def __init__(self) -> None:
         self._saver: AsyncPostgresSaver | None = None
         self._cm: AsyncContextManager[AsyncPostgresSaver] | None = None
+        self._pool: AsyncConnectionPool | None = None
 
     async def initialize(self) -> None:
         """Initialize the checkpointer connection and create tables.
@@ -38,12 +41,21 @@ class PostgresCheckpointer:
 
         settings = get_settings()
         try:
-            self._cm = AsyncPostgresSaver.from_conn_string(
-                settings.get_postgres_conn_string()
+            self._pool = AsyncConnectionPool(
+                settings.get_postgres_conn_string(),
+                kwargs={
+                    "autocommit": True,
+                    "prepare_threshold": 0,
+                    "row_factory": dict_row,
+                },
+                min_size=1,
+                max_size=5,
+                open=False,
             )
-            self._saver = await self._cm.__aenter__()
+            await self._pool.open(wait=True)
+            self._saver = AsyncPostgresSaver(conn=self._pool)
             await self._saver.setup()
-            logger.info("PostgreSQL checkpointer initialized")
+            logger.info("PostgreSQL checkpointer initialized with connection pool")
         except Exception as e:
             raise CheckpointerError(
                 f"Failed to initialize checkpointer: {e}",
@@ -65,14 +77,26 @@ class PostgresCheckpointer:
         Uses graceful cleanup: attempts normal exit first, then forced cleanup
         on any remaining resources. Safe to call multiple times.
         """
-        if self._cm is None:
+        if self._cm is None and self._pool is None:
             return
 
         # Clear references first to prevent reuse during cleanup
         cm = self._cm
+        pool = self._pool
         self._saver = None
         self._cm = None
+        self._pool = None
 
+        if pool is not None:
+            try:
+                await pool.close()
+                logger.info("PostgreSQL checkpointer pool disposed")
+                return
+            except Exception as e:
+                logger.warning("Error disposing checkpointer pool: %s", e)
+
+        if cm is None:
+            return
         try:
             await cm.__aexit__(None, None, None)
             logger.info("PostgreSQL checkpointer disposed")

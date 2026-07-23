@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
-import { Brain, RefreshCw, Trash2 } from "lucide-react"
+import { Brain, Check, RefreshCw, Trash2, X } from "lucide-react"
 
 import {
   Dialog,
@@ -10,7 +10,8 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { getCurrentMemories, forgetMemory } from "@/lib/api"
+import { Textarea } from "@/components/ui/textarea"
+import { confirmUserState, getCurrentMemories, forgetMemory } from "@/lib/api"
 import type { MemoryEvent } from "@/types"
 import { useI18n } from "@/i18n"
 
@@ -45,6 +46,8 @@ export function MemoryManagementDialog({
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [forgettingId, setForgettingId] = useState<string | null>(null)
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [drafts, setDrafts] = useState<Record<string, string>>({})
 
   const sortedMemories = useMemo(
     () =>
@@ -108,6 +111,37 @@ export function MemoryManagementDialog({
     [t, userId],
   )
 
+  const handleConfirmation = useCallback(
+    async (memory: MemoryEvent, accept: boolean) => {
+      if (!userId || !memory.id) {
+        return
+      }
+      setConfirmingId(memory.id)
+      setError(null)
+      try {
+        const updated = await confirmUserState(memory.id, {
+          user_id: userId,
+          accept,
+          summary: accept ? drafts[memory.id] || memory.value : undefined,
+        })
+        setMemories((current) =>
+          accept
+            ? current.map((item) => (item.id === memory.id ? updated : item))
+            : current.filter((item) => item.id !== memory.id),
+        )
+      } catch (confirmationError) {
+        setError(
+          confirmationError instanceof Error
+            ? confirmationError.message
+            : t("error.unexpected"),
+        )
+      } finally {
+        setConfirmingId(null)
+      }
+    },
+    [drafts, t, userId],
+  )
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-2xl">
@@ -160,7 +194,20 @@ export function MemoryManagementDialog({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0 flex-1 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge variant="outline">{tokenLabel(memory.type)}</Badge>
+                        <Badge variant="outline">
+                          {tokenLabel(memory.state_category || memory.type)}
+                        </Badge>
+                        <Badge
+                          variant={
+                            memory.state_status === "needs_confirmation"
+                              ? "destructive"
+                              : memory.state_status === "active"
+                                ? "success"
+                                : "secondary"
+                          }
+                        >
+                          {tokenLabel(memory.state_status)}
+                        </Badge>
                         <Badge variant="secondary">{tokenLabel(memory.subject)}</Badge>
                         <Badge
                           variant={
@@ -177,6 +224,54 @@ export function MemoryManagementDialog({
                       <p className="break-words text-sm font-medium leading-6">
                         {memory.value}
                       </p>
+                      {memory.raw_text && memory.raw_text !== memory.value && (
+                        <p className="break-words text-xs leading-5 text-muted-foreground">
+                          原文：{memory.raw_text}
+                        </p>
+                      )}
+                      {memory.use_when.length > 0 && (
+                        <p className="break-words text-xs leading-5 text-muted-foreground">
+                          使用场景：{memory.use_when.join("、")}
+                        </p>
+                      )}
+                      {memory.state_status === "needs_confirmation" && memory.id && (
+                        <div className="space-y-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-2">
+                          <p className="text-xs text-amber-800 dark:text-amber-200">
+                            {memory.confirmation_question || "请确认系统对这条记忆的理解。"}
+                          </p>
+                          <Textarea
+                            className="min-h-16 rounded-md px-2 py-2 text-sm"
+                            value={drafts[memory.id] ?? memory.value}
+                            onChange={(event) =>
+                              setDrafts((current) => ({
+                                ...current,
+                                [memory.id as string]: event.target.value,
+                              }))
+                            }
+                          />
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="outline"
+                              disabled={confirmingId === memory.id}
+                              onClick={() => void handleConfirmation(memory, false)}
+                            >
+                              <X className="size-4" />
+                              不正确
+                            </Button>
+                            <Button
+                              type="button"
+                              size="sm"
+                              disabled={confirmingId === memory.id}
+                              onClick={() => void handleConfirmation(memory, true)}
+                            >
+                              <Check className="size-4" />
+                              确认
+                            </Button>
+                          </div>
+                        </div>
+                      )}
                       <div className="text-xs text-muted-foreground">
                         {t("memory.updatedAt", {
                           time: formatDate(memory.updated_at || memory.created_at) || "-",

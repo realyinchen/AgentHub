@@ -18,7 +18,9 @@ This approach is more reliable than checkpoint metadata parsing because:
 - It captures the logical execution flow
 """
 
+import json
 import logging
+from typing import Any
 
 from langchain_core.messages import HumanMessage, AIMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -53,6 +55,7 @@ class DagBuilder:
         before_checkpoint_id: str | None = None,
         before_message_count: int = 0,
         reasoning_segments: dict[str, str] | None = None,
+        system_tool_steps: list[dict[str, Any]] | None = None,
     ) -> ExecutionDag:
         """Build the execution DAG for a single user-agent turn.
 
@@ -94,13 +97,14 @@ class DagBuilder:
         # Build nodes using message-based inference
         nodes, edges = self._build_dag_from_messages(new_messages, reasoning_segments)
 
-        return ExecutionDag(
+        dag = ExecutionDag(
             thread_id=thread_id,
             nodes=nodes,
             edges=edges,
             total_steps=len(nodes),
             steps=[n.step for n in nodes],
         )
+        return inject_system_tool_steps(dag, system_tool_steps or [])
 
     def _build_dag_from_messages(
         self,
@@ -446,6 +450,114 @@ def _convert_content_to_string(content) -> str:
                     pass
         return "".join(text_parts)
     return str(content) if content else ""
+
+
+def inject_system_tool_steps(
+    dag: ExecutionDag,
+    system_tool_steps: list[dict[str, Any]],
+) -> ExecutionDag:
+    """Insert SystemRuntime receipt actions between input and final response."""
+    if not system_tool_steps:
+        return dag
+
+    nodes = list(dag.nodes)
+    human_index = next(
+        (index for index, node in enumerate(nodes) if node.message_type == "human"),
+        -1,
+    )
+    insert_at = human_index + 1 if human_index >= 0 else 0
+    inserted_nodes: list[DagNode] = []
+
+    for index, item in enumerate(system_tool_steps):
+        tool_name = str(item.get("tool_name") or item.get("name") or "unknown")
+        action_id = str(
+            item.get("action_id")
+            or item.get("tool_call_id")
+            or f"system-tool-{index + 1}"
+        )
+        tool_args = item.get("args") or item.get("input") or {}
+        if not isinstance(tool_args, dict):
+            tool_args = {"value": tool_args}
+        output = _convert_system_tool_output(item.get("output"))
+        error = str(item.get("error") or "") or None
+        status = str(item.get("status") or "") or None
+        duration_ms = item.get("duration_ms")
+        latency_ms = int(duration_ms) if isinstance(duration_ms, (int, float)) else None
+        metadata = ToolStepMetadata(
+            tool_name=tool_name,
+            tool_args=tool_args,
+            tool_call_id=action_id,
+            system_executed=True,
+            status=status,
+            latency_ms=latency_ms,
+            error=error,
+        )
+        step = StepOutput(
+            step_number=0,
+            message_type="tool",
+            content=output,
+            message_id=action_id,
+            node_name=tool_name,
+            tool_metadata=metadata,
+            tool_name=tool_name,
+            tool_args=tool_args,
+            tool_output=output,
+            tool_call_id=action_id,
+            system_executed=True,
+            tool_status=status,
+            tool_error=error,
+            latency_ms=latency_ms,
+        )
+        inserted_nodes.append(
+            DagNode(
+                node_id=f"system_tool_{index + 1}_{action_id}",
+                step_number=0,
+                node_name=tool_name,
+                title=f"Runtime Action: {tool_name}",
+                message_type="tool",
+                step=step,
+            )
+        )
+
+    nodes[insert_at:insert_at] = inserted_nodes
+    for step_number, node in enumerate(nodes, start=1):
+        node.step_number = step_number
+        node.step.step_number = step_number
+
+    edges = list(dag.edges)
+    if human_index >= 0:
+        human_node_id = nodes[human_index].node_id
+        old_successors = [target for source, target in edges if source == human_node_id]
+        edges = [edge for edge in edges if edge[0] != human_node_id]
+        edges.append((human_node_id, inserted_nodes[0].node_id))
+        for current, following in zip(inserted_nodes, inserted_nodes[1:]):
+            edges.append((current.node_id, following.node_id))
+        for successor in old_successors:
+            edges.append((inserted_nodes[-1].node_id, successor))
+    else:
+        for current, following in zip(inserted_nodes, inserted_nodes[1:]):
+            edges.append((current.node_id, following.node_id))
+        if len(nodes) > len(inserted_nodes):
+            edges.append((inserted_nodes[-1].node_id, nodes[len(inserted_nodes)].node_id))
+
+    return ExecutionDag(
+        thread_id=dag.thread_id,
+        nodes=nodes,
+        edges=edges,
+        total_steps=len(nodes),
+        steps=[node.step for node in nodes],
+    )
+
+
+def _convert_system_tool_output(output: Any) -> str:
+    if output is None:
+        return ""
+    if isinstance(output, str):
+        return output
+    try:
+        return json.dumps(output, ensure_ascii=False, default=str)
+    except (TypeError, ValueError):
+        return str(output)
 
 
 def _extract_thinking(message) -> str:

@@ -14,6 +14,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.book import get_or_create_preference_profile
 from app.models.book import Book, BookInteraction, RecommendationEvent
+from app.services.memory.contracts import MemoryEvent
+from app.services.memory.providers.postgres import PostgresMemoryProvider
 from app.services.recommendation_signals import (
     NEGATIVE_EVENT_TYPES,
     READING_STATE_EVENT_TYPES,
@@ -25,7 +27,14 @@ from app.services.recommendation_signals import (
 
 PROJECTION_CONTRACT_VERSION = "recommendation-projection-v1"
 DEFAULT_ATTENTION_HALF_LIFE_DAYS = 30.0
+CURRENT_MEMORY_PREFERENCE_SOURCE = "current_memory"
+LEGACY_PROFILE_PREFERENCE_SOURCE = "legacy_profile_fallback"
 _WORD_RE = re.compile(r"[\w\u4e00-\u9fff]+", re.IGNORECASE)
+_MEMORY_PROFILE_TYPES = {"preference", "correction"}
+_MEMORY_LIKE_POLARITIES = {"like", "want"}
+_MEMORY_DISLIKE_POLARITIES = {"dislike", "avoid"}
+_MEMORY_TAG_SUBJECTS = {"tag", "theme", "style", "genre", "mood", "pacing", "content"}
+_MEMORY_AUTHOR_SUBJECTS = {"author"}
 _QUERY_STOPWORDS = {
     "a",
     "an",
@@ -47,6 +56,29 @@ _QUERY_STOPWORDS = {
 }
 
 
+class CurrentMemoryPreferenceSnapshot(BaseModel):
+    """Recommendation-ready view of app-owned current memory."""
+
+    preferred_tags: list[str] = Field(default_factory=list)
+    disliked_tags: list[str] = Field(default_factory=list)
+    favorite_authors: list[str] = Field(default_factory=list)
+    disliked_authors: list[str] = Field(default_factory=list)
+    current_memory_ids: list[str] = Field(default_factory=list)
+    current_memory_count: int = 0
+    legacy_profile_fallback_used: bool = False
+    legacy_profile_fallback_buckets: list[str] = Field(default_factory=list)
+
+    @property
+    def preference_source(self) -> str:
+        if self.current_memory_count and self.legacy_profile_fallback_used:
+            return "current_memory_with_legacy_profile_fallback"
+        if self.current_memory_count:
+            return CURRENT_MEMORY_PREFERENCE_SOURCE
+        if self.legacy_profile_fallback_used:
+            return LEGACY_PROFILE_PREFERENCE_SOURCE
+        return "none"
+
+
 class RecommendationProjectionFeature(BaseModel):
     source: str
     key: str
@@ -62,6 +94,7 @@ class RecommendationCandidateProjection(BaseModel):
     book_title: str
     score: float = 0.0
     base_score: float = 0.0
+    source_score: float = 0.0
     memory_score: float = 0.0
     behavior_score: float = 0.0
     query_score: float = 0.0
@@ -101,24 +134,33 @@ class RecommendationProjector:
         user_id: UUID,
         query: str,
         books: Sequence[Book],
+        candidate_sources: dict[str, dict[str, Any]] | None = None,
     ) -> RecommendationProjectionResult:
-        profile = await get_or_create_preference_profile(self.session, user_id)
+        preferences = await self._load_preference_snapshot(user_id)
         events = await self._load_events(user_id)
         interactions = await self._load_interactions(user_id)
         now = datetime.now(timezone.utc)
+        source_by_book_id = {
+            str(book_id): dict(source)
+            for book_id, source in (candidate_sources or {}).items()
+            if isinstance(source, dict)
+        }
 
         candidates: list[RecommendationCandidateProjection] = []
         suppressed: list[RecommendationCandidateProjection] = []
         for index, book in enumerate(books):
+            source_info = source_by_book_id.get(str(getattr(book, "id", "")), {})
             projection = self._project_book(
                 user_id=user_id,
                 query=query,
                 book=book,
                 rank_index=index,
-                preferred_tags=list(profile.preferred_tags or []),
-                disliked_tags=list(profile.disliked_tags or []),
-                favorite_authors=list(profile.favorite_authors or []),
-                disliked_authors=list(profile.disliked_authors or []),
+                source_info=source_info,
+                preferred_tags=preferences.preferred_tags,
+                disliked_tags=preferences.disliked_tags,
+                favorite_authors=preferences.favorite_authors,
+                disliked_authors=preferences.disliked_authors,
+                preference_source=preferences.preference_source,
                 events=events,
                 interactions=interactions,
                 now=now,
@@ -140,8 +182,47 @@ class RecommendationProjector:
                 "attention_half_life_days": self.attention_half_life_days,
                 "candidate_count": len(candidates),
                 "suppressed_count": len(suppressed),
+                "preference_source": preferences.preference_source,
+                "current_memory_count": preferences.current_memory_count,
+                "current_memory_ids": preferences.current_memory_ids,
+                "legacy_profile_fallback_used": preferences.legacy_profile_fallback_used,
+                "legacy_profile_fallback_buckets": (
+                    preferences.legacy_profile_fallback_buckets
+                ),
+                "candidate_source_scoring": "enabled",
             },
         )
+
+    async def _load_preference_snapshot(
+        self,
+        user_id: UUID,
+    ) -> CurrentMemoryPreferenceSnapshot:
+        provider = PostgresMemoryProvider(self.session)
+        current = await provider.list_current(
+            user_id=user_id,
+            query="",
+            memory_types=sorted(_MEMORY_PROFILE_TYPES),
+            limit=100,
+        )
+        snapshot = _snapshot_from_current_memories(current.memories)
+
+        profile = await get_or_create_preference_profile(self.session, user_id)
+        fallback_buckets: list[str] = []
+        fallback_values = {
+            "preferred_tags": list(profile.preferred_tags or []),
+            "disliked_tags": list(profile.disliked_tags or []),
+            "favorite_authors": list(profile.favorite_authors or []),
+            "disliked_authors": list(profile.disliked_authors or []),
+        }
+        for bucket, values in fallback_values.items():
+            if getattr(snapshot, bucket) or not values:
+                continue
+            setattr(snapshot, bucket, _clean_unique(values))
+            fallback_buckets.append(bucket)
+
+        snapshot.legacy_profile_fallback_used = bool(fallback_buckets)
+        snapshot.legacy_profile_fallback_buckets = fallback_buckets
+        return snapshot
 
     async def _load_events(self, user_id: UUID) -> list[RecommendationEvent]:
         result = await self.session.execute(
@@ -168,10 +249,12 @@ class RecommendationProjector:
         query: str,
         book: Book,
         rank_index: int,
+        source_info: dict[str, Any],
         preferred_tags: list[str],
         disliked_tags: list[str],
         favorite_authors: list[str],
         disliked_authors: list[str],
+        preference_source: str,
         events: list[RecommendationEvent],
         interactions: list[BookInteraction],
         now: datetime,
@@ -185,6 +268,8 @@ class RecommendationProjector:
                 "contract_version": PROJECTION_CONTRACT_VERSION,
                 "source_rank": rank_index,
                 "user_id": str(user_id),
+                "preference_source": preference_source,
+                "candidate_source": source_info,
             },
         )
         projection.score += projection.base_score
@@ -205,8 +290,10 @@ class RecommendationProjector:
             interactions=interactions,
             now=now,
         )
+        self._apply_source_features(projection, source_info=source_info)
         projection.score = round(
             projection.base_score
+            + projection.source_score
             + projection.memory_score
             + projection.behavior_score
             + projection.query_score,
@@ -260,7 +347,7 @@ class RecommendationProjector:
 
         for value in preferred_tags:
             token = value.strip()
-            if token and token.lower() in haystack:
+            if token and _memory_value_matches(token, haystack):
                 self._add_memory_feature(
                     projection,
                     key="preferred_tag",
@@ -270,7 +357,7 @@ class RecommendationProjector:
                 )
         for value in disliked_tags:
             token = value.strip()
-            if token and token.lower() in haystack:
+            if token and _memory_value_matches(token, haystack):
                 self._add_memory_feature(
                     projection,
                     key="disliked_tag",
@@ -407,6 +494,96 @@ class RecommendationProjector:
         projection.positive_reasons = _unique(projection.positive_reasons)
         projection.negative_reasons = _unique(projection.negative_reasons)
 
+    def _apply_source_features(
+        self,
+        projection: RecommendationCandidateProjection,
+        *,
+        source_info: dict[str, Any],
+    ) -> None:
+        candidate_source = normalize_recommendation_token(
+            source_info.get("candidate_source")
+        )
+        if not candidate_source:
+            return
+
+        match_score = _to_float(source_info.get("match_score"))
+        if candidate_source == "book_cache":
+            delta = min(0.25, 0.12 + max(0.0, match_score) * 0.02)
+            reason = "candidate matched local Book Cache"
+            value = "book_cache"
+            projection.positive_reasons.append(
+                "candidate source confidence: local Book Cache match"
+            )
+        elif candidate_source == "external_search":
+            delta = 0.05
+            reason = "candidate came from external book search"
+            value = normalize_recommendation_text(source_info.get("source")) or (
+                "external_search"
+            )
+            projection.positive_reasons.append(
+                "candidate source confidence: external book search result"
+            )
+        else:
+            return
+
+        projection.source_score += delta
+        projection.features.append(
+            RecommendationProjectionFeature(
+                source="candidate_source",
+                key=candidate_source,
+                value=value,
+                score_delta=round(delta, 4),
+                reason=reason,
+                metadata={
+                    "candidate_source": candidate_source,
+                    "source": normalize_recommendation_text(source_info.get("source")),
+                    "rank_index": source_info.get("rank_index"),
+                    "match_score": match_score,
+                    "provider_status": normalize_recommendation_text(
+                        source_info.get("provider_status")
+                    ),
+                },
+            )
+        )
+
+
+def _snapshot_from_current_memories(
+    memories: Sequence[MemoryEvent],
+) -> CurrentMemoryPreferenceSnapshot:
+    snapshot = CurrentMemoryPreferenceSnapshot(
+        current_memory_ids=[str(memory.id) for memory in memories if memory.id],
+        current_memory_count=len(memories),
+    )
+    for memory in memories:
+        if memory.type not in _MEMORY_PROFILE_TYPES:
+            continue
+        value = memory.value.strip()
+        if not value:
+            continue
+        if memory.subject in _MEMORY_AUTHOR_SUBJECTS:
+            if memory.polarity in _MEMORY_LIKE_POLARITIES:
+                snapshot.favorite_authors = _add_unique_value(
+                    snapshot.favorite_authors,
+                    value,
+                )
+            elif memory.polarity in _MEMORY_DISLIKE_POLARITIES:
+                snapshot.disliked_authors = _add_unique_value(
+                    snapshot.disliked_authors,
+                    value,
+                )
+        elif memory.subject in _MEMORY_TAG_SUBJECTS:
+            if memory.polarity in _MEMORY_LIKE_POLARITIES:
+                snapshot.preferred_tags = _add_unique_value(
+                    snapshot.preferred_tags,
+                    value,
+                )
+            elif memory.polarity in _MEMORY_DISLIKE_POLARITIES:
+                snapshot.disliked_tags = _add_unique_value(
+                    snapshot.disliked_tags,
+                    value,
+                )
+    return snapshot
+
 
 def _book_text(book: Book) -> str:
     parts = [
@@ -418,6 +595,25 @@ def _book_text(book: Book) -> str:
         str(getattr(book, "raw_data", None) or ""),
     ]
     return " ".join(str(part or "") for part in parts).lower()
+
+
+def _memory_value_matches(value: str, haystack: str) -> bool:
+    token = value.strip().lower()
+    if not token:
+        return False
+    if token in haystack:
+        return True
+    terms = [
+        term
+        for term in _query_terms(token, max_terms=8)
+        if term not in {"novel", "novels", "story", "stories"}
+    ]
+    if not terms:
+        return False
+    hits = sum(1 for term in terms if term in haystack)
+    if len(terms) == 1:
+        return hits == 1
+    return hits >= max(2, math.ceil(len(terms) * 0.5))
 
 
 def _query_terms(query: str, max_terms: int = 12) -> list[str]:
@@ -506,3 +702,11 @@ def _unique(values: list[str]) -> list[str]:
             seen.add(key)
             result.append(value)
     return result
+
+
+def _clean_unique(values: list[str]) -> list[str]:
+    return _unique([str(value).strip() for value in values if str(value).strip()])
+
+
+def _add_unique_value(values: list[str], value: str) -> list[str]:
+    return _clean_unique([*values, value])

@@ -165,9 +165,11 @@ async def supervisor_prompt(request: ModelRequest) -> str:
             timezone = tz
         user_id = str(getattr(request.runtime.context, "user_id", "") or "")
         thread_id = str(getattr(request.runtime.context, "thread_id", "") or "")
+        plan_receipt = getattr(request.runtime.context, "plan_receipt", None)
     else:
         user_id = ""
         thread_id = ""
+        plan_receipt = None
 
     # Get template (from cache or file)
     template = await _get_template("supervisor")
@@ -181,6 +183,7 @@ async def supervisor_prompt(request: ModelRequest) -> str:
         user_message=user_message,
         messages=getattr(request, "messages", []),
         turn_policy=turn_policy,
+        plan_receipt=plan_receipt,
     )
     context_pack_prompt = render_context_pack_prompt(context_pack)
     return _inject_runtime_context(

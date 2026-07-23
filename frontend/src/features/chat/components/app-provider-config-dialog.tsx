@@ -40,6 +40,7 @@ const CAPABILITIES: AppProviderCapability[] = [
   "memory_recall",
   "semantic_search",
   "research_observation",
+  "web_search",
   "source_visit",
 ]
 
@@ -66,6 +67,13 @@ function statusVariant(status: string): "default" | "secondary" | "destructive" 
     return "destructive"
   }
   return "outline"
+}
+
+function formatCheckedAt(value: string | null): string {
+  if (!value) return "Never"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
 }
 
 export function AppProviderConfigDialog({
@@ -148,6 +156,18 @@ export function AppProviderConfigDialog({
         ),
       )
       setApiKey("")
+      if (
+        updated.provider_key === "tavily" &&
+        updated.enabled &&
+        updated.credential_status === "configured"
+      ) {
+        const checked = await checkAppProviderHealth(updated.provider_key)
+        setProviders((current) =>
+          current.map((provider) =>
+            provider.provider_key === checked.provider_key ? checked : provider,
+          ),
+        )
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
     } finally {
@@ -178,7 +198,10 @@ export function AppProviderConfigDialog({
       <DialogContent className="sm:max-w-4xl max-h-[86vh] overflow-hidden">
         <DialogHeader>
           <DialogTitle>App Providers</DialogTitle>
-          <DialogDescription>mem0 / gbrain</DialogDescription>
+          <DialogDescription>
+            Server-side providers for memory, research observations, and web search.
+            Secrets are stored encrypted and never returned to the browser.
+          </DialogDescription>
         </DialogHeader>
 
         {error && (
@@ -245,7 +268,7 @@ export function AppProviderConfigDialog({
                       disabled={isSaving}
                     >
                       <RefreshCw className={`mr-2 size-4 ${isSaving ? "animate-spin" : ""}`} />
-                      Check
+                      Test connection
                     </Button>
                     <Button
                       type="button"
@@ -257,6 +280,29 @@ export function AppProviderConfigDialog({
                       Save
                     </Button>
                   </div>
+                </div>
+
+                <div className="rounded-md border border-border px-3 py-2 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium">Health</span>
+                    <Badge variant={statusVariant(selected.health.status)}>
+                      {selected.health.status}
+                    </Badge>
+                    <span className="text-muted-foreground">
+                      Last tested: {formatCheckedAt(selected.health.checked_at)}
+                    </span>
+                    {selected.health.duration_ms > 0 && (
+                      <span className="text-muted-foreground">
+                        {selected.health.duration_ms} ms
+                      </span>
+                    )}
+                  </div>
+                  {selected.provider_key === "tavily" && (
+                    <div className="mt-2 text-xs text-muted-foreground">
+                      Save stores the encrypted key, then Test connection runs a live
+                      Tavily query from the backend. Only an ok result means web search is usable.
+                    </div>
+                  )}
                 </div>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -299,8 +345,8 @@ export function AppProviderConfigDialog({
                       onChange={(event) => setApiKey(event.target.value)}
                       placeholder={
                         selected.credential_status === "configured"
-                          ? "Configured"
-                          : "Paste key"
+                          ? "Configured. Paste a new key to replace it."
+                          : "Paste API key"
                       }
                     />
                   </div>

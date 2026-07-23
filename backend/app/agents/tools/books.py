@@ -17,10 +17,22 @@ from app.infra.database import get_database
 from app.schemas.book import BookInteractionCreate
 from app.services.book_search import search_and_cache_books_with_status
 from app.services.book_search_contracts import get_book_search_hint
+from app.services.book_turn_orchestration import (
+    BOOK_TURN_ORCHESTRATION_CONTRACT_VERSION,
+    plan_book_assistant_turn as plan_book_assistant_turn_result,
+)
 from app.services.memory import MemoryCandidate, get_memory_orchestrator
 from app.services.recommendation_projection import (
     RecommendationCandidateProjection,
     RecommendationProjector,
+)
+from app.services.recommendation_history import (
+    RECOMMENDATION_HISTORY_MODES,
+    get_recommendation_history as get_recommendation_history_result,
+    normalize_recommendation_history_mode,
+)
+from app.services.recommendation_constraints import (
+    build_personalized_recommendation_constraints,
 )
 from app.services.recommendation_signals import (
     RecommendationSignalCreate,
@@ -47,6 +59,13 @@ SEARCH_BOOKS_TOOL_POLICY = ToolPolicyDeclaration(
     blocked_status="intent_blocked",
     metadata={"budget_blocked_status": "loop_detected"},
 )
+PLAN_BOOK_ASSISTANT_TURN_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="plan_book_assistant_turn",
+    required_policy_flags=[],
+    side_effect_scope="none",
+    blocked_status="tool_blocked",
+    metadata={"contract_version": BOOK_TURN_ORCHESTRATION_CONTRACT_VERSION},
+)
 REMEMBER_READING_PREFERENCE_TOOL_POLICY = ToolPolicyDeclaration(
     tool_name="remember_reading_preference",
     required_policy_flags=["can_write_memory"],
@@ -67,6 +86,14 @@ RECORD_RECOMMENDATION_SIGNAL_TOOL_POLICY = ToolPolicyDeclaration(
     side_effect_scope="recommendation_state",
     blocked_status="tool_blocked",
 )
+GET_RECOMMENDATION_HISTORY_TOOL_POLICY = ToolPolicyDeclaration(
+    tool_name="get_recommendation_history",
+    required_policy_flags=["can_view_recommendation_history"],
+    side_effect_scope="none",
+    blocked_status="tool_blocked",
+    metadata={"read_scope": "recommendation_state"},
+)
+RECOMMENDATION_EXPLANATION_CONTRACT_VERSION = "recommendation-explanation-v1"
 
 
 class BookSearchInput(BaseModel):
@@ -89,6 +116,38 @@ class BookSearchInput(BaseModel):
             "for ordinary recommendations."
         ),
     )
+
+
+class PlanBookAssistantTurnInput(BaseModel):
+    user_id: UUID | None = Field(
+        default=None,
+        description="Current user ID, when available, for personalized constraints.",
+    )
+    user_message: str = Field(
+        default="",
+        description="Original user message. Defaults to current turn context.",
+    )
+    query: str = Field(
+        default="",
+        description="Recommendation or research query. Defaults to user_message.",
+    )
+    candidates: list[dict] = Field(
+        default_factory=list,
+        description="Existing book candidates, normally from search_books.books.",
+    )
+    research_report: dict = Field(
+        default_factory=dict,
+        description="Existing research-report-v1 payload, if already available.",
+    )
+    research_state: dict = Field(
+        default_factory=dict,
+        description="Existing ResearchStateResult payload, if already available.",
+    )
+    book_title: str = Field(
+        default="",
+        description="Optional title for recommendation-history explanations.",
+    )
+    metadata: dict = Field(default_factory=dict)
 
 
 class RememberReadingPreferenceInput(BaseModel):
@@ -150,9 +209,27 @@ class RecordRecommendationSignalInput(BaseModel):
     metadata: dict = Field(default_factory=dict)
 
 
+class GetRecommendationHistoryInput(BaseModel):
+    user_id: UUID = Field(description="Current user ID from system context.")
+    history_mode: str = Field(
+        default="all",
+        description=(
+            "One of all, reading_history, rejection_history, or "
+            "suppression_explanation."
+        ),
+    )
+    query: str = Field(default="", description="Original user history question.")
+    book_title: str = Field(
+        default="",
+        description="Optional concrete title for a suppression explanation.",
+    )
+    limit: int = Field(default=20, ge=1, le=50)
+
+
 def _book_to_dict(
     book,
     projection: RecommendationCandidateProjection | None = None,
+    source_info: dict | None = None,
 ) -> dict:
     payload = {
         "id": str(book.id),
@@ -164,9 +241,132 @@ def _book_to_dict(
         "source_url": book.source_url,
         "external_id": book.external_id,
     }
+    if source_info:
+        payload["candidate_source"] = source_info
     if projection is not None:
         payload["recommendation"] = projection.model_dump(mode="json")
+    explanation = _build_recommendation_explanation(
+        book=book,
+        projection=projection,
+        source_info=source_info or {},
+    )
+    if explanation:
+        payload["recommendation_explanation"] = explanation
     return payload
+
+
+def _build_recommendation_explanation(
+    *,
+    book,
+    projection: RecommendationCandidateProjection | None,
+    source_info: dict,
+) -> dict:
+    if projection is None and not source_info:
+        return {}
+
+    query_features = _feature_briefs(projection, "query")
+    memory_features = _feature_briefs(projection, "long_term_memory")
+    behavior_features = [
+        *_feature_briefs(projection, "recommendation_event"),
+        *_feature_briefs(projection, "book_interaction"),
+    ]
+    source_features = _feature_briefs(projection, "candidate_source")
+    contribution_sources = []
+    if source_info:
+        contribution_sources.append(source_info.get("candidate_source") or "candidate_source")
+    if source_features:
+        contribution_sources.append("candidate_source")
+    if query_features:
+        contribution_sources.append("query")
+    if memory_features:
+        contribution_sources.append("long_term_memory")
+    if behavior_features:
+        contribution_sources.append("behavior_signal")
+
+    summary_parts = []
+    source_label = _candidate_source_label(source_info)
+    if source_label:
+        summary_parts.append(f"candidate source: {source_label}")
+    if projection is not None:
+        if projection.positive_reasons:
+            summary_parts.append(f"positive: {projection.positive_reasons[0]}")
+        if projection.negative_reasons:
+            summary_parts.append(f"caution: {projection.negative_reasons[0]}")
+        if projection.suppressed and projection.suppression_reasons:
+            summary_parts.append(
+                f"suppressed: {', '.join(projection.suppression_reasons[:3])}"
+            )
+
+    return {
+        "contract_version": RECOMMENDATION_EXPLANATION_CONTRACT_VERSION,
+        "book_id": str(getattr(book, "id", "")),
+        "book_title": getattr(book, "title", ""),
+        "summary": "; ".join(summary_parts),
+        "candidate_source": source_info,
+        "contribution_sources": _unique_strings(contribution_sources),
+        "score": projection.score if projection is not None else None,
+        "score_breakdown": (
+            {
+                "base_score": projection.base_score,
+                "source_score": projection.source_score,
+                "query_score": projection.query_score,
+                "memory_score": projection.memory_score,
+                "behavior_score": projection.behavior_score,
+            }
+            if projection is not None
+            else {}
+        ),
+        "positive_reasons": projection.positive_reasons[:5] if projection else [],
+        "negative_reasons": projection.negative_reasons[:5] if projection else [],
+        "suppression_reasons": projection.suppression_reasons[:5] if projection else [],
+        "features": {
+            "query": query_features,
+            "candidate_source": source_features,
+            "long_term_memory": memory_features,
+            "behavior": behavior_features,
+        },
+    }
+
+
+def _feature_briefs(
+    projection: RecommendationCandidateProjection | None,
+    source: str,
+) -> list[dict]:
+    if projection is None:
+        return []
+    return [
+        {
+            "source": feature.source,
+            "key": feature.key,
+            "value": feature.value,
+            "score_delta": feature.score_delta,
+            "reason": feature.reason,
+        }
+        for feature in projection.features
+        if feature.source == source
+    ][:8]
+
+
+def _candidate_source_label(source_info: dict) -> str:
+    source = str(source_info.get("candidate_source") or "").strip()
+    if source == "book_cache":
+        return "local Book Cache"
+    if source == "external_search":
+        provider = str(source_info.get("source") or "external search").strip()
+        return provider
+    return source
+
+
+def _unique_strings(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for value in values:
+        item = str(value or "").strip()
+        key = item.lower()
+        if item and key not in seen:
+            seen.add(key)
+            result.append(item)
+    return result
 
 
 def reset_search_books_guard() -> None:
@@ -182,6 +382,7 @@ def _intent_blocked_payload(
 ) -> dict:
     return {
         "status": "intent_blocked",
+        "result_mode": "ordinary_recommendation",
         "query": query,
         "books": [],
         "result_count": 0,
@@ -205,6 +406,7 @@ def _loop_detected_payload(
 ) -> dict:
     return {
         "status": "loop_detected",
+        "result_mode": "ordinary_recommendation",
         "query": query,
         "books": [],
         "result_count": 0,
@@ -234,6 +436,98 @@ def _tool_blocked_payload(
     }
 
 
+def _book_turn_plan_blocked_payload(
+    admission: ToolAdmissionResult,
+    user_message: str,
+    query: str,
+) -> dict:
+    return {
+        "status": admission.blocked_status or "tool_blocked",
+        "result_mode": "book_turn_orchestration",
+        "contract_version": BOOK_TURN_ORCHESTRATION_CONTRACT_VERSION,
+        "route": "answer_question",
+        "query": query,
+        "user_message": user_message,
+        "recommended_next_tools": [],
+        "metadata": {
+            "tool_admission": admission.model_dump(mode="json"),
+            "writes_long_term_memory": False,
+            "writes_recommendation_events": False,
+            "writes_research_state": False,
+            "writes_evidence": False,
+            "external_call": False,
+        },
+    }
+
+
+def _history_tool_blocked_payload(
+    user_id: UUID,
+    history_mode: str,
+    query: str,
+    book_title: str,
+    admission: ToolAdmissionResult,
+) -> dict:
+    return {
+        "status": admission.blocked_status or "tool_blocked",
+        "result_mode": "recommendation_history",
+        "history_mode": normalize_recommendation_history_mode(history_mode),
+        "user_id": str(user_id),
+        "query": query,
+        "book_title": book_title,
+        "records": [],
+        "suppressed_records": [],
+        "result_count": 0,
+        "next_action_hint": (
+            "Recommendation history is available only for explicit history or "
+            "suppression-explanation turns."
+        ),
+        "metadata": {
+            "tool_admission": admission.model_dump(mode="json"),
+            "allowed_history_modes": sorted(RECOMMENDATION_HISTORY_MODES),
+        },
+    }
+
+
+@tool(args_schema=PlanBookAssistantTurnInput)
+async def plan_book_assistant_turn(
+    user_id: UUID | None = None,
+    user_message: str = "",
+    query: str = "",
+    candidates: list[dict] | None = None,
+    research_report: dict | None = None,
+    research_state: dict | None = None,
+    book_title: str = "",
+    metadata: dict | None = None,
+) -> str:
+    """Plan the app-owned route for this book assistant turn without side effects."""
+    current_message = user_message or get_current_user_message()
+    admission = get_tool_admission_gate().admit_current_turn(
+        PLAN_BOOK_ASSISTANT_TURN_TOOL_POLICY
+    )
+    if not admission.allowed:
+        return json.dumps(
+            _book_turn_plan_blocked_payload(admission, current_message, query),
+            ensure_ascii=False,
+        )
+
+    db = get_database()
+    async with db.session() as session:
+        result = await plan_book_assistant_turn_result(
+            session,
+            user_message=current_message,
+            query=query,
+            user_id=user_id,
+            candidates=candidates or [],
+            research_report=research_report or {},
+            research_state=research_state or {},
+            book_title=book_title,
+            metadata=metadata,
+        )
+    payload = result.model_dump(mode="json")
+    payload["metadata"]["tool_admission"] = admission.model_dump(mode="json")
+    return json.dumps(payload, ensure_ascii=False)
+
+
 async def _search_books_impl(
     query: str,
     limit: int = 5,
@@ -257,10 +551,25 @@ async def _search_books_impl(
         )
 
     db = get_database()
+    effective_query = query
+    constraints_payload: dict = {}
+    constraints_error: str | None = None
     async with db.session() as session:
+        if user_id is not None:
+            try:
+                constraints = await build_personalized_recommendation_constraints(
+                    session,
+                    user_id=user_id,
+                    query=query,
+                )
+                effective_query = constraints.effective_query or query
+                constraints_payload = constraints.model_dump(mode="json")
+            except Exception as exc:
+                constraints_error = str(exc)
+
         result = await search_and_cache_books_with_status(
             session,
-            query=query,
+            query=effective_query,
             limit=limit,
         )
         books_for_answer = list(result.books)
@@ -271,6 +580,7 @@ async def _search_books_impl(
                 user_id=user_id,
                 query=query,
                 books=books_for_answer,
+                candidate_sources=result.candidate_sources,
             )
             projection_payload = projection.model_dump(mode="json")
             projections_by_book_id = {
@@ -286,12 +596,18 @@ async def _search_books_impl(
             ]
 
     book_payloads = [
-        _book_to_dict(book, projections_by_book_id.get(str(book.id)))
+        _book_to_dict(
+            book,
+            projections_by_book_id.get(str(book.id)),
+            result.candidate_sources.get(str(book.id)),
+        )
         for book in books_for_answer
     ]
     payload = {
         "status": result.status,
+        "result_mode": "ordinary_recommendation",
         "query": query,
+        "effective_query": effective_query,
         "books": book_payloads,
         "result_count": len(book_payloads),
         "source": result.source,
@@ -305,8 +621,17 @@ async def _search_books_impl(
         ],
         "metadata": {
             "tool_admission": admission.model_dump(mode="json"),
+            "search": {
+                "requested_query": query,
+                "effective_query": effective_query,
+                "provider_result_query": result.query,
+                "cache": result.metadata,
+                "candidate_sources": result.candidate_sources,
+            },
             "personalization": {
                 "user_id": str(user_id) if user_id else None,
+                "constraints": constraints_payload,
+                "constraints_error": constraints_error,
                 "projection": projection_payload,
                 "suppressed_books": (
                     projection_payload.get("suppressed_candidates", [])
@@ -332,6 +657,61 @@ async def search_books(
         limit=limit,
         user_id=user_id,
         allow_additional_search=allow_additional_search,
+    )
+
+
+async def _get_recommendation_history_impl(
+    user_id: UUID,
+    history_mode: str = "all",
+    query: str = "",
+    book_title: str = "",
+    limit: int = 20,
+) -> str:
+    admission = get_tool_admission_gate().admit_current_turn(
+        GET_RECOMMENDATION_HISTORY_TOOL_POLICY
+    )
+    if not admission.allowed:
+        return json.dumps(
+            _history_tool_blocked_payload(
+                user_id,
+                history_mode,
+                query,
+                book_title,
+                admission,
+            ),
+            ensure_ascii=False,
+        )
+
+    db = get_database()
+    async with db.session() as session:
+        result = await get_recommendation_history_result(
+            session,
+            user_id=user_id,
+            history_mode=history_mode,
+            query=query,
+            book_title=book_title,
+            limit=limit,
+        )
+    payload = result.model_dump(mode="json")
+    payload["metadata"]["tool_admission"] = admission.model_dump(mode="json")
+    return json.dumps(payload, ensure_ascii=False)
+
+
+@tool(args_schema=GetRecommendationHistoryInput)
+async def get_recommendation_history(
+    user_id: UUID,
+    history_mode: str = "all",
+    query: str = "",
+    book_title: str = "",
+    limit: int = 20,
+) -> str:
+    """Read recommendation history or suppression explanations without side effects."""
+    return await _get_recommendation_history_impl(
+        user_id=user_id,
+        history_mode=history_mode,
+        query=query,
+        book_title=book_title,
+        limit=limit,
     )
 
 

@@ -16,12 +16,30 @@ from fastapi.responses import StreamingResponse
 
 from app.agents import get_agent
 from app.api.v1.dependencies import DBSession
+from app.crud.chat import get_or_create_conversation_by_thread_id
+from app.infra.database import get_database
 from app.schemas.chat import ChatMessage, UserInput
 from app.services import ChatService, ChatStreamingService
 
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(tags=["Chat"])
+
+
+def _conversation_title_from_input(user_input: UserInput) -> str:
+    title = " ".join(str(user_input.content or "").split()).strip()
+    return title[:64] or "New Conversation"
+
+
+async def _ensure_conversation_for_run(user_input: UserInput) -> None:
+    db = get_database()
+    async with db.session() as session:
+        await get_or_create_conversation_by_thread_id(
+            db=session,
+            thread_id=user_input.thread_id,
+            user_id=user_input.user_id,
+            title=_conversation_title_from_input(user_input),
+        )
 
 
 def _sse_response_example() -> dict[int | str, Any]:
@@ -52,6 +70,7 @@ async def invoke(user_input: UserInput, db: DBSession) -> ChatMessage:
 
     Business logic is delegated to ChatService.invoke().
     """
+    await _ensure_conversation_for_run(user_input)
     supervisor = get_agent()
     service = ChatService(supervisor)
     return await service.invoke(db, user_input)
@@ -73,6 +92,7 @@ async def stream(user_input: UserInput) -> StreamingResponse:
         user_input.thinking_mode,
     )
 
+    await _ensure_conversation_for_run(user_input)
     supervisor = get_agent()
     service = ChatStreamingService(supervisor)
 

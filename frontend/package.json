@@ -7,6 +7,7 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
+    "verify:flowchart-ui": "node scripts/verify_flowchart_ui_acceptance.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

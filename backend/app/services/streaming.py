@@ -20,10 +20,12 @@ retries or swaps models.
 """
 
 import asyncio
+import json
 import logging
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from typing import Any
 
 from langgraph.graph.state import CompiledStateGraph
 
@@ -46,9 +48,28 @@ from app.utils.message import (
     extract_thinking,
     langchain_to_chat_message,
 )
+from app.services.agent_runtime import (
+    finalize_deterministic_receipt,
+    prepare_runtime_turn,
+)
+from app.services.agent_runtime.contracts import PlanReceipt
+from app.services.agent_runtime.finalizer import receipt_tool_info, receipt_trace_steps
+from app.services.agent_runtime.persistence import persist_runtime_finalized_turn
 
 
 logger = logging.getLogger(__name__)
+
+
+def _compact_runtime_output(output: object, *, max_length: int = 500) -> str | None:
+    if output is None:
+        return None
+    try:
+        text = json.dumps(output, ensure_ascii=False, default=str)
+    except TypeError:
+        text = str(output)
+    if len(text) <= max_length:
+        return text
+    return text[: max(0, max_length - 3)].rstrip() + "..."
 
 
 def _should_use_non_streaming_agent_path(model_name: str, thinking_mode: bool) -> bool:
@@ -104,6 +125,62 @@ class ChatStreamingService:
         Yields:
             SSE-formatted strings (e.g. ``"data: {...}\\n\\n"``).
         """
+        runtime_turn = await prepare_runtime_turn(
+            user_input,
+            model_name=str(user_input.model_uuid or user_input.model_name or ""),
+        )
+        if runtime_turn.can_finalize_without_model:
+            final_message = finalize_deterministic_receipt(
+                runtime_turn.plan,
+                runtime_turn.receipt,
+            )
+            await persist_runtime_finalized_turn(
+                agent=self._agent,
+                user_input=user_input,
+                message=final_message,
+                plan=runtime_turn.plan,
+                receipt=runtime_turn.receipt,
+            )
+            yield f": {' ' * 2048}\n\n"
+            yield sse({"type": "request_start", "request_id": user_input.request_id})
+            yield sse(
+                {
+                    "type": "step",
+                    "step": 1,
+                    "action": "human",
+                    "content": user_input.content,
+                }
+            )
+            yield sse(
+                {
+                    "type": "step",
+                    "step": 2,
+                    "action": "action_plan",
+                    "content": runtime_turn.plan.model_dump(mode="json"),
+                }
+            )
+            state: StreamState = {
+                "step_counter": 2,
+                "first_chunk_time": None,
+                "accumulated_tokens": empty_totals(),
+                "accumulated_reasoning": "",
+                "last_reasoning": "",
+                "reasoning_segments": {},
+                "ai_reasoning_index": 0,
+                "final_message": None,
+                "final_state_messages": None,
+            }
+            async for event in self._runtime_receipt_sse_events(
+                runtime_turn.receipt,
+                state,
+            ):
+                yield event
+            yield sse(
+                {"type": "message", "content": final_message.model_dump()}
+            )
+            yield "data: [DONE]\n\n"
+            return
+
         # ── Validate model availability ────────────────────────────
         requested_model = user_input.model_uuid or user_input.model_name
         initial_model = resolve_model_name(requested_model)
@@ -124,6 +201,9 @@ class ChatStreamingService:
         kwargs = await build_agent_kwargs(user_input)
         config = kwargs["config"]
         context = kwargs["context"]
+        system_tool_steps = receipt_trace_steps(runtime_turn.receipt)
+        context.action_plan = runtime_turn.plan.model_dump(mode="json")
+        context.plan_receipt = runtime_turn.receipt.model_dump(mode="json")
 
         # `thread_id` is the only field carried in configurable (checkpointer
         # contract). All other runtime fields live on `context` (AgentRuntimeContext).
@@ -137,32 +217,18 @@ class ChatStreamingService:
         )
 
         logger.info(
-            "[request_id=%s][user_id=%s][thread_id=%s] Starting stream with model=%s",
+            "[request_id=%s][user_id=%s][thread_id=%s] Starting stream with model=%s plan_id=%s actions=%s",
             request_id,
             user_id,
             thread_id_str,
             initial_model,
+            runtime_turn.plan.plan_id,
+            [item.operation for item in runtime_turn.plan.actions],
         )
 
         # ── Get state BEFORE execution for per-turn DAG construction ──────────
         before_checkpoint_id: str | None = None
         before_message_count: int = 0
-        try:
-            before_state = await self._agent.aget_state(config)
-            configurable = before_state.config.get("configurable")
-            before_checkpoint_id = (
-                configurable.get("checkpoint_id") if configurable else None
-            )
-            before_message_count = len(before_state.values.get("messages", []))
-            # Log full state for debugging
-            logger.debug(
-                "Before execution: checkpoint_id=%s, message_count=%d, state_values_keys=%s",
-                before_checkpoint_id,
-                before_message_count,
-                list(before_state.values.keys()) if before_state.values else [],
-            )
-        except Exception as e:
-            logger.warning("Failed to get state before execution: %s", e)
 
         # ── Stream state (mutated by consumer coroutines) ──────────
         state: StreamState = {
@@ -196,6 +262,42 @@ class ChatStreamingService:
             }
         )
 
+        state["step_counter"] += 1
+        yield sse(
+            {
+                "type": "step",
+                "step": state["step_counter"],
+                "action": "action_plan",
+                "content": runtime_turn.plan.model_dump(mode="json"),
+            }
+        )
+        async for event in self._runtime_receipt_sse_events(
+            runtime_turn.receipt,
+            state,
+        ):
+            yield event
+
+        # If the client only needed the system-executed tool events and closed
+        # the stream, let cancellation arrive before opening checkpointer
+        # cursors or starting the model event stream.
+        await asyncio.sleep(0)
+
+        try:
+            before_state = await self._agent.aget_state(config)
+            configurable = before_state.config.get("configurable")
+            before_checkpoint_id = (
+                configurable.get("checkpoint_id") if configurable else None
+            )
+            before_message_count = len(before_state.values.get("messages", []))
+            logger.debug(
+                "Before execution: checkpoint_id=%s, message_count=%d, state_values_keys=%s",
+                before_checkpoint_id,
+                before_message_count,
+                list(before_state.values.keys()) if before_state.values else [],
+            )
+        except Exception as e:
+            logger.warning("Failed to get state before execution: %s", e)
+
         # ── Resolve stream timeout ─────────────────────────────────
         settings = get_settings()
         stream_timeout = (
@@ -217,6 +319,7 @@ class ChatStreamingService:
                 timeout=stream_timeout,
                 before_checkpoint_id=before_checkpoint_id,
                 before_message_count=before_message_count,
+                system_tool_steps=system_tool_steps,
             ):
                 yield event
             return
@@ -226,6 +329,7 @@ class ChatStreamingService:
         consumer_tasks: list[asyncio.Task] = []
         completion_task: asyncio.Task | None = None
         stream = None
+        client_disconnected = False
 
         try:
             # Open v3 event stream (with timeout if configured)
@@ -245,7 +349,9 @@ class ChatStreamingService:
                     asyncio.create_task(
                         self._consume_tool_calls(stream, out_queue, state)
                     ),
-                    asyncio.create_task(self._consume_values(stream, out_queue, state)),
+                    asyncio.create_task(
+                        self._consume_values(stream, out_queue, state)
+                    ),
                 ]
 
                 async def _wait_and_signal():
@@ -281,6 +387,14 @@ class ChatStreamingService:
                     # cost of ~1ms/event overhead — negligible for UX.
                     await asyncio.sleep(0.001)
 
+        except asyncio.CancelledError:
+            client_disconnected = True
+            logger.info(
+                "Stream cancelled by client: thread_id=%s request_id=%s",
+                thread_id_str,
+                request_id,
+            )
+
         except asyncio.TimeoutError:
             logger.error(
                 "Stream timed out after %.0fs: thread_id=%s",
@@ -298,6 +412,14 @@ class ChatStreamingService:
             yield sse_error(f"Stream error: {type(e).__name__}: {str(e)[:200]}")
 
         finally:
+            if stream is not None:
+                close_stream = getattr(stream, "aclose", None)
+                if callable(close_stream):
+                    try:
+                        await close_stream()
+                    except Exception as exc:
+                        logger.debug("Error closing LangGraph event stream: %s", exc)
+
             # Cancel completion task if still running
             if completion_task is not None and not completion_task.done():
                 completion_task.cancel()
@@ -316,6 +438,9 @@ class ChatStreamingService:
                 except Exception:
                     pass
 
+            if client_disconnected:
+                return
+
             # Drain any remaining queued events
             while True:
                 try:
@@ -332,45 +457,61 @@ class ChatStreamingService:
                 "accumulated_reasoning", ""
             )
 
+            # Find the last AIMessage (skip ToolMessage, HumanMessage, etc.)
+            # ToolMessage contains tool results which should not be shown as AI response.
+            last_ai_msg = None
             if final_messages:
-                # Find the last AIMessage (skip ToolMessage, HumanMessage, etc.)
-                # ToolMessage contains tool results which should not be shown as AI response
-                last_ai_msg = None
                 for msg in reversed(final_messages):
                     # Check if this is an AIMessage (has type='ai' or is AIMessage class)
                     msg_type = getattr(msg, "type", None)
                     if msg_type == "ai":
                         last_ai_msg = msg
                         break
+            if last_ai_msg is None:
+                fallback_msg = state.get("final_message")
+                if getattr(fallback_msg, "type", None) == "ai":
+                    last_ai_msg = fallback_msg
 
-                if (
-                    last_ai_msg
-                    and hasattr(last_ai_msg, "content")
-                    and last_ai_msg.content
-                ):
-                    try:
-                        # Store thinking in additional_kwargs for immediate frontend display
-                        # Note: This modification is in-memory only and won't persist to checkpointer
-                        # The thinking content is passed via custom_data below for frontend display
-                        if accumulated_reasoning and hasattr(
-                            last_ai_msg, "additional_kwargs"
-                        ):
-                            last_ai_msg.additional_kwargs["thinking"] = (
-                                accumulated_reasoning
-                            )
+            if last_ai_msg and hasattr(last_ai_msg, "content") and last_ai_msg.content:
+                try:
+                    # Store thinking in additional_kwargs for immediate frontend display
+                    # Note: This modification is in-memory only and won't persist to checkpointer
+                    # The thinking content is passed via custom_data below for frontend display
+                    if accumulated_reasoning and hasattr(
+                        last_ai_msg, "additional_kwargs"
+                    ):
+                        last_ai_msg.additional_kwargs["thinking"] = (
+                            accumulated_reasoning
+                        )
 
-                        chat_msg = langchain_to_chat_message(last_ai_msg)
-                        # Include request_id for DAG viewing
-                        chat_msg.request_id = request_id
-                        # Include accumulated reasoning in custom_data for frontend display
-                        # This enables "View reasoning" expandable section after streaming ends
-                        if accumulated_reasoning:
-                            if chat_msg.custom_data is None:
-                                chat_msg.custom_data = {}
-                            chat_msg.custom_data["thinking"] = accumulated_reasoning
-                        yield sse({"type": "message", "content": chat_msg.model_dump()})
-                    except Exception as e:
-                        logger.error("Error converting final message: %s", e)
+                    chat_msg = langchain_to_chat_message(last_ai_msg)
+                    # Include request_id for DAG viewing
+                    chat_msg.request_id = request_id
+                    # Include accumulated reasoning in custom_data for frontend display
+                    # This enables "View reasoning" expandable section after streaming ends
+                    if accumulated_reasoning:
+                        if chat_msg.custom_data is None:
+                            chat_msg.custom_data = {}
+                        chat_msg.custom_data["thinking"] = accumulated_reasoning
+                    chat_msg.custom_data.update(
+                        {
+                            "action_plan": runtime_turn.plan.model_dump(mode="json"),
+                            "plan_receipt": runtime_turn.receipt.model_dump(mode="json"),
+                            "tool_info": receipt_tool_info(runtime_turn.receipt),
+                            "runtime_trace": {
+                                "request_id": request_id,
+                                "plan_id": runtime_turn.plan.plan_id,
+                                "route_type": runtime_turn.plan.route_type,
+                                "intent": runtime_turn.plan.intent,
+                                "planner_used": runtime_turn.plan.planner_used,
+                                "receipt_status": runtime_turn.receipt.status,
+                                "duration_ms": runtime_turn.receipt.duration_ms,
+                            },
+                        }
+                    )
+                    yield sse({"type": "message", "content": chat_msg.model_dump()})
+                except Exception as e:
+                    logger.error("Error converting final message: %s", e)
 
             # ── Persist tokens and DAG (non-blocking) ──────────────
             tokens = state["accumulated_tokens"]
@@ -396,6 +537,7 @@ class ChatStreamingService:
                         before_checkpoint_id=before_checkpoint_id,
                         before_message_count=before_message_count,
                         reasoning_segments=reasoning_segments,
+                        system_tool_steps=system_tool_steps,
                     )
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
@@ -416,6 +558,43 @@ class ChatStreamingService:
 
     # ── Projection consumers (private) ─────────────────────────────────────
 
+    async def _runtime_receipt_sse_events(
+        self,
+        receipt: PlanReceipt,
+        state: StreamState,
+    ) -> AsyncGenerator[str, None]:
+        """Emit the visible lifecycle for actions proven by a runtime receipt."""
+
+        for result in receipt.actions:
+            state["step_counter"] += 1
+            yield sse(
+                {
+                    "type": "tool",
+                    "content": {
+                        "name": result.operation,
+                        "tool_id": result.action_id,
+                        "args": result.business_input,
+                        "system_executed": True,
+                        "plan_id": receipt.plan_id,
+                    },
+                }
+            )
+            yield sse(
+                {
+                    "type": "tool_result",
+                    "content": {
+                        "id": result.action_id,
+                        "name": result.operation,
+                        "output": _compact_runtime_output(result.output),
+                        "error": result.error or None,
+                        "system_executed": True,
+                        "status": result.status,
+                        "duration_ms": result.duration_ms,
+                        "plan_id": receipt.plan_id,
+                    },
+                }
+            )
+
     async def _generate_non_streaming_sse(
         self,
         *,
@@ -428,6 +607,7 @@ class ChatStreamingService:
         timeout: float | None,
         before_checkpoint_id: str | None,
         before_message_count: int,
+        system_tool_steps: list[dict[str, Any]],
     ) -> AsyncGenerator[str, None]:
         """Use agent.ainvoke when provider reasoning is only available non-streaming."""
         yield sse({"type": "step", "step": 2, "action": "ai_thinking"})
@@ -472,6 +652,17 @@ class ChatStreamingService:
         chat_msg.request_id = request_id
         if thinking:
             chat_msg.custom_data["thinking"] = thinking
+        action_plan = getattr(context, "action_plan", None)
+        plan_receipt = getattr(context, "plan_receipt", None)
+        chat_msg.custom_data["action_plan"] = action_plan or {}
+        chat_msg.custom_data["plan_receipt"] = plan_receipt or {}
+        if isinstance(plan_receipt, dict):
+            try:
+                chat_msg.custom_data["tool_info"] = receipt_tool_info(
+                    PlanReceipt.model_validate(plan_receipt)
+                )
+            except Exception:
+                chat_msg.custom_data["tool_info"] = []
 
         if chat_msg.content:
             yield sse({"type": "token", "content": chat_msg.content})
@@ -513,6 +704,7 @@ class ChatStreamingService:
                     before_checkpoint_id=before_checkpoint_id,
                     before_message_count=before_message_count,
                     reasoning_segments=reasoning_segments,
+                    system_tool_steps=system_tool_steps,
                 )
         except Exception:
             logger.exception("Failed to persist non-streaming DAG for %s", request_id)

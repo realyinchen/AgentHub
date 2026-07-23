@@ -25,6 +25,8 @@ class AgentRuntimeContext:
         thinking_mode: Enable thinking/reasoning mode for the model.
         timezone: IANA timezone for time-context substitution in prompts.
         file: File path/URL for file-based Q&A scenarios (from custom_data).
+        action_plan: The planner decision that authorized runtime actions.
+        plan_receipt: SystemRuntime proof and bounded capability outputs.
     """
 
     user_id: UUID | None = None
@@ -34,3 +36,5 @@ class AgentRuntimeContext:
     thinking_mode: bool = False
     timezone: str = "Asia/Shanghai"
     file: str = ""
+    action_plan: dict | None = None
+    plan_receipt: dict | None = None

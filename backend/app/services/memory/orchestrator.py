@@ -129,6 +129,26 @@ class MemoryOrchestrator:
         self,
         candidate: MemoryCandidate,
     ) -> MemoryAdmissionResult:
+        try:
+            return await self._remember_candidate(candidate)
+        except Exception as exc:
+            if not self._should_retry_without_thread(candidate, exc):
+                raise
+            metadata = {
+                **candidate.metadata,
+                "thread_id_dropped": True,
+                "thread_id_drop_reason": "missing_conversation",
+                "original_thread_id": str(candidate.thread_id),
+            }
+            fallback_candidate = candidate.model_copy(
+                update={"thread_id": None, "metadata": metadata}
+            )
+            return await self._remember_candidate(fallback_candidate)
+
+    async def _remember_candidate(
+        self,
+        candidate: MemoryCandidate,
+    ) -> MemoryAdmissionResult:
         decision = self._memory_admission_engine.admit(candidate)
         if decision.decision != "allow":
             return MemoryAdmissionResult(decision=decision)
@@ -257,6 +277,17 @@ class MemoryOrchestrator:
                 conflicts=resolution.conflicts,
                 provider_sources=[provider.provider_name],
             )
+
+    @staticmethod
+    def _should_retry_without_thread(candidate: MemoryCandidate, exc: Exception) -> bool:
+        if candidate.thread_id is None:
+            return False
+        text = str(exc)
+        return (
+            "ForeignKeyViolationError" in text
+            and "memory_events_thread_id_fkey" in text
+            and "conversations" in text
+        )
 
     async def remember_memory(
         self,

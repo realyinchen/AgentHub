@@ -60,6 +60,8 @@ async def search_books(
         next_action_hint=result.next_action_hint,
         error=result.error,
         duration_ms=result.duration_ms,
+        metadata=result.metadata,
+        candidate_sources=result.candidate_sources,
     )
 
 

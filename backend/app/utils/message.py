@@ -193,6 +193,10 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
             if message.response_metadata:
                 ai_message.response_metadata = message.response_metadata
 
+            custom_data = message.additional_kwargs.get("custom_data")
+            if isinstance(custom_data, dict):
+                ai_message.custom_data.update(custom_data)
+
             # Extract and save thinking content to custom_data
             thinking_content = extract_thinking(message)
             if thinking_content:

@@ -47,6 +47,8 @@ class BookSearchResponse(BaseModel):
     next_action_hint: str = ""
     error: str | None = None
     duration_ms: int = 0
+    metadata: dict = Field(default_factory=dict)
+    candidate_sources: dict = Field(default_factory=dict)
 
 
 class BookInteractionCreate(BaseModel):

@@ -22,6 +22,8 @@ import type {
   CurrentMemoryListResult,
   MemoryForgetRequest,
   MemoryForgetResult,
+  MemoryEvent,
+  UserStateConfirmRequest,
   RecommendationEventType,
   RecommendationSignal,
   RecommendationSignalCreate,
@@ -211,6 +213,19 @@ export async function forgetMemory(
     method: "POST",
     body: JSON.stringify(input),
   })
+}
+
+export async function confirmUserState(
+  memoryId: string,
+  input: UserStateConfirmRequest,
+): Promise<MemoryEvent> {
+  return requestJson<MemoryEvent>(
+    `/memory/${encodeURIComponent(memoryId)}/confirm`,
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  )
 }
 
 // ── Invoke / Stream ───────────────────────────────────────────────────────────

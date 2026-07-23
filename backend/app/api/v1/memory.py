@@ -9,6 +9,7 @@ from app.schemas.memory import (
     MemoryForgetRequest,
     MemoryRememberRequest,
     MemoryReviseRequest,
+    UserStateConfirmRequest,
 )
 from app.services.memory import (
     CurrentMemoryListResult,
@@ -30,7 +31,11 @@ from app.services.memory.contracts import (
     MEMORY_SOURCES,
     MEMORY_SUBJECTS,
     MEMORY_TYPES,
+    USER_STATE_CATEGORIES,
+    USER_STATE_STATUSES,
 )
+from app.services.memory.user_state import UserStateConfirmation, confirm_user_state
+from app.services.memory.user_state import schedule_user_state_organization
 
 api_router = APIRouter(prefix="/memory", tags=["Memory"])
 
@@ -49,6 +54,8 @@ async def get_memory_contract() -> MemoryContractResponse:
         conflict_types=sorted(MEMORY_CONFLICT_TYPES),
         conflict_severities=sorted(MEMORY_CONFLICT_SEVERITIES),
         conflict_decisions=sorted(MEMORY_CONFLICT_DECISIONS),
+        user_state_categories=sorted(USER_STATE_CATEGORIES),
+        user_state_statuses=sorted(USER_STATE_STATUSES),
     )
 
 
@@ -79,13 +86,17 @@ async def list_current_user_memories(
     offset: int = Query(default=0, ge=0),
 ) -> CurrentMemoryListResult:
     """List current active memories for the default user-facing memory view."""
-    return await get_memory_orchestrator().list_current_memories(
+    result = await get_memory_orchestrator().list_current_memories(
         user_id=user_id,
         query=query,
         memory_types=memory_types,
         limit=limit,
         offset=offset,
     )
+    for memory_event in result.memories:
+        if memory_event.id and memory_event.state_status == "pending":
+            schedule_user_state_organization(memory_event.id, user_id)
+    return result
 
 
 @api_router.get("/{user_id}/events", response_model=MemoryEventListResult)
@@ -186,3 +197,24 @@ async def forget_user_memory(request: MemoryForgetRequest) -> MemoryForgetResult
         thread_id=request.thread_id,
         reason=request.reason,
     )
+
+
+@api_router.post("/{memory_id}/confirm", response_model=MemoryEvent)
+async def confirm_user_state_memory(
+    memory_id: UUID,
+    request: UserStateConfirmRequest,
+) -> MemoryEvent:
+    """Confirm, edit, or reject one AI-organized user-state interpretation."""
+    try:
+        return await confirm_user_state(
+            user_id=request.user_id,
+            memory_id=memory_id,
+            confirmation=UserStateConfirmation.model_validate(
+                request.model_dump(exclude={"user_id"})
+            ),
+        )
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

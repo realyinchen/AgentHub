@@ -38,6 +38,7 @@ from app.services.memory import MemoryCandidate, get_memory_orchestrator
 from app.services.provider_config import (
     AppProviderConfigUpdate,
     check_provider_health_in_db,
+    ensure_default_provider_configs_in_db,
     get_provider_config_from_db,
     list_provider_configs_from_db,
     resolve_provider_api_key,
@@ -58,6 +59,7 @@ def _assert(condition: bool, message: str) -> None:
 async def _snapshot_provider(provider_key: str) -> dict[str, Any]:
     db = get_database()
     async with db.session() as session:
+        await ensure_default_provider_configs_in_db(session)
         record = await app_provider_config_crud.get_app_provider_config(
             session,
             provider_key,
@@ -146,6 +148,7 @@ async def _memory_event_count(user_id: uuid.UUID) -> int:
 async def _run_db_provider_config_flow() -> None:
     mem0_snapshot = await _snapshot_provider("mem0")
     gbrain_snapshot = await _snapshot_provider("gbrain")
+    tavily_snapshot = await _snapshot_provider("tavily")
     user_id = uuid.uuid4()
     thread_id = uuid.uuid4()
 
@@ -155,7 +158,10 @@ async def _run_db_provider_config_flow() -> None:
         async with db.session() as session:
             listed = await list_provider_configs_from_db(session)
             keys = {provider.provider_key for provider in listed.providers}
-            _assert({"mem0", "gbrain"}.issubset(keys), "default app providers required")
+            _assert(
+                {"mem0", "gbrain", "tavily"}.issubset(keys),
+                "default app providers required",
+            )
 
             mem0 = await update_provider_config_in_db(
                 session,
@@ -200,6 +206,62 @@ async def _run_db_provider_config_flow() -> None:
             _assert(health is not None, "health should return config")
             assert health is not None
             _assert(health.health.status == "ok", "configured enabled mem0 health should be ok")
+
+            tavily = await update_provider_config_in_db(
+                session,
+                "tavily",
+                AppProviderConfigUpdate(
+                    enabled=True,
+                    api_key="tvly-phase-o2-secret",
+                    settings={
+                        "max_results": 4,
+                        "search_depth": "basic",
+                        "include_answer": True,
+                        "include_raw_content": False,
+                        "force_health_status": "ok",
+                    },
+                ),
+            )
+            _assert(tavily is not None, "tavily update should succeed")
+            assert tavily is not None
+            serialized_tavily = json.dumps(
+                tavily.model_dump(mode="json"),
+                ensure_ascii=False,
+            )
+            _assert(
+                "tvly-phase-o2-secret" not in serialized_tavily,
+                "Tavily API key must not be echoed",
+            )
+            _assert(
+                tavily.credentials_ref == "db:global:tavily",
+                "Tavily DB credential ref required",
+            )
+            _assert(
+                tavily.credential_status == "configured",
+                "Tavily DB credential should be configured",
+            )
+            _assert(
+                resolve_provider_api_key(tavily) == "tvly-phase-o2-secret",
+                "Tavily DB credential should resolve inside process",
+            )
+            tavily_record = await app_provider_config_crud.get_app_provider_config(
+                session,
+                "tavily",
+            )
+            _assert(tavily_record is not None, "tavily record should exist")
+            assert tavily_record is not None
+            _assert(tavily_record.encrypted_api_key, "Tavily encrypted key required")
+            _assert(
+                tavily_record.encrypted_api_key != "tvly-phase-o2-secret",
+                "stored Tavily key must be encrypted",
+            )
+            tavily_health = await check_provider_health_in_db(session, "tavily")
+            _assert(tavily_health is not None, "Tavily health should return config")
+            assert tavily_health is not None
+            _assert(
+                tavily_health.health.status == "ok",
+                "configured enabled Tavily health should be ok",
+            )
 
             gbrain = await update_provider_config_in_db(
                 session,
@@ -326,6 +388,7 @@ async def _run_db_provider_config_flow() -> None:
     finally:
         await _restore_provider("mem0", mem0_snapshot)
         await _restore_provider("gbrain", gbrain_snapshot)
+        await _restore_provider("tavily", tavily_snapshot)
         await _delete_temp_user(user_id)
 
 

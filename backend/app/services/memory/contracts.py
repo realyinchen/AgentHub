@@ -9,9 +9,11 @@ from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 MEMORY_TYPES = frozenset(
     {
+        "state",
         "preference",
         "feedback",
         "reading_state",
+        "entity",
         "correction",
         "forget",
     }
@@ -28,6 +30,10 @@ MEMORY_SUBJECTS = frozenset(
         "mood",
         "pacing",
         "content",
+        "pet",
+        "person",
+        "object",
+        "entity",
     }
 )
 MEMORY_POLARITIES = frozenset(
@@ -101,6 +107,23 @@ MEMORY_PROVIDER_STATUS_TO_CONTRACT = {
     "rate_limited": "failed",
     "skipped": "skipped",
 }
+MEMORY_ENTITY_TYPES = frozenset({"pet", "person", "object", "entity"})
+MEMORY_ENTITY_RELATIONS = frozenset(
+    {"owns", "related_to", "uses", "cares_for"}
+)
+USER_STATE_CATEGORIES = frozenset(
+    {"profile", "preference", "relation", "feedback", "short_term"}
+)
+USER_STATE_STATUSES = frozenset(
+    {
+        "pending",
+        "active",
+        "needs_confirmation",
+        "superseded",
+        "expired",
+        "forgotten",
+    }
+)
 
 
 def normalize_memory_token(value: Any) -> str:
@@ -141,17 +164,58 @@ def map_memory_provider_status(value: Any) -> str:
     return validate_memory_token("status", mapped, MEMORY_PROVIDER_STATUSES)
 
 
+class MemoryEntityFact(BaseModel):
+    """Application-owned structured fact about an entity related to the user."""
+
+    entity_type: str
+    name: str = Field(min_length=1, max_length=80)
+    relation: str = "related_to"
+    attributes: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("entity_type", mode="before")
+    @classmethod
+    def validate_entity_type(cls, value: Any) -> str:
+        token = normalize_memory_token(value)
+        if not token:
+            raise ValueError("entity_type cannot be empty")
+        return token[:80]
+
+    @field_validator("relation", mode="before")
+    @classmethod
+    def validate_relation(cls, value: Any) -> str:
+        token = normalize_memory_token(value)
+        if not token:
+            raise ValueError("relation cannot be empty")
+        return token[:80]
+
+    @field_validator("attributes", mode="before")
+    @classmethod
+    def normalize_attributes(cls, value: Any) -> dict[str, str]:
+        if not isinstance(value, dict):
+            return {}
+        normalized: dict[str, str] = {}
+        for key, item in value.items():
+            name = normalize_memory_token(key)
+            text = normalize_memory_value(item)
+            if name and text:
+                normalized[name] = text[:120]
+        return normalized
+
+
 class MemoryEvent(BaseModel):
     """Application-owned memory event contract shared by memory providers."""
 
     id: UUID | None = None
     type: str = Field(
-        description="Memory type: preference, feedback, reading_state, correction, or forget."
+        description=(
+            "Memory type: preference, feedback, reading_state, entity, "
+            "correction, or forget."
+        )
     )
     subject: str = Field(
         description=(
             "Memory subject: user, book, author, tag, theme, style, genre, mood, "
-            "pacing, or content."
+            "pacing, content, pet, person, object, or entity."
         )
     )
     value: str = Field(description="Concise memory value in natural language.")
@@ -164,6 +228,27 @@ class MemoryEvent(BaseModel):
     thread_id: UUID | None = None
     source: str = Field(default="chat_turn", description="chat_turn, tool, or manual.")
     metadata: dict[str, Any] = Field(default_factory=dict)
+    state_category: str | None = Field(
+        default=None,
+        description="User-state category: profile, preference, relation, feedback, or short_term.",
+    )
+    state_key: str = Field(
+        default="",
+        description="Stable open-vocabulary key used to retrieve or compare this user state.",
+    )
+    state_status: str = Field(
+        default="active",
+        description="Processing status for this user-state record.",
+    )
+    raw_text: str = Field(
+        default="",
+        description="Exact user-authored text retained as the authoritative source.",
+    )
+    state_value: dict[str, Any] = Field(default_factory=dict)
+    relation: dict[str, Any] = Field(default_factory=dict)
+    use_when: list[str] = Field(default_factory=list)
+    valid_until: datetime | None = None
+    confirmation_question: str = ""
     revision_of: UUID | None = None
     superseded_by: UUID | None = None
     forgotten: bool = Field(
@@ -195,6 +280,36 @@ class MemoryEvent(BaseModel):
     @classmethod
     def validate_source(cls, value: Any) -> str:
         return validate_memory_token("source", value, MEMORY_SOURCES)
+
+    @field_validator("state_category", mode="before")
+    @classmethod
+    def validate_state_category(cls, value: Any) -> str | None:
+        token = normalize_memory_token(value)
+        if not token:
+            return None
+        return validate_memory_token("state_category", token, USER_STATE_CATEGORIES)
+
+    @field_validator("state_status", mode="before")
+    @classmethod
+    def validate_state_status(cls, value: Any) -> str:
+        return validate_memory_token("state_status", value, USER_STATE_STATUSES)
+
+    @field_validator("state_key", "raw_text", "confirmation_question", mode="before")
+    @classmethod
+    def clean_user_state_text(cls, value: Any) -> str:
+        return normalize_memory_value(value)
+
+    @field_validator("use_when", mode="before")
+    @classmethod
+    def clean_use_when(cls, value: Any) -> list[str]:
+        if not isinstance(value, list):
+            return []
+        result: list[str] = []
+        for item in value:
+            text = normalize_memory_value(item)
+            if text and text not in result:
+                result.append(text[:120])
+        return result[:12]
 
     @field_validator("value", mode="before")
     @classmethod

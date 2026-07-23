@@ -24,6 +24,12 @@ from app.crud.trace import persist_agent_trace
 from app.utils.request import build_agent_kwargs
 from app.utils.message import langchain_to_chat_message
 from app.services.streaming import ChatStreamingService
+from app.services.agent_runtime import (
+    finalize_deterministic_receipt,
+    prepare_runtime_turn,
+)
+from app.services.agent_runtime.finalizer import receipt_tool_info, receipt_trace_steps
+from app.services.agent_runtime.persistence import persist_runtime_finalized_turn
 
 
 logger = logging.getLogger(__name__)
@@ -76,6 +82,25 @@ class ChatService:
         Raises:
             HTTPException: If no models available or agent returns no events.
         """
+        runtime_turn = await prepare_runtime_turn(
+            user_input,
+            model_name=str(user_input.model_uuid or user_input.model_name or ""),
+        )
+        if runtime_turn.can_finalize_without_model:
+            output = finalize_deterministic_receipt(
+                runtime_turn.plan,
+                runtime_turn.receipt,
+            )
+            await persist_runtime_finalized_turn(
+                agent=self._agent,
+                user_input=user_input,
+                message=output,
+                plan=runtime_turn.plan,
+                receipt=runtime_turn.receipt,
+                db=db,
+            )
+            return output
+
         # 1. Resolve model (with default → first-active fallback)
         requested_model = user_input.model_uuid or user_input.model_name
         initial_model = resolve_model_name(requested_model)
@@ -94,6 +119,9 @@ class ChatService:
         kwargs = await build_agent_kwargs(user_input)
         config = kwargs["config"]
         context = kwargs["context"]
+        runtime_tool_steps = receipt_trace_steps(runtime_turn.receipt)
+        context.action_plan = runtime_turn.plan.model_dump(mode="json")
+        context.plan_receipt = runtime_turn.receipt.model_dump(mode="json")
 
         thread_id_str = config.get("configurable", {}).get("thread_id", "")
         thread_id = (
@@ -138,6 +166,7 @@ class ChatService:
                 async for mode, chunk in self._agent.astream(
                     kwargs["input"],
                     config=config,
+                    context=context,
                     stream_mode=["updates", "values"],
                 ):
                     response_events.append((mode, chunk))
@@ -181,6 +210,24 @@ class ChatService:
             tokens=tokens,
             before_checkpoint_id=before_checkpoint_id,
             before_message_count=before_message_count,
+            system_tool_steps=runtime_tool_steps,
+        )
+
+        output.custom_data.update(
+            {
+                "action_plan": runtime_turn.plan.model_dump(mode="json"),
+                "plan_receipt": runtime_turn.receipt.model_dump(mode="json"),
+                "runtime_trace": {
+                    "request_id": request_id,
+                    "plan_id": runtime_turn.plan.plan_id,
+                    "route_type": runtime_turn.plan.route_type,
+                    "intent": runtime_turn.plan.intent,
+                    "planner_used": runtime_turn.plan.planner_used,
+                    "receipt_status": runtime_turn.receipt.status,
+                    "duration_ms": runtime_turn.receipt.duration_ms,
+                },
+                "tool_info": receipt_tool_info(runtime_turn.receipt),
+            }
         )
 
         return output

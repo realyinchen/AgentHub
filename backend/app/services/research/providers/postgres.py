@@ -24,6 +24,10 @@ from app.services.research.contracts import (
     validate_research_token,
     RESEARCH_RUN_STATUSES,
 )
+from app.services.research.evidence_admission import (
+    admit_research_evidence,
+    attach_evidence_admission_metadata,
+)
 from app.services.research.providers.base import ResearchProvider
 
 
@@ -230,15 +234,44 @@ class PostgresResearchProvider(ResearchProvider):
         next_actions: list[str] | None = None,
     ) -> ResearchStateResult:
         run = await self._get_active_run(user_id=user_id, run_id=run_id)
+        admission = admit_research_evidence(
+            ResearchEvidence.model_validate(evidence.model_copy(update={"run_id": run.id}))
+        )
+        admission_payload = admission.model_dump(mode="json")
+        if not admission.allowed:
+            step = await self._add_step(
+                run_id=run.id,
+                step_type="add_evidence",
+                status="skipped",
+                title="Reject evidence",
+                input_json=evidence.model_dump(mode="json"),
+                output_json={"evidence_admission": admission_payload},
+                error=", ".join(admission.reason_codes),
+            )
+            await self._add_snapshot_from_previous(
+                run=run,
+                step_id=step.id,
+                next_actions=next_actions or ["Collect source-backed evidence."],
+                metadata={
+                    "event": "add_evidence_rejected",
+                    "evidence_admission": admission_payload,
+                },
+            )
+            await self._touch_run(run)
+            return await self.inspect_run(user_id=user_id, run_id=run.id)
+
         step = await self._add_step(
             run_id=run.id,
             step_type="add_evidence",
             status="completed",
             title="Add evidence",
-            input_json=evidence.model_dump(mode="json"),
+            input_json=admission.evidence.model_dump(mode="json"),
         )
         normalized = ResearchEvidence.model_validate(
-            evidence.model_copy(update={"run_id": run.id, "step_id": step.id})
+            attach_evidence_admission_metadata(
+                admission.evidence,
+                admission,
+            ).model_copy(update={"run_id": run.id, "step_id": step.id})
         )
         record = ResearchEvidenceRecord(
             run_id=run.id,
@@ -255,7 +288,10 @@ class PostgresResearchProvider(ResearchProvider):
         self.session.add(record)
         await self.session.flush()
         await self.session.refresh(record)
-        step.output_json = {"evidence_id": str(record.id)}
+        step.output_json = {
+            "evidence_id": str(record.id),
+            "evidence_admission": admission_payload,
+        }
 
         await self._add_snapshot_from_previous(
             run=run,
@@ -265,7 +301,10 @@ class PostgresResearchProvider(ResearchProvider):
             conflicts=conflicts or [],
             next_actions=next_actions or [],
             evidence_ids=[record.id],
-            metadata={"event": "add_evidence"},
+            metadata={
+                "event": "add_evidence",
+                "evidence_admission": admission_payload,
+            },
         )
         await self._touch_run(run)
         return await self.inspect_run(user_id=user_id, run_id=run.id)

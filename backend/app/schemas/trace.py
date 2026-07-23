@@ -55,6 +55,10 @@ class ToolStepMetadata(BaseModel):
     tool_name: str
     tool_args: dict = Field(default_factory=dict)
     tool_call_id: str | None = None
+    system_executed: bool = False
+    status: str | None = None
+    latency_ms: int | None = None
+    error: str | None = None
 
 
 class StepOutput(BaseModel):
@@ -107,6 +111,12 @@ class StepOutput(BaseModel):
     tool_call_id: str | None = Field(
         None, description="Tool call ID (flattened from tool_metadata)"
     )
+    system_executed: bool = Field(
+        False, description="Whether the application runtime executed this tool"
+    )
+    tool_status: str | None = Field(None, description="Tool execution status")
+    tool_error: str | None = Field(None, description="Tool execution error")
+    latency_ms: int | None = Field(None, description="Tool execution latency")
 
 
 # ── 3. Execution DAG ───────────────────────────────────────────────────

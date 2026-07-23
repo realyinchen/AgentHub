@@ -33,6 +33,7 @@ if str(BACKEND_DIR) not in sys.path:
 from app.agents.tools import books as book_tools
 from app.agents.tools import memory as memory_tools
 from app.agents.tools import research as research_tools
+from app.agents.tools import web as web_tools
 from app.infra.database import dispose_database, get_database, init_database
 from app.infra.llm.embedding import init_embedding_model
 from app.services.book_intent import build_turn_policy
@@ -139,12 +140,73 @@ async def _forget_memory(**payload: Any) -> dict[str, Any]:
     return json.loads(await memory_tools.forget_memory.ainvoke(payload))
 
 
+async def _web_search(**payload: Any) -> dict[str, Any]:
+    tool = web_tools.create_web_search()
+    return json.loads(await tool.ainvoke(payload))
+
+
 async def _start_research(**payload: Any) -> dict[str, Any]:
     return json.loads(await research_tools.start_research.ainvoke(payload))
 
 
 async def _search_research(**payload: Any) -> dict[str, Any]:
     return json.loads(await research_tools.search_research.ainvoke(payload))
+
+
+async def _search_research_sources(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.search_research_sources.ainvoke(payload))
+
+
+async def _search_research_scholar_sources(**payload: Any) -> dict[str, Any]:
+    return json.loads(
+        await research_tools.search_research_scholar_sources.ainvoke(payload)
+    )
+
+
+async def _fetch_research_source(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.fetch_research_source.ainvoke(payload))
+
+
+async def _build_research_report(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.build_research_report.ainvoke(payload))
+
+
+async def _finalize_research_answer(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.finalize_research_answer.ainvoke(payload))
+
+
+async def _build_recommendation_research_report(**payload: Any) -> dict[str, Any]:
+    return json.loads(
+        await research_tools.build_recommendation_research_report.ainvoke(payload)
+    )
+
+
+async def _run_recommendation_research_workflow(**payload: Any) -> dict[str, Any]:
+    return json.loads(
+        await research_tools.run_recommendation_research_workflow.ainvoke(payload)
+    )
+
+
+async def _build_research_observations(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.build_research_observations.ainvoke(payload))
+
+
+async def _analyze_research_data(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.analyze_research_data.ainvoke(payload))
+
+
+async def _extract_research_source_records(**payload: Any) -> dict[str, Any]:
+    return json.loads(
+        await research_tools.extract_research_source_records.ainvoke(payload)
+    )
+
+
+async def _collect_research_sources(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.collect_research_sources.ainvoke(payload))
+
+
+async def _run_research_harness(**payload: Any) -> dict[str, Any]:
+    return json.loads(await research_tools.run_research_harness.ainvoke(payload))
 
 
 async def _verify_book_search_admission() -> None:
@@ -261,6 +323,76 @@ async def _verify_memory_admission(user_id: uuid.UUID) -> None:
         "forget_memory should require can_manage_memory",
     )
 
+    profile_policy = build_turn_policy("我通常凌晨两点睡，你记一下")
+    _assert(
+        profile_policy.can_write_memory is True,
+        "stable user profile/habit turns may write memory",
+    )
+    _assert(
+        "remember_memory" in profile_policy.allowed_tools,
+        "stable user profile/habit turns should advertise remember_memory",
+    )
+
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-profile-memory-allowed"):
+        with user_message_scope("我通常凌晨两点睡，你记一下"):
+            profile_memory = await _remember_memory(
+                user_id=str(user_id),
+                type="preference",
+                subject="user",
+                value="sleep routine: usually sleeps around 2am",
+                polarity="neutral",
+                source_text="我通常凌晨两点睡，你记一下",
+            )
+    _assert(
+        profile_memory.get("id") or profile_memory.get("memory"),
+        "stable user profile/habit memory should be stored",
+    )
+
+
+async def _verify_web_search_admission() -> None:
+    original_resolve = web_tools._resolve_tavily_config
+
+    async def fake_missing_config() -> web_tools._ResolvedTavilyConfig:
+        return web_tools._ResolvedTavilyConfig(
+            enabled=False,
+            source="verify",
+            status="missing_credentials",
+            error="verify missing Tavily credentials",
+        )
+
+    web_tools._resolve_tavily_config = fake_missing_config
+    try:
+        policy = build_turn_policy("今天天气怎么样")
+        _assert(policy.can_use_web_search is True, "weather may use web_search")
+        _assert("web_search" in policy.allowed_tools, "web_search should be allowed")
+
+        general_policy = build_turn_policy("帮我搜一下最近的AI新闻")
+        _assert(
+            general_policy.can_use_web_search is True,
+            "general search requests may use web_search",
+        )
+        _assert(
+            "web_search" in general_policy.allowed_tools,
+            "general search should advertise web_search",
+        )
+
+        reset_tool_admission_gate()
+        with request_id_scope("phase-n-web-search-not-domain-blocked"):
+            with user_message_scope("帮我搜一下最近的AI新闻"):
+                result = await _web_search(query="最近的AI新闻", max_results=1)
+        _assert(
+            result["status"] == "missing_credentials",
+            "web_search should reach provider config instead of policy-blocking",
+        )
+        _assert(
+            result["status"] != "tool_blocked",
+            "web_search must not be blocked just because the query is non-book",
+        )
+    finally:
+        web_tools._resolve_tavily_config = original_resolve
+        reset_tool_admission_gate()
+
 
 async def _verify_research_admission(
     user_id: uuid.UUID,
@@ -280,44 +412,748 @@ async def _verify_research_admission(
         in blocked["tool_admission"]["metadata"]["missing_policy_flags"],
         "start_research should require can_start_research",
     )
-
     reset_tool_admission_gate()
-    with request_id_scope("phase-n-research-tools-not-book-budgeted"):
-        with user_message_scope(
-            "Please deep research warm communication books and compare evidence."
-        ):
-            started = await _start_research(
+    with request_id_scope("phase-n-research-source-search-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            source_search_blocked = await _search_research_sources(
+                query="style question source search",
+            )
+    _assert(
+        source_search_blocked["status"] == "tool_blocked",
+        "research source search should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in source_search_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "search_research_sources should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-scholar-search-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            scholar_search_blocked = await _search_research_scholar_sources(
+                query="style question scholarly source search",
+            )
+    _assert(
+        scholar_search_blocked["status"] == "tool_blocked",
+        "research scholar search should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in scholar_search_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "search_research_scholar_sources should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-source-visit-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            source_visit_blocked = await _fetch_research_source(
+                url="https://example.test/blocked",
+                query="style question source visit",
+            )
+    _assert(
+        source_visit_blocked["status"] == "tool_blocked",
+        "research source visit should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in source_visit_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "fetch_research_source should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-report-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            report_blocked = await _build_research_report(
+                user_id=str(user_id),
+                run_id=str(uuid.uuid4()),
+            )
+    _assert(
+        report_blocked["status"] == "tool_blocked",
+        "research report should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in report_blocked["tool_admission"]["metadata"]["missing_policy_flags"],
+        "build_research_report should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-final-answer-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            final_answer_blocked = await _finalize_research_answer(
+                user_id=str(user_id),
+                run_id=str(uuid.uuid4()),
+            )
+    _assert(
+        final_answer_blocked["status"] == "tool_blocked",
+        "research final answer should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in final_answer_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "finalize_research_answer should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-recommendation-research-report-blocked"):
+        with user_message_scope("Please recommend warm books."):
+            recommendation_research_blocked = await _build_recommendation_research_report(
+                query="warm books",
+                candidates=[{"title": "Example Novel"}],
+                research_report={"contract_version": "research-report-v1"},
+            )
+    _assert(
+        recommendation_research_blocked["status"] == "tool_blocked",
+        "recommendation research report should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in recommendation_research_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "build_recommendation_research_report should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-recommendation-research-runner-blocked"):
+        with user_message_scope("Please recommend warm books."):
+            recommendation_runner_blocked = await _run_recommendation_research_workflow(
+                user_id=str(user_id),
+                query="warm books",
+                candidates=[{"title": "Example Novel"}],
+                research_report={"contract_version": "research-report-v1"},
+            )
+    _assert(
+        recommendation_runner_blocked["status"] == "tool_blocked",
+        "recommendation research runner should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in recommendation_runner_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "run_recommendation_research_workflow should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-observations-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            observations_blocked = await _build_research_observations(
+                query="style question",
+                sources=[
+                    {
+                        "title": "Blocked Source",
+                        "url": "https://example.test/observation-blocked",
+                        "claim": "This blocked observation should not normalize.",
+                        "excerpt": "Blocked.",
+                    }
+                ],
+            )
+    _assert(
+        observations_blocked["status"] == "tool_blocked",
+        "research observation builder should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in observations_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "build_research_observations should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-python-analysis-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            python_analysis_blocked = await _analyze_research_data(
+                query="style question supplied data",
+                records=[{"title": "Example", "score": 4}],
+                dataset_title="Blocked supplied records",
+            )
+    _assert(
+        python_analysis_blocked["status"] == "tool_blocked",
+        "research python analysis should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in python_analysis_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "analyze_research_data should require can_use_research_tools",
+    )
+    _assert(
+        python_analysis_blocked["metadata"]["executes_user_code"] is False,
+        "blocked python analysis payload should declare no code execution",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-source-extraction-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            source_extraction_blocked = await _extract_research_source_records(
+                query="style question",
+                documents=[
+                    {
+                        "title": "Blocked Source",
+                        "url": "https://example.test/source-extraction-blocked",
+                        "content": "Blocked Source says extraction should not run.",
+                    }
+                ],
+            )
+    _assert(
+        source_extraction_blocked["status"] == "tool_blocked",
+        "research source extraction should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in source_extraction_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "extract_research_source_records should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-source-collection-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            source_collection_blocked = await _collect_research_sources(
+                user_id=str(user_id),
+                run_id=str(uuid.uuid4()),
+                query="style question",
+                sources=[
+                    {
+                        "title": "Blocked Source",
+                        "url": "https://example.test/source-collection-blocked",
+                        "claim": "This blocked source should not be collected.",
+                        "excerpt": "Blocked.",
+                    }
+                ],
+            )
+    _assert(
+        source_collection_blocked["status"] == "tool_blocked",
+        "research source collection should block outside research turns",
+    )
+    _assert(
+        "can_use_research_tools"
+        in source_collection_blocked["metadata"]["tool_admission"]["metadata"][
+            "missing_policy_flags"
+        ],
+        "collect_research_sources should require can_use_research_tools",
+    )
+    reset_tool_admission_gate()
+    with request_id_scope("phase-n-research-runtime-blocked"):
+        with user_message_scope("What is the style of Nonviolent Communication?"):
+            runtime_blocked = await _run_research_harness(
                 user_id=str(user_id),
                 thread_id=str(thread_id),
-                objective="Deep research warm communication books.",
-                subquestions=["Which books are warm and communication-oriented?"],
-                gaps=["Need source-backed candidate facts."],
-                next_actions=["Search two distinct evidence points."],
-                budget={"max_steps": 5},
-                stop_criteria=["Two research search steps recorded."],
+                objective="Runtime should not run for a non-research turn.",
+                observations=[
+                    {
+                        "source_type": "web",
+                        "source_title": "Blocked Source",
+                        "source_url": "https://example.test/runtime-blocked",
+                        "claim": "This blocked claim should not be stored.",
+                        "excerpt": "Blocked.",
+                        "quality": "medium",
+                        "relevance": 4,
+                        "metadata": {"provider_source": "tool_admission_verify"},
+                    }
+                ],
             )
-            run_id = started["run"]["id"]
-            first = await _search_research(
-                user_id=str(user_id),
-                run_id=run_id,
-                query="warm communication books source one",
-                status="completed",
-                rationale="First research query.",
-                results=[{"title": "Source One", "url": "https://example.test/one"}],
-                next_actions=["Search a second evidence point."],
-            )
-            second = await _search_research(
-                user_id=str(user_id),
-                run_id=run_id,
-                query="warm communication books source two",
-                status="completed",
-                rationale="Second research query.",
-                results=[{"title": "Source Two", "url": "https://example.test/two"}],
-                next_actions=["Aggregate evidence."],
-            )
+    _assert(
+        runtime_blocked["status"] == "tool_blocked",
+        "research runtime should block outside research turns",
+    )
+    _assert(
+        "can_start_research"
+        in runtime_blocked["tool_admission"]["metadata"]["missing_policy_flags"],
+        "run_research_harness should require can_start_research",
+    )
+
+    original_source_search = research_tools.search_research_source_documents_result
+    original_scholar_search = research_tools.search_research_scholar_documents_result
+    original_source_visit = research_tools.fetch_research_source_document_result
+
+    class _FakeSourceSearchResult:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "result_mode": "research_source_search",
+                "contract_version": "research-source-search-v1",
+                "status": "ok",
+                "query": "Example Novel source-backed review",
+                "subquestion": "Is Example Novel source-backed?",
+                "provider_name": "duckduckgo",
+                "provider_query": "Example Novel source-backed review",
+                "source_documents": [
+                    {
+                        "source_type": "web",
+                        "source_title": "Source Search Result",
+                        "source_url": "https://example.test/source-search",
+                        "content": "Example Novel is supported by a reliable review.",
+                        "quality": "medium",
+                        "relevance": 5,
+                        "metadata": {"provider_source": "tool_admission_verify"},
+                    }
+                ],
+                "extraction": {
+                    "result_mode": "research_source_extraction",
+                    "contract_version": "research-source-extraction-v1",
+                    "status": "ok",
+                    "query": "Example Novel source-backed review",
+                    "subquestion": "Is Example Novel source-backed?",
+                    "source_records": [
+                        {
+                            "source_type": "web",
+                            "source_title": "Source Search Result",
+                            "source_url": "https://example.test/source-search",
+                            "claim": "Example Novel is supported by a reliable review.",
+                            "excerpt": "Example Novel is supported by a reliable review.",
+                            "quality": "medium",
+                            "relevance": 5,
+                            "metadata": {"provider_source": "tool_admission_verify"},
+                        }
+                    ],
+                    "observation_batch": None,
+                    "rejected_documents": [],
+                    "document_count": 1,
+                    "extracted_count": 1,
+                    "metadata": {"external_call": False},
+                },
+                "document_count": 1,
+                "extracted_count": 1,
+                "error": None,
+                "duration_ms": 1,
+                "metadata": {
+                    "writes_research_state": False,
+                    "writes_evidence": False,
+                    "writes_long_term_memory": False,
+                    "writes_recommendation_events": False,
+                    "external_call": True,
+                },
+            }
+
+    async def fake_source_search(**payload: Any) -> _FakeSourceSearchResult:
+        return _FakeSourceSearchResult()
+
+    class _FakeScholarSearchResult:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "result_mode": "research_scholar_search",
+                "contract_version": "research-scholar-search-v1",
+                "status": "ok",
+                "query": "Example Novel scholarly source-backed review",
+                "subquestion": "Is Example Novel source-backed by papers?",
+                "provider_name": "crossref",
+                "provider_query": "Example Novel scholarly source-backed review",
+                "source_documents": [
+                    {
+                        "source_type": "paper",
+                        "source_title": "Scholar Search Result",
+                        "source_url": "https://doi.org/10.5555/tool-admission",
+                        "content": "Example Novel is supported by a scholarly paper.",
+                        "quality": "medium",
+                        "relevance": 5,
+                        "metadata": {"provider_source": "tool_admission_verify"},
+                    }
+                ],
+                "extraction": {
+                    "result_mode": "research_source_extraction",
+                    "contract_version": "research-source-extraction-v1",
+                    "status": "ok",
+                    "query": "Example Novel scholarly source-backed review",
+                    "subquestion": "Is Example Novel source-backed by papers?",
+                    "source_records": [
+                        {
+                            "source_type": "paper",
+                            "source_title": "Scholar Search Result",
+                            "source_url": "https://doi.org/10.5555/tool-admission",
+                            "claim": "Example Novel is supported by a scholarly paper.",
+                            "excerpt": "Example Novel is supported by a scholarly paper.",
+                            "quality": "medium",
+                            "relevance": 5,
+                            "metadata": {"provider_source": "tool_admission_verify"},
+                        }
+                    ],
+                    "observation_batch": None,
+                    "rejected_documents": [],
+                    "document_count": 1,
+                    "extracted_count": 1,
+                    "metadata": {"external_call": False},
+                },
+                "document_count": 1,
+                "extracted_count": 1,
+                "error": None,
+                "duration_ms": 1,
+                "metadata": {
+                    "writes_research_state": False,
+                    "writes_evidence": False,
+                    "writes_long_term_memory": False,
+                    "writes_recommendation_events": False,
+                    "external_call": True,
+                },
+            }
+
+    async def fake_scholar_search(**payload: Any) -> _FakeScholarSearchResult:
+        return _FakeScholarSearchResult()
+
+    class _FakeSourceVisitResult:
+        def model_dump(self, mode: str = "json") -> dict[str, Any]:
+            return {
+                "result_mode": "research_source_visit",
+                "contract_version": "research-source-visit-v1",
+                "status": "ok",
+                "url": "https://example.test/source-visit",
+                "final_url": "https://example.test/source-visit",
+                "query": "Example Novel source-backed review",
+                "subquestion": "Is Example Novel source-backed?",
+                "source_document": {
+                    "source_type": "web",
+                    "source_title": "Visited Source",
+                    "source_url": "https://example.test/source-visit",
+                    "content": "Example Novel is supported by a reliable review.",
+                    "quality": "unknown",
+                    "relevance": 5,
+                    "metadata": {"provider_source": "tool_admission_verify"},
+                },
+                "extraction": {
+                    "result_mode": "research_source_extraction",
+                    "contract_version": "research-source-extraction-v1",
+                    "status": "ok",
+                    "query": "Example Novel source-backed review",
+                    "subquestion": "Is Example Novel source-backed?",
+                    "source_records": [
+                        {
+                            "source_type": "web",
+                            "source_title": "Visited Source",
+                            "source_url": "https://example.test/source-visit",
+                            "claim": "Example Novel is supported by a reliable review.",
+                            "excerpt": "Example Novel is supported by a reliable review.",
+                            "quality": "unknown",
+                            "relevance": 5,
+                            "metadata": {"provider_source": "tool_admission_verify"},
+                        }
+                    ],
+                    "observation_batch": None,
+                    "rejected_documents": [],
+                    "document_count": 1,
+                    "extracted_count": 1,
+                    "metadata": {"external_call": False},
+                },
+                "extracted_count": 1,
+                "error": None,
+                "duration_ms": 1,
+                "metadata": {
+                    "writes_research_state": False,
+                    "writes_evidence": False,
+                    "writes_long_term_memory": False,
+                    "writes_recommendation_events": False,
+                    "external_call": True,
+                },
+            }
+
+    async def fake_source_visit(**payload: Any) -> _FakeSourceVisitResult:
+        return _FakeSourceVisitResult()
+
+    research_tools.search_research_source_documents_result = fake_source_search
+    research_tools.search_research_scholar_documents_result = fake_scholar_search
+    research_tools.fetch_research_source_document_result = fake_source_visit
+    try:
+        reset_tool_admission_gate()
+        with request_id_scope("phase-n-research-tools-not-book-budgeted"):
+            with user_message_scope(
+                "Please deep research warm communication books and compare evidence."
+            ):
+                started = await _start_research(
+                    user_id=str(user_id),
+                    thread_id=str(thread_id),
+                    objective="Deep research warm communication books.",
+                    subquestions=["Which books are warm and communication-oriented?"],
+                    gaps=["Need source-backed candidate facts."],
+                    next_actions=["Search two distinct evidence points."],
+                    budget={"max_steps": 5},
+                    stop_criteria=["Two research search steps recorded."],
+                )
+                run_id = started["run"]["id"]
+                first = await _search_research(
+                    user_id=str(user_id),
+                    run_id=run_id,
+                    query="warm communication books source one",
+                    status="completed",
+                    rationale="First research query.",
+                    results=[{"title": "Source One", "url": "https://example.test/one"}],
+                    next_actions=["Search a second evidence point."],
+                )
+                second = await _search_research(
+                    user_id=str(user_id),
+                    run_id=run_id,
+                    query="warm communication books source two",
+                    status="completed",
+                    rationale="Second research query.",
+                    results=[{"title": "Source Two", "url": "https://example.test/two"}],
+                    next_actions=["Aggregate evidence."],
+                )
+                source_search = await _search_research_sources(
+                    query="Example Novel source-backed review",
+                    subquestion="Is Example Novel source-backed?",
+                    limit=3,
+                )
+                scholar_search = await _search_research_scholar_sources(
+                    query="Example Novel scholarly source-backed review",
+                    subquestion="Is Example Novel source-backed by papers?",
+                    limit=3,
+                )
+                source_visit = await _fetch_research_source(
+                    url="https://example.test/source-visit",
+                    query="Example Novel source-backed review",
+                    subquestion="Is Example Novel source-backed?",
+                )
+                report = await _build_research_report(
+                    user_id=str(user_id),
+                    run_id=run_id,
+                )
+                final_answer = await _finalize_research_answer(
+                    user_id=str(user_id),
+                    run_id=run_id,
+                )
+                recommendation_research_report = await (
+                    _build_recommendation_research_report(
+                        query="Example Novel source-backed recommendation",
+                        candidates=[
+                            {
+                                "id": str(uuid.uuid4()),
+                                "title": "Example Novel",
+                                "authors": ["Example Author"],
+                                "summary": "A warm, source-backed candidate.",
+                                "recommendation": {
+                                    "score": 1.4,
+                                    "suppressed": False,
+                                    "positive_reasons": ["matches warm preference"],
+                                    "suppression_reasons": [],
+                                    "metadata": {
+                                        "contract_version": (
+                                            "recommendation-projection-v1"
+                                        )
+                                    },
+                                },
+                                "recommendation_explanation": {
+                                    "contract_version": "recommendation-explanation-v1",
+                                    "positive_reasons": ["matches warm preference"],
+                                },
+                            }
+                        ],
+                        research_report={
+                            "contract_version": "research-report-v1",
+                            "run_id": run_id,
+                            "report_status": "verified",
+                            "verified_claims": [
+                                {
+                                    "claim": (
+                                        "Example Novel is supported by a reliable "
+                                        "review."
+                                    ),
+                                    "evidence_ids": [str(uuid.uuid4())],
+                                    "reason_codes": [],
+                                    "confidence": 1.0,
+                                }
+                            ],
+                            "uncertain_claims": [],
+                            "rejected_claims": [],
+                            "sources": [
+                                {
+                                    "evidence_id": str(uuid.uuid4()),
+                                    "source_type": "web",
+                                    "source_title": "Reliable Review",
+                                    "source_url": "https://example.test/reliable",
+                                    "quality": "medium",
+                                    "relevance": 5,
+                                    "claim": (
+                                        "Example Novel is supported by a reliable "
+                                        "review."
+                                    ),
+                                }
+                            ],
+                        },
+                    )
+                )
+                observation_batch = await _build_research_observations(
+                    query="Example Novel source-backed review",
+                    subquestion="Is Example Novel source-backed?",
+                    provider_source="tool_admission_verify",
+                    sources=[
+                        {
+                            "title": "Harness Source",
+                            "url": "https://example.test/harness-source",
+                            "claim": "Example Novel is supported by a reliable review.",
+                            "excerpt": "The review gives a source-backed claim.",
+                            "quality": "medium",
+                            "relevance": 5,
+                        }
+                    ],
+                )
+                python_analysis = await _analyze_research_data(
+                    query="Analyze supplied recommendation evidence scores",
+                    subquestion="Which supplied score is strongest?",
+                    dataset_title="Tool admission supplied analysis records",
+                    source_type="manual",
+                    records=[
+                        {"candidate": "Example Novel", "score": 4.8, "status": "kept"},
+                        {"candidate": "Other Novel", "score": 3.2, "status": "filtered"},
+                        {"candidate": "Third Novel", "score": 4.1, "status": "kept"},
+                    ],
+                    focus_fields=["score", "status"],
+                )
+                source_extraction = await _extract_research_source_records(
+                    query="Example Novel source-backed review",
+                    subquestion="Is Example Novel source-backed?",
+                    provider_source="tool_admission_verify",
+                    documents=[
+                        {
+                            "title": "Extracted Source",
+                            "url": "https://example.test/extracted-source",
+                            "content": (
+                                "Example Novel is supported by a reliable review. "
+                                "The source discusses its recommendation fit."
+                            ),
+                            "quality": "medium",
+                            "relevance": 5,
+                        }
+                    ],
+                )
+                source_collection = await _collect_research_sources(
+                    user_id=str(user_id),
+                    run_id=run_id,
+                    query="Example Novel source-backed review",
+                    subquestion="Is Example Novel source-backed?",
+                    provider_source="tool_admission_verify",
+                    sources=[
+                        {
+                            "title": "Harness Source",
+                            "url": "https://example.test/harness-source",
+                            "claim": "Example Novel is supported by a reliable review.",
+                            "excerpt": "The review gives a source-backed claim.",
+                            "quality": "medium",
+                            "relevance": 5,
+                        }
+                    ],
+                )
+                runtime = await _run_research_harness(
+                    user_id=str(user_id),
+                    thread_id=str(thread_id),
+                    objective="Run a local research harness pass.",
+                    subquestions=["Is Example Novel source-backed?"],
+                    gaps=["Need source-backed evidence."],
+                    next_actions=["Run harness."],
+                    budget={"required_evidence_quality": "medium"},
+                    stop_criteria=["One medium-quality claim is admitted."],
+                    observations=observation_batch["observations"],
+                )
+                recommendation_runner = await _run_recommendation_research_workflow(
+                    user_id=str(user_id),
+                    thread_id=str(thread_id),
+                    query="Example Novel source-backed recommendation",
+                    candidates=[
+                        {
+                            "id": str(uuid.uuid4()),
+                            "title": "Example Novel",
+                            "authors": ["Example Author"],
+                            "summary": "A warm, source-backed candidate.",
+                            "recommendation": {
+                                "score": 1.4,
+                                "suppressed": False,
+                                "positive_reasons": ["matches warm preference"],
+                                "suppression_reasons": [],
+                            },
+                        }
+                    ],
+                    observations=observation_batch["observations"],
+                    subquestions=["Is Example Novel source-backed?"],
+                    gaps=["Need source-backed evidence."],
+                    next_actions=["Run researched recommendation workflow."],
+                    budget={"required_evidence_quality": "medium"},
+                    stop_criteria=["One medium-quality claim is admitted."],
+                )
+    finally:
+        research_tools.search_research_source_documents_result = original_source_search
+        research_tools.search_research_scholar_documents_result = original_scholar_search
+        research_tools.fetch_research_source_document_result = original_source_visit
     _assert(started["run"]["status"] == "active", "research should start")
     _assert(first["state"]["status"] == "active", "first research search should pass")
     _assert(second["state"]["status"] == "active", "second research search should pass")
+    _assert(
+        source_search["result_mode"] == "research_source_search",
+        "research source search should be allowed",
+    )
+    _assert(
+        scholar_search["result_mode"] == "research_scholar_search",
+        "research scholar search should be allowed",
+    )
+    _assert(
+        source_visit["result_mode"] == "research_source_visit",
+        "research source visit should be allowed",
+    )
+    _assert(report["result_mode"] == "research_report", "report should be allowed")
+    _assert(
+        final_answer["result_mode"] == "research_final_answer",
+        "research final answer should be allowed",
+    )
+    _assert(
+        recommendation_research_report["result_mode"]
+        == "recommendation_research_report",
+        "recommendation research report should be allowed",
+    )
+    _assert(
+        recommendation_research_report["recommended_candidates"],
+        "recommendation research report should support a matched candidate",
+    )
+    _assert(
+        observation_batch["result_mode"] == "research_observation_batch",
+        "research observation batch should be allowed",
+    )
+    _assert(
+        observation_batch["observation_count"] == 1,
+        "research observation batch should normalize sources",
+    )
+    _assert(
+        python_analysis["result_mode"] == "research_python_analysis",
+        "research python analysis should be allowed",
+    )
+    _assert(
+        python_analysis["metadata"]["executes_user_code"] is False,
+        "research python analysis should not execute user code",
+    )
+    _assert(
+        python_analysis["observation_batch"]["observation_count"] >= 1,
+        "research python analysis should produce observations",
+    )
+    _assert(
+        source_extraction["result_mode"] == "research_source_extraction",
+        "research source extraction should be allowed",
+    )
+    _assert(
+        source_extraction["observation_batch"]["observation_count"] == 1,
+        "research source extraction should create observations",
+    )
+    _assert(
+        source_collection["result_mode"] == "research_source_collection",
+        "research source collection should be allowed",
+    )
+    _assert(
+        source_collection["observation_batch"]["observation_count"] == 1,
+        "research source collection should normalize accepted source records",
+    )
+    _assert(
+        runtime["result_mode"] == "research_runtime",
+        "research runtime should be allowed",
+    )
+    _assert(
+        runtime["report"]["result_mode"] == "research_report",
+        "research runtime should return a nested report",
+    )
+    _assert(
+        recommendation_runner["result_mode"] == "recommendation_research_runner",
+        "recommendation research runner should be allowed",
+    )
+    _assert(
+        recommendation_runner["recommendation_report"]["result_mode"]
+        == "recommendation_research_report",
+        "recommendation research runner should return a fused report",
+    )
     _assert(
         len([step for step in second["steps"] if step["step_type"] == "search"]) >= 2,
         "research tools should allow repeated search-state updates",
@@ -332,6 +1168,7 @@ async def _run_tool_admission_flow() -> None:
     try:
         await _verify_book_search_admission()
         await _verify_memory_admission(user_id)
+        await _verify_web_search_admission()
         await _verify_research_admission(user_id, thread_id)
         print("tool admission verification passed")
         print(f"user_id={user_id}")

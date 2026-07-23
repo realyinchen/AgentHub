@@ -15,7 +15,7 @@ from app.services.memory.contracts import (
 
 
 LONG_TERM_WRITABLE_MEMORY_TYPES = frozenset(
-    {"preference", "feedback", "reading_state", "correction"}
+    {"state", "preference", "feedback", "reading_state", "entity", "correction"}
 )
 DISALLOWED_LONG_TERM_SOURCE_KINDS = frozenset(
     {

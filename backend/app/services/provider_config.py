@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import json
 import os
+import time
+from asyncio import timeout as asyncio_timeout
+from asyncio import to_thread as asyncio_to_thread
 from datetime import datetime, timezone
 from functools import lru_cache
 from typing import Any
 
+import requests
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,12 +19,13 @@ from app.infra.config import get_settings
 from app.models.app_provider_config import AppProviderConfigRecord
 
 
-APP_PROVIDER_TYPES = frozenset({"memory", "research_observation"})
+APP_PROVIDER_TYPES = frozenset({"memory", "research_observation", "web_search"})
 APP_PROVIDER_SCOPES = frozenset({"global", "workspace", "user"})
 APP_PROVIDER_CAPABILITIES = frozenset(
     {
         "memory_recall",
         "research_observation",
+        "web_search",
         "source_visit",
         "semantic_search",
     }
@@ -301,6 +306,25 @@ def _default_provider_configs() -> list[AppProviderConfig]:
             health=AppProviderHealth(status="disabled"),
             metadata={"provider_source": "builtin"},
         ),
+        AppProviderConfig(
+            provider_key="tavily",
+            provider_type="web_search",
+            enabled=False,
+            display_name="Tavily Search",
+            capabilities=["web_search"],
+            settings={
+                "max_results": 3,
+                "search_depth": "basic",
+                "include_answer": True,
+                "include_raw_content": False,
+                "health_check_query": "OpenAI",
+                "health_check_timeout_seconds": 15,
+            },
+            credentials_ref="env:TAVILY_API_KEY",
+            credential_status="missing",
+            health=AppProviderHealth(status="disabled"),
+            metadata={"provider_source": "builtin"},
+        ),
     ]
 
 
@@ -367,6 +391,243 @@ def _has_offline_provider_fixture(config: AppProviderConfig) -> bool:
     )
 
 
+def _coerce_bool_setting(value: Any, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        token = value.strip().lower()
+        if token in {"1", "true", "yes", "on"}:
+            return True
+        if token in {"0", "false", "no", "off"}:
+            return False
+    return default
+
+
+def _coerce_int_setting(value: Any, default: int, *, minimum: int, maximum: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(minimum, min(parsed, maximum))
+
+
+def _clean_tavily_search_depth(value: Any, default: str = "basic") -> str:
+    token = _normalize_provider_token(value or default)
+    return token if token in {"basic", "advanced", "fast", "ultra-fast"} else default
+
+
+def _redact_secret(text: str, secret: str) -> str:
+    cleaned = _clean_text(text)
+    if secret:
+        cleaned = cleaned.replace(secret, "[redacted]")
+    return cleaned
+
+
+def _tavily_result_count(result: Any) -> int:
+    if isinstance(result, dict):
+        results = result.get("results")
+        if isinstance(results, list):
+            return len(results)
+        return 1 if result else 0
+    if isinstance(result, list):
+        return len(result)
+    return 1 if result else 0
+
+
+def _tavily_result_error(result: Any) -> str:
+    if isinstance(result, dict):
+        error = result.get("error")
+        if error:
+            return _clean_text(error)
+        results = result.get("results")
+        if isinstance(results, list):
+            for item in results:
+                nested = _tavily_result_error(item)
+                if nested:
+                    return nested
+    if isinstance(result, list):
+        for item in result:
+            nested = _tavily_result_error(item)
+            if nested:
+                return nested
+    return ""
+
+
+def _tavily_error_type(message: str) -> str:
+    normalized = message.lower()
+    if "401" in normalized or "unauthorized" in normalized:
+        return "unauthorized"
+    if "403" in normalized or "forbidden" in normalized:
+        return "forbidden"
+    if "429" in normalized or "rate" in normalized:
+        return "rate_limited"
+    return "provider_error"
+
+
+async def run_tavily_search_request(
+    *,
+    api_key: str,
+    query: str,
+    max_results: int,
+    search_depth: str,
+    include_answer: bool,
+    include_raw_content: bool,
+    timeout_seconds: int = 30,
+    api_base_url: str = "",
+    include_images: bool = False,
+    include_image_descriptions: bool = False,
+    include_favicon: bool = False,
+    topic: str = "general",
+    time_range: str | None = None,
+    country: str | None = None,
+    include_usage: bool | None = None,
+    exact_match: bool | None = None,
+) -> dict[str, Any]:
+    """Run Tavily search through requests.
+
+    langchain-tavily's async wrapper uses aiohttp and can fail in local proxy
+    setups where requests succeeds. Keep this helper small and app-owned so
+    Provider Settings health checks and the chat tool exercise the same path.
+    """
+
+    base_url = (api_base_url or "https://api.tavily.com").rstrip("/")
+    payload: dict[str, Any] = {
+        "query": query,
+        "max_results": max_results,
+        "search_depth": search_depth,
+        "include_answer": include_answer,
+        "include_raw_content": include_raw_content,
+        "include_images": include_images,
+        "include_image_descriptions": include_image_descriptions,
+        "include_favicon": include_favicon,
+        "topic": topic,
+        "time_range": time_range,
+        "country": country,
+        "include_usage": include_usage,
+        "exact_match": exact_match,
+    }
+    payload = {key: value for key, value in payload.items() if value is not None}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Client-Source": "test01-book-assistant",
+    }
+
+    def _post() -> dict[str, Any]:
+        response = requests.post(
+            f"{base_url}/search",
+            json=payload,
+            headers=headers,
+            timeout=timeout_seconds,
+        )
+        if response.status_code != 200:
+            message = response.reason or "Unknown error"
+            try:
+                detail = response.json().get("detail", {})
+            except ValueError:
+                detail = {}
+            if isinstance(detail, dict):
+                message = str(detail.get("error") or message)
+            raise ValueError(f"Error {response.status_code}: {message}")
+        return response.json()
+
+    return await asyncio_to_thread(_post)
+
+
+async def _run_tavily_health_probe(config: AppProviderConfig) -> dict[str, Any]:
+    """Run a low-cost live Tavily query using server-side credentials."""
+    start = time.perf_counter()
+    api_key = resolve_provider_api_key(config).strip()
+    if not api_key:
+        return {
+            "health_status": "missing_credentials",
+            "health_error_type": "missing_credentials",
+            "health_error": "provider credentials are not configured",
+            "health_duration_ms": 0,
+        }
+
+    settings = config.settings or {}
+    query = _clean_text(settings.get("health_check_query") or "OpenAI")
+    if not query:
+        query = "OpenAI"
+    query = query[:256]
+    max_results = _coerce_int_setting(
+        settings.get("health_check_max_results") or settings.get("max_results"),
+        1,
+        minimum=1,
+        maximum=3,
+    )
+    search_depth = _clean_tavily_search_depth(
+        settings.get("health_check_search_depth") or settings.get("search_depth"),
+        "basic",
+    )
+    include_answer = _coerce_bool_setting(
+        settings.get("health_check_include_answer"),
+        False,
+    )
+    timeout_seconds = _coerce_int_setting(
+        settings.get("health_check_timeout_seconds"),
+        15,
+        minimum=3,
+        maximum=60,
+    )
+    api_base_url = _clean_text(settings.get("api_base_url"))
+
+    try:
+        async with asyncio_timeout(timeout_seconds):
+            result = await run_tavily_search_request(
+                api_key=api_key,
+                query=query,
+                api_base_url=api_base_url,
+                timeout_seconds=timeout_seconds,
+                max_results=max_results,
+                include_answer=include_answer,
+                include_raw_content=False,
+                search_depth=search_depth,
+            )
+    except TimeoutError:
+        return {
+            "health_status": "timeout",
+            "health_error_type": "timeout",
+            "health_error": f"Tavily health check timed out after {timeout_seconds}s",
+            "health_duration_ms": int((time.perf_counter() - start) * 1000),
+        }
+    except Exception as exc:
+        message = _redact_secret(str(exc) or exc.__class__.__name__, api_key)
+        return {
+            "health_status": "failed",
+            "health_error_type": _tavily_error_type(message),
+            "health_error": message,
+            "health_duration_ms": int((time.perf_counter() - start) * 1000),
+        }
+
+    error_message = _redact_secret(_tavily_result_error(result), api_key)
+    if error_message:
+        return {
+            "health_status": "failed",
+            "health_error_type": _tavily_error_type(error_message),
+            "health_error": error_message,
+            "health_duration_ms": int((time.perf_counter() - start) * 1000),
+        }
+
+    result_count = _tavily_result_count(result)
+    duration_ms = int((time.perf_counter() - start) * 1000)
+    if result_count <= 0:
+        return {
+            "health_status": "failed",
+            "health_error_type": "no_results",
+            "health_error": f"Tavily health check returned no results for query: {query}",
+            "health_duration_ms": duration_ms,
+        }
+
+    return {
+        "health_status": "ok",
+        "health_error_type": "",
+        "health_error": "",
+        "health_duration_ms": duration_ms,
+    }
+
+
 def _with_resolved_status(config: AppProviderConfig) -> AppProviderConfig:
     credential_status = _credential_status_for_ref(config.credentials_ref)
     health = config.health
@@ -423,11 +684,54 @@ def _config_from_record(record: AppProviderConfigRecord) -> AppProviderConfig:
     return _with_resolved_status(config)
 
 
+def _record_data_from_default_config(config: AppProviderConfig) -> dict[str, Any]:
+    return {
+        "provider_key": config.provider_key,
+        "provider_type": config.provider_type,
+        "scope": config.scope,
+        "enabled": config.enabled,
+        "display_name": config.display_name,
+        "capabilities": config.capabilities,
+        "settings": config.settings,
+        "credentials_ref": config.credentials_ref,
+        "encrypted_api_key": "",
+        "health_status": config.health.status,
+        "health_error_type": config.health.error_type,
+        "health_error": config.health.error,
+        "health_duration_ms": config.health.duration_ms,
+        "metadata_json": config.metadata,
+    }
+
+
+async def ensure_default_provider_configs_in_db(
+    db: AsyncSession,
+    *,
+    scope: str = "global",
+) -> None:
+    """Create missing built-in provider rows without overwriting user edits."""
+    normalized_scope = _normalize_provider_token(scope or "global")
+    for config in _default_provider_configs():
+        if config.scope != normalized_scope:
+            continue
+        existing = await app_provider_config_crud.get_app_provider_config(
+            db,
+            config.provider_key,
+            scope=normalized_scope,
+        )
+        if existing is not None:
+            continue
+        await app_provider_config_crud.create_app_provider_config(
+            db,
+            _record_data_from_default_config(config),
+        )
+
+
 async def list_provider_configs_from_db(
     db: AsyncSession,
     *,
     scope: str = "global",
 ) -> AppProviderConfigList:
+    await ensure_default_provider_configs_in_db(db, scope=scope)
     records = await app_provider_config_crud.get_app_provider_configs(db, scope=scope)
     providers = [_config_from_record(record) for record in records]
     return AppProviderConfigList(providers=providers)
@@ -439,6 +743,7 @@ async def get_provider_config_from_db(
     *,
     scope: str = "global",
 ) -> AppProviderConfig | None:
+    await ensure_default_provider_configs_in_db(db, scope=scope)
     record = await app_provider_config_crud.get_app_provider_config(
         db,
         _normalize_provider_token(provider_key),
@@ -455,6 +760,7 @@ async def update_provider_config_in_db(
     scope: str = "global",
 ) -> AppProviderConfig | None:
     key = _normalize_provider_token(provider_key)
+    await ensure_default_provider_configs_in_db(db, scope=scope)
     data: dict[str, Any] = {}
     payload = update.model_dump(exclude_unset=True)
 
@@ -534,6 +840,7 @@ async def check_provider_health_in_db(
     scope: str = "global",
 ) -> AppProviderConfig | None:
     key = _normalize_provider_token(provider_key)
+    await ensure_default_provider_configs_in_db(db, scope=scope)
     record = await app_provider_config_crud.get_app_provider_config(db, key, scope=scope)
     if record is None:
         return None
@@ -542,6 +849,7 @@ async def check_provider_health_in_db(
     status = "ok"
     error_type = ""
     error = ""
+    duration_ms = 0
     if not config.enabled:
         status = "disabled"
     elif config.credential_status == "missing" or (
@@ -559,6 +867,12 @@ async def check_provider_health_in_db(
         if status in {"timeout", "failed"}:
             error_type = status
             error = str(config.settings.get("force_health_error") or status)
+    elif status == "ok" and key == "tavily":
+        tavily_health = await _run_tavily_health_probe(config)
+        status = str(tavily_health["health_status"])
+        error_type = str(tavily_health["health_error_type"])
+        error = str(tavily_health["health_error"])
+        duration_ms = int(tavily_health["health_duration_ms"])
 
     updated = await app_provider_config_crud.update_app_provider_config(
         db,
@@ -567,7 +881,7 @@ async def check_provider_health_in_db(
             "health_status": status,
             "health_error_type": error_type,
             "health_error": error,
-            "health_duration_ms": 0,
+            "health_duration_ms": duration_ms,
             "health_checked_at": datetime.now(timezone.utc),
         },
         scope=scope,

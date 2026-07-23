@@ -9,6 +9,7 @@ langgraph-checkpoint-postgres==3.1.0
 langgraph==1.2.0
 langsmith==0.8.5
 python-dotenv==1.2.1
+requests==2.34.2
 asyncpg==0.31.0
 psycopg-binary==3.3.2
 uvicorn==0.38.0

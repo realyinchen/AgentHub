@@ -12,9 +12,77 @@ from app.services.research.contracts import (
     ResearchStateSnapshot,
     ResearchStep,
 )
+from app.services.research.evidence_admission import (
+    RESEARCH_EVIDENCE_ADMISSION_CONTRACT_VERSION,
+    ResearchEvidenceAdmissionResult,
+    admit_research_evidence,
+    attach_evidence_admission_metadata,
+)
+from app.services.research.finalizer import (
+    RESEARCH_FINAL_ANSWER_CONTRACT_VERSION,
+    ResearchFinalAnswer,
+    finalize_research_answer,
+    finalize_research_answer_from_report,
+)
 from app.services.research.orchestrator import (
     ResearchOrchestrator,
     get_research_orchestrator,
+)
+from app.services.research.python_analysis import (
+    RESEARCH_PYTHON_ANALYSIS_CONTRACT_VERSION,
+    RejectedResearchPythonRecord,
+    ResearchPythonAnalysisResult,
+    analyze_research_data,
+)
+from app.services.research.report import (
+    ResearchReport,
+    ResearchReportMemoryContext,
+    ResearchReportSource,
+    build_research_report,
+    build_research_report_from_state,
+)
+from app.services.research.runtime import (
+    RESEARCH_RUNTIME_CONTRACT_VERSION,
+    ResearchRuntimeReportResult,
+    run_research_runtime,
+)
+from app.services.research.source_acquisition import (
+    RESEARCH_OBSERVATION_BATCH_CONTRACT_VERSION,
+    RejectedResearchSource,
+    ResearchObservationBatch,
+    ResearchSourceRecord,
+    build_research_observation_batch,
+)
+from app.services.research.source_collection import (
+    RESEARCH_SOURCE_COLLECTION_CONTRACT_VERSION,
+    ResearchSourceCollectionResult,
+    collect_research_sources,
+)
+from app.services.research.source_extraction import (
+    RESEARCH_SOURCE_EXTRACTION_CONTRACT_VERSION,
+    RejectedResearchSourceDocument,
+    ResearchSourceExtractionResult,
+    extract_research_source_records,
+)
+from app.services.research.source_search import (
+    RESEARCH_SOURCE_SEARCH_CONTRACT_VERSION,
+    ResearchSourceDocument,
+    ResearchSourceSearchProviderResult,
+    ResearchSourceSearchResult,
+    search_duckduckgo_research_documents,
+    search_research_source_documents,
+)
+from app.services.research.source_scholar import (
+    RESEARCH_SCHOLAR_SEARCH_CONTRACT_VERSION,
+    ResearchScholarSearchProviderResult,
+    ResearchScholarSearchResult,
+    search_crossref_research_documents,
+    search_research_scholar_documents,
+)
+from app.services.research.source_visit import (
+    RESEARCH_SOURCE_VISIT_CONTRACT_VERSION,
+    ResearchSourceVisitResult,
+    fetch_research_source_document,
 )
 from app.services.research.observation_providers import (
     GBrainObservationProvider,
@@ -39,23 +107,69 @@ __all__ = [
     "ObservationProvider",
     "ObservationProviderRequest",
     "ObservationProviderResult",
+    "RESEARCH_EVIDENCE_ADMISSION_CONTRACT_VERSION",
+    "RESEARCH_FINAL_ANSWER_CONTRACT_VERSION",
     "RESEARCH_MODES",
+    "RESEARCH_OBSERVATION_BATCH_CONTRACT_VERSION",
+    "RESEARCH_PYTHON_ANALYSIS_CONTRACT_VERSION",
     "RESEARCH_RUN_STATUSES",
+    "RESEARCH_RUNTIME_CONTRACT_VERSION",
+    "RESEARCH_SCHOLAR_SEARCH_CONTRACT_VERSION",
+    "RESEARCH_SOURCE_COLLECTION_CONTRACT_VERSION",
+    "RESEARCH_SOURCE_EXTRACTION_CONTRACT_VERSION",
+    "RESEARCH_SOURCE_SEARCH_CONTRACT_VERSION",
+    "RESEARCH_SOURCE_VISIT_CONTRACT_VERSION",
     "RESEARCH_STEP_STATUSES",
     "RESEARCH_STEP_TYPES",
     "ResearchEvidence",
+    "ResearchEvidenceAdmissionResult",
+    "ResearchFinalAnswer",
+    "ResearchObservationBatch",
     "ResearchOrchestrator",
+    "ResearchPythonAnalysisResult",
+    "ResearchReport",
+    "ResearchReportMemoryContext",
+    "ResearchReportSource",
     "ResearchRun",
     "ResearchRunListResult",
+    "ResearchRuntimeReportResult",
+    "ResearchScholarSearchProviderResult",
+    "ResearchScholarSearchResult",
+    "ResearchSourceExtractionResult",
+    "ResearchSourceCollectionResult",
+    "ResearchSourceDocument",
+    "ResearchSourceRecord",
+    "ResearchSourceSearchProviderResult",
+    "ResearchSourceSearchResult",
+    "ResearchSourceVisitResult",
     "ResearchStateResult",
     "ResearchStateSnapshot",
     "ResearchStep",
     "ResearchObservation",
     "ResearchVerifier",
+    "RejectedResearchPythonRecord",
+    "RejectedResearchSourceDocument",
+    "RejectedResearchSource",
     "SourceObservationProvider",
     "VerifierAdmissionInput",
     "VerifierAdmissionResult",
+    "admit_research_evidence",
+    "analyze_research_data",
+    "attach_evidence_admission_metadata",
+    "build_research_observation_batch",
+    "build_research_report",
+    "build_research_report_from_state",
+    "collect_research_sources",
+    "extract_research_source_records",
+    "finalize_research_answer",
+    "finalize_research_answer_from_report",
+    "fetch_research_source_document",
     "get_default_observation_provider",
     "get_research_orchestrator",
     "map_provider_status",
+    "run_research_runtime",
+    "search_crossref_research_documents",
+    "search_duckduckgo_research_documents",
+    "search_research_source_documents",
+    "search_research_scholar_documents",
 ]

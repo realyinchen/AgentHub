@@ -18,6 +18,7 @@ TURN_INTENT_TYPES = frozenset(
         "answer_question",
         "update_memory",
         "recommend_books",
+        "recommendation_history",
         "deep_search",
         "research_report",
         "manage_memory",
@@ -33,9 +34,11 @@ ACTION_FIELDS = (
     "can_search_memory",
     "can_search_books",
     "can_recommend_books",
+    "can_view_recommendation_history",
     "can_record_recommendation_signal",
     "can_start_research",
     "can_use_research_tools",
+    "can_use_web_search",
 )
 
 
@@ -72,8 +75,8 @@ class TurnIntent(BaseModel):
 
     primary_intent: str = Field(
         description=(
-            "One of answer_question, update_memory, recommend_books, deep_search, "
-            "research_report, manage_memory."
+            "One of answer_question, update_memory, recommend_books, "
+            "recommendation_history, deep_search, research_report, manage_memory."
         )
     )
     intents: list[str] = Field(default_factory=list)
@@ -118,9 +121,11 @@ class TurnPolicy(BaseModel):
     can_search_memory: bool = False
     can_search_books: bool = False
     can_recommend_books: bool = False
+    can_view_recommendation_history: bool = False
     can_record_recommendation_signal: bool = False
     can_start_research: bool = False
     can_use_research_tools: bool = False
+    can_use_web_search: bool = False
     max_book_search_calls: int = Field(default=0, ge=0, le=10)
     requires_verifier: bool = False
     allowed_tools: list[str] = Field(default_factory=list)
@@ -171,17 +176,41 @@ _BLOCK_BOOK_SEARCH_PATTERNS = [
 ]
 
 _MEMORY_UPDATE_PATTERNS = [
+    "\u8bb0\u4f4f",
+    "\u8bb0\u4e00\u4e0b",
+    "\u5e2e\u6211\u8bb0",
+    "\u4f60\u8bb0\u4e0b",
+    "\u6211\u53eb(?!\u4ec0\u4e48)",
+    r"^\s*\u6211\u662f(?!\u8c01|\u4ec0\u4e48|\u5565)(?!\u4e00\u4e2a|\u4e00\u540d)[\w\u4e00-\u9fff\u00b7\.\-]{1,32}\s*(?:[.!?\u3002\uff01\uff1f])?\s*$",
+    "\u53eb\u6211",
+    "\u6211\u662f.*(?:\u4f60\u8bb0\u4f4f|\u8bb0\u4f4f|\u8bb0\u4e00\u4e0b)",
+    "\u6211\u7684.*(?:\u4f5c\u606f|\u4e60\u60ef|\u504f\u597d|\u5174\u8da3|\u7231\u597d|\u540d\u5b57|\u6635\u79f0)",
+    "\u6211(?:\u901a\u5e38|\u4e00\u822c|\u7ecf\u5e38|\u6bcf\u5929|\u957f\u671f|\u4e00\u76f4).*(?:\u7761|\u8d77|\u8bfb|\u770b|\u559c\u6b22|\u505a|\u542c|\u8fd0\u52a8|\u5de5\u4f5c)",
+    "\u6211\u4e60\u60ef",
+    "\u6211\u7684\u4f5c\u606f",
+    "\u6211\u6709(?:\u4e00\u53ea)?(?:\u732b\u54aa|\u732b|\u72d7\u72d7|\u72d7)(?:\u53eb|\u540d\u5b57\u53eb)",
     "\u6211\u559c\u6b22",  # I like
     "\u6211\u4e0d\u559c\u6b22",  # I dislike
     "\u4e0d\u7231\u770b",
     "\u559c\u6b22.*\u8fd9\u79cd",
     "\u4e0d\u8981.*\u8fd9\u79cd",
+    "\u4e0d\u611f\u5174\u8da3",
+    "\u6ca1\u5174\u8da3",
     "\u907f\u514d",
     "\u8ba8\u538c",
     "\u6211\u60f3\u770b",
     "\u6211\u770b\u8fc7",
+    "\u770b\u8fc7",
+    "\u8bfb\u8fc7",
+    "\u5df2\u8bfb",
+    "\u8bfb\u5b8c",
     r"\bi\s+(?:like|love|prefer|dislike|hate|avoid)\b",
+    r"\bi\s+(?:usually|generally|often|always|tend to)\b",
     r"\bi\s+(?:want to read|have read|already read)\b",
+    r"\bmy\s+(?:routine|habit|sleep schedule|schedule|hobb(?:y|ies)|interests?|preference)\b",
+    r"\bremember\s+(?:that\s+)?(?:my|i|me)\b",
+    r"\bmy\s+name\s+is\b",
+    r"\bcall\s+me\b",
 ]
 
 _MEMORY_MANAGE_PATTERNS = [
@@ -194,6 +223,27 @@ _MEMORY_MANAGE_PATTERNS = [
     r"\bwhat do you remember\b",
     r"\bforget\b.*\bmemory\b",
     r"\bdelete\b.*\bmemory\b",
+]
+
+_MEMORY_LOOKUP_PATTERNS = [
+    "\u6211\u53eb\u4ec0\u4e48",
+    "\u6211\u7684\u540d\u5b57",
+    "\u4f60\u8bb0\u5f97\u6211\u53eb",
+    "\u4f60\u77e5\u9053\u6211\u53eb",
+    "\u4f60\u77e5\u9053\u6211\u662f\u8c01",
+    "\u4f60\u8bb0\u5f97\u6211\u662f\u8c01",
+    "\u6211\u662f\u8c01",
+    "\u4f60\u8fd8\u8bb0\u5f97\u6211",
+    "\u6211\u7684\u4e60\u60ef",
+    "\u6211\u7684\u4f5c\u606f",
+    "\u6211\u7684(?:\u732b|\u732b\u54aa|\u72d7|\u72d7\u72d7|\u5ba0\u7269)",
+    "(?:\u4f60\u8fd8?\u8bb0\u5f97|\u8fd8?\u8bb0\u5f97)(?:\u5173\u4e8e)?\u6211\u7684",
+    "\u6211\u7684.+(?:\u662f\u4ec0\u4e48|\u53eb\u4ec0\u4e48|\u6709\u54ea\u4e9b|\u653e\u5728\u54ea|\u5728\u54ea)",
+    "\u6211\u4e4b\u524d\u8ba9\u4f60\u8bb0\u4f4f",
+    r"\bwhat(?:'s| is)\s+my\s+name\b",
+    r"\bwho\s+am\s+i\b",
+    r"\bdo\s+you\s+remember\s+my\s+name\b",
+    r"\bdo\s+you\s+remember\s+me\b",
 ]
 
 _RECOMMENDATION_SIGNAL_PATTERNS = [
@@ -217,6 +267,27 @@ _RECOMMENDATION_SIGNAL_PATTERNS = [
     r"\bread\s+it\b",
 ]
 
+_RECOMMENDATION_HISTORY_PATTERNS = [
+    "\u9605\u8bfb\u5386\u53f2",
+    "\u5df2\u8bfb(?:\u4e66|\u4e66\u5355|\u5217\u8868|\u8bb0\u5f55)",
+    "(?:\u8bfb\u8fc7|\u770b\u8fc7).*(?:\u54ea\u4e9b|\u4ec0\u4e48|\u8bb0\u5f55|\u5386\u53f2|\u4e66)",
+    "\u62d2\u7edd\u8bb0\u5f55",
+    "(?:\u4e0d\u611f\u5174\u8da3|\u6ca1\u5174\u8da3).*(?:\u8bb0\u5f55|\u54ea\u4e9b|\u4e66)",
+    "(?:\u4e3a\u4ec0\u4e48|\u4e3a\u5565).*(?:\u6ca1|\u4e0d).*\u63a8\u8350",
+    "(?:\u8fc7\u6ee4|\u6291\u5236).*(?:\u8bb0\u5f55|\u4e66|\u5019\u9009)",
+    r"\breading\s+history\b",
+    r"\bwhat\s+books?\s+have\s+i\s+(?:already\s+)?read\b",
+    r"\bwhich\s+books?\s+have\s+i\s+(?:already\s+)?read\b",
+    r"\bbooks?\s+i\s+(?:already\s+)?(?:read|finished)\b",
+    r"\b(?:already\s+read|finished)\s+books?\b",
+    r"\brejected\s+books?\b",
+    r"\bnot\s+interested\s+(?:records?|books?)\b",
+    r"\bsuppressed\s+(?:records?|books?|candidates?)\b",
+    r"\bfiltered\s+out\s+books?\b",
+    r"\bwhy\s+(?:did(?:n't| not)|weren't|wasn't).*\brecommend\b",
+    r"\bwhy\b(?=[^?!.]*\brecommend(?:ed)?\b)(?=[^?!.]*(?:\bnot\b|\bnever\b|didn't|did not|wasn't|weren't))",
+]
+
 _RESEARCH_PATTERNS = [
     "deep search",
     "deep research",
@@ -231,6 +302,73 @@ _RESEARCH_REPORT_PATTERNS = [
     "\u8c03\u7814\u62a5\u544a",
     "\u6c47\u603b\u62a5\u544a",
     r"\bresearch report\b",
+]
+
+_WEB_SEARCH_PATTERNS = [
+    "\u5730\u5740",
+    "\u5177\u4f53\u5730\u5740",
+    "\u8be6\u7ec6\u5730\u5740",
+    "\u4f4d\u7f6e",
+    "\u5730\u70b9",
+    "\u54ea\u91cc",
+    "\u5728\u54ea",
+    "\u4f4d\u4e8e",
+    "\u5b98\u7f51",
+    "\u5b98\u65b9\u7f51\u7ad9",
+    "\u8054\u7cfb\u7535\u8bdd",
+    "\u8054\u7cfb\u65b9\u5f0f",
+    "\u8425\u4e1a\u65f6\u95f4",
+    "\u5929\u6c14",
+    "\u6c14\u6e29",
+    "\u964d\u96e8",
+    "\u4e0b\u96e8",
+    "\u65b0\u95fb",
+    "\u70ed\u641c",
+    "\u6700\u65b0",
+    "\u5f53\u524d",
+    "\u73b0\u5728",
+    "\u76ee\u524d",
+    "\u6700\u8fd1",
+    "\u8fd1\u51e0\u5e74",
+    "\u622a\u81f3",
+    "\u4e3b\u6d41",
+    "\u73b0\u72b6",
+    "\u8d8b\u52bf",
+    "\u6700\u65b0\u7248\u672c",
+    "\u653f\u7b56",
+    "\u6cd5\u89c4",
+    "\u6cd5\u5f8b",
+    "\u6392\u540d",
+    "\u5e02\u5360\u7387",
+    "\u4eca\u5929.*(?:\u600e\u4e48\u6837|\u5982\u4f55)",
+    "\u80a1\u4ef7",
+    "\u80a1\u7968",
+    "\u6c47\u7387",
+    "\u8def\u51b5",
+    r"(?:\u603b\u7edf|\u603b\u7406|\u4e3b\u5e2d|\u5e02\u957f|\u90e8\u957f|\u8d1f\u8d23\u4eba|\u8463\u4e8b\u957f|\u9996\u5e2d\u6267\u884c\u5b98|CEO)(?:\u662f\u8c01|\u53eb\u4ec0\u4e48)",
+    r"(?:\u8c01\u662f|\u73b0\u4efb|\u76ee\u524d\u7684).*(?:\u603b\u7edf|\u603b\u7406|\u4e3b\u5e2d|\u5e02\u957f|\u90e8\u957f|\u8d1f\u8d23\u4eba|\u8463\u4e8b\u957f|\u9996\u5e2d\u6267\u884c\u5b98|CEO)",
+    r"\baddress\b",
+    r"\blocation\b",
+    r"\bwhere\s+is\b",
+    r"\bofficial\s+website\b",
+    r"\bcontact\b",
+    r"\bphone\s+number\b",
+    r"\bopening\s+hours?\b",
+    r"\bweather\b",
+    r"\bforecast\b",
+    r"\bnews\b",
+    r"\blatest\b",
+    r"\bcurrent\b",
+    r"\brecent\b",
+    r"\bmainstream\b",
+    r"\btrend(?:s)?\b",
+    r"\bpolicy\b",
+    r"\blaw\b",
+    r"\bregulation(?:s)?\b",
+    r"\bversion\b",
+    r"\bstock\b",
+    r"\bexchange\s+rate\b",
+    r"\bwho\s+is\s+(?:the\s+)?(?:president|prime\s+minister|chair(?:man|person)?|mayor|minister|ceo)\b",
 ]
 
 _EXPLICIT_BOOK_SEARCH_RE = re.compile(
@@ -249,8 +387,16 @@ _MEMORY_MANAGE_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in _MEMORY_MANAGE_PATTERNS),
     re.IGNORECASE,
 )
+_MEMORY_LOOKUP_RE = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in _MEMORY_LOOKUP_PATTERNS),
+    re.IGNORECASE,
+)
 _RECOMMENDATION_SIGNAL_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in _RECOMMENDATION_SIGNAL_PATTERNS),
+    re.IGNORECASE,
+)
+_RECOMMENDATION_HISTORY_RE = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in _RECOMMENDATION_HISTORY_PATTERNS),
     re.IGNORECASE,
 )
 _RESEARCH_RE = re.compile(
@@ -259,6 +405,10 @@ _RESEARCH_RE = re.compile(
 )
 _RESEARCH_REPORT_RE = re.compile(
     "|".join(f"(?:{pattern})" for pattern in _RESEARCH_REPORT_PATTERNS),
+    re.IGNORECASE,
+)
+_WEB_SEARCH_RE = re.compile(
+    "|".join(f"(?:{pattern})" for pattern in _WEB_SEARCH_PATTERNS),
     re.IGNORECASE,
 )
 
@@ -282,9 +432,14 @@ def classify_turn_intent(user_message: str) -> TurnIntent:
     explicit_book_search = bool(_EXPLICIT_BOOK_SEARCH_RE.search(normalized))
     memory_update = bool(_MEMORY_UPDATE_RE.search(normalized))
     memory_manage = bool(_MEMORY_MANAGE_RE.search(normalized))
+    memory_lookup = bool(_MEMORY_LOOKUP_RE.search(normalized))
     recommendation_signal = bool(_RECOMMENDATION_SIGNAL_RE.search(normalized))
+    recommendation_history = bool(_RECOMMENDATION_HISTORY_RE.search(normalized))
+    if recommendation_history:
+        memory_lookup = False
     deep_research = bool(_RESEARCH_RE.search(normalized))
     research_report = bool(_RESEARCH_REPORT_RE.search(normalized))
+    web_search_recommended = bool(_WEB_SEARCH_RE.search(normalized))
 
     if blocked_book_search:
         signals.append("book_search_blocked_by_user_wording")
@@ -297,14 +452,21 @@ def classify_turn_intent(user_message: str) -> TurnIntent:
     if memory_manage:
         intents.append("manage_memory")
         signals.append("memory_management_request")
+    if memory_lookup:
+        signals.append("profile_memory_lookup_request")
     if recommendation_signal:
         signals.append("recommendation_behavior_signal")
+    if recommendation_history:
+        intents.append("recommendation_history")
+        signals.append("explicit_recommendation_history_or_suppression_explanation")
     if deep_research:
         intents.append("deep_search")
         signals.append("explicit_deep_search_or_research")
     if research_report:
         intents.append("research_report")
         signals.append("explicit_research_report")
+    if web_search_recommended and not explicit_book_search and not deep_research:
+        signals.append("time_sensitive_or_current_web_fact")
 
     if not intents:
         intents.append("answer_question")
@@ -319,6 +481,7 @@ def classify_turn_intent(user_message: str) -> TurnIntent:
                 "deep_search",
                 "research_report",
                 "manage_memory",
+                "recommendation_history",
                 "recommend_books",
                 "update_memory",
                 "answer_question",
@@ -338,6 +501,12 @@ def classify_turn_intent(user_message: str) -> TurnIntent:
             "blocked_book_search": blocked_book_search,
             "explicit_book_search": explicit_book_search and not blocked_book_search,
             "recommendation_signal": recommendation_signal,
+            "recommendation_history": recommendation_history,
+            "memory_lookup": memory_lookup,
+            "web_search": True,
+            "web_search_recommended": (
+                web_search_recommended and not explicit_book_search and not deep_research
+            ),
         },
     )
 
@@ -348,7 +517,12 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
     intent_names = set(intent.intents)
     blocked_book_search = bool(intent.metadata.get("blocked_book_search"))
 
-    can_search_books = "recommend_books" in intent_names and not blocked_book_search
+    can_view_recommendation_history = "recommendation_history" in intent_names
+    can_search_books = (
+        "recommend_books" in intent_names
+        and not blocked_book_search
+        and not can_view_recommendation_history
+    )
     can_recommend_books = can_search_books
     can_record_recommendation_signal = bool(
         intent.metadata.get("recommendation_signal")
@@ -357,25 +531,40 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
     )
     can_start_research = "deep_search" in intent_names or "research_report" in intent_names
     can_use_research_tools = can_start_research
+    can_use_web_search = True
     can_write_memory = "update_memory" in intent_names
     can_manage_memory = "manage_memory" in intent_names
-    can_search_memory = (
-        can_write_memory
-        or can_recommend_books
-        or can_manage_memory
-        or can_start_research
-    )
+    can_lookup_memory = bool(intent.metadata.get("memory_lookup"))
+    # Memory recall is a generally available, read-only capability. This flag is
+    # permission, not an instruction to execute it; ActionPlanner still decides
+    # whether the current turn needs a search_memory action.
+    can_search_memory = True
 
-    allowed_tools = ["get_current_time"]
+    allowed_tools = ["get_current_time", "plan_book_assistant_turn"]
     denied_tools: list[str] = []
+    allowed_tools.append("web_search")
     if can_search_memory:
         allowed_tools.append("search_memory")
     else:
         denied_tools.append("search_memory")
     if can_write_memory:
-        allowed_tools.extend(["remember_memory", "revise_memory"])
+        allowed_tools.extend(
+            [
+                "remember_memory",
+                "revise_memory",
+                "remember_reading_preference",
+                "record_book_feedback",
+            ]
+        )
     else:
-        denied_tools.extend(["remember_memory", "revise_memory"])
+        denied_tools.extend(
+            [
+                "remember_memory",
+                "revise_memory",
+                "remember_reading_preference",
+                "record_book_feedback",
+            ]
+        )
     if can_manage_memory:
         if "search_memory" not in allowed_tools:
             allowed_tools.append("search_memory")
@@ -388,6 +577,11 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
     else:
         denied_tools.append("search_books")
 
+    if can_view_recommendation_history:
+        allowed_tools.append("get_recommendation_history")
+    else:
+        denied_tools.append("get_recommendation_history")
+
     if can_record_recommendation_signal:
         allowed_tools.append("record_recommendation_signal")
     else:
@@ -398,11 +592,24 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
             [
                 "start_research",
                 "inspect_research_state",
+                "search_research_sources",
+                "search_research_scholar_sources",
                 "search_research",
                 "visit_source",
                 "add_evidence",
                 "update_research_state",
                 "finish_research",
+                "plan_recommendation_research_workflow",
+                "run_recommendation_research_workflow",
+                "build_recommendation_research_report",
+                "build_research_observations",
+                "analyze_research_data",
+                "extract_research_source_records",
+                "collect_research_sources",
+                "fetch_research_source",
+                "build_research_report",
+                "finalize_research_answer",
+                "run_research_harness",
             ]
         )
     else:
@@ -410,17 +617,34 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
             [
                 "start_research",
                 "inspect_research_state",
+                "search_research_sources",
+                "search_research_scholar_sources",
                 "search_research",
                 "visit_source",
                 "add_evidence",
                 "update_research_state",
                 "finish_research",
+                "plan_recommendation_research_workflow",
+                "run_recommendation_research_workflow",
+                "build_recommendation_research_report",
+                "build_research_observations",
+                "analyze_research_data",
+                "extract_research_source_records",
+                "collect_research_sources",
+                "fetch_research_source",
+                "build_research_report",
+                "finalize_research_answer",
+                "run_research_harness",
             ]
         )
 
     response_boundary = (
-        "Answer only the user's stated question. Do not recommend books unless "
-        "the user explicitly asks in a later turn."
+        "Answer the user's stated question. Use web_search when live, current, "
+        "external web, address, location, contact, official-site, opening-hour, "
+        "price, or lookup-style facts are useful. For non-English lookup turns, "
+        "rewrite the web_search query to concise English while preserving "
+        "intent. Do not recommend books unless the user explicitly asks in a "
+        "later turn."
     )
     if can_recommend_books:
         response_boundary = (
@@ -432,8 +656,18 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
             "Use structured research state. Evidence and observations must not "
             "enter final answers unless admitted by the verifier."
         )
+    elif can_view_recommendation_history:
+        response_boundary = (
+            "Answer only with recommendation history or suppression explanation. "
+            "Do not treat suppressed records as fresh recommendation candidates."
+        )
     elif "manage_memory" in intent_names:
         response_boundary = "Answer or act only on current-memory management."
+    elif can_lookup_memory:
+        response_boundary = (
+            "Answer from active long-term memory. If the requested profile fact "
+            "is absent, say it is not recorded yet."
+        )
 
     return TurnPolicy(
         intent=intent,
@@ -443,9 +677,11 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
         can_search_memory=can_search_memory,
         can_search_books=can_search_books,
         can_recommend_books=can_recommend_books,
+        can_view_recommendation_history=can_view_recommendation_history,
         can_record_recommendation_signal=can_record_recommendation_signal,
         can_start_research=can_start_research,
         can_use_research_tools=can_use_research_tools,
+        can_use_web_search=can_use_web_search,
         max_book_search_calls=1 if can_search_books else 0,
         requires_verifier=can_start_research,
         allowed_tools=allowed_tools,
@@ -476,8 +712,10 @@ def build_book_turn_policy_prompt(user_message: str) -> str:
         f"can_search_memory: {'yes' if policy.can_search_memory else 'no'}",
         f"can_search_books: {'yes' if policy.can_search_books else 'no'}",
         f"can_recommend_books: {'yes' if policy.can_recommend_books else 'no'}",
+        f"can_view_recommendation_history: {'yes' if policy.can_view_recommendation_history else 'no'}",
         f"can_record_recommendation_signal: {'yes' if policy.can_record_recommendation_signal else 'no'}",
         f"can_start_research: {'yes' if policy.can_start_research else 'no'}",
+        f"can_use_web_search: {'yes' if policy.can_use_web_search else 'no'}",
         f"max_book_search_calls: {policy.max_book_search_calls}",
         f"requires_verifier: {'yes' if policy.requires_verifier else 'no'}",
         f"allowed_tools: {', '.join(policy.allowed_tools) if policy.allowed_tools else 'none'}",

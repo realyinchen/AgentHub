@@ -15,6 +15,8 @@ from app.services.memory.contracts import (
     MEMORY_SOURCES,
     MEMORY_SUBJECTS,
     MEMORY_TYPES,
+    USER_STATE_CATEGORIES,
+    USER_STATE_STATUSES,
     normalize_memory_value,
     validate_memory_token,
     validate_optional_memory_token,
@@ -32,6 +34,26 @@ class MemoryContractResponse(BaseModel):
     conflict_types: list[str]
     conflict_severities: list[str]
     conflict_decisions: list[str]
+    user_state_categories: list[str]
+    user_state_statuses: list[str]
+
+
+class UserStateConfirmRequest(BaseModel):
+    user_id: UUID
+    accept: bool = True
+    category: str | None = None
+    state_key: str | None = None
+    summary: str | None = None
+    state_value: dict[str, Any] | None = None
+    relation: dict[str, Any] | None = None
+    use_when: list[str] | None = None
+
+    @field_validator("category", mode="before")
+    @classmethod
+    def validate_category(cls, value: Any) -> str | None:
+        if value is None or not str(value).strip():
+            return None
+        return validate_memory_token("category", value, USER_STATE_CATEGORIES)
 
 
 class MemoryRememberRequest(BaseModel):

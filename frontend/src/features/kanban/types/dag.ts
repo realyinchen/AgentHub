@@ -27,6 +27,9 @@ export interface MessageStepRaw {
   tool_call_id?: string | null;
   model_name?: string | null;
   latency_ms?: number | null;
+  system_executed?: boolean;
+  tool_status?: string | null;
+  tool_error?: string | null;
 }
 
 // ============================================================================

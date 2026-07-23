@@ -89,6 +89,23 @@ class MemoryConflictResolver:
                 ),
             )
 
+        profile_key_target = self._find_profile_key_update(candidate, active)
+        if profile_key_target is not None:
+            return self._resolution(
+                "revise_existing",
+                "profile_key_update",
+                candidate,
+                profile_key_target,
+                self._conflict(
+                    "explicit_correction",
+                    candidate,
+                    profile_key_target,
+                    "medium",
+                    "revise_existing",
+                    "same user profile key should keep one current value",
+                ),
+            )
+
         state_progression = self._find_state_progression(candidate, active)
         if state_progression is not None:
             return self._resolution(
@@ -195,6 +212,24 @@ class MemoryConflictResolver:
                 and memory.subject == candidate.subject
                 and _same_value(memory.value, candidate.value)
                 and memory.polarity == candidate.polarity
+            ):
+                return memory
+        return None
+
+    def _find_profile_key_update(
+        self,
+        candidate: MemoryCandidate,
+        memories: list[MemoryEvent],
+    ) -> MemoryEvent | None:
+        key = _profile_key(candidate)
+        if not key:
+            return None
+        for memory in memories:
+            if (
+                memory.type == candidate.type
+                and memory.subject == candidate.subject
+                and _profile_key(memory) == key
+                and not _same_value(memory.value, candidate.value)
             ):
                 return memory
         return None
@@ -393,6 +428,19 @@ class MemoryConflictResolver:
 
 def _same_value(left: str, right: str) -> bool:
     return _canonical(left) == _canonical(right)
+
+
+def _profile_key(memory: MemoryCandidate | MemoryEvent) -> str:
+    metadata = memory.metadata or {}
+    key = str(metadata.get("profile_key") or "").strip().lower()
+    if key:
+        return key
+    value = normalize_memory_value(memory.value).lower()
+    if value.startswith("name:"):
+        return "name"
+    if value.startswith("sleep routine:"):
+        return "sleep_routine"
+    return ""
 
 
 def _canonical(value: str) -> str:

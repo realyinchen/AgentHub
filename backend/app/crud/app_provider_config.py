@@ -55,3 +55,14 @@ async def update_app_provider_config(
     await db.flush()
     await db.refresh(record)
     return record
+
+
+async def create_app_provider_config(
+    db: AsyncSession,
+    data: dict,
+) -> AppProviderConfigRecord:
+    record = AppProviderConfigRecord(**data)
+    db.add(record)
+    await db.flush()
+    await db.refresh(record)
+    return record

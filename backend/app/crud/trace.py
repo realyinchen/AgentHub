@@ -9,6 +9,7 @@ Persistence Function:
 """
 
 import logging
+from typing import Any
 from uuid import UUID
 
 from langgraph.graph.state import CompiledStateGraph
@@ -169,6 +170,7 @@ async def persist_agent_trace(
     before_checkpoint_id: str | None = None,
     before_message_count: int = 0,
     reasoning_segments: dict[str, str] | None = None,
+    system_tool_steps: list[dict[str, Any]] | None = None,
 ) -> None:
     """Persist token usage and execution DAG after an agent response.
 
@@ -221,6 +223,7 @@ async def persist_agent_trace(
             before_checkpoint_id=before_checkpoint_id,
             before_message_count=before_message_count,
             reasoning_segments=reasoning_segments,
+            system_tool_steps=system_tool_steps,
         )
         await upsert_trace(
             db=db,

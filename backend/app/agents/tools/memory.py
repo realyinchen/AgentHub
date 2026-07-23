@@ -72,7 +72,10 @@ class RememberMemoryInput(BaseModel):
     user_id: UUID = Field(description="Current user ID from system context.")
     type: str = Field(description="preference, feedback, reading_state, or correction.")
     subject: str = Field(
-        description="user, book, author, tag, theme, style, genre, mood, pacing, or content."
+        description=(
+            "user for profile facts, habits, routines, and identity; or book, "
+            "author, tag, theme, style, genre, mood, pacing, or content."
+        )
     )
     value: str = Field(description="Concise memory value to persist.")
     polarity: str = Field(
@@ -145,7 +148,7 @@ async def search_memory(
     memory_types: list[str] | None = None,
     limit: int = 10,
 ) -> str:
-    """Search the user's active long-term reading memory."""
+    """Search the user's active long-term memory."""
     admission = get_tool_admission_gate().admit_current_turn(SEARCH_MEMORY_TOOL_POLICY)
     if not admission.allowed:
         return _tool_blocked_payload(
@@ -187,7 +190,7 @@ async def remember_memory(
     source_kind: str = "user_message",
     metadata: dict[str, Any] | None = None,
 ) -> str:
-    """Persist a new user memory event."""
+    """Persist a new user profile, preference, book feedback, or reading memory event."""
     tool_admission = get_tool_admission_gate().admit_current_turn(
         REMEMBER_MEMORY_TOOL_POLICY
     )

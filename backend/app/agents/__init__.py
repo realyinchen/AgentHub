@@ -1,29 +1,14 @@
-"""Agent layer — single Agent directly using tools.
+"""Receipt-consuming language layer.
 
-Architecture (simplified):
-    User → Agent (checkpointer + dynamic prompt + dynamic model)
-                │
-                ├── get_current_time  (@tool: time queries)
-                └── web_search        (@tool: web search)
+Runtime flow:
+    ActionPlanner -> SystemRuntime -> PlanReceipt -> Supervisor
 
-No subagent delegation — tools are injected directly into the agent.
-This eliminates unnecessary LLM calls for routing decisions.
-
-Startup flow:
-    1. `await init_agent(checkpointer, store)` — called once in lifespan.
-    2. `get_agent()` — zero-overhead singleton access at request time.
+The supervisor is initialized once for conversation state and answer
+generation. It does not receive direct tools; capability execution is owned by
+SystemRuntime.
 """
 
-from app.agents.supervisor import (
-    init_agent,
-    get_agent,
-    is_ready,
-)
 from app.agents.context import AgentRuntimeContext
+from app.agents.supervisor import get_agent, init_agent, is_ready
 
-__all__ = [
-    "init_agent",
-    "get_agent",
-    "is_ready",
-    "AgentRuntimeContext",
-]
+__all__ = ["init_agent", "get_agent", "is_ready", "AgentRuntimeContext"]

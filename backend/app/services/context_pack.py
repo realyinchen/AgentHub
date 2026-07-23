@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+import json
 from datetime import datetime, timezone
 from typing import Any, Sequence
 from uuid import UUID
@@ -9,8 +10,8 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.book_intent import TurnPolicy, build_turn_policy
-from app.services.memory import MemoryEvent, get_memory_orchestrator
-from app.services.research import get_research_orchestrator
+from app.services.agent_runtime.contracts import PlanReceipt
+from app.services.memory import MemoryEvent
 
 
 CONTEXT_PACK_VERSION = "context-pack-v1"
@@ -61,6 +62,7 @@ class ThreadContextPack(BaseModel):
     research_state_slice: ResearchStateSlice | None = None
     search_budget: dict[str, Any] = Field(default_factory=dict)
     denied_memory_ids: list[UUID] = Field(default_factory=list)
+    runtime_receipt: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -81,7 +83,12 @@ class CompressionSnapshot(BaseModel):
 
 
 class ContextBuilder:
-    """Build the app-owned context pack for one supervisor model call."""
+    """Purely project a bounded prompt pack from an executed plan receipt.
+
+    This builder performs no memory, research, provider, or database reads.
+    Every external fact in the pack must have arrived through SystemRuntime and
+    therefore has a visible ActionReceipt.
+    """
 
     def __init__(self, *, memory_limit: int = 12, recent_message_limit: int = 6) -> None:
         self.memory_limit = memory_limit
@@ -96,35 +103,22 @@ class ContextBuilder:
         messages: Sequence[BaseMessage] | None = None,
         turn_policy: TurnPolicy | None = None,
         thread_summary: str = "",
+        plan_receipt: PlanReceipt | dict[str, Any] | None = None,
     ) -> ThreadContextPack:
         policy = turn_policy or build_turn_policy(user_message)
-        metadata: dict[str, Any] = {"contract_version": CONTEXT_PACK_VERSION}
-        current_memories: list[MemoryEvent] = []
-        denied_memories: list[MemoryEvent] = []
-
-        if user_id is not None:
-            try:
-                memory = get_memory_orchestrator()
-                current = await memory.list_current_memories(
-                    user_id=user_id,
-                    limit=self.memory_limit,
-                )
-                current_memories = current.memories
-                history = await memory.list_memory_events(
-                    user_id=user_id,
-                    include_forgotten=True,
-                    include_superseded=True,
-                    include_audit=False,
-                    limit=100,
-                )
-                denied_memories = [
-                    event
-                    for event in history.events
-                    if event.id is not None
-                    and (event.forgotten or event.superseded_by is not None)
-                ]
-            except Exception as exc:
-                metadata["memory_context_error"] = str(exc)
+        receipt_payload = _receipt_payload(plan_receipt)
+        metadata: dict[str, Any] = {
+            "contract_version": CONTEXT_PACK_VERSION,
+            "source": "plan_receipt_projection",
+            "hidden_memory_reads": False,
+            "hidden_research_reads": False,
+            "plan_id": receipt_payload.get("plan_id"),
+        }
+        current_memories = _memory_events_from_receipt(
+            receipt_payload,
+            limit=self.memory_limit,
+        )
+        denied_memories = _denied_memories_from_receipt(receipt_payload)
 
         denied_memory_ids = [event.id for event in denied_memories if event.id]
         sanitized_summary, redacted_ids = _sanitize_thread_summary(
@@ -134,13 +128,7 @@ class ContextBuilder:
         if redacted_ids:
             metadata["redacted_summary_memory_ids"] = [str(item) for item in redacted_ids]
 
-        research_slice = None
-        if user_id is not None and thread_id is not None and policy.can_use_research_tools:
-            research_slice = await self._build_research_state_slice(
-                user_id=user_id,
-                thread_id=thread_id,
-                metadata=metadata,
-            )
+        research_slice = _research_state_from_receipt(receipt_payload)
 
         return ThreadContextPack(
             turn_policy=policy,
@@ -154,55 +142,9 @@ class ContextBuilder:
                 "research_uses_separate_budget": policy.can_use_research_tools,
             },
             denied_memory_ids=denied_memory_ids,
+            runtime_receipt=receipt_payload,
             metadata=metadata,
         )
-
-    async def _build_research_state_slice(
-        self,
-        *,
-        user_id: UUID,
-        thread_id: UUID,
-        metadata: dict[str, Any],
-    ) -> ResearchStateSlice | None:
-        try:
-            research = get_research_orchestrator()
-            runs = await research.list_research_runs(
-                user_id=user_id,
-                status="active",
-                limit=10,
-            )
-            run = next((item for item in runs.runs if item.thread_id == thread_id), None)
-            if run is None or run.id is None:
-                return None
-            state = await research.inspect_research_state(
-                user_id=user_id,
-                run_id=run.id,
-                limit_steps=5,
-                limit_evidence=0,
-            )
-            return ResearchStateSlice(
-                run_id=state.run.id,
-                objective=state.run.objective,
-                status=state.run.status,
-                mode=state.run.mode,
-                subquestions=state.state.subquestions[:8],
-                known_facts=state.state.known_facts[:8],
-                gaps=state.state.gaps[:8],
-                conflicts=state.state.conflicts[:8],
-                exhausted_queries=state.state.exhausted_queries[:8],
-                next_actions=state.state.next_actions[:8],
-                evidence_ids=state.state.evidence_ids[:20],
-                budget=state.state.budget,
-                stop_criteria=state.state.stop_criteria[:8],
-                metadata={
-                    "source": "research_state_snapshot",
-                    "steps_included": len(state.steps),
-                    "evidence_content_included": False,
-                },
-            )
-        except Exception as exc:
-            metadata["research_context_error"] = str(exc)
-            return None
 
 
 def render_context_pack_prompt(pack: ThreadContextPack) -> str:
@@ -220,9 +162,11 @@ def render_context_pack_prompt(pack: ThreadContextPack) -> str:
         f"can_search_memory: {'yes' if policy.can_search_memory else 'no'}",
         f"can_search_books: {'yes' if policy.can_search_books else 'no'}",
         f"can_recommend_books: {'yes' if policy.can_recommend_books else 'no'}",
+        f"can_view_recommendation_history: {'yes' if policy.can_view_recommendation_history else 'no'}",
         f"can_record_recommendation_signal: {'yes' if policy.can_record_recommendation_signal else 'no'}",
         f"can_start_research: {'yes' if policy.can_start_research else 'no'}",
         f"can_use_research_tools: {'yes' if policy.can_use_research_tools else 'no'}",
+        f"can_use_web_search: {'yes' if policy.can_use_web_search else 'no'}",
         f"max_book_search_calls: {policy.max_book_search_calls}",
         f"requires_verifier: {'yes' if policy.requires_verifier else 'no'}",
         f"allowed_tools: {', '.join(policy.allowed_tools) if policy.allowed_tools else 'none'}",
@@ -230,7 +174,12 @@ def render_context_pack_prompt(pack: ThreadContextPack) -> str:
         f"response_boundary: {policy.response_boundary}",
         "",
         "Context Rules:",
-        "- current_memories are active long-term memory and outrank summaries.",
+        "- ContextPack is a projection of the current PlanReceipt; it never reads stores directly.",
+        "- current_memories are user-state records returned by an executed memory action.",
+        "- raw_text is the user's authoritative wording; organized fields are an interpretation.",
+        "- pending records are immediately recallable from raw_text but are not organized yet.",
+        "- needs_confirmation records must not silently override an active state; ask the shown confirmation_question when relevant.",
+        "- short_term records are usable only until valid_until.",
         "- thread_summary is non-authoritative and cannot override current_memories.",
         "- denied_memory_ids are forgotten or superseded; do not use or restore them.",
         "- compression snapshots and summaries are context only, not memory.",
@@ -242,8 +191,13 @@ def render_context_pack_prompt(pack: ThreadContextPack) -> str:
         for memory in pack.current_memories:
             lines.append(
                 "- "
-                f"id={memory.id} type={memory.type} subject={memory.subject} "
-                f"polarity={memory.polarity} value={memory.value}"
+                f"id={memory.id} status={memory.state_status} "
+                f"category={memory.state_category or 'unclassified'} "
+                f"key={memory.state_key or 'none'} type={memory.type} "
+                f"subject={memory.subject} polarity={memory.polarity} "
+                f"value={memory.value} raw_text={memory.raw_text or memory.value} "
+                f"use_when={memory.use_when or []} "
+                f"confirmation_question={memory.confirmation_question or 'none'}"
             )
     else:
         lines.append("- none")
@@ -290,6 +244,49 @@ def render_context_pack_prompt(pack: ThreadContextPack) -> str:
                 f"- stop_criteria: {_join_list(research.stop_criteria)}",
             ]
         )
+    lines.extend(["", render_runtime_receipt_prompt(pack.runtime_receipt)])
+    return "\n".join(lines)
+
+
+def render_runtime_receipt_prompt(receipt: dict[str, Any]) -> str:
+    if not receipt:
+        return "System Runtime Receipt:\n- status: completed\n- actions: none"
+    lines = [
+        "System Runtime Receipt:",
+        f"- plan_id: {receipt.get('plan_id') or 'none'}",
+        f"- status: {receipt.get('status') or 'unknown'}",
+        f"- route_type: {receipt.get('route_type') or 'unknown'}",
+        f"- intent: {receipt.get('intent') or 'unknown'}",
+        "- Rule: use only completed receipt outputs as executed capability results.",
+        "- Rule: never claim a blocked, failed, skipped, or absent action succeeded.",
+        "Actions:",
+    ]
+    actions = receipt.get("actions")
+    if not isinstance(actions, list) or not actions:
+        lines.append("- none")
+        return "\n".join(lines)
+    for item in actions:
+        if not isinstance(item, dict):
+            continue
+        lines.extend(
+            [
+                f"- operation: {item.get('operation') or 'unknown'}",
+                f"  action_id: {item.get('action_id') or 'none'}",
+                f"  status: {item.get('status') or 'unknown'}",
+                f"  duration_ms: {item.get('duration_ms') or 0}",
+                "  business_input_json: "
+                + _compact_json(item.get("business_input") or {}, max_length=1200),
+            ]
+        )
+        if item.get("error"):
+            lines.append(
+                "  error: " + _compact_text(item.get("error"), max_length=1000)
+            )
+        if item.get("output") is not None:
+            lines.append(
+                "  output_json: "
+                + _compact_json(item.get("output"), max_length=6000)
+            )
     return "\n".join(lines)
 
 
@@ -340,6 +337,8 @@ def _current_turn_constraints(policy: TurnPolicy, user_message: str) -> list[str
         constraints.append("memory_write_allowed_by_turn_policy")
     if policy.can_recommend_books:
         constraints.append("recommendation_allowed_by_turn_policy")
+    if policy.can_view_recommendation_history:
+        constraints.append("recommendation_history_allowed_by_turn_policy")
     if policy.can_record_recommendation_signal:
         constraints.append("recommendation_signal_allowed_by_turn_policy")
     if policy.can_use_research_tools:
@@ -374,6 +373,128 @@ def _compact_text(value: Any, *, max_length: int) -> str:
     if len(text) <= max_length:
         return text
     return text[: max(0, max_length - 3)].rstrip() + "..."
+
+
+def _compact_json(value: Any, *, max_length: int) -> str:
+    try:
+        text = json.dumps(value, ensure_ascii=False, default=str)
+    except TypeError:
+        text = str(value)
+    return _compact_text(text, max_length=max_length)
+
+
+def _receipt_payload(
+    receipt: PlanReceipt | dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(receipt, PlanReceipt):
+        return receipt.model_dump(mode="json")
+    if isinstance(receipt, dict):
+        return dict(receipt)
+    return {}
+
+
+def _memory_events_from_receipt(
+    receipt: dict[str, Any],
+    *,
+    limit: int,
+) -> list[MemoryEvent]:
+    result: list[MemoryEvent] = []
+    seen: set[UUID] = set()
+    actions = receipt.get("actions")
+    for action in actions if isinstance(actions, list) else []:
+        if not isinstance(action, dict):
+            continue
+        if action.get("status") != "completed":
+            continue
+        output = action.get("output")
+        if not isinstance(output, dict):
+            continue
+        candidates: list[Any] = []
+        memories = output.get("memories")
+        if isinstance(memories, list):
+            for item in memories:
+                if isinstance(item, dict) and isinstance(item.get("memory"), dict):
+                    candidates.append(item["memory"])
+                else:
+                    candidates.append(item)
+        if isinstance(output.get("memory"), dict):
+            candidates.append(output["memory"])
+        for candidate in candidates:
+            if not isinstance(candidate, dict):
+                continue
+            try:
+                event = MemoryEvent.model_validate(candidate)
+            except Exception:
+                continue
+            if event.id is not None and event.id in seen:
+                continue
+            if event.id is not None:
+                seen.add(event.id)
+            result.append(event)
+            if len(result) >= max(0, limit):
+                return result
+    return result
+
+
+def _denied_memories_from_receipt(receipt: dict[str, Any]) -> list[MemoryEvent]:
+    denied: list[MemoryEvent] = []
+    actions = receipt.get("actions")
+    for action in actions if isinstance(actions, list) else []:
+        if not isinstance(action, dict):
+            continue
+        output = action.get("output")
+        if not isinstance(output, dict):
+            continue
+        candidates = output.get("denied_memories")
+        for item in candidates if isinstance(candidates, list) else []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                denied.append(MemoryEvent.model_validate(item))
+            except Exception:
+                continue
+    return denied
+
+
+def _research_state_from_receipt(
+    receipt: dict[str, Any],
+) -> ResearchStateSlice | None:
+    actions = receipt.get("actions")
+    for action in reversed(actions if isinstance(actions, list) else []):
+        if not isinstance(action, dict) or action.get("status") != "completed":
+            continue
+        output = action.get("output")
+        if not isinstance(output, dict):
+            continue
+        state_payload = output.get("state")
+        run_payload = output.get("run")
+        if not isinstance(state_payload, dict):
+            nested = output.get("research_state")
+            if isinstance(nested, dict):
+                state_payload = nested.get("state")
+                run_payload = nested.get("run")
+        if not isinstance(state_payload, dict) or not isinstance(run_payload, dict):
+            continue
+        try:
+            return ResearchStateSlice(
+                run_id=run_payload.get("id"),
+                objective=str(run_payload.get("objective") or ""),
+                status=str(run_payload.get("status") or ""),
+                mode=str(run_payload.get("mode") or ""),
+                subquestions=list(state_payload.get("subquestions") or [])[:8],
+                known_facts=list(state_payload.get("known_facts") or [])[:8],
+                gaps=list(state_payload.get("gaps") or [])[:8],
+                conflicts=list(state_payload.get("conflicts") or [])[:8],
+                exhausted_queries=list(state_payload.get("exhausted_queries") or [])[:8],
+                next_actions=list(state_payload.get("next_actions") or [])[:8],
+                evidence_ids=list(state_payload.get("evidence_ids") or [])[:20],
+                budget=dict(state_payload.get("budget") or {}),
+                stop_criteria=list(state_payload.get("stop_criteria") or [])[:8],
+                metadata={"source": "plan_receipt"},
+            )
+        except Exception:
+            continue
+    return None
 
 
 def _join_list(values: list[str]) -> str:

@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import String, cast, func, or_, select
+from sqlalchemy import DateTime, String, cast, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.crud.book import get_or_create_preference_profile
@@ -77,6 +78,21 @@ def _merge_metadata(existing: dict[str, Any] | None, incoming: dict[str, Any]) -
     return merged
 
 
+def _parse_optional_datetime(value: Any) -> datetime | None:
+    if isinstance(value, datetime):
+        return value
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed
+
+
 def _normalize_memory_types(memory_types: list[str] | None) -> list[str]:
     normalized: list[str] = []
     for item in memory_types or []:
@@ -87,7 +103,24 @@ def _normalize_memory_types(memory_types: list[str] | None) -> list[str]:
 
 
 def _query_terms(query: str, max_terms: int = 8) -> list[str]:
-    raw_terms = re.findall(r"[\w\u4e00-\u9fff]+", query.lower())
+    normalized_query = query.lower()
+    for fragment in (
+        "你还记得",
+        "你记得",
+        "关于我的",
+        "我之前的",
+        "我以前的",
+        "我的",
+        "是什么",
+        "叫什么",
+        "有哪些",
+        "怎么样",
+        "在哪里",
+        "放在哪里",
+        "什么",
+    ):
+        normalized_query = normalized_query.replace(fragment, " ")
+    raw_terms = re.findall(r"[\w\u4e00-\u9fff]+", normalized_query)
     terms: list[str] = []
     seen: set[str] = set()
     for term in raw_terms:
@@ -420,11 +453,21 @@ class PostgresMemoryProvider(MemoryProvider):
         return interactions[: max(1, min(limit, 50))]
 
     def _active_events_stmt(self, user_id: UUID):
+        state_status = MemoryEventRecord.metadata_json["user_state"]["status"].astext
+        valid_until = MemoryEventRecord.metadata_json["user_state"]["valid_until"].astext
         return select(MemoryEventRecord).where(
             MemoryEventRecord.user_id == user_id,
             MemoryEventRecord.is_deleted.is_(False),
             MemoryEventRecord.superseded_by.is_(None),
             MemoryEventRecord.type != "forget",
+            or_(
+                state_status.is_(None),
+                state_status.in_(["pending", "active", "needs_confirmation"]),
+            ),
+            or_(
+                valid_until.is_(None),
+                cast(valid_until, DateTime(timezone=True)) > func.now(),
+            ),
         )
 
     async def _find_duplicate(
@@ -664,6 +707,25 @@ class PostgresMemoryProvider(MemoryProvider):
         return MemoryEvent.model_validate(event.model_dump())
 
     def _record_from_event(self, event: MemoryEvent) -> MemoryEventRecord:
+        metadata = dict(event.metadata)
+        if event.raw_text or event.state_category or event.state_key or event.use_when:
+            user_state = dict(metadata.get("user_state") or {})
+            user_state.update(
+                {
+                    "status": event.state_status,
+                    "category": event.state_category,
+                    "state_key": event.state_key,
+                    "raw_text": event.raw_text,
+                    "state_value": event.state_value,
+                    "relation": event.relation,
+                    "use_when": event.use_when,
+                    "valid_until": (
+                        event.valid_until.isoformat() if event.valid_until else None
+                    ),
+                    "confirmation_question": event.confirmation_question,
+                }
+            )
+            metadata["user_state"] = user_state
         return MemoryEventRecord(
             user_id=event.user_id,
             thread_id=event.thread_id,
@@ -673,11 +735,22 @@ class PostgresMemoryProvider(MemoryProvider):
             polarity=event.polarity,
             confidence=event.confidence,
             source=event.source,
-            metadata_json=event.metadata,
+            metadata_json=metadata,
             revision_of=event.revision_of,
         )
 
     def _event_from_record(self, record: MemoryEventRecord) -> MemoryEvent:
+        metadata = record.metadata_json or {}
+        user_state = metadata.get("user_state") or {}
+        valid_until = _parse_optional_datetime(user_state.get("valid_until"))
+        state_status = str(user_state.get("status") or "active")
+        now = datetime.now(timezone.utc)
+        if record.is_deleted:
+            state_status = "forgotten"
+        elif record.superseded_by is not None:
+            state_status = "superseded"
+        elif valid_until is not None and valid_until <= now:
+            state_status = "expired"
         return MemoryEvent(
             id=record.id,
             type=record.type,
@@ -688,7 +761,30 @@ class PostgresMemoryProvider(MemoryProvider):
             user_id=record.user_id,
             thread_id=record.thread_id,
             source=record.source,
-            metadata=record.metadata_json or {},
+            metadata=metadata,
+            state_category=user_state.get("category") or None,
+            state_key=str(user_state.get("state_key") or ""),
+            state_status=state_status,
+            raw_text=str(user_state.get("raw_text") or ""),
+            state_value=(
+                user_state.get("state_value")
+                if isinstance(user_state.get("state_value"), dict)
+                else {}
+            ),
+            relation=(
+                user_state.get("relation")
+                if isinstance(user_state.get("relation"), dict)
+                else {}
+            ),
+            use_when=(
+                user_state.get("use_when")
+                if isinstance(user_state.get("use_when"), list)
+                else []
+            ),
+            valid_until=valid_until,
+            confirmation_question=str(
+                user_state.get("confirmation_question") or ""
+            ),
             revision_of=record.revision_of,
             superseded_by=record.superseded_by,
             forgotten=record.is_deleted,
