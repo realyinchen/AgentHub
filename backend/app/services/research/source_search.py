@@ -1,15 +1,12 @@
 from __future__ import annotations
 
-import logging
 import time
 from html import unescape
-from html.parser import HTMLParser
 from typing import Any
-from urllib.parse import parse_qs, unquote, urlparse
 
-import aiohttp
 from pydantic import BaseModel, Field, field_validator
 
+from app.services.external_search import SearchRequest, get_search_gateway
 from app.services.research.contracts import (
     EVIDENCE_QUALITIES,
     EVIDENCE_SOURCE_TYPES,
@@ -22,9 +19,6 @@ from app.services.research.source_extraction import (
 )
 
 
-logger = logging.getLogger(__name__)
-
-DUCKDUCKGO_HTML_URL = "https://html.duckduckgo.com/html/"
 RESEARCH_SOURCE_SEARCH_CONTRACT_VERSION = "research-source-search-v1"
 
 
@@ -80,63 +74,13 @@ class ResearchSourceSearchResult(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class _DuckDuckGoSearchResultParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.results: list[dict[str, str]] = []
-        self._in_title = False
-        self._in_snippet = False
-        self._title_parts: list[str] = []
-        self._snippet_parts: list[str] = []
-        self._current_url = ""
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attrs_dict = {name: value or "" for name, value in attrs}
-        class_name = attrs_dict.get("class", "")
-        if tag == "a" and "result__a" in class_name:
-            self._in_title = True
-            self._title_parts = []
-            self._current_url = _unwrap_duckduckgo_url(attrs_dict.get("href", ""))
-            return
-        if "result__snippet" in class_name:
-            self._in_snippet = True
-            self._snippet_parts = []
-
-    def handle_data(self, data: str) -> None:
-        if self._in_title:
-            self._title_parts.append(data)
-            return
-        if self._in_snippet:
-            self._snippet_parts.append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if self._in_title and tag == "a":
-            title = _compact_text("".join(self._title_parts))
-            if title and self._current_url:
-                self.results.append(
-                    {
-                        "title": title,
-                        "url": self._current_url,
-                        "snippet": "",
-                    }
-                )
-            self._in_title = False
-            return
-
-        if self._in_snippet and tag in {"a", "div"}:
-            snippet = _compact_text("".join(self._snippet_parts))
-            if snippet and self.results:
-                self.results[-1]["snippet"] = snippet
-            self._in_snippet = False
-
-
 async def search_research_source_documents(
     *,
     query: str,
     subquestion: str = "",
     limit: int = 5,
     provider_query: str = "",
-    provider_source: str = "duckduckgo",
+    provider_source: str = "external_search",
     include_extraction: bool = True,
     metadata: dict[str, Any] | None = None,
 ) -> ResearchSourceSearchResult:
@@ -151,24 +95,15 @@ async def search_research_source_documents(
 
     normalized_query = normalize_text(query)
     normalized_subquestion = normalize_text(subquestion)
-    provider_name = normalize_text(provider_source) or "duckduckgo"
+    del provider_source
     max_results = max(1, min(int(limit or 5), 10))
 
-    if provider_name != "duckduckgo":
-        provider_result = ResearchSourceSearchProviderResult(
-            provider_name=provider_name,
-            provider_query=normalize_text(provider_query) or normalized_query,
-            status="failed",
-            error=f"unsupported_provider:{provider_name}",
-            metadata={"provider_source": provider_name},
-        )
-    else:
-        provider_result = await search_duckduckgo_research_documents(
-            query=normalized_query,
-            subquestion=normalized_subquestion,
-            limit=max_results,
-            provider_query=provider_query,
-        )
+    provider_result = await search_external_research_documents(
+        query=normalized_query,
+        subquestion=normalized_subquestion,
+        limit=max_results,
+        provider_query=provider_query,
+    )
 
     extraction = extract_research_source_records(
         query=normalized_query,
@@ -221,7 +156,7 @@ async def search_research_source_documents(
     )
 
 
-async def search_duckduckgo_research_documents(
+async def search_external_research_documents(
     *,
     query: str,
     subquestion: str = "",
@@ -234,68 +169,70 @@ async def search_duckduckgo_research_documents(
         subquestion,
     )
     started_at = time.perf_counter()
-    timeout = aiohttp.ClientTimeout(total=12)
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
+    result = await get_search_gateway().search(
+        SearchRequest(
+            query=search_query,
+            max_results=max(1, min(limit, 10)),
+            detail="deep",
         )
-    }
-
-    try:
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            async with session.get(
-                DUCKDUCKGO_HTML_URL,
-                params={"q": search_query},
-            ) as response:
-                response.raise_for_status()
-                html = await response.text()
-    except TimeoutError as exc:
-        return _provider_error_result(
-            provider_query=search_query,
-            status="timeout",
-            error=str(exc) or exc.__class__.__name__,
-            started_at=started_at,
-        )
-    except aiohttp.ClientError as exc:
-        logger.warning("DuckDuckGo research source search failed: %s", exc)
-        return _provider_error_result(
-            provider_query=search_query,
-            status="hard_error",
-            error=str(exc) or exc.__class__.__name__,
-            started_at=started_at,
-        )
-    except Exception as exc:
-        logger.warning("DuckDuckGo research source search failed: %s", exc)
-        return _provider_error_result(
-            provider_query=search_query,
-            status="hard_error",
-            error=str(exc) or exc.__class__.__name__,
-            started_at=started_at,
-        )
-
-    parser = _DuckDuckGoSearchResultParser()
-    parser.feed(html)
+    )
     documents = _documents_from_search_results(
-        results=parser.results,
+        results=[
+            {
+                "title": hit.title,
+                "url": hit.url,
+                "snippet": hit.snippet or hit.content,
+            }
+            for hit in result.hits
+        ],
         query=normalized_query,
         provider_query=search_query,
+        provider_name=result.provider or "external_search",
         limit=limit,
     )
-    status = "ok" if documents else _empty_status(html)
+    if documents:
+        status = "ok"
+    elif result.outcome == "empty":
+        status = "empty_result"
+    elif any(item.error_type == "timeout" for item in result.attempts):
+        status = "timeout"
+    else:
+        status = "hard_error"
     return ResearchSourceSearchProviderResult(
-        provider_name="duckduckgo",
+        provider_name=result.provider or "external_search",
         provider_query=search_query,
         status=status,
         documents=documents,
+        error=result.error or None,
         duration_ms=_duration_ms(started_at),
         metadata={
-            "provider_source": "duckduckgo",
+            "provider_source": result.provider or "external_search",
             "provider_raw": {
-                "result_count": len(parser.results),
+                "outcome": result.outcome,
+                "attempts": [
+                    attempt.model_dump(mode="json")
+                    for attempt in result.attempts
+                ],
                 "accepted_document_count": len(documents),
             },
         },
+    )
+
+
+async def search_duckduckgo_research_documents(
+    *,
+    query: str,
+    subquestion: str = "",
+    limit: int = 5,
+    provider_query: str = "",
+) -> ResearchSourceSearchProviderResult:
+    """Compatibility alias; network access is owned by SearchGateway."""
+
+    return await search_external_research_documents(
+        query=query,
+        subquestion=subquestion,
+        limit=limit,
+        provider_query=provider_query,
     )
 
 
@@ -304,6 +241,7 @@ def _documents_from_search_results(
     results: list[dict[str, str]],
     query: str,
     provider_query: str,
+    provider_name: str,
     limit: int,
 ) -> list[ResearchSourceDocument]:
     documents: list[ResearchSourceDocument] = []
@@ -325,7 +263,7 @@ def _documents_from_search_results(
                 quality="unknown",
                 relevance=_relevance_for_search_result(query, title, snippet),
                 metadata={
-                    "provider_source": "duckduckgo",
+                    "provider_source": provider_name,
                     "provider_raw": {
                         "title": title,
                         "url": url,
@@ -388,53 +326,8 @@ def _result_status(provider_status: str, extracted_count: int) -> str:
     return provider_status or "empty_result"
 
 
-def _empty_status(html: str) -> str:
-    if not normalize_text(html):
-        return "hard_error"
-    if "result__a" not in html and "result__snippet" not in html:
-        return "hard_error"
-    return "empty_result"
-
-
-def _provider_error_result(
-    *,
-    provider_query: str,
-    status: str,
-    error: str,
-    started_at: float,
-) -> ResearchSourceSearchProviderResult:
-    return ResearchSourceSearchProviderResult(
-        provider_name="duckduckgo",
-        provider_query=provider_query,
-        status=status,
-        error=error,
-        duration_ms=_duration_ms(started_at),
-        metadata={
-            "provider_source": "duckduckgo",
-            "provider_raw": {
-                "status": status,
-                "error": error,
-            },
-        },
-    )
-
-
 def _compact_text(text: str) -> str:
     return " ".join(unescape(str(text or "")).split()).strip()
-
-
-def _unwrap_duckduckgo_url(url: str) -> str:
-    if not url:
-        return ""
-    if url.startswith("//"):
-        url = f"https:{url}"
-    parsed = urlparse(url)
-    if "duckduckgo.com" in parsed.netloc:
-        target = parse_qs(parsed.query).get("uddg")
-        if target:
-            return unquote(target[0])
-    return url
-
 
 def _source_type(value: Any) -> str:
     token = normalize_research_token(value or "web")

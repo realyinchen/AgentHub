@@ -30,6 +30,16 @@ CLAIM_ADMISSION_REASONS = frozenset(
         "stop_criteria_not_met",
         "budget_exhausted",
         "explicit_uncertainty",
+        "claim_too_short",
+        "claim_too_long",
+        "claim_not_atomic",
+        "keyword_stuffing",
+        "query_irrelevant",
+        "marketplace_source",
+        "insufficient_independent_sources",
+        "missing_recency_evidence",
+        "missing_review_evidence",
+        "missing_book_evidence",
     }
 )
 
@@ -45,8 +55,14 @@ class EvidenceReference(BaseModel):
     source_type: str = "web"
     source_title: str = ""
     source_url: str = ""
+    published_date: str = ""
     quality: str = "unknown"
     relevance: int = Field(default=3, ge=1, le=5)
+    source_class: str = "unknown"
+    provenance_valid: bool = False
+    content_quality: float = Field(default=0.0, ge=0.0, le=1.0)
+    query_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    publishable: bool = False
 
     @field_validator("source_type", mode="before")
     @classmethod
@@ -58,7 +74,12 @@ class EvidenceReference(BaseModel):
     def validate_quality(cls, value: Any) -> str:
         return validate_research_token("quality", value, EVIDENCE_QUALITIES)
 
-    @field_validator("source_title", "source_url", mode="before")
+    @field_validator(
+        "source_title",
+        "source_url",
+        "published_date",
+        mode="before",
+    )
     @classmethod
     def clean_optional_text(cls, value: Any) -> str:
         return normalize_text(value)
@@ -96,6 +117,11 @@ class ClaimAdmissionDecision(BaseModel):
     quality: str = "unknown"
     reason_codes: list[str] = Field(default_factory=list)
     explanation: str = ""
+    provenance_valid: bool = False
+    content_quality: float = Field(default=0.0, ge=0.0, le=1.0)
+    query_relevance: float = Field(default=0.0, ge=0.0, le=1.0)
+    corroborated: bool = False
+    publishable: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("claim", mode="before")
@@ -142,6 +168,7 @@ class VerifierAdmissionInput(BaseModel):
     """Code-level verifier input assembled from ResearchOrchestrator state."""
 
     run_id: UUID
+    objective: str = ""
     candidate_claims: list[ClaimForVerification] = Field(default_factory=list)
     evidence: list[ResearchEvidence] = Field(default_factory=list)
     blocking_gaps: list[str] = Field(default_factory=list)
@@ -155,6 +182,11 @@ class VerifierAdmissionInput(BaseModel):
     @classmethod
     def clean_text_lists(cls, value: Any) -> list[str]:
         return clean_string_list(value)
+
+    @field_validator("objective", mode="before")
+    @classmethod
+    def clean_objective(cls, value: Any) -> str:
+        return normalize_text(value)
 
 
 class VerifierAdmissionResult(BaseModel):

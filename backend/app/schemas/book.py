@@ -43,7 +43,7 @@ class BookSearchResponse(BaseModel):
     status: BookSearchStatus = "ok"
     books: list[BookInDB]
     result_count: int = 0
-    source: str = "duckduckgo"
+    source: str = "external_search"
     next_action_hint: str = ""
     error: str | None = None
     duration_ms: int = 0

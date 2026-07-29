@@ -230,12 +230,12 @@ CREATE TABLE IF NOT EXISTS public.langchain_pg_collection (
 );
 
 -- 9. langchain_pg_embedding table (PGVector — vector embeddings)
--- The vector dimension must match the embedding model output.
--- Schema matches langchain-postgres v2 PGVectorStore expectations.
+-- Legacy import surface only. Active semantic data lives in versioned
+-- embedding-space tables created from observed model dimensions.
 CREATE TABLE IF NOT EXISTS public.langchain_pg_embedding (
     langchain_id      VARCHAR PRIMARY KEY,
     collection_id     UUID REFERENCES public.langchain_pg_collection(uuid) ON DELETE CASCADE,
-    embedding         vector(1024),
+    embedding         vector,
     content           VARCHAR,
     langchain_metadata  JSONB
 );

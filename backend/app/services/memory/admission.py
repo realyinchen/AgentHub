@@ -104,6 +104,24 @@ class MemoryAdmissionEngine:
                 metadata={"source_kind": candidate.source_kind},
             )
 
+        if candidate.source_kind == "user_message":
+            precommit = candidate.metadata.get("precommit")
+            required_gates = {
+                "source_identified",
+                "reference_resolved",
+                "completeness_validated",
+                "persistence_approved",
+            }
+            if not isinstance(precommit, dict) or not all(
+                precommit.get(gate) is True for gate in required_gates
+            ):
+                return self._decision(
+                    "reject",
+                    "user_message_missing_precommit_proof",
+                    candidate,
+                    metadata={"required_gates": sorted(required_gates)},
+                )
+
         value_reason = self._invalid_value_reason(candidate.value)
         if value_reason:
             return self._decision("reject", value_reason, candidate)

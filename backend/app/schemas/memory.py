@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
@@ -64,9 +64,9 @@ class MemoryRememberRequest(BaseModel):
     polarity: str = Field(default="neutral")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     thread_id: UUID | None = None
-    source: str = Field(default="manual")
-    scope: str = Field(default="long_term_memory")
-    source_kind: str = Field(default="manual")
+    source: Literal["manual"] = "manual"
+    scope: Literal["long_term_memory"] = "long_term_memory"
+    source_kind: Literal["manual"] = "manual"
     source_text: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
 
@@ -130,7 +130,7 @@ class MemoryReviseRequest(BaseModel):
     new_polarity: str = "neutral"
     confidence: float = Field(default=1.0, ge=0.0, le=1.0)
     thread_id: UUID | None = None
-    source: str = Field(default="manual")
+    source: Literal["manual"] = "manual"
     metadata: dict[str, Any] = Field(default_factory=dict)
 
     @field_validator("old_subject", mode="before")

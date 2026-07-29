@@ -69,6 +69,7 @@ from app.services.research.source_search import (
     ResearchSourceDocument,
     ResearchSourceSearchProviderResult,
     ResearchSourceSearchResult,
+    search_external_research_documents,
     search_duckduckgo_research_documents,
     search_research_source_documents,
 )
@@ -169,6 +170,7 @@ __all__ = [
     "map_provider_status",
     "run_research_runtime",
     "search_crossref_research_documents",
+    "search_external_research_documents",
     "search_duckduckgo_research_documents",
     "search_research_source_documents",
     "search_research_scholar_documents",

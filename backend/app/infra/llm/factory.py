@@ -19,6 +19,7 @@ Usage:
 """
 
 import logging
+from collections.abc import Mapping
 
 from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage
@@ -108,6 +109,7 @@ def create_llm_from_config(
     base_url: str | None,
     is_openai_compatible: bool,
     thinking_mode: bool = False,
+    extra_headers: Mapping[str, str] | None = None,
 ) -> Runnable[LanguageModelInput, AIMessage]:
     """Build a ChatLiteLLM from explicit provider/model configuration.
 
@@ -156,7 +158,12 @@ def create_llm_from_config(
     if base_url:
         litellm_params["api_base"] = base_url
 
-    litellm_params.update(adapter.extra_litellm_params(get_settings()))
+    adapter_params = adapter.extra_litellm_params(get_settings())
+    merged_headers = dict(adapter_params.get("extra_headers") or {})
+    merged_headers.update(dict(extra_headers or {}))
+    if merged_headers:
+        adapter_params["extra_headers"] = merged_headers
+    litellm_params.update(adapter_params)
     chat_model_cls = adapter.chat_model_cls
 
     llm = chat_model_cls(

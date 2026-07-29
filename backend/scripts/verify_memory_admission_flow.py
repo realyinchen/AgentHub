@@ -90,6 +90,36 @@ async def _memory_event_count(user_id: uuid.UUID) -> int:
         return int(count or 0)
 
 
+def _precommitted_user_fact(
+    *,
+    subject: str,
+    value: str,
+    source_text: str,
+) -> dict:
+    key_value = "_".join(value.lower().split())[:80] or "fact"
+    return {
+        "precommit": {
+            "source_identified": True,
+            "reference_resolved": True,
+            "completeness_validated": True,
+            "persistence_approved": True,
+        },
+        "user_state": {
+            "status": "active",
+            "category": "preference",
+            "state_key": f"preference.{subject}.{key_value}",
+            "summary": value,
+            "raw_text": source_text,
+            "state_value": {
+                "subject": subject,
+                "value": value,
+            },
+            "relation": {},
+            "use_when": ["memory admission verification"],
+        },
+    }
+
+
 async def _assert_blocked_without_write(
     candidate: MemoryCandidate,
     *,
@@ -130,6 +160,11 @@ async def _run_memory_admission_flow() -> None:
                 source_kind="user_message",
                 source_text="I like warm character-driven novels.",
                 confidence=0.95,
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="warm character-driven novels",
+                    source_text="I like warm character-driven novels.",
+                ),
             )
         )
         _assert(preference.decision.decision == "allow", "preference should be allowed")
@@ -211,6 +246,11 @@ async def _run_memory_admission_flow() -> None:
                 value="这个",
                 polarity="like",
                 source_kind="user_message",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="这个",
+                    source_text="我喜欢这个",
+                ),
             ),
             expected_decision="reject",
             expected_reason="value_too_broad",
@@ -226,6 +266,11 @@ async def _run_memory_admission_flow() -> None:
                 polarity="like",
                 source_kind="user_message",
                 source_text="I like quiet healing memoirs.",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="quiet healing memoirs",
+                    source_text="I like quiet healing memoirs.",
+                ),
             )
         )
         _assert(forgotten.memory is not None, "setup memory should be written")
@@ -245,6 +290,11 @@ async def _run_memory_admission_flow() -> None:
                 polarity="like",
                 source_kind="user_message",
                 source_text="Candidate repeats a forgotten memory.",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="quiet healing memoirs",
+                    source_text="Candidate repeats a forgotten memory.",
+                ),
             ),
             expected_decision="reject",
             expected_reason="inactive_memory_requires_explicit_restore",

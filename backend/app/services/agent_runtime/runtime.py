@@ -15,20 +15,26 @@ from app.services.agent_runtime.contracts import (
     PlannedAction,
 )
 from app.services.book_intent import TurnPolicy, build_turn_policy
-from app.services.memory import get_memory_orchestrator
-from app.services.memory.user_state import (
-    decide_user_state_capture,
-    persist_raw_user_state,
-    schedule_pending_user_state_organization,
+from app.services.conversation import (
+    ConversationTurn,
+    ConversationWindow,
+    recall_recent_conversation,
 )
-from app.services.profile_memory_capture import capture_explicit_profile_memories
+from app.services.memory import get_memory_orchestrator
+from app.services.memory.write_contracts import MemoryWriteRequest
+from app.services.memory.write_coordinator import MemoryWriteCoordinator
 from app.utils.turn_context import user_message_scope
 
 
 logger = logging.getLogger(__name__)
 
+_RETIRED_CHAT_MEMORY_WRITE_OPERATIONS = frozenset(
+    {"remember_memory", "revise_memory"}
+)
+
 _USER_ID_OPERATIONS = frozenset(
     {
+        "process_memory_write_request",
         "search_memory",
         "remember_memory",
         "revise_memory",
@@ -56,6 +62,7 @@ _USER_ID_OPERATIONS = frozenset(
 )
 _THREAD_ID_OPERATIONS = frozenset(
     {
+        "process_memory_write_request",
         "remember_memory",
         "forget_memory",
         "record_book_feedback",
@@ -182,11 +189,16 @@ class SystemRuntime:
     ) -> ActionReceipt:
         started = time.perf_counter()
         try:
-            if action.operation == "capture_user_state":
-                output = await _capture_user_state(
+            if action.operation == "process_memory_write_request":
+                output = await _process_memory_write_request(
                     action,
                     context=context,
                     user_input=user_input,
+                )
+            elif action.operation == "recall_recent_conversation":
+                output = _recall_recent_conversation(
+                    action,
+                    context=context,
                 )
             elif action.operation == "search_memory":
                 output = await _search_memory(action, context=context)
@@ -227,58 +239,66 @@ class SystemRuntime:
             )
 
 
-async def _capture_user_state(
+async def _process_memory_write_request(
     action: PlannedAction,
     *,
     context: ExecutionContext,
     user_input: UserInput | None,
 ) -> dict[str, Any]:
     if user_input is None:
-        raise RuntimeError("capture_user_state requires the current user input")
-    capture_mode = str(action.arguments.get("capture_mode") or "raw_first")
-    raw_text = str(action.arguments.get("raw_text") or user_input.content).strip()
-
-    if capture_mode == "deterministic":
-        capture = await capture_explicit_profile_memories(user_input)
-        if capture.captured_count > 0:
-            return {
-                "status": "completed",
-                "capture_mode": "deterministic",
-                "captured_count": capture.captured_count,
-                "memories": capture.memories,
-                "memory_admission": _capture_admission_summary(capture.memories),
-            }
-
-    persisted = await persist_raw_user_state(
+        raise RuntimeError(
+            "process_memory_write_request requires the current user input"
+        )
+    request_payload = action.arguments.get("request")
+    if not isinstance(request_payload, dict):
+        raise ValueError("memory write action requires a typed request")
+    request = MemoryWriteRequest.model_validate(request_payload)
+    outcome = await MemoryWriteCoordinator().process(
+        request,
+        user_input=user_input,
+        conversation=_conversation_window(context),
         user_id=context.user_id,
         thread_id=context.thread_id,
-        raw_text=raw_text,
-        explicit=bool(action.arguments.get("explicit")),
-        organizer_model_id=context.model_name,
-        route_type=str(context.metadata.get("route_type") or "slow_path"),
+        model_id=context.model_name,
     )
-    return {
-        "status": persisted.status,
-        "capture_mode": "raw_first",
-        "memory": (
-            persisted.memory.model_dump(mode="json") if persisted.memory else None
-        ),
-        "memory_id": str(persisted.memory.id) if persisted.memory and persisted.memory.id else None,
-        "organization_scheduled": persisted.organization_scheduled,
-        "memory_admission": [
-            {
-                "decision": "allow" if persisted.memory is not None else "skip",
-                "status": (
-                    persisted.memory.state_status if persisted.memory else "skipped"
-                ),
-                "memory_id": (
-                    str(persisted.memory.id)
-                    if persisted.memory is not None and persisted.memory.id
-                    else None
-                ),
-            }
-        ],
-    }
+    return outcome.model_dump(mode="json")
+
+
+def _recall_recent_conversation(
+    action: PlannedAction,
+    *,
+    context: ExecutionContext,
+) -> dict[str, Any]:
+    result = recall_recent_conversation(
+        _conversation_window(context),
+        query=str(action.arguments.get("query") or ""),
+        limit=int(action.arguments.get("limit") or 4),
+    )
+    return result.model_dump(mode="json")
+
+
+def _conversation_window(context: ExecutionContext) -> ConversationWindow:
+    raw_turns = context.metadata.get("conversation_turns")
+    turns: list[ConversationTurn] = []
+    if isinstance(raw_turns, list):
+        for item in raw_turns:
+            try:
+                turns.append(ConversationTurn.model_validate(item))
+            except Exception:
+                continue
+    if not turns:
+        recent = context.metadata.get("recent_user_messages")
+        messages = recent if isinstance(recent, list) else []
+        turns = [
+            ConversationTurn(
+                role="user",
+                turn_offset=index - len(messages),
+                content=str(message),
+            )
+            for index, message in enumerate(messages)
+            if str(message or "").strip()
+        ]
+    return ConversationWindow(turns=turns[-16:])
 
 
 async def _search_memory(
@@ -301,17 +321,6 @@ async def _search_memory(
         )
         memories = list(result.relevant_events)
         profile = result.model_dump(mode="json")
-        if not memories:
-            pending = await orchestrator.list_current_memories(
-                user_id=context.user_id,
-                memory_types=memory_types if isinstance(memory_types, list) else None,
-                limit=min(limit, 20),
-            )
-            memories = [
-                item
-                for item in pending.memories
-                if item.state_status in {"pending", "needs_confirmation"}
-            ][:3]
     else:
         current = await orchestrator.list_current_memories(
             user_id=context.user_id,
@@ -320,11 +329,6 @@ async def _search_memory(
         )
         memories = list(current.memories)
         profile = {}
-
-    try:
-        await schedule_pending_user_state_organization(context.user_id, limit=10)
-    except Exception as exc:
-        logger.debug("Unable to schedule pending memory organization: %s", exc)
 
     return {
         "status": "completed",
@@ -368,67 +372,15 @@ async def _execute_research_dependency_action(
     context: ExecutionContext,
     previous: list[ActionReceipt],
 ) -> Any | None:
-    operation = action.operation
-    needs_runtime_dependency = (
-        operation == "collect_research_sources"
-        and not action.arguments.get("sources")
-    ) or (
-        operation == "add_evidence" and not action.arguments.get("claim")
-    ) or (
-        operation in {"build_research_report", "finalize_research_answer"}
-        and not action.arguments.get("run_id")
-    )
-    if not needs_runtime_dependency:
-        return None
-
-    from app.services.turn_execution import (
-        PreActionResult,
-        TurnToolDecision,
-        _execute_add_research_evidence,
-        _execute_build_research_report,
-        _execute_collect_research_sources,
-        _execute_finalize_research_answer,
+    from app.services.research.runtime_dependencies import (
+        execute_research_dependency,
     )
 
-    decision = TurnToolDecision(
-        tool_name=operation,
-        decision="required",
-        reason=action.reason,
-        action_id=action.action_id,
-        args=_inject_system_arguments(operation, action.arguments, context),
+    return await execute_research_dependency(
+        action,
+        context=context,
+        previous=previous,
     )
-    prior = [
-        PreActionResult(
-            action_id=item.action_id,
-            tool_name=item.operation,
-            status=(
-                "ok"
-                if item.status == "completed"
-                else "skipped"
-                if item.status == "skipped"
-                else "failed"
-            ),
-            input=item.business_input,
-            output=item.output,
-            error=item.error,
-            duration_ms=item.duration_ms,
-            metadata=item.metadata,
-        )
-        for item in previous
-    ]
-    if operation == "collect_research_sources":
-        result = await _execute_collect_research_sources(decision, prior)
-    elif operation == "add_evidence":
-        result = await _execute_add_research_evidence(decision, prior)
-    elif operation == "build_research_report":
-        result = await _execute_build_research_report(decision, prior)
-    else:
-        result = await _execute_finalize_research_answer(decision, prior)
-    if result.status == "failed":
-        return {"status": "failed", "error": result.error}
-    if result.status == "skipped":
-        return {"status": "skipped", "error": result.error, "output": result.output}
-    return result.output
 
 
 def _resolve_internal_tool(operation: str) -> Any:
@@ -471,9 +423,14 @@ def _admit_action(
 ) -> tuple[bool, str]:
     if action.operation in set(plan.forbidden_operations):
         return False, "operation_forbidden_by_action_plan"
+    if action.operation in _RETIRED_CHAT_MEMORY_WRITE_OPERATIONS:
+        return False, "chat_memory_write_requires_precommit_pipeline"
+    if plan.policy and action.operation not in set(policy.allowed_tools):
+        return False, "operation_not_authorized_by_routing_policy"
 
     flag = {
         "web_search": "can_use_web_search",
+        "acquire_research_sources": "can_use_web_search",
         "search_books": "can_search_books",
         "get_recommendation_history": "can_view_recommendation_history",
         "start_research": "can_start_research",
@@ -481,23 +438,22 @@ def _admit_action(
     if flag and not bool(getattr(policy, flag)):
         return False, f"turn_policy_{flag}_false"
 
-    if action.operation == "search_memory" and plan.source != "model_tool_call":
+    if action.operation == "search_memory":
         return True, "app_plan_memory_read"
-    if action.operation == "capture_user_state":
-        raw_text = " ".join(
-            str(action.arguments.get("raw_text") or "").split()
-        ).strip()
+    if action.operation == "process_memory_write_request":
+        request_payload = action.arguments.get("request")
+        if not isinstance(request_payload, dict):
+            return False, "memory_write_request_missing"
+        try:
+            request = MemoryWriteRequest.model_validate(request_payload)
+        except Exception:
+            return False, "memory_write_request_invalid"
         goal = " ".join(str(plan.goal or "").split()).strip()
-        if not raw_text or raw_text not in goal:
-            return False, "memory_raw_text_must_be_user_authored"
-        decision = decide_user_state_capture(raw_text)
-        if not decision.should_capture:
-            return False, "memory_candidate_is_not_durable_user_state"
-        return True, (
-            "deterministic_user_state_capture"
-            if plan.source == "deterministic_rule"
-            else "planned_user_state_capture"
-        )
+        if request.utterance not in goal:
+            return False, "memory_request_must_be_user_authored"
+        return True, "precommit_memory_pipeline"
+    if action.operation == "recall_recent_conversation":
+        return True, "app_plan_conversation_read"
     return True, "admitted"
 
 

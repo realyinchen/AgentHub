@@ -33,6 +33,11 @@ from app.services.research.observation_providers import (
     ObservationProviderRequest,
     get_default_observation_provider_from_db,
 )
+from app.services.research.loop import (
+    ResearchLoopBudget,
+    evaluate_research_evidence_gaps,
+)
+from app.services.research.source_acquisition import ResearchSourceRecord
 from app.services.research.verifier import (
     ClaimForVerification,
     ResearchVerifier,
@@ -57,7 +62,11 @@ class HarnessState(TypedDict, total=False):
 
 
 class ResearchHarnessRuntime:
-    """LangGraph harness for Deep Search with Postgres as durable state owner."""
+    """Compatibility harness using the canonical research-loop gap policy.
+
+    New chat execution is owned by ``SystemRuntime`` and ``research-loop-v1``.
+    This adapter remains for existing harness tools and resume verification.
+    """
 
     def __init__(
         self,
@@ -126,14 +135,47 @@ class ResearchHarnessRuntime:
         )
         resume_state = self._resume_state_from_research_state(research_state)
         aggregation = self._aggregation_from_research_state(research_state)
+        loop_assessment = evaluate_research_evidence_gaps(
+            round_index=1,
+            records=[
+                ResearchSourceRecord(
+                    source_type=item.source_type,
+                    source_title=item.source_title,
+                    source_url=item.source_url,
+                    claim=item.claim,
+                    excerpt=item.excerpt,
+                    quality=item.quality,
+                    relevance=item.relevance,
+                    metadata=item.metadata,
+                )
+                for item in research_state.evidence
+            ],
+            rejection_reason_codes=[],
+            exhausted_queries=research_state.state.exhausted_queries,
+            budget=ResearchLoopBudget.model_validate(
+                research_state.state.budget or {}
+            ),
+            search_round_count=1,
+        )
         gap_filling = GapFillingResult(
             run_id=run_id,
-            blocking_gaps=aggregation.gaps,
+            blocking_gaps=list(
+                dict.fromkeys(
+                    [*aggregation.gaps, *loop_assessment.gaps]
+                )
+            ),
             next_actions=["Verify candidate claims."]
             if aggregation.candidate_claims
             else ["Collect source-backed evidence before finalizing."],
-            should_continue=not aggregation.candidate_claims,
-            metadata={"harness": {"node": "gap_filler", "resumed": True}},
+            should_continue=loop_assessment.should_continue,
+            metadata={
+                "harness": {
+                    "node": "gap_filler",
+                    "resumed": True,
+                    "compatibility_adapter": True,
+                },
+                "research_loop": loop_assessment.model_dump(mode="json"),
+            },
         )
         state: HarnessState = {
             "harness_input": ResearchHarnessInput(
@@ -446,7 +488,39 @@ class ResearchHarnessRuntime:
         require_next_step_ready(state, next_step="gap_filler")
         payload = ResearchHarnessInput.model_validate(state["harness_input"])
         aggregation = AggregationResult.model_validate(state["aggregation"])
-        blocking_gaps = aggregation.gaps
+        current_state = ResearchStateResult.model_validate(
+            state["research_state"]
+        )
+        loop_budget = ResearchLoopBudget.model_validate(payload.budget or {})
+        loop_assessment = evaluate_research_evidence_gaps(
+            round_index=1,
+            records=[
+                ResearchSourceRecord(
+                    source_type=item.source_type,
+                    source_title=item.source_title,
+                    source_url=item.source_url,
+                    claim=item.claim,
+                    excerpt=item.excerpt,
+                    quality=item.quality,
+                    relevance=item.relevance,
+                    metadata=item.metadata,
+                )
+                for item in current_state.evidence
+            ],
+            rejection_reason_codes=[],
+            exhausted_queries=current_state.state.exhausted_queries,
+            budget=loop_budget,
+            search_round_count=1,
+            objective=payload.objective,
+        )
+        blocking_gaps = list(
+            dict.fromkeys(
+                [
+                    *aggregation.gaps,
+                    *loop_assessment.gap_descriptions,
+                ]
+            )
+        )
         next_actions = (
             ["Verify candidate claims."]
             if not blocking_gaps
@@ -457,7 +531,14 @@ class ResearchHarnessRuntime:
             blocking_gaps=blocking_gaps,
             next_actions=next_actions,
             should_continue=bool(blocking_gaps),
-            metadata={"harness": {"node": "gap_filler"}},
+            metadata={
+                "harness": {
+                    "node": "gap_filler",
+                    "compatibility_adapter": True,
+                    "canonical_runtime": "research-loop-v1",
+                },
+                "research_loop": loop_assessment.model_dump(mode="json"),
+            },
         )
         research_state = await self.orchestrator.update_research_state(
             user_id=payload.user_id,

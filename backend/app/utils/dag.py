@@ -491,6 +491,11 @@ def inject_system_tool_steps(
             status=status,
             latency_ms=latency_ms,
             error=error,
+            depends_on=[
+                str(value)
+                for value in item.get("depends_on", [])
+                if str(value).strip()
+            ],
         )
         step = StepOutput(
             step_number=0,
@@ -507,6 +512,8 @@ def inject_system_tool_steps(
             tool_status=status,
             tool_error=error,
             latency_ms=latency_ms,
+            action_id=action_id,
+            depends_on=metadata.depends_on,
         )
         inserted_nodes.append(
             DagNode(

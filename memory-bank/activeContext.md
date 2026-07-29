@@ -2,7 +2,24 @@
 
 ## Current Focus
 
-Memory Bank initialization — no active development task beyond project documentation setup.
+RoutingDecision, explicit execution-graph-v2, and evidence-gated Deep Research
+publication are the current accepted runtime baseline. The route-model port is
+present but intentionally disabled.
+
+The canonical authority boundary is:
+
+```text
+RoutingDecision -> ActionPlan -> SystemRuntime -> PlanReceipt
+```
+
+The current Deep Research response path is:
+
+```text
+admitted evidence -> ResearchBrief -> deterministic Markdown publisher
+```
+
+Provider text and technical dependency IDs must never be copied directly into
+the user-facing answer.
 
 ## Recent Changes
 

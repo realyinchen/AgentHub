@@ -90,6 +90,39 @@ async def _memory_event_count(user_id: uuid.UUID) -> int:
         return int(count or 0)
 
 
+def _precommitted_user_fact(
+    *,
+    subject: str,
+    value: str,
+    source_text: str = "",
+    extra: dict | None = None,
+) -> dict:
+    key_value = "_".join(value.lower().split())[:80] or "fact"
+    metadata = {
+        "precommit": {
+            "source_identified": True,
+            "reference_resolved": True,
+            "completeness_validated": True,
+            "persistence_approved": True,
+        },
+        "user_state": {
+            "status": "active",
+            "category": "preference",
+            "state_key": f"preference.{subject}.{key_value}",
+            "summary": value,
+            "raw_text": source_text or value,
+            "state_value": {
+                "subject": subject,
+                "value": value,
+            },
+            "relation": {},
+            "use_when": ["memory conflict verification"],
+        },
+    }
+    metadata.update(extra or {})
+    return metadata
+
+
 async def _run_memory_conflict_flow() -> None:
     user_id = uuid.uuid4()
     thread_id = uuid.uuid4()
@@ -107,6 +140,11 @@ async def _run_memory_conflict_flow() -> None:
                 polarity="like",
                 source_kind="user_message",
                 source_text="I like quiet lyrical fiction.",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="quiet lyrical fiction",
+                    source_text="I like quiet lyrical fiction.",
+                ),
             )
         )
         _assert(duplicate_first.memory is not None, "setup duplicate memory should write")
@@ -121,6 +159,11 @@ async def _run_memory_conflict_flow() -> None:
                 polarity="like",
                 source_kind="user_message",
                 source_text="I still like quiet lyrical fiction.",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="quiet lyrical fiction",
+                    source_text="I still like quiet lyrical fiction.",
+                ),
             )
         )
         _assert(
@@ -147,6 +190,10 @@ async def _run_memory_conflict_flow() -> None:
                 value="slow literary fiction",
                 polarity="like",
                 source_kind="user_message",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="slow literary fiction",
+                ),
             )
         )
         disliked = await orchestrator.remember_candidate(
@@ -158,6 +205,10 @@ async def _run_memory_conflict_flow() -> None:
                 value="slow literary fiction",
                 polarity="dislike",
                 source_kind="user_message",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="slow literary fiction",
+                ),
             )
         )
         _assert(liked.memory is not None, "setup polarity memory should write")
@@ -182,6 +233,11 @@ async def _run_memory_conflict_flow() -> None:
                 polarity="avoid",
                 source_kind="user_message",
                 source_text="I avoid suspense.",
+                metadata=_precommitted_user_fact(
+                    subject="content",
+                    value="suspense",
+                    source_text="I avoid suspense.",
+                ),
             )
         )
         refined = await orchestrator.remember_candidate(
@@ -194,7 +250,14 @@ async def _run_memory_conflict_flow() -> None:
                 polarity="avoid",
                 source_kind="user_message",
                 source_text="Suspense is fine, just not bloody or too dark.",
-                metadata={"explicit_correction": True},
+                metadata=_precommitted_user_fact(
+                    subject="content",
+                    value="bloody or too dark suspense",
+                    source_text=(
+                        "Suspense is fine, just not bloody or too dark."
+                    ),
+                    extra={"explicit_correction": True},
+                ),
             )
         )
         _assert(broad.memory is not None, "setup broad preference should write")
@@ -254,6 +317,10 @@ async def _run_memory_conflict_flow() -> None:
                 value="quiet memoirs",
                 polarity="like",
                 source_kind="user_message",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="quiet memoirs",
+                ),
             )
         )
         await orchestrator.remember_candidate(
@@ -265,6 +332,10 @@ async def _run_memory_conflict_flow() -> None:
                 value="quiet family sagas",
                 polarity="like",
                 source_kind="user_message",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="quiet family sagas",
+                ),
             )
         )
         count_before_ambiguous = await _memory_event_count(user_id)
@@ -278,6 +349,12 @@ async def _run_memory_conflict_flow() -> None:
                 polarity="like",
                 source_kind="user_message",
                 source_text="Actually I meant quiet healing novels.",
+                metadata=_precommitted_user_fact(
+                    subject="style",
+                    value="quiet healing novels",
+                    source_text="Actually I meant quiet healing novels.",
+                    extra={"explicit_correction": True},
+                ),
             )
         )
         _assert(

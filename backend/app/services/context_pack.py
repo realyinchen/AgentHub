@@ -10,7 +10,7 @@ from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, System
 from pydantic import BaseModel, Field, field_validator
 
 from app.services.book_intent import TurnPolicy, build_turn_policy
-from app.services.agent_runtime.contracts import PlanReceipt
+from app.services.agent_runtime.contracts import ActionPlan, PlanReceipt
 from app.services.memory import MemoryEvent
 
 
@@ -102,18 +102,34 @@ class ContextBuilder:
         user_message: str,
         messages: Sequence[BaseMessage] | None = None,
         turn_policy: TurnPolicy | None = None,
+        action_plan: ActionPlan | dict[str, Any] | None = None,
         thread_summary: str = "",
         plan_receipt: PlanReceipt | dict[str, Any] | None = None,
     ) -> ThreadContextPack:
-        policy = turn_policy or build_turn_policy(user_message)
+        plan_payload = _action_plan_payload(action_plan)
+        policy, policy_source = resolve_turn_policy(
+            user_message=user_message,
+            action_plan=plan_payload,
+            turn_policy=turn_policy,
+        )
+        routing_decision = _embedded_routing_decision(plan_payload)
         receipt_payload = _receipt_payload(plan_receipt)
         metadata: dict[str, Any] = {
             "contract_version": CONTEXT_PACK_VERSION,
             "source": "plan_receipt_projection",
+            "policy_source": policy_source,
+            "routing_policy_authoritative": policy_source.startswith("action_plan."),
             "hidden_memory_reads": False,
             "hidden_research_reads": False,
             "plan_id": receipt_payload.get("plan_id"),
         }
+        if routing_decision:
+            metadata["routing_decision_contract_version"] = routing_decision.get(
+                "contract_version"
+            )
+            metadata["routing_decision_primary_intent"] = routing_decision.get(
+                "primary_intent"
+            )
         current_memories = _memory_events_from_receipt(
             receipt_payload,
             limit=self.memory_limit,
@@ -133,7 +149,11 @@ class ContextBuilder:
         return ThreadContextPack(
             turn_policy=policy,
             current_memories=current_memories,
-            current_turn_constraints=_current_turn_constraints(policy, user_message),
+            current_turn_constraints=_current_turn_constraints(
+                policy,
+                user_message,
+                routing_decision=routing_decision,
+            ),
             recent_messages=_recent_messages(messages or [], self.recent_message_limit),
             thread_summary=sanitized_summary,
             research_state_slice=research_slice,
@@ -147,6 +167,52 @@ class ContextBuilder:
         )
 
 
+def resolve_turn_policy(
+    *,
+    user_message: str,
+    action_plan: ActionPlan | dict[str, Any] | None = None,
+    turn_policy: TurnPolicy | None = None,
+) -> tuple[TurnPolicy, str]:
+    """Resolve final-answer policy without reclassifying an already-routed turn.
+
+    ActionPlan is the authoritative projection of RoutingDecision. When it
+    exists, only its compiled policy (or its embedded RoutingDecision policy)
+    may define the prompt policy. Explicit ``turn_policy`` and raw-text
+    classification are compatibility paths for callers that have no plan.
+    """
+
+    plan_payload = _action_plan_payload(action_plan)
+    if plan_payload:
+        direct_policy = plan_payload.get("policy")
+        if direct_policy:
+            return (
+                _validate_authoritative_policy(
+                    direct_policy,
+                    source="action_plan.policy",
+                ),
+                "action_plan.policy",
+            )
+
+        routing_policy = _embedded_routing_policy(plan_payload)
+        if routing_policy:
+            return (
+                _validate_authoritative_policy(
+                    routing_policy,
+                    source="action_plan.routing_decision.policy",
+                ),
+                "action_plan.routing_decision.policy",
+            )
+
+        raise ValueError(
+            "ActionPlan is present but contains no compiled routing policy; "
+            "refusing to reclassify the raw user message"
+        )
+
+    if turn_policy is not None:
+        return turn_policy, "provided_turn_policy"
+    return build_turn_policy(user_message), "legacy_raw_text_fallback"
+
+
 def render_context_pack_prompt(pack: ThreadContextPack) -> str:
     policy = pack.turn_policy
     intent = policy.intent
@@ -154,6 +220,13 @@ def render_context_pack_prompt(pack: ThreadContextPack) -> str:
         "Current Context Pack",
         "--------------------",
         f"contract_version: {CONTEXT_PACK_VERSION}",
+        f"policy_source: {pack.metadata.get('policy_source') or 'unknown'}",
+        "routing_policy_authoritative: "
+        + (
+            "yes"
+            if pack.metadata.get("routing_policy_authoritative")
+            else "no"
+        ),
         f"primary_intent: {intent.primary_intent}",
         f"intents: {', '.join(intent.intents)}",
         f"signals: {', '.join(intent.signals) if intent.signals else 'none'}",
@@ -174,11 +247,13 @@ def render_context_pack_prompt(pack: ThreadContextPack) -> str:
         f"response_boundary: {policy.response_boundary}",
         "",
         "Context Rules:",
+        "- turn_policy is authoritative for this response when projected from ActionPlan.",
+        "- Never infer a replacement capability policy from raw text or recent messages.",
         "- ContextPack is a projection of the current PlanReceipt; it never reads stores directly.",
         "- current_memories are user-state records returned by an executed memory action.",
         "- raw_text is the user's authoritative wording; organized fields are an interpretation.",
-        "- pending records are immediately recallable from raw_text but are not organized yet.",
-        "- needs_confirmation records must not silently override an active state; ask the shown confirmation_question when relevant.",
+        "- only committed active facts are recallable as long-term memory.",
+        "- unresolved or clarification-required proposals are thread workflow state, never memory evidence.",
         "- short_term records are usable only until valid_until.",
         "- thread_summary is non-authoritative and cannot override current_memories.",
         "- denied_memory_ids are forgotten or superseded; do not use or restore them.",
@@ -326,7 +401,12 @@ def _message_content(message: BaseMessage) -> str:
     return _compact_text(str(content), max_length=500)
 
 
-def _current_turn_constraints(policy: TurnPolicy, user_message: str) -> list[str]:
+def _current_turn_constraints(
+    policy: TurnPolicy,
+    user_message: str,
+    *,
+    routing_decision: dict[str, Any] | None = None,
+) -> list[str]:
     constraints = [
         f"intent:{policy.intent.primary_intent}",
         f"response_boundary:{policy.response_boundary}",
@@ -343,6 +423,27 @@ def _current_turn_constraints(policy: TurnPolicy, user_message: str) -> list[str
         constraints.append("recommendation_signal_allowed_by_turn_policy")
     if policy.can_use_research_tools:
         constraints.append("research_tools_allowed_by_turn_policy")
+    if routing_decision:
+        requirements = routing_decision.get("requirements")
+        if isinstance(requirements, dict):
+            for name, required in requirements.items():
+                constraints.append(
+                    f"routing_requirement:{name}={'yes' if bool(required) else 'no'}"
+                )
+        routed_constraints = routing_decision.get("constraints")
+        if isinstance(routed_constraints, list):
+            for item in routed_constraints:
+                if not isinstance(item, dict):
+                    continue
+                field = _compact_text(item.get("field"), max_length=100)
+                operator = _compact_text(item.get("operator"), max_length=40)
+                if not field:
+                    continue
+                constraints.append(
+                    "routing_constraint:"
+                    f"{field}:{operator or 'equals'}:"
+                    f"{_compact_json(item.get('value'), max_length=300)}"
+                )
     text = _compact_text(user_message, max_length=300)
     if text:
         constraints.append(f"current_user_message:{text}")
@@ -391,6 +492,41 @@ def _receipt_payload(
     if isinstance(receipt, dict):
         return dict(receipt)
     return {}
+
+
+def _action_plan_payload(
+    plan: ActionPlan | dict[str, Any] | None,
+) -> dict[str, Any]:
+    if isinstance(plan, ActionPlan):
+        return plan.model_dump(mode="json")
+    if isinstance(plan, dict):
+        return dict(plan)
+    return {}
+
+
+def _embedded_routing_decision(
+    plan_payload: dict[str, Any],
+) -> dict[str, Any]:
+    metadata = plan_payload.get("metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    decision = metadata.get("routing_decision")
+    if not isinstance(decision, dict):
+        return {}
+    return decision
+
+
+def _embedded_routing_policy(plan_payload: dict[str, Any]) -> Any:
+    return _embedded_routing_decision(plan_payload).get("policy")
+
+
+def _validate_authoritative_policy(value: Any, *, source: str) -> TurnPolicy:
+    try:
+        return TurnPolicy.model_validate(value)
+    except Exception as exc:
+        raise ValueError(
+            f"{source} is invalid; refusing legacy raw-text reclassification"
+        ) from exc
 
 
 def _memory_events_from_receipt(

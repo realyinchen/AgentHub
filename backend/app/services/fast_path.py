@@ -6,18 +6,31 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from app.schemas.chat import UserInput
+from app.services.books.feedback import extract_book_feedback
 from app.services.memory import MemoryEvent
+from app.services.memory.identity import resolve_current_name
 from app.services.memory.user_state import decide_user_state_capture
 from app.services.profile_memory_capture import (
     ProfileMemoryCaptureResult,
-    extract_explicit_profile_memory_candidates,
+    has_explicit_profile_memory_statement,
 )
-from app.services.turn_execution import extract_book_feedback
 
-FastPathIntent = Literal["memory_write", "memory_lookup", "reading_feedback"]
+FastPathIntent = Literal[
+    "conversation_recall",
+    "memory_write",
+    "memory_lookup",
+    "reading_feedback",
+]
 
 _MEMORY_NAME_LOOKUP_RE = re.compile(
     r"\u6211\u662f\u8c01|\u6211\u53eb\u4ec0\u4e48|\u6211\u7684\u540d\u5b57|\bwho\s+am\s+i\b|\bwhat(?:'s| is)\s+my\s+name\b",
+    re.IGNORECASE,
+)
+_CONVERSATION_RECALL_RE = re.compile(
+    r"(?:我刚才|我上面|我之前刚刚)(?:跟你)?(?:说|讲|问|告诉)(?:了)?什么|"
+    r"(?:刚才|上面)(?:我们)?(?:说|聊)(?:了)?什么|"
+    r"(?:你刚才|你上面)(?:说|回答)(?:了)?什么|"
+    r"\bwhat did (?:i|you) (?:just )?say\b",
     re.IGNORECASE,
 )
 _MEMORY_PET_LOOKUP_RE = re.compile(
@@ -79,11 +92,26 @@ class FastPathDecision(BaseModel):
 
 
 def decide_fast_path(user_input: UserInput) -> FastPathDecision:
-    text = " ".join(str(user_input.content or "").split()).strip()
+    return decide_fast_path_text(user_input.content)
+
+
+def decide_fast_path_text(content: str) -> FastPathDecision:
+    """Classify a text-only fast path without accepting system identity."""
+
+    text = " ".join(str(content or "").split()).strip()
     if not text:
         return FastPathDecision(reason="empty_input")
 
     normalized_lookup = text.rstrip(" ?\uff1f.!\u3002")
+    if _CONVERSATION_RECALL_RE.fullmatch(normalized_lookup):
+        return FastPathDecision(
+            route_type="fast_path",
+            handled=True,
+            intent="conversation_recall",
+            confidence=0.99,
+            reason="deterministic_conversation_recall",
+            metadata={"recall_scope": "current_thread"},
+        )
     if _MEMORY_NAME_LOOKUP_RE.fullmatch(normalized_lookup):
         return FastPathDecision(
             route_type="fast_path",
@@ -138,9 +166,9 @@ def decide_fast_path(user_input: UserInput) -> FastPathDecision:
             metadata={"feedback": feedback},
         )
 
-    candidates = extract_explicit_profile_memory_candidates(user_input)
+    has_profile_statement = has_explicit_profile_memory_statement(text)
     if (
-        candidates
+        has_profile_statement
         and len(text) <= 180
         and not _SLOW_PATH_MARKER_RE.search(text)
         and not any(marker in text for marker in ("?", "\uff1f"))
@@ -151,7 +179,7 @@ def decide_fast_path(user_input: UserInput) -> FastPathDecision:
             intent="memory_write",
             confidence=0.98,
             reason="deterministic_standalone_memory_statement",
-            metadata={"candidate_count": len(candidates)},
+            metadata={"candidate_count": 1},
         )
 
     user_state = decide_user_state_capture(text)
@@ -209,6 +237,9 @@ def _memory_write_response(capture: ProfileMemoryCaptureResult) -> str:
 
 def _memory_lookup_response(memories: list[MemoryEvent], *, lookup_kind: str) -> str:
     if lookup_kind == "name":
+        resolved_name = resolve_current_name(memories)
+        if resolved_name:
+            return f"\u4f60\u53eb{resolved_name}\u3002"
         for memory in memories:
             if memory.metadata.get("profile_key") != "name":
                 continue
@@ -235,13 +266,7 @@ def _memory_lookup_response(memories: list[MemoryEvent], *, lookup_kind: str) ->
     lines = ["我记得你说过："]
     for memory in memories[:8]:
         source = memory.raw_text or memory.value
-        suffix = ""
-        if memory.state_status == "pending":
-            suffix = "（原文已保存，正在后台整理）"
-        elif memory.state_status == "needs_confirmation":
-            question = memory.confirmation_question or "这条理解需要你确认"
-            suffix = f"（待确认：{question}）"
-        lines.append(f"- {source}{suffix}")
+        lines.append(f"- {source}")
     return "\n".join(lines)
 
 

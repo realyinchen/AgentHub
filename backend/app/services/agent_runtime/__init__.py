@@ -14,6 +14,18 @@ from app.services.agent_runtime.contracts import (
     PlannedAction,
     PreparedRuntimeTurn,
 )
+from app.services.agent_runtime.execution_graph import (
+    EXECUTION_GRAPH_CONTRACT_VERSION,
+    ExecutionGraph,
+    ExecutionGraphEdge,
+    ExecutionGraphNode,
+    build_execution_graph,
+)
+from app.services.agent_runtime.failure_projection import (
+    RuntimeFailureSummary,
+    project_runtime_failure,
+    render_research_failure,
+)
 
 __all__ = [
     "ACTION_PLAN_CONTRACT_VERSION",
@@ -26,9 +38,18 @@ __all__ = [
     "PlannedAction",
     "PreparedRuntimeTurn",
     "SystemRuntime",
+    "EXECUTION_GRAPH_CONTRACT_VERSION",
+    "ExecutionGraph",
+    "ExecutionGraphEdge",
+    "ExecutionGraphNode",
+    "RuntimeFailureSummary",
+    "build_execution_graph",
     "build_fast_action_plan",
     "finalize_deterministic_receipt",
+    "finalize_runtime_receipt",
     "prepare_runtime_turn",
+    "project_runtime_failure",
+    "render_research_failure",
 ]
 
 
@@ -51,8 +72,14 @@ def __getattr__(name: str) -> Any:
         from app.services.agent_runtime.coordinator import prepare_runtime_turn
 
         return prepare_runtime_turn
-    if name == "finalize_deterministic_receipt":
-        from app.services.agent_runtime.finalizer import finalize_deterministic_receipt
+    if name in {"finalize_deterministic_receipt", "finalize_runtime_receipt"}:
+        from app.services.agent_runtime.finalizer import (
+            finalize_deterministic_receipt,
+            finalize_runtime_receipt,
+        )
 
-        return finalize_deterministic_receipt
+        return {
+            "finalize_deterministic_receipt": finalize_deterministic_receipt,
+            "finalize_runtime_receipt": finalize_runtime_receipt,
+        }[name]
     raise AttributeError(name)

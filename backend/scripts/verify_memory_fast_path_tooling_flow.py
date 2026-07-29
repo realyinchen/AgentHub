@@ -148,14 +148,21 @@ async def _run() -> None:
                 _assert(
                     any(
                         event.get("type") == "tool"
-                        and (event.get("content") or {}).get("name") == "capture_user_state"
+                        and (event.get("content") or {}).get("name")
+                        == "process_memory_write_request"
                         for event in events
                     ),
                     str(events),
                 )
                 message = _final_message(events)
                 tool_info = (message.get("custom_data") or {}).get("tool_info") or []
-                _assert(any(item.get("name") == "capture_user_state" for item in tool_info), str(message))
+                _assert(
+                    any(
+                        item.get("name") == "process_memory_write_request"
+                        for item in tool_info
+                    ),
+                    str(message),
+                )
                 _assert("\u6743\u9650\u9650\u5236" not in str(message.get("content") or ""), str(message))
 
             recall_events = await _stream_turn(
@@ -190,7 +197,7 @@ async def _run() -> None:
             current = await client.get(f"/memory/{user_id}/current")
             _assert(current.status_code == 200, current.text)
             names = {
-                ((item.get("metadata") or {}).get("entity_fact") or {}).get("name")
+                (item.get("state_value") or {}).get("name")
                 for item in current.json().get("memories") or []
             }
             _assert({"\u54aa\u54aa", "\u65fa\u8d22"}.issubset(names), str(names))

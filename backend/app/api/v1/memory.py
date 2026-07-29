@@ -35,7 +35,6 @@ from app.services.memory.contracts import (
     USER_STATE_STATUSES,
 )
 from app.services.memory.user_state import UserStateConfirmation, confirm_user_state
-from app.services.memory.user_state import schedule_user_state_organization
 
 api_router = APIRouter(prefix="/memory", tags=["Memory"])
 
@@ -86,17 +85,13 @@ async def list_current_user_memories(
     offset: int = Query(default=0, ge=0),
 ) -> CurrentMemoryListResult:
     """List current active memories for the default user-facing memory view."""
-    result = await get_memory_orchestrator().list_current_memories(
+    return await get_memory_orchestrator().list_current_memories(
         user_id=user_id,
         query=query,
         memory_types=memory_types,
         limit=limit,
         offset=offset,
     )
-    for memory_event in result.memories:
-        if memory_event.id and memory_event.state_status == "pending":
-            schedule_user_state_organization(memory_event.id, user_id)
-    return result
 
 
 @api_router.get("/{user_id}/events", response_model=MemoryEventListResult)

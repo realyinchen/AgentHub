@@ -30,6 +30,56 @@ export interface MessageStepRaw {
   system_executed?: boolean;
   tool_status?: string | null;
   tool_error?: string | null;
+  action_id?: string | null;
+  depends_on?: string[];
+}
+
+export interface ExecutionGraphNodeRaw {
+  node_id: string;
+  kind: 'user' | 'action' | 'response';
+  label: string;
+  status: string;
+  order: number;
+  step_number: number;
+  action_id?: string | null;
+  capability?: string | null;
+  operation?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ExecutionGraphEdgeRaw {
+  edge_id: string;
+  source_id: string;
+  target_id: string;
+  relation: 'dependency' | 'entry' | 'response';
+}
+
+export interface ExecutionGraphRaw {
+  contract_version: 'execution-graph-v2' | string;
+  plan_id: string;
+  request_id: string;
+  entry_node_id: string;
+  exit_node_id: string;
+  nodes: ExecutionGraphNodeRaw[];
+  edges: ExecutionGraphEdgeRaw[];
+}
+
+export interface LegacyDagNodeRaw {
+  node_id: string;
+  step_number: number;
+  node_name: string;
+  title: string;
+  message_type: 'human' | 'ai' | 'tool';
+  step: MessageStepRaw;
+}
+
+export interface ExecutionDagRaw {
+  thread_id: string;
+  nodes: LegacyDagNodeRaw[];
+  edges: Array<[string, string]>;
+  total_steps: number;
+  steps: MessageStepRaw[];
+  execution_graph?: ExecutionGraphRaw | null;
 }
 
 // ============================================================================
@@ -63,6 +113,8 @@ export interface ToolNodeData extends BaseNodeData {
   toolName: string;
   toolArgs: Record<string, unknown> | null;
   toolOutput: string | null;
+  toolStatus?: string | null;
+  toolError?: string | null;
   index: number;
 }
 
@@ -95,6 +147,14 @@ export interface LayoutEdge {
   id: string;
   sourceId: string;
   targetId: string;
+  relation?: string;
+}
+
+export interface LayoutBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 // ============================================================================
@@ -104,6 +164,7 @@ export interface LayoutEdge {
 export interface DAGResult {
   nodes: LayoutNode[];
   edges: LayoutEdge[];
+  bounds: LayoutBounds;
   summary: {
     totalToolCalls: number;
     totalSteps: number;

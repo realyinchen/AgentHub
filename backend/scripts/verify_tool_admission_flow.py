@@ -39,6 +39,7 @@ from app.infra.llm.embedding import init_embedding_model
 from app.services.book_intent import build_turn_policy
 from app.services.book_search import BookSearchCacheResult
 from app.services.book_search_contracts import get_book_search_hint
+from app.services.external_search import SearchAttempt, SearchResult
 from app.services.tool_admission import reset_tool_admission_gate
 from app.utils.logging import request_id_scope
 from app.utils.turn_context import user_message_scope
@@ -300,9 +301,8 @@ async def _verify_memory_admission(user_id: uuid.UUID) -> None:
             )
     _assert(remembered["status"] == "tool_blocked", "memory write should block")
     _assert(
-        "can_write_memory"
-        in remembered["tool_admission"]["metadata"]["missing_policy_flags"],
-        "remember_memory should require can_write_memory",
+        remembered.get("reason") == "precommit_pipeline_required",
+        "remember_memory should require the precommit coordinator",
     )
 
     reset_tool_admission_gate()
@@ -329,8 +329,8 @@ async def _verify_memory_admission(user_id: uuid.UUID) -> None:
         "stable user profile/habit turns may write memory",
     )
     _assert(
-        "remember_memory" in profile_policy.allowed_tools,
-        "stable user profile/habit turns should advertise remember_memory",
+        "remember_memory" in profile_policy.denied_tools,
+        "legacy agent memory writes must remain denied",
     )
 
     reset_tool_admission_gate()
@@ -345,23 +345,40 @@ async def _verify_memory_admission(user_id: uuid.UUID) -> None:
                 source_text="我通常凌晨两点睡，你记一下",
             )
     _assert(
-        profile_memory.get("id") or profile_memory.get("memory"),
-        "stable user profile/habit memory should be stored",
+        profile_memory.get("status") == "tool_blocked"
+        and profile_memory.get("reason") == "precommit_pipeline_required"
+        and profile_memory.get("memory") is None,
+        "legacy remember_memory must not bypass the precommit coordinator",
     )
 
 
 async def _verify_web_search_admission() -> None:
-    original_resolve = web_tools._resolve_tavily_config
+    original_gateway = web_tools.get_search_gateway
 
-    async def fake_missing_config() -> web_tools._ResolvedTavilyConfig:
-        return web_tools._ResolvedTavilyConfig(
-            enabled=False,
-            source="verify",
-            status="missing_credentials",
-            error="verify missing Tavily credentials",
-        )
+    class _UnavailableGateway:
+        async def search(self, request) -> SearchResult:
+            return SearchResult(
+                outcome="unavailable",
+                query=request.query,
+                effective_query=request.query,
+                error="verify providers unavailable",
+                attempts=[
+                    SearchAttempt(
+                        provider="tavily",
+                        outcome="unavailable",
+                        error_type="missing_credentials",
+                        error="verify missing Tavily credentials",
+                    ),
+                    SearchAttempt(
+                        provider="anysearch",
+                        outcome="unavailable",
+                        error_type="provider_error",
+                        error="verify AnySearch unavailable",
+                    ),
+                ],
+            )
 
-    web_tools._resolve_tavily_config = fake_missing_config
+    web_tools.get_search_gateway = lambda: _UnavailableGateway()
     try:
         policy = build_turn_policy("今天天气怎么样")
         _assert(policy.can_use_web_search is True, "weather may use web_search")
@@ -382,7 +399,8 @@ async def _verify_web_search_admission() -> None:
             with user_message_scope("帮我搜一下最近的AI新闻"):
                 result = await _web_search(query="最近的AI新闻", max_results=1)
         _assert(
-            result["status"] == "missing_credentials",
+            result["status"] == "completed"
+            and result["outcome"] == "unavailable",
             "web_search should reach provider config instead of policy-blocking",
         )
         _assert(
@@ -390,7 +408,7 @@ async def _verify_web_search_admission() -> None:
             "web_search must not be blocked just because the query is non-book",
         )
     finally:
-        web_tools._resolve_tavily_config = original_resolve
+        web_tools.get_search_gateway = original_gateway
         reset_tool_admission_gate()
 
 

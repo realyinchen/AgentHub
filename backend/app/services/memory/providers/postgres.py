@@ -266,6 +266,7 @@ class PostgresMemoryProvider(MemoryProvider):
         )
 
     async def remember(self, event: MemoryEvent) -> MemoryEvent:
+        self._assert_commit_ready(event)
         normalized = self._normalize_event(event)
         await get_or_create_preference_profile(self.session, normalized.user_id)
         duplicate = await self._find_duplicate(normalized)
@@ -302,6 +303,7 @@ class PostgresMemoryProvider(MemoryProvider):
         old_subject: str = "",
         old_type: str = "",
     ) -> MemoryEvent:
+        self._assert_commit_ready(new_event)
         target = await self._find_revision_target(
             user_id=user_id,
             memory_id=memory_id,
@@ -338,6 +340,42 @@ class PostgresMemoryProvider(MemoryProvider):
         await self.session.flush()
         await self.session.refresh(record)
         return self._event_from_record(record)
+
+    @staticmethod
+    def _assert_commit_ready(event: MemoryEvent) -> None:
+        """Reject raw chat state at the final durable-storage boundary."""
+
+        if event.source != "chat_turn" or event.type not in {
+            "state",
+            "preference",
+            "entity",
+            "correction",
+        }:
+            return
+        metadata = event.metadata if isinstance(event.metadata, dict) else {}
+        precommit = metadata.get("precommit")
+        required = {
+            "source_identified",
+            "reference_resolved",
+            "completeness_validated",
+            "persistence_approved",
+            "conflict_checked",
+        }
+        if not isinstance(precommit, dict) or not all(
+            precommit.get(gate) is True for gate in required
+        ):
+            raise ValueError(
+                "durable chat memory requires complete precommit proof"
+            )
+        user_state = metadata.get("user_state")
+        if (
+            not isinstance(user_state, dict)
+            or user_state.get("status") != "active"
+            or not str(user_state.get("state_key") or "").strip()
+        ):
+            raise ValueError(
+                "durable chat memory requires one committed active canonical fact"
+            )
 
     async def forget(
         self,
@@ -462,7 +500,7 @@ class PostgresMemoryProvider(MemoryProvider):
             MemoryEventRecord.type != "forget",
             or_(
                 state_status.is_(None),
-                state_status.in_(["pending", "active", "needs_confirmation"]),
+                state_status == "active",
             ),
             or_(
                 valid_until.is_(None),

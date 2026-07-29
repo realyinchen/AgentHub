@@ -4,6 +4,11 @@ from typing import Any
 from uuid import UUID
 
 from app.services.research.contracts import ResearchEvidence, clean_string_list
+from app.services.research.evidence_quality import (
+    EvidenceQualityAssessment,
+    assess_evidence_candidate,
+    source_host,
+)
 from app.services.research.verifier.contracts import (
     ClaimAdmissionDecision,
     ClaimForVerification,
@@ -38,6 +43,13 @@ class ResearchVerifier:
             payload.budget.get("min_sources_per_claim"),
             default=1,
         )
+        min_independent_sources = self._positive_int(
+            payload.budget.get("min_independent_sources_per_claim"),
+            default=self._positive_int(
+                payload.budget.get("min_independent_sources"),
+                default=1,
+            ),
+        )
         required_quality = str(
             payload.budget.get("required_evidence_quality") or "medium"
         ).strip().lower()
@@ -51,7 +63,9 @@ class ResearchVerifier:
                 candidate=candidate,
                 evidence_by_id=evidence_by_id,
                 min_sources=min_sources,
+                min_independent_sources=min_independent_sources,
                 required_quality=required_quality,
+                objective=payload.objective,
             )
             for candidate in payload.candidate_claims
         ]
@@ -101,6 +115,15 @@ class ResearchVerifier:
                 "admitted_claim_count": len(admitted),
                 "rejected_claim_count": len(rejected),
                 "uncertain_claim_count": len(uncertain),
+                "provenance_valid_claim_count": sum(
+                    1 for item in decisions if item.provenance_valid
+                ),
+                "publishable_claim_count": sum(
+                    1 for item in decisions if item.publishable
+                ),
+                "corroborated_claim_count": sum(
+                    1 for item in decisions if item.corroborated
+                ),
                 "exhausted_query_count": len(payload.exhausted_queries),
                 "stop_criteria": payload.stop_criteria,
                 "stop_criteria_satisfied": bool(admitted or uncertain),
@@ -116,7 +139,9 @@ class ResearchVerifier:
         candidate: ClaimForVerification,
         evidence_by_id: dict[UUID, ResearchEvidence],
         min_sources: int,
+        min_independent_sources: int,
         required_quality: str,
+        objective: str,
     ) -> ClaimAdmissionDecision:
         reason_codes: list[str] = []
         supporting = [
@@ -136,6 +161,7 @@ class ResearchVerifier:
                 evidence=[],
                 reason_codes=["missing_evidence"],
                 explanation="Candidate claim has no supporting evidence IDs.",
+                objective=objective,
             )
         if missing_ids:
             return self._decision(
@@ -144,12 +170,71 @@ class ResearchVerifier:
                 evidence=supporting,
                 reason_codes=["unknown_evidence"],
                 explanation="Candidate claim references evidence not present in research state.",
+                objective=objective,
             )
         if len(supporting) < min_sources:
             reason_codes.append("insufficient_sources")
 
         if any(not self._has_source_metadata(item) for item in supporting):
             reason_codes.append("missing_source_metadata")
+
+        assessments = [
+            assess_evidence_candidate(
+                claim=candidate.claim,
+                query=objective,
+                source_title=item.source_title,
+                source_url=item.source_url,
+                published_date=_evidence_published_date(item),
+            )
+            for item in supporting
+        ]
+        publishable_assessments = [
+            item for item in assessments if item.publishable
+        ]
+        best_assessment = max(
+            publishable_assessments or assessments,
+            key=lambda item: (
+                item.publishable,
+                item.content_quality,
+                item.query_relevance,
+            ),
+            default=EvidenceQualityAssessment(),
+        )
+        if not publishable_assessments:
+            quality_reasons = [
+                reason
+                for assessment in assessments
+                for reason in assessment.reason_codes
+            ]
+            return self._decision(
+                candidate,
+                status="rejected",
+                evidence=supporting,
+                reason_codes=self._unique_reason_codes(
+                    quality_reasons or ["query_irrelevant"]
+                ),
+                explanation=(
+                    "Candidate claim is traceable but not readable or relevant "
+                    "enough for publication."
+                ),
+                quality=self._max_quality(
+                    supporting,
+                    fallback=candidate.quality,
+                ),
+                objective=objective,
+                assessment=best_assessment,
+                corroborated=False,
+            )
+
+        independent_sources = {
+            source_host(item.source_url)
+            or item.source_title.strip().lower()
+            for item in supporting
+            if source_host(item.source_url) or item.source_title.strip()
+        }
+        corroborated = len(independent_sources) >= min_independent_sources
+        if not corroborated:
+            reason_codes.append("insufficient_independent_sources")
 
         max_quality = self._max_quality(supporting, fallback=candidate.quality)
         if max_quality == "unknown":
@@ -165,6 +250,9 @@ class ResearchVerifier:
                 reason_codes=reason_codes,
                 explanation="Candidate claim is source-backed but not strong enough for verified admission.",
                 quality=max_quality,
+                objective=objective,
+                assessment=best_assessment,
+                corroborated=corroborated,
             )
 
         return self._decision(
@@ -174,6 +262,9 @@ class ResearchVerifier:
             reason_codes=["supported_by_evidence"],
             explanation="Candidate claim has sufficient supporting evidence.",
             quality=max_quality,
+            objective=objective,
+            assessment=best_assessment,
+            corroborated=corroborated,
         )
 
     def _decision(
@@ -185,15 +276,35 @@ class ResearchVerifier:
         reason_codes: list[str],
         explanation: str,
         quality: str | None = None,
+        objective: str = "",
+        assessment: EvidenceQualityAssessment | None = None,
+        corroborated: bool = False,
     ) -> ClaimAdmissionDecision:
+        assessment_by_id = {
+            item.id: assess_evidence_candidate(
+                claim=candidate.claim,
+                query=objective,
+                source_title=item.source_title,
+                source_url=item.source_url,
+                published_date=_evidence_published_date(item),
+            )
+            for item in evidence
+            if item.id is not None
+        }
         references = [
             EvidenceReference(
                 id=item.id,
                 source_type=item.source_type,
                 source_title=item.source_title,
                 source_url=item.source_url,
+                published_date=_evidence_published_date(item),
                 quality=item.quality,
                 relevance=item.relevance,
+                source_class=assessment_by_id[item.id].source_class,
+                provenance_valid=assessment_by_id[item.id].provenance_valid,
+                content_quality=assessment_by_id[item.id].content_quality,
+                query_relevance=assessment_by_id[item.id].query_relevance,
+                publishable=assessment_by_id[item.id].publishable,
             )
             for item in evidence
             if item.id is not None
@@ -206,7 +317,25 @@ class ResearchVerifier:
             quality=quality or self._max_quality(evidence, fallback=candidate.quality),
             reason_codes=reason_codes,
             explanation=explanation,
-            metadata=candidate.metadata,
+            provenance_valid=bool(
+                assessment and assessment.provenance_valid
+            ),
+            content_quality=(
+                assessment.content_quality if assessment else 0.0
+            ),
+            query_relevance=(
+                assessment.query_relevance if assessment else 0.0
+            ),
+            corroborated=corroborated,
+            publishable=bool(assessment and assessment.publishable),
+            metadata={
+                **candidate.metadata,
+                "evidence_quality": (
+                    assessment.model_dump(mode="json")
+                    if assessment is not None
+                    else {}
+                ),
+            },
         )
 
     def _max_quality(
@@ -255,3 +384,17 @@ class ResearchVerifier:
                 seen.add(value)
                 cleaned.append(value)
         return cleaned
+
+
+def _evidence_published_date(evidence: ResearchEvidence) -> str:
+    metadata = evidence.metadata if isinstance(evidence.metadata, dict) else {}
+    source_record = metadata.get("source_record")
+    source_record = source_record if isinstance(source_record, dict) else {}
+    record_metadata = source_record.get("metadata")
+    record_metadata = record_metadata if isinstance(record_metadata, dict) else {}
+    return str(
+        metadata.get("published_date")
+        or source_record.get("published_date")
+        or record_metadata.get("published_date")
+        or ""
+    ).strip()

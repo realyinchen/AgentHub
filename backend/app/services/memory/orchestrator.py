@@ -322,7 +322,6 @@ class MemoryOrchestrator:
         decision = self._memory_admission_engine.admit(
             memory_event_to_candidate(
                 new_event.model_copy(update={"user_id": user_id}),
-                source_kind="user_message",
             )
         )
         if decision.decision != "allow":
@@ -513,6 +512,9 @@ class MemoryOrchestrator:
         event = candidate.to_memory_event()
         metadata = dict(event.metadata)
         metadata["conflict_resolution"] = conflict_resolution
+        precommit = dict(metadata.get("precommit") or {})
+        precommit["conflict_checked"] = True
+        metadata["precommit"] = precommit
         return event.model_copy(update={"metadata": metadata})
 
     async def _get_memory_recall_providers(self) -> list[MemoryRecallProvider]:

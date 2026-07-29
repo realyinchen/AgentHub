@@ -8,6 +8,7 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "verify:flowchart-ui": "node scripts/verify_flowchart_ui_acceptance.mjs",
+    "verify:execution-graph": "node scripts/verify_execution_graph.mjs",
     "preview": "vite preview"
   },
   "dependencies": {

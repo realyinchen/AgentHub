@@ -87,6 +87,13 @@ class ModelCapabilityStatus(BaseModel):
     provider: str
     provider_model_id: str
     checked_at: datetime
+    probe_kind: Literal["chat", "embedding"] = "chat"
+    probe_ok: bool = False
+    embedding_dimensions: Optional[int] = Field(default=None, ge=1)
+    error_category: Optional[
+        Literal["network", "auth", "model", "rate_limit", "dimension", "provider"]
+    ] = None
+    # Deprecated compatibility field. New consumers should use probe_ok.
     chat_ok: bool
     thinking_request_ok: Optional[bool] = None
     reasoning_text_ok: Optional[bool] = None

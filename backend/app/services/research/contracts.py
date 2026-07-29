@@ -38,8 +38,35 @@ def normalize_research_token(value: Any) -> str:
     return str(value or "").strip().lower().replace(" ", "_")
 
 
+def sanitize_storage_text(value: Any) -> str:
+    """Return UTF-8/Postgres-safe text without changing its meaning."""
+
+    text = str(value or "").replace("\x00", " ")
+    return text.encode("utf-8", errors="replace").decode("utf-8")
+
+
+def sanitize_json_value(value: Any) -> Any:
+    """Recursively sanitize untrusted provider data before JSONB persistence."""
+
+    if isinstance(value, str):
+        return sanitize_storage_text(value)
+    if isinstance(value, dict):
+        return {
+            sanitize_storage_text(key): sanitize_json_value(nested)
+            for key, nested in value.items()
+        }
+    if isinstance(value, (list, tuple, set)):
+        return [sanitize_json_value(item) for item in value]
+    return value
+
+
 def normalize_text(value: Any) -> str:
-    return str(value or "").strip()
+    return sanitize_storage_text(value).strip()
+
+
+def sanitize_json_object(value: Any) -> dict[str, Any]:
+    sanitized = sanitize_json_value(value or {})
+    return sanitized if isinstance(sanitized, dict) else {}
 
 
 def validate_research_token(
@@ -108,6 +135,11 @@ class ResearchRun(BaseModel):
     def clean_stop_criteria(cls, value: Any) -> list[str]:
         return clean_string_list(value)
 
+    @field_validator("budget", "metadata", mode="before")
+    @classmethod
+    def clean_json_fields(cls, value: Any) -> dict[str, Any]:
+        return sanitize_json_object(value)
+
 
 class ResearchStep(BaseModel):
     """Application-owned contract for one action inside a research run."""
@@ -143,6 +175,16 @@ class ResearchStep(BaseModel):
     @classmethod
     def clean_optional_text(cls, value: Any) -> str:
         return normalize_text(value)
+
+    @field_validator("input", "output", mode="before")
+    @classmethod
+    def clean_json_fields(cls, value: Any) -> dict[str, Any]:
+        return sanitize_json_object(value)
+
+    @field_validator("error", mode="before")
+    @classmethod
+    def clean_error(cls, value: Any) -> str | None:
+        return normalize_text(value) or None
 
 
 class ResearchEvidence(BaseModel):
@@ -187,6 +229,11 @@ class ResearchEvidence(BaseModel):
     def clean_optional_text(cls, value: Any) -> str:
         return normalize_text(value)
 
+    @field_validator("metadata", mode="before")
+    @classmethod
+    def clean_metadata(cls, value: Any) -> dict[str, Any]:
+        return sanitize_json_object(value)
+
 
 class ResearchStateSnapshot(BaseModel):
     """Structured research state snapshot for limited-context continuation."""
@@ -222,6 +269,11 @@ class ResearchStateSnapshot(BaseModel):
     @classmethod
     def validate_status(cls, value: Any) -> str:
         return validate_research_token("status", value, RESEARCH_RUN_STATUSES)
+
+    @field_validator("budget", "metadata", mode="before")
+    @classmethod
+    def clean_json_fields(cls, value: Any) -> dict[str, Any]:
+        return sanitize_json_object(value)
 
     @field_validator(
         "subquestions",

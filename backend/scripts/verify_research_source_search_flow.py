@@ -140,7 +140,7 @@ async def _run_source_search_flow() -> None:
     user_id = uuid.uuid4()
     thread_id = uuid.uuid4()
     provider_call_count = 0
-    original_provider = source_search_service.search_duckduckgo_research_documents
+    original_provider = source_search_service.search_external_research_documents
 
     async def fake_duckduckgo_search(
         *,
@@ -188,7 +188,7 @@ async def _run_source_search_flow() -> None:
             metadata={"provider_source": "duckduckgo", "fake": True},
         )
 
-    source_search_service.search_duckduckgo_research_documents = fake_duckduckgo_search
+    source_search_service.search_external_research_documents = fake_duckduckgo_search
     await _insert_temp_user_and_thread(user_id, thread_id)
     try:
         reset_tool_admission_gate()
@@ -292,7 +292,7 @@ async def _run_source_search_flow() -> None:
         _assert(final_answer["answer_status"] == "verified", str(final_answer))
         _assert(VERIFIED_CLAIM in final_answer["answer"], final_answer["answer"])
     finally:
-        source_search_service.search_duckduckgo_research_documents = original_provider
+        source_search_service.search_external_research_documents = original_provider
         await _delete_temp_user(user_id)
         reset_tool_admission_gate()
 

@@ -1,21 +1,13 @@
-"""Book search service backed by DuckDuckGo HTML results.
-
-This service intentionally avoids relying on an unofficial Douban API. It uses
-DuckDuckGo to discover public book pages, then caches lightweight metadata in
-the local database for recommendation and memory workflows.
-"""
+"""Book candidate cache fusion backed by the external-search gateway."""
 
 from __future__ import annotations
 
-import logging
 import re
 import time
 from dataclasses import dataclass, field
 from html import unescape
-from html.parser import HTMLParser
-from urllib.parse import parse_qs, unquote, urlparse
+from urllib.parse import urlparse
 
-import aiohttp
 from sqlalchemy import String, cast, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,10 +18,8 @@ from app.services.book_search_contracts import (
     BookSearchStatus,
     get_book_search_hint,
 )
+from app.services.external_search import SearchRequest, get_search_gateway
 
-logger = logging.getLogger(__name__)
-
-DUCKDUCKGO_HTML_URL = "https://html.duckduckgo.com/html/"
 BOOK_CACHE_CONTRACT_VERSION = "book-cache-fusion-v1"
 _QUERY_STOPWORDS = {
     "a",
@@ -59,7 +49,7 @@ class BookSearchCacheResult:
     query: str
     status: BookSearchStatus
     books: list[Book]
-    source: str = "duckduckgo"
+    source: str = "external_search"
     next_action_hint: str = ""
     error: str | None = None
     duration_ms: int = 0
@@ -71,79 +61,8 @@ class BookSearchCacheResult:
         return len(self.books)
 
 
-class _DuckDuckGoResultParser(HTMLParser):
-    def __init__(self) -> None:
-        super().__init__()
-        self.results: list[dict[str, str]] = []
-        self._in_title = False
-        self._in_snippet = False
-        self._title_parts: list[str] = []
-        self._snippet_parts: list[str] = []
-        self._current_url = ""
-
-    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
-        attrs_dict = {name: value or "" for name, value in attrs}
-        class_name = attrs_dict.get("class", "")
-
-        if tag == "a" and "result__a" in class_name:
-            self._in_title = True
-            self._title_parts = []
-            self._current_url = _unwrap_duckduckgo_url(attrs_dict.get("href", ""))
-            return
-
-        if "result__snippet" in class_name:
-            self._in_snippet = True
-            self._snippet_parts = []
-
-    def handle_data(self, data: str) -> None:
-        if self._in_title:
-            self._title_parts.append(data)
-        elif self._in_snippet:
-            self._snippet_parts.append(data)
-
-    def handle_endtag(self, tag: str) -> None:
-        if self._in_title and tag == "a":
-            title = _compact_text("".join(self._title_parts))
-            if title and self._current_url:
-                self.results.append(
-                    {
-                        "title": title,
-                        "url": self._current_url,
-                        "snippet": "",
-                    }
-                )
-            self._in_title = False
-            return
-
-        if self._in_snippet and tag in {"a", "div"}:
-            snippet = _compact_text("".join(self._snippet_parts))
-            if snippet and self.results:
-                self.results[-1]["snippet"] = snippet
-            self._in_snippet = False
-
-
 def _compact_text(text: str) -> str:
     return re.sub(r"\s+", " ", unescape(text)).strip()
-
-
-def _unwrap_duckduckgo_url(url: str) -> str:
-    if not url:
-        return ""
-    if url.startswith("//"):
-        url = f"https:{url}"
-    parsed = urlparse(url)
-    if "duckduckgo.com" in parsed.netloc:
-        target = parse_qs(parsed.query).get("uddg")
-        if target:
-            return unquote(target[0])
-    return url
-
-
-def _build_duckduckgo_query(query: str) -> str:
-    cleaned = query.strip()
-    if "site:" in cleaned:
-        return cleaned
-    return f"site:book.douban.com/subject {cleaned} 豆瓣 读书 评分 简介"
 
 
 def _infer_source_name(url: str) -> str:
@@ -186,98 +105,65 @@ def _candidate_to_book_data(candidate: dict[str, str]) -> dict:
     }
 
 
-def _classify_empty_response(html: str) -> BookSearchStatus:
-    if not html.strip():
-        return "garbage"
-    if "result__a" not in html and "result__snippet" not in html:
-        return "garbage"
-    return "empty_result"
+async def search_external_book_candidates(
+    query: str,
+    limit: int = 5,
+) -> BookCandidateSearchResult:
+    """Search public book pages and return structured ordinary search state."""
+    started_at = time.perf_counter()
+    result = await get_search_gateway().search(
+        SearchRequest(
+            query=query,
+            max_results=max(1, min(limit, 10)),
+            detail="standard",
+            include_domains=["book.douban.com"],
+            language="zh",
+            zone="cn",
+        )
+    )
+    books = [
+        _candidate_to_book_data(
+            {
+                "title": hit.title,
+                "url": hit.url,
+                "snippet": hit.snippet or hit.content,
+            }
+        )
+        for hit in result.hits[:limit]
+    ]
+    duration_ms = int((time.perf_counter() - started_at) * 1000)
+    if books:
+        status: BookSearchStatus = "ok"
+    elif result.outcome == "empty":
+        status = "empty_result"
+    elif any(item.error_type == "timeout" for item in result.attempts):
+        status = "timeout"
+    else:
+        status = "hard_error"
+    return BookCandidateSearchResult(
+        query=query,
+        provider_query=result.effective_query or query,
+        status=status,
+        candidates=books,
+        source=result.provider or "external_search",
+        next_action_hint=get_book_search_hint(status),
+        error=result.error or None,
+        duration_ms=duration_ms,
+    )
 
 
 async def search_duckduckgo_book_candidates(
     query: str,
     limit: int = 5,
 ) -> BookCandidateSearchResult:
-    """Search public book pages and return structured ordinary search state."""
-    provider_query = _build_duckduckgo_query(query)
-    params = {"q": provider_query}
-    timeout = aiohttp.ClientTimeout(total=5)
-    headers = {
-        "User-Agent": (
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-            "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125 Safari/537.36"
-        )
-    }
-    started_at = time.perf_counter()
+    """Compatibility alias; all network access now goes through SearchGateway."""
 
-    try:
-        async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
-            async with session.get(DUCKDUCKGO_HTML_URL, params=params) as response:
-                response.raise_for_status()
-                html = await response.text()
-    except TimeoutError as exc:
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.warning("DuckDuckGo book search timed out: %s", exc)
-        return BookCandidateSearchResult(
-            query=query,
-            provider_query=provider_query,
-            status="timeout",
-            next_action_hint=get_book_search_hint("timeout"),
-            error=str(exc) or exc.__class__.__name__,
-            duration_ms=duration_ms,
-        )
-    except aiohttp.ClientError as exc:
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.warning("DuckDuckGo book search failed: %s", exc)
-        return BookCandidateSearchResult(
-            query=query,
-            provider_query=provider_query,
-            status="hard_error",
-            next_action_hint=get_book_search_hint("hard_error"),
-            error=str(exc) or exc.__class__.__name__,
-            duration_ms=duration_ms,
-        )
-    except Exception as exc:
-        duration_ms = int((time.perf_counter() - started_at) * 1000)
-        logger.warning("DuckDuckGo book search failed: %s", exc)
-        return BookCandidateSearchResult(
-            query=query,
-            provider_query=provider_query,
-            status="hard_error",
-            next_action_hint=get_book_search_hint("hard_error"),
-            error=str(exc) or exc.__class__.__name__,
-            duration_ms=duration_ms,
-        )
-
-    parser = _DuckDuckGoResultParser()
-    parser.feed(html)
-
-    seen: set[str] = set()
-    books: list[dict] = []
-    for candidate in parser.results:
-        url = candidate.get("url", "")
-        if not url or url in seen:
-            continue
-        seen.add(url)
-        books.append(_candidate_to_book_data(candidate))
-        if len(books) >= limit:
-            break
-
-    duration_ms = int((time.perf_counter() - started_at) * 1000)
-    status: BookSearchStatus = "ok" if books else _classify_empty_response(html)
-    return BookCandidateSearchResult(
-        query=query,
-        provider_query=provider_query,
-        status=status,
-        candidates=books,
-        next_action_hint=get_book_search_hint(status),
-        duration_ms=duration_ms,
-    )
+    return await search_external_book_candidates(query=query, limit=limit)
 
 
 async def search_duckduckgo_books(query: str, limit: int = 5) -> list[dict]:
-    """Search public book pages with DuckDuckGo and return normalized data."""
-    result = await search_duckduckgo_book_candidates(query=query, limit=limit)
+    """Compatibility alias for legacy callers."""
+    result = await search_external_book_candidates(query=query, limit=limit)
     return result.candidates
 
 
@@ -294,7 +180,7 @@ async def search_and_cache_books_with_status(
     external_limit = max(0, requested_limit - len(cached_books))
 
     if external_limit > 0:
-        external_result = await search_duckduckgo_book_candidates(
+        external_result = await search_external_book_candidates(
             query=query,
             limit=external_limit,
         )

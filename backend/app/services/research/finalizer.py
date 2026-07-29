@@ -11,6 +11,11 @@ from app.services.research.report import (
     build_research_report,
 )
 from app.services.research.verifier import ClaimAdmissionDecision
+from app.services.research.publication import (
+    PublishedResearchAnswer,
+    publish_research_answer,
+    synthesize_research_report_deterministic,
+)
 
 
 RESEARCH_FINAL_ANSWER_CONTRACT_VERSION = "research-final-answer-v1"
@@ -48,26 +53,35 @@ async def finalize_research_answer(
         limit_steps=limit_steps,
         limit_evidence=limit_evidence,
     )
-    return finalize_research_answer_from_report(report)
+    synthesis = synthesize_research_report_deterministic(report)
+    published = publish_research_answer(report, synthesis)
+    return _legacy_result(report, published)
 
 
 def finalize_research_answer_from_report(report: ResearchReport) -> ResearchFinalAnswer:
+    synthesis = synthesize_research_report_deterministic(report)
+    published = publish_research_answer(report, synthesis)
+    return _legacy_result(report, published)
+
+
+def _legacy_result(
+    report: ResearchReport,
+    published: PublishedResearchAnswer,
+) -> ResearchFinalAnswer:
     verified = list(report.verified_claims)
     uncertain = list(report.uncertain_claims)
     rejected = list(report.rejected_claims)
-    limitations = _limitations(report)
-    answer_status = _answer_status(report, verified)
     return ResearchFinalAnswer(
         user_id=report.user_id,
         run_id=report.run_id,
         objective=report.objective,
         report_status=report.report_status,
-        answer_status=answer_status,
-        answer=_answer_text(report, verified, limitations),
+        answer_status=published.answer_status,
+        answer=published.answer,
         verified_claims=verified,
         omitted_uncertain_claims=uncertain,
         omitted_rejected_claims=rejected,
-        limitations=limitations,
+        limitations=published.limitations,
         sources=_sources_for_verified_claims(report, verified),
         ready_for_final_answer=report.verification.ready_for_final_answer,
         can_finalize_with_uncertainty=(
@@ -84,63 +98,9 @@ def finalize_research_answer_from_report(report: ResearchReport) -> ResearchFina
             "writes_long_term_memory": False,
             "writes_recommendation_events": False,
             "external_call": False,
+            "published_answer_contract_version": published.contract_version,
         },
     )
-
-
-def _answer_status(
-    report: ResearchReport,
-    verified: list[ClaimAdmissionDecision],
-) -> str:
-    if report.verification.ready_for_final_answer and verified:
-        return "verified"
-    if verified:
-        return "partial_with_limitations"
-    if report.verification.can_finalize_with_uncertainty:
-        return "uncertain_no_verified_claims"
-    return "blocked_no_verified_claims"
-
-
-def _answer_text(
-    report: ResearchReport,
-    verified: list[ClaimAdmissionDecision],
-    limitations: list[str],
-) -> str:
-    if not verified:
-        lines = [
-            f"I cannot give a verified answer for this research objective yet: {report.objective}",
-        ]
-        if limitations:
-            lines.append("Key limitations:")
-            lines.extend(f"- {item}" for item in limitations[:5])
-        return "\n".join(lines)
-
-    lines = [
-        f"Based on verified source-backed evidence for: {report.objective}",
-    ]
-    for index, claim in enumerate(verified, start=1):
-        lines.append(f"{index}. {claim.claim}")
-    if limitations:
-        lines.append("Limitations:")
-        lines.extend(f"- {item}" for item in limitations[:5])
-    return "\n".join(lines)
-
-
-def _limitations(report: ResearchReport) -> list[str]:
-    limitations: list[str] = []
-    if report.uncertain_claims:
-        limitations.append(
-            f"{len(report.uncertain_claims)} uncertain claim(s) were not used as final facts."
-        )
-    if report.rejected_claims:
-        limitations.append(
-            f"{len(report.rejected_claims)} rejected claim(s) were excluded."
-        )
-    limitations.extend(f"Open gap: {gap}" for gap in report.gaps[:3])
-    limitations.extend(f"Conflict: {conflict}" for conflict in report.conflicts[:3])
-    if report.memory_context.constraints:
-        limitations.append("CurrentMemory was used only as personal context, not evidence.")
-    return limitations
 
 
 def _sources_for_verified_claims(

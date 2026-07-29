@@ -462,8 +462,8 @@ class SearchResearchSourcesInput(BaseModel):
         description="Optional provider-native query override.",
     )
     provider_source: str = Field(
-        default="duckduckgo",
-        description="Approved source search provider. Currently duckduckgo.",
+        default="external_search",
+        description="External search gateway; provider selection is automatic.",
     )
     include_extraction: bool = Field(
         default=True,
@@ -1444,7 +1444,7 @@ async def search_research_sources(
     subquestion: str = "",
     limit: int = 5,
     provider_query: str = "",
-    provider_source: str = "duckduckgo",
+    provider_source: str = "external_search",
     include_extraction: bool = True,
     metadata: dict[str, Any] | None = None,
 ) -> str:

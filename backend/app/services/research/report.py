@@ -25,6 +25,7 @@ class ResearchReportSource(BaseModel):
     source_type: str = "web"
     source_title: str = ""
     source_url: str = ""
+    published_date: str = ""
     quality: str = "unknown"
     relevance: int = 3
     claim: str = ""
@@ -93,6 +94,7 @@ def build_research_report_from_state(
     verification = verifier.verify(
         VerifierAdmissionInput(
             run_id=run_id,
+            objective=research_state.run.objective,
             candidate_claims=candidate_claims,
             evidence=research_state.evidence,
             blocking_gaps=research_state.state.gaps,
@@ -200,12 +202,27 @@ def _sources_from_evidence(
                 source_type=item.source_type,
                 source_title=item.source_title,
                 source_url=item.source_url,
+                published_date=_evidence_published_date(item),
                 quality=item.quality,
                 relevance=item.relevance,
                 claim=item.claim,
             )
         )
     return sources
+
+
+def _evidence_published_date(evidence: ResearchEvidence) -> str:
+    metadata = evidence.metadata if isinstance(evidence.metadata, dict) else {}
+    source_record = metadata.get("source_record")
+    source_record = source_record if isinstance(source_record, dict) else {}
+    record_metadata = source_record.get("metadata")
+    record_metadata = record_metadata if isinstance(record_metadata, dict) else {}
+    return str(
+        metadata.get("published_date")
+        or source_record.get("published_date")
+        or record_metadata.get("published_date")
+        or ""
+    ).strip()
 
 
 def _report_status(
@@ -232,23 +249,38 @@ def _final_answer(
     gaps: list[str],
     conflicts: list[str],
 ) -> str:
-    lines = [f"Research objective: {objective}"]
+    zh = any("\u4e00" <= char <= "\u9fff" for char in objective)
+    lines = [f"{'研究目标' if zh else 'Research objective'}：{objective}"]
     if verification.admitted_claims:
-        lines.append("Verified findings:")
-        for index, claim in enumerate(verification.admitted_claims, start=1):
-            lines.append(f"{index}. {claim.claim}")
+        lines.append("已准入证据：" if zh else "Admitted evidence:")
+        for index, claim in enumerate(
+            verification.admitted_claims[:5],
+            start=1,
+        ):
+            lines.append(f"{index}. {_bounded(claim.claim, 240)}")
     else:
-        lines.append("No verified findings are ready yet.")
+        lines.append(
+            "目前没有通过发布质量检查的证据。"
+            if zh
+            else "No evidence has passed publication checks yet."
+        )
 
     if verification.uncertain_claims:
-        lines.append("Remaining uncertainty:")
+        lines.append("待补强证据：" if zh else "Evidence needing support:")
         for claim in verification.uncertain_claims[:5]:
             reasons = ", ".join(claim.reason_codes) or "uncertain"
-            lines.append(f"- {claim.claim} ({reasons})")
+            lines.append(f"- {_bounded(claim.claim, 180)} ({reasons})")
     if gaps:
-        lines.append("Open gaps:")
+        lines.append("待补问题：" if zh else "Open gaps:")
         lines.extend(f"- {gap}" for gap in gaps[:5])
     if conflicts:
-        lines.append("Unresolved conflicts:")
+        lines.append("未解决冲突：" if zh else "Unresolved conflicts:")
         lines.extend(f"- {conflict}" for conflict in conflicts[:5])
     return "\n".join(lines)
+
+
+def _bounded(value: str, limit: int) -> str:
+    text = " ".join(str(value or "").split()).strip()
+    if len(text) <= limit:
+        return text
+    return text[: limit - 1].rstrip() + "…"

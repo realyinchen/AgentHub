@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.runnables import RunnableConfig
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,7 +12,8 @@ from app.crud.trace import persist_agent_trace
 from app.infra.database import get_database
 from app.schemas.chat import ChatMessage, UserInput
 from app.services.agent_runtime.contracts import ActionPlan, PlanReceipt
-from app.services.agent_runtime.finalizer import receipt_tool_info
+from app.services.agent_runtime.finalizer import receipt_trace_steps
+from app.services.agent_runtime.execution_graph import build_execution_graph
 
 
 logger = logging.getLogger(__name__)
@@ -27,7 +28,7 @@ async def persist_runtime_finalized_turn(
     receipt: PlanReceipt,
     db: AsyncSession | None = None,
 ) -> None:
-    """Persist deterministic answers as plan -> receipt -> answer messages."""
+    """Persist a runtime-finalized answer and project receipts into its trace."""
 
     config = RunnableConfig(
         {"configurable": {"thread_id": str(user_input.thread_id)}}
@@ -45,49 +46,13 @@ async def persist_runtime_finalized_turn(
     human_message = HumanMessage(content=user_input.content)
     if user_input.custom_data:
         human_message.additional_kwargs["custom_data"] = user_input.custom_data
-    persisted_messages: list[Any] = [human_message]
-    for item in receipt_tool_info(receipt):
-        tool_name = str(item.get("name") or "runtime")
-        tool_id = str(item.get("id") or "runtime-action")
-        tool_args = item.get("args") if isinstance(item.get("args"), dict) else {}
-        persisted_messages.extend(
-            [
-                AIMessage(
-                    content="",
-                    tool_calls=[
-                        {
-                            "name": tool_name,
-                            "args": tool_args,
-                            "id": tool_id,
-                            "type": "tool_call",
-                        }
-                    ],
-                    additional_kwargs={
-                        "custom_data": {
-                            "action_plan": plan.model_dump(mode="json"),
-                            "plan_id": plan.plan_id,
-                        }
-                    },
-                ),
-                ToolMessage(
-                    content=str(item.get("output") or ""),
-                    tool_call_id=tool_id,
-                    name=tool_name,
-                    additional_kwargs={
-                        "custom_data": {
-                            "plan_receipt": receipt.model_dump(mode="json"),
-                            "plan_id": plan.plan_id,
-                        }
-                    },
-                ),
-            ]
-        )
-    persisted_messages.append(
+    persisted_messages: list[Any] = [
+        human_message,
         AIMessage(
             content=message.content,
             additional_kwargs={"custom_data": message.custom_data},
-        )
-    )
+        ),
+    ]
     await agent.aupdate_state(
         config,
         {"messages": persisted_messages},
@@ -104,6 +69,8 @@ async def persist_runtime_finalized_turn(
             tokens={"input_tokens": 0, "output_tokens": 0, "total_tokens": 0},
             before_checkpoint_id=before_checkpoint_id,
             before_message_count=before_message_count,
+            system_tool_steps=receipt_trace_steps(receipt, plan=plan),
+            system_execution_graph=build_execution_graph(plan, receipt),
         )
 
     if db is not None:

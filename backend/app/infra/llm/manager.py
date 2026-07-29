@@ -70,6 +70,7 @@ class ModelManager:
         self._connections_cache: dict = {}
         self._default_llm_id: Optional[str] = None
         self._default_vlm_id: Optional[str] = None
+        self._default_embedding_id: Optional[str] = None
         self._initialized: bool = False
         self._cache_lock: asyncio.Lock | None = None
 
@@ -106,6 +107,7 @@ class ModelManager:
 
         new_default_llm: Optional[str] = None
         new_default_vlm: Optional[str] = None
+        new_default_embedding: Optional[str] = None
         for m in models:
             if not getattr(m, "is_default", False):
                 continue
@@ -114,6 +116,8 @@ class ModelManager:
                 new_default_llm = str(m.id)
             elif mt == "vlm":
                 new_default_vlm = str(m.id)
+            elif mt == "embedding":
+                new_default_embedding = str(m.id)
 
         # Atomic swap under lock
         async with self.cache_lock:
@@ -122,6 +126,7 @@ class ModelManager:
             self._models_cache = new_models
             self._default_llm_id = new_default_llm
             self._default_vlm_id = new_default_vlm
+            self._default_embedding_id = new_default_embedding
             self._initialized = True
 
     # ── Provider accessors ─────────────────────────────────────────────
@@ -205,6 +210,10 @@ class ModelManager:
     def default_vlm_id(self) -> Optional[str]:
         return self._default_vlm_id
 
+    @property
+    def default_embedding_id(self) -> Optional[str]:
+        return self._default_embedding_id
+
     def is_model_active(self, model_id: str) -> bool:
         """Check if a model is present in the cache and marked active."""
         m = self._models_cache.get(model_id)
@@ -222,6 +231,20 @@ class ModelManager:
                 m, "is_active", False
             ):
                 return str(m.id)
+        return None
+
+    def get_first_active_embedding_id(self) -> Optional[str]:
+        """Return the first active embedding model UUID from cache."""
+        seen: set[str] = set()
+        for m in self._models_cache.values():
+            model_uuid = str(getattr(m, "id", ""))
+            if model_uuid in seen:
+                continue
+            seen.add(model_uuid)
+            if getattr(m, "model_type", "llm") == "embedding" and getattr(
+                m, "is_active", False
+            ):
+                return model_uuid
         return None
 
     def get_models_count(self) -> int:

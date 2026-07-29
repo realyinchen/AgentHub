@@ -28,6 +28,15 @@ from app.services.memory.orchestrator import (
     get_memory_orchestrator,
 )
 from app.services.memory.providers.mem0 import Mem0MemoryProvider
+from app.services.memory.write_contracts import (
+    MemoryClarificationContext,
+    MemoryCommitCommand,
+    MemoryFactDraft,
+    MemoryWriteDecision,
+    MemoryWriteOutcome,
+    MemoryWriteRequest,
+    ResolvedMemoryFact,
+)
 
 __all__ = [
     "CurrentMemoryListResult",
@@ -45,10 +54,13 @@ __all__ = [
     "MemoryAdmissionError",
     "MemoryAdmissionResult",
     "MemoryCandidate",
+    "MemoryClarificationContext",
     "MemoryConflict",
     "MemoryConflictResolution",
     "MemoryConflictResolver",
+    "MemoryCommitCommand",
     "MemoryEvent",
+    "MemoryFactDraft",
     "MemoryEntityFact",
     "MemoryEventListResult",
     "MemoryForgetResult",
@@ -56,5 +68,9 @@ __all__ = [
     "MemoryRecallProviderRequest",
     "MemoryRecallProviderResult",
     "MemorySearchResult",
+    "MemoryWriteDecision",
+    "MemoryWriteOutcome",
+    "MemoryWriteRequest",
+    "ResolvedMemoryFact",
     "get_memory_orchestrator",
 ]

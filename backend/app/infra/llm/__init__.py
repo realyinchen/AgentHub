@@ -12,9 +12,10 @@ Public API:
         - get_llm(model_id, thinking_mode): Get a ChatLiteLLM for runtime use
                                            Models configured in DB (providers + models tables)
 
-    Embedding (from .env):
-        - get_embeddings(): Return LiteLLMEmbeddings instance (LangChain Embeddings interface)
-                           Dimension: settings.EMBEDDING_DIMENSION
+    Embedding (database-first, environment fallback):
+        - get_embeddings(): Return the startup-activated client.
+        - get_persistent_embeddings(): Return it after the provider's real
+          output dimension has been observed.
 
     Model Manager:
         - get_model_manager(): Get the ModelManager singleton for cache access
@@ -22,7 +23,7 @@ Public API:
 
 Configuration sources:
     - System LLM:     .env (SYSTEM_DEFAULT_LLM_MODEL)
-    - Embedding:      .env (SYSTEM_DEFAULT_EMBEDDING_MODEL, EMBEDDING_DIMENSION)
+    - Embedding:      DB model/connection, then .env fallback
     - Runtime models: DB (providers + models tables) — /api/v1/models CRUD
 
 Model info for frontend:
@@ -36,7 +37,12 @@ Business code should only use the getter functions above.
 
 import logging
 
-from app.infra.llm.embedding import get_embeddings
+from app.infra.llm.embedding import get_embeddings, get_persistent_embeddings
+from app.infra.llm.embedding_config import (
+    ResolvedEmbeddingConfig,
+    build_explicit_embedding_config,
+    resolve_embedding_config,
+)
 from app.infra.llm.factory import get_llm
 from app.infra.llm.manager import get_model_manager
 from app.infra.llm.resolver import resolve_model_name
@@ -48,6 +54,10 @@ __all__ = [
     "get_system_llm",
     "get_llm",
     "get_embeddings",
+    "get_persistent_embeddings",
     "get_model_manager",
+    "ResolvedEmbeddingConfig",
+    "build_explicit_embedding_config",
+    "resolve_embedding_config",
     "resolve_model_name",
 ]

@@ -9,12 +9,7 @@ from uuid import UUID
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
 
-from app.services.memory import (
-    MemoryAdmissionError,
-    MemoryCandidate,
-    MemoryEvent,
-    get_memory_orchestrator,
-)
+from app.services.memory import get_memory_orchestrator
 from app.services.tool_admission import (
     ToolAdmissionResult,
     ToolPolicyDeclaration,
@@ -26,20 +21,6 @@ SEARCH_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
     tool_name="search_memory",
     required_policy_flags=["can_search_memory"],
     side_effect_scope="memory_read",
-    blocked_status="tool_blocked",
-)
-REMEMBER_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
-    tool_name="remember_memory",
-    required_policy_flags=["can_write_memory"],
-    side_effect_scope="long_term_memory",
-    writes_long_term_memory=True,
-    blocked_status="tool_blocked",
-)
-REVISE_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
-    tool_name="revise_memory",
-    required_policy_flags=["can_write_memory"],
-    side_effect_scope="long_term_memory",
-    writes_long_term_memory=True,
     blocked_status="tool_blocked",
 )
 FORGET_MEMORY_TOOL_POLICY = ToolPolicyDeclaration(
@@ -190,39 +171,26 @@ async def remember_memory(
     source_kind: str = "user_message",
     metadata: dict[str, Any] | None = None,
 ) -> str:
-    """Persist a new user profile, preference, book feedback, or reading memory event."""
-    tool_admission = get_tool_admission_gate().admit_current_turn(
-        REMEMBER_MEMORY_TOOL_POLICY
+    """Retired agent write tool; chat facts must use the pre-commit pipeline."""
+    del (
+        user_id,
+        type,
+        subject,
+        value,
+        polarity,
+        confidence,
+        thread_id,
+        source,
+        scope,
+        source_text,
+        source_kind,
+        metadata,
     )
-    if not tool_admission.allowed:
-        return _tool_blocked_payload(tool_admission, extra={"memory": None})
-
-    candidate_metadata = dict(metadata or {})
-    candidate_metadata.setdefault("event_source", source)
-    candidate = MemoryCandidate(
-        user_id=user_id,
-        thread_id=thread_id,
-        type=type,
-        subject=subject,
-        value=value,
-        polarity=polarity,
-        confidence=confidence,
-        scope=scope,
-        source_text=source_text,
-        source_kind=source_kind,
-        metadata=candidate_metadata,
-    )
-    result = await get_memory_orchestrator().remember_candidate(candidate)
-    if result.memory is not None:
-        return json.dumps(result.memory.model_dump(mode="json"), ensure_ascii=False)
     return json.dumps(
         {
-            "status": result.decision.decision,
-            "tool_admission": tool_admission.model_dump(mode="json"),
-            "admission": result.decision.model_dump(mode="json"),
-            "conflicts": [
-                conflict.model_dump(mode="json") for conflict in result.conflicts
-            ],
+            "status": "tool_blocked",
+            "tool_name": "remember_memory",
+            "reason": "precommit_pipeline_required",
             "memory": None,
         },
         ensure_ascii=False,
@@ -245,45 +213,31 @@ async def revise_memory(
     source: str = "chat_turn",
     metadata: dict[str, Any] | None = None,
 ) -> str:
-    """Revise a prior memory by superseding it with a corrected event."""
-    tool_admission = get_tool_admission_gate().admit_current_turn(
-        REVISE_MEMORY_TOOL_POLICY
+    """Retired agent write tool; corrections use the pre-commit pipeline."""
+    del (
+        user_id,
+        new_subject,
+        new_value,
+        memory_id,
+        old_value,
+        old_subject,
+        old_type,
+        new_type,
+        new_polarity,
+        confidence,
+        thread_id,
+        source,
+        metadata,
     )
-    if not tool_admission.allowed:
-        return _tool_blocked_payload(tool_admission, extra={"memory": None})
-
-    new_event = MemoryEvent(
-        user_id=user_id,
-        thread_id=thread_id,
-        type=new_type,
-        subject=new_subject,
-        value=new_value,
-        polarity=new_polarity,
-        confidence=confidence,
-        source=source,
-        metadata=metadata or {},
+    return json.dumps(
+        {
+            "status": "tool_blocked",
+            "tool_name": "revise_memory",
+            "reason": "precommit_pipeline_required",
+            "memory": None,
+        },
+        ensure_ascii=False,
     )
-    try:
-        saved = await get_memory_orchestrator().revise_memory(
-            user_id=user_id,
-            new_event=new_event,
-            memory_id=memory_id,
-            old_value=old_value,
-            old_subject=old_subject,
-            old_type=old_type,
-        )
-    except MemoryAdmissionError as exc:
-        return json.dumps(
-            {
-                "status": exc.decision.decision,
-                "tool_admission": tool_admission.model_dump(mode="json"),
-                "admission": exc.decision.model_dump(mode="json"),
-                "conflicts": [],
-                "memory": None,
-            },
-            ensure_ascii=False,
-        )
-    return json.dumps(saved.model_dump(mode="json"), ensure_ascii=False)
 
 
 @tool(args_schema=ForgetMemoryInput)

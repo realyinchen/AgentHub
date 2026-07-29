@@ -49,10 +49,11 @@ from app.utils.message import (
     langchain_to_chat_message,
 )
 from app.services.agent_runtime import (
-    finalize_deterministic_receipt,
+    finalize_runtime_receipt,
     prepare_runtime_turn,
 )
-from app.services.agent_runtime.contracts import PlanReceipt
+from app.services.agent_runtime.contracts import ActionPlan, PlanReceipt
+from app.services.agent_runtime.execution_graph import build_execution_graph
 from app.services.agent_runtime.finalizer import receipt_tool_info, receipt_trace_steps
 from app.services.agent_runtime.persistence import persist_runtime_finalized_turn
 
@@ -128,9 +129,10 @@ class ChatStreamingService:
         runtime_turn = await prepare_runtime_turn(
             user_input,
             model_name=str(user_input.model_uuid or user_input.model_name or ""),
+            agent=self._agent,
         )
         if runtime_turn.can_finalize_without_model:
-            final_message = finalize_deterministic_receipt(
+            final_message = finalize_runtime_receipt(
                 runtime_turn.plan,
                 runtime_turn.receipt,
             )
@@ -201,7 +203,10 @@ class ChatStreamingService:
         kwargs = await build_agent_kwargs(user_input)
         config = kwargs["config"]
         context = kwargs["context"]
-        system_tool_steps = receipt_trace_steps(runtime_turn.receipt)
+        system_tool_steps = receipt_trace_steps(
+            runtime_turn.receipt,
+            plan=runtime_turn.plan,
+        )
         context.action_plan = runtime_turn.plan.model_dump(mode="json")
         context.plan_receipt = runtime_turn.receipt.model_dump(mode="json")
 
@@ -497,7 +502,10 @@ class ChatStreamingService:
                         {
                             "action_plan": runtime_turn.plan.model_dump(mode="json"),
                             "plan_receipt": runtime_turn.receipt.model_dump(mode="json"),
-                            "tool_info": receipt_tool_info(runtime_turn.receipt),
+                            "tool_info": receipt_tool_info(
+                                runtime_turn.receipt,
+                                plan=runtime_turn.plan,
+                            ),
                             "runtime_trace": {
                                 "request_id": request_id,
                                 "plan_id": runtime_turn.plan.plan_id,
@@ -538,6 +546,10 @@ class ChatStreamingService:
                         before_message_count=before_message_count,
                         reasoning_segments=reasoning_segments,
                         system_tool_steps=system_tool_steps,
+                        system_execution_graph=build_execution_graph(
+                            runtime_turn.plan,
+                            runtime_turn.receipt,
+                        ),
                     )
 
             write_queue.add("persist_tokens_and_dag", _persist_tokens_and_dag())
@@ -654,12 +666,21 @@ class ChatStreamingService:
             chat_msg.custom_data["thinking"] = thinking
         action_plan = getattr(context, "action_plan", None)
         plan_receipt = getattr(context, "plan_receipt", None)
+        validated_plan: ActionPlan | None = None
+        validated_receipt: PlanReceipt | None = None
         chat_msg.custom_data["action_plan"] = action_plan or {}
         chat_msg.custom_data["plan_receipt"] = plan_receipt or {}
         if isinstance(plan_receipt, dict):
             try:
+                validated_plan = (
+                    ActionPlan.model_validate(action_plan)
+                    if isinstance(action_plan, dict) and action_plan
+                    else None
+                )
+                validated_receipt = PlanReceipt.model_validate(plan_receipt)
                 chat_msg.custom_data["tool_info"] = receipt_tool_info(
-                    PlanReceipt.model_validate(plan_receipt)
+                    validated_receipt,
+                    plan=validated_plan,
                 )
             except Exception:
                 chat_msg.custom_data["tool_info"] = []
@@ -705,6 +726,15 @@ class ChatStreamingService:
                     before_message_count=before_message_count,
                     reasoning_segments=reasoning_segments,
                     system_tool_steps=system_tool_steps,
+                    system_execution_graph=(
+                        build_execution_graph(
+                            validated_plan,
+                            validated_receipt,
+                        )
+                        if validated_plan is not None
+                        and validated_receipt is not None
+                        else None
+                    ),
                 )
         except Exception:
             logger.exception("Failed to persist non-streaming DAG for %s", request_id)

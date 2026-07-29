@@ -6,44 +6,16 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 from app.schemas.chat import UserInput
-from app.services.memory import (
-    MemoryAdmissionResult,
-    MemoryCandidate,
-    MemoryEntityFact,
-    get_memory_orchestrator,
+from app.services.memory import MemoryCandidate, MemoryEntityFact
+from app.services.memory.schema_registry import canonical_state_key
+from app.services.memory.identity import (
+    extract_declared_name,
+    is_valid_person_name,
 )
-from app.services.memory.contracts import normalize_memory_token
 
 
 _NAME_VALUE = r"[\w\u4e00-\u9fff\u00b7\.\-]{1,32}"
 _PROFILE_VALUE = r"[^。！？!?,，；;\n\r]{1,80}"
-_NAME_PATTERNS = [
-    re.compile(
-        rf"^\s*\u6211\u662f(?P<name>{_NAME_VALUE})\s*(?:[.!?\u3002\uff01\uff1f])?\s*$",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rf"(?:\u6211\u53eb|\u6211\u7684\u540d\u5b57(?:\u53eb|\u662f))(?P<name>{_NAME_VALUE})",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rf"\u53eb\u6211(?P<name>{_NAME_VALUE})",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rf"\u6211\u662f(?P<name>{_NAME_VALUE})(?:\s|,|\uff0c)*"
-        rf"(?:\u4f60)?(?:\u8bb0\u4f4f|\u8bb0\u4e00\u4e0b|\u8bb0\u4e0b)",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rf"(?:remember\s+(?:that\s+)?)?my\s+name\s+is\s+(?P<name>{_NAME_VALUE})",
-        re.IGNORECASE,
-    ),
-    re.compile(
-        rf"call\s+me\s+(?P<name>{_NAME_VALUE})",
-        re.IGNORECASE,
-    ),
-]
 _PROFILE_PREFERENCE_PATTERNS = [
     (
         re.compile(
@@ -158,10 +130,6 @@ _PET_FACT_RES = (
         re.IGNORECASE,
     ),
 )
-_TRAILING_NAME_NOISE = re.compile(
-    r"(?:\u4f60)?(?:\u8bb0\u4f4f|\u8bb0\u4e00\u4e0b|\u8bb0\u4e0b)$|\u4f60$",
-    re.IGNORECASE,
-)
 _PROFILE_LOOKUP_QUESTION_RE = re.compile(
     "|".join(
         f"(?:{pattern})"
@@ -201,25 +169,49 @@ class ProfileMemoryCaptureResult(BaseModel):
 async def capture_explicit_profile_memories(
     user_input: UserInput,
 ) -> ProfileMemoryCaptureResult:
-    """Persist low-ambiguity user profile facts before the model runs.
+    """Compatibility adapter into the canonical pre-commit write pipeline."""
 
-    The agent may still call memory tools, but explicit profile facts such as
-    "my name is ..." are app-owned enough that they should not depend on model
-    discretion. MemoryAdmission and ConflictResolver still decide persistence.
-    """
+    from app.services.conversation.contracts import ConversationWindow
+    from app.services.memory.write_contracts import MemoryWriteRequest
+    from app.services.memory.write_coordinator import MemoryWriteCoordinator
 
-    candidates = extract_explicit_profile_memory_candidates(user_input)
-    if not candidates:
+    if not extract_explicit_profile_memory_candidates(user_input):
         return ProfileMemoryCaptureResult(reason="no_explicit_profile_fact")
-
-    captured: list[dict[str, Any]] = []
-    for candidate in candidates:
-        result = await get_memory_orchestrator().remember_candidate(candidate)
-        captured.append(_capture_item(candidate, result))
-
+    explicit = bool(
+        re.search(r"记住|记一下|记下来|保存|\bremember\b", user_input.content, re.I)
+    )
+    outcome = await MemoryWriteCoordinator().process(
+        MemoryWriteRequest(
+            utterance=user_input.content,
+            target_expression=user_input.content,
+            explicit=explicit,
+            conversation_context_required=False,
+            semantic_fallback_allowed=False,
+        ),
+        user_input=user_input,
+        conversation=ConversationWindow(),
+        user_id=user_input.user_id,
+        thread_id=user_input.thread_id,
+    )
+    captured = [
+        {
+            "memory": memory,
+            "decision": {
+                "decision": (
+                    "allow"
+                    if outcome.status == "committed"
+                    else "skip_duplicate"
+                )
+            },
+        }
+        for memory in outcome.memories
+    ]
     return ProfileMemoryCaptureResult(
-        status="completed",
-        captured_count=sum(1 for item in captured if item.get("memory") is not None),
+        status=outcome.status,
+        captured_count=(
+            len(outcome.memories) if outcome.status == "committed" else 0
+        ),
+        reason=",".join(outcome.reason_codes),
         memories=captured,
     )
 
@@ -269,48 +261,27 @@ def extract_explicit_profile_memory_candidates(
     )
 
 
+def has_explicit_profile_memory_statement(text: str) -> bool:
+    """Return whether text contains a deterministic profile fact, without IDs."""
+
+    normalized = " ".join(str(text or "").split()).strip()
+    if not normalized or _PROFILE_LOOKUP_QUESTION_RE.search(normalized):
+        return False
+    if _extract_name(normalized):
+        return True
+    if any(pattern.search(normalized) for pattern in _PET_FACT_RES):
+        return True
+    if any(pattern.search(normalized) for pattern, *_ in _PROFILE_PREFERENCE_PATTERNS):
+        return True
+    return any(pattern.search(normalized) for pattern, *_ in _PROFILE_USER_FACT_PATTERNS)
+
+
 def _extract_name(text: str) -> str:
-    for pattern in _NAME_PATTERNS:
-        match = pattern.search(text)
-        if not match:
-            continue
-        name = str(match.group("name") or "").strip()
-        name = _TRAILING_NAME_NOISE.sub("", name).strip()
-        name = name.strip(" \t\r\n,.;:!?，。！？；：\"'“”‘’（）()[]{}")
-        if _valid_name(name):
-            return name
-    return ""
+    return extract_declared_name(text)
 
 
 def _valid_name(name: str) -> bool:
-    if not name or len(name) > 32:
-        return False
-    broad = {
-        "user",
-        "me",
-        "myself",
-        "what",
-        "who",
-        "\u6211",
-        "\u7528\u6237",
-        "\u4e00\u4e2a\u4eba",
-        "\u4e00\u4e2a",
-        "\u4e00\u540d",
-        "\u5b66\u751f",
-        "\u8001\u5e08",
-        "\u533b\u751f",
-        "\u7a0b\u5e8f\u5458",
-        "\u5de5\u7a0b\u5e08",
-        "\u8bfb\u8005",
-        "\u4f5c\u8005",
-        "\u4ec0\u4e48",
-        "\u5565",
-        "\u8c01",
-    }
-    lowered = name.lower()
-    if lowered.startswith(("\u4e00\u4e2a", "\u4e00\u540d")):
-        return False
-    return lowered not in broad
+    return is_valid_person_name(name)
 
 
 def _extract_preference_candidates(
@@ -470,7 +441,7 @@ def _clean_profile_value(value: str) -> str:
     text = " ".join(str(value or "").split()).strip()
     text = re.split(r"(?:\u4f46\u662f|\u4f46|\u4e0d\u8fc7|\bbut\b)", text, maxsplit=1)[0].strip()
     text = _TRAILING_PROFILE_NOISE.sub("", text).strip()
-    return text.strip(" \t\r\n,.;:!?锛屻€傦紒锛燂紱锛歕\"'鈥溾€濃€樷€欙紙锛?)[]{}")
+    return text.strip(" \t\r\n,.;:!?，。！？；：\"'“”‘’（）()[]{}")
 
 
 def _valid_profile_value(value: str) -> bool:
@@ -510,10 +481,11 @@ def _with_user_state_metadata(
     entity_fact = metadata.get("entity_fact")
     if isinstance(entity_fact, dict):
         category = "relation"
-        state_key = profile_key or (
-            f"relation.{entity_fact.get('relation') or 'related_to'}."
-            f"{entity_fact.get('entity_type') or 'entity'}."
-            f"{entity_fact.get('name') or 'unknown'}"
+        state_key = canonical_state_key(
+            "relation",
+            str(entity_fact.get("relation") or "related_to"),
+            str(entity_fact.get("entity_type") or "entity"),
+            str(entity_fact.get("name") or "unknown"),
         )
         state_value = {
             "entity_type": entity_fact.get("entity_type"),
@@ -538,15 +510,16 @@ def _with_user_state_metadata(
         use_when = ["用户询问自己是谁", "用户询问自己的名字", "称呼用户"]
     elif profile_key in {"habit", "profile_fact"}:
         category = "profile"
-        state_key = f"profile.{profile_key}"
+        state_key = canonical_state_key("profile", profile_key)
         state_value = {"value": candidate.value}
         relation = {}
         use_when = ["用户询问自己的习惯或画像", "个性化回答与规划"]
     else:
         category = "preference"
-        state_key = (
-            f"preference.{candidate.subject}."
-            f"{normalize_memory_token(candidate.value)[:80]}"
+        state_key = canonical_state_key(
+            "preference",
+            candidate.subject,
+            candidate.value,
         )
         state_value = {
             "value": candidate.value,
@@ -569,6 +542,15 @@ def _with_user_state_metadata(
         "confirmation_question": "",
         "organizer": "deterministic_fast_capture",
     }
+    metadata["precommit"] = {
+        "source_identified": True,
+        "reference_resolved": True,
+        "completeness_validated": True,
+        "persistence_approved": True,
+        "extraction_method": "deterministic",
+        "source_kind": "current_user_assertion",
+        "source_turn_offset": 0,
+    }
     return candidate.model_copy(update={"metadata": metadata})
 
 
@@ -587,18 +569,3 @@ def _dedupe_candidates(candidates: list[MemoryCandidate]) -> list[MemoryCandidat
         seen.add(key)
         result.append(candidate)
     return result
-
-
-def _capture_item(
-    candidate: MemoryCandidate,
-    result: MemoryAdmissionResult,
-) -> dict[str, Any]:
-    return {
-        "candidate": candidate.model_dump(mode="json"),
-        "decision": result.decision.model_dump(mode="json"),
-        "memory": result.memory.model_dump(mode="json") if result.memory else None,
-        "conflicts": [
-            conflict.model_dump(mode="json") for conflict in result.conflicts
-        ],
-        "provider_sources": result.provider_sources,
-    }

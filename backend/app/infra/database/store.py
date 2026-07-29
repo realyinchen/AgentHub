@@ -1,21 +1,18 @@
 """PostgreSQL Store backend (LangGraph AsyncPostgresStore).
 
-Provides long-term memory (cross-session, cross-thread) with optional
-vector semantic search. Enables agents to remember user preferences
-and facts across conversations.
-
-Embedding functions are provided by infra.llm.embedding module (singleton
-LiteLLMEmbeddings instance created at startup).
+Provides the LangGraph structured key/value store. Semantic projections are
+deliberately excluded because LangGraph's built-in ``store_vectors`` table has
+one process-global fixed dimension. App-owned memory retrieval and versioned
+embedding projections have independent lifecycles.
 
 Reference:
 https://docs.langchain.com/oss/python/langchain/long-term-memory
 """
 
 import logging
-from typing import AsyncContextManager, Optional, Sequence, cast
+from typing import AsyncContextManager, Optional
 
 from langgraph.store.postgres.aio import AsyncPostgresStore
-from langgraph.store.postgres.base import PostgresIndexConfig
 
 from app.infra.config import get_settings
 from app.infra.errors import StoreError
@@ -47,23 +44,12 @@ class PostgresStore:
 
         settings = get_settings()
         conn_string = settings.get_postgres_conn_string()
-        index_config = await self._build_index_config()
-
         try:
-            if index_config is not None:
-                self._cm = AsyncPostgresStore.from_conn_string(
-                    conn_string, index=index_config
-                )
-                logger.info(
-                    "PostgreSQL Store initialized with vector index (dims=%d)",
-                    index_config.get("dims", 0),
-                )
-            else:
-                self._cm = AsyncPostgresStore.from_conn_string(conn_string)
-                logger.info(
-                    "PostgreSQL Store initialized without vector index "
-                    "(no embedding model configured)"
-                )
+            self._cm = AsyncPostgresStore.from_conn_string(conn_string)
+            logger.info(
+                "PostgreSQL Store initialized as structured storage; semantic "
+                "vectors are managed by versioned embedding spaces"
+            )
 
             self._store = await self._cm.__aenter__()
             await self._store.setup()
@@ -72,31 +58,6 @@ class PostgresStore:
                 f"Failed to initialize store: {e}",
                 operation="initialize",
             ) from e
-
-    async def _build_index_config(self) -> Optional[PostgresIndexConfig]:
-        """Build vector-search index config if an embedding model is available."""
-        from app.infra.llm import get_embeddings
-
-        settings = get_settings()
-
-        embeddings = get_embeddings()
-        if embeddings is None:
-            logger.info(
-                "No embedding model configured, Store will operate without semantic search"
-            )
-            return None
-
-        async def embed_texts(texts: Sequence[str]) -> list[list[float]]:
-            return await embeddings.aembed_documents(list(texts))
-
-        return cast(
-            PostgresIndexConfig,
-            {
-                "dims": settings.EMBEDDING_DIMENSION,
-                "embed": embed_texts,
-                "fields": ["$"],
-            },
-        )
 
     def get_store(self) -> AsyncPostgresStore:
         """Return the LangGraph-compatible store."""

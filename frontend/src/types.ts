@@ -901,7 +901,12 @@ export type ModelCapabilityStatus = {
   provider: string
   provider_model_id: string
   checked_at: string
-  chat_ok: boolean
+  probe_kind?: "chat" | "embedding" | null
+  probe_ok?: boolean | null
+  embedding_dimensions?: number | null
+  dimensions?: number | null
+  error_category?: string | null
+  chat_ok?: boolean | null
   thinking_request_ok: boolean | null
   reasoning_text_ok: boolean | null
   streaming_reasoning_ok: boolean | null

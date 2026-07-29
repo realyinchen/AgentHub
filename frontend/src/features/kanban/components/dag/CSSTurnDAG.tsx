@@ -3,31 +3,34 @@
  * No third-party graph library — uses absolute positioning + SVG edges.
  */
 
-import { useMemo, useState, useCallback, useRef, useEffect } from 'react';
+import { useMemo, useState, useCallback, useRef, useId } from 'react';
 import { Bot, Brain, CheckCircle2, ZoomIn, ZoomOut, Maximize2, Minimize2 } from 'lucide-react';
 
-import type { MessageStepRaw, LayoutNode, DAGNodeData } from '../../types/dag';
-import { buildDAGFromSteps, calculateBoundingBox } from '../../utils/dagBuilder';
+import type { ExecutionDagRaw, LayoutNode, DAGNodeData } from '../../types/dag';
+import { adaptExecutionDag } from '../../utils/executionGraphAdapter';
 import NodeDetailSheet from './NodeDetailSheet';
 import { useI18n } from '@/i18n';
 import { SciFiLoader } from '@/components/ai/neural-network-loader';
 
 interface CSSTurnDAGProps {
-  steps: MessageStepRaw[];
+  dag: ExecutionDagRaw;
   className?: string;
   compact?: boolean; // Compact mode: hide controls, auto-scale to fit
 }
 
-function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps) {
+function CSSTurnDAG({ dag, className = '', compact = false }: CSSTurnDAGProps) {
   const { t } = useI18n();
   const [selectedNode, setSelectedNode] = useState<DAGNodeData | null>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [scale, setScale] = useState(1);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const markerId = `dag-arrow-${useId().replace(/:/g, '')}`;
 
-  const { nodes, edges, summary } = useMemo(() => buildDAGFromSteps(steps), [steps]);
-  const bbox = useMemo(() => calculateBoundingBox(nodes), [nodes]);
+  const { nodes, edges, summary, bounds } = useMemo(
+    () => adaptExecutionDag(dag),
+    [dag],
+  );
 
   // Node map for quick edge lookup
   const nodeMap = useMemo(() => {
@@ -52,47 +55,6 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
   const zoomOut = useCallback(() => setScale(s => Math.max(s - 0.15, 0.3)), []);
   const resetZoom = useCallback(() => setScale(1), []);
 
-  // Auto-scale for compact mode: calculate scale to fill container both width AND height
-  const [autoScale, setAutoScale] = useState(1);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
-
-  useEffect(() => {
-    if (compact && containerRef.current) {
-      const calculateAutoScale = () => {
-        const containerWidth = containerRef.current?.clientWidth || 256;
-        const containerHeight = containerRef.current?.clientHeight || 200;
-        const dagWidth = bbox.width || 400;
-        const dagHeight = bbox.height || 300;
-        // No padding - fill the container completely
-        const scaleX = containerWidth / dagWidth;
-        const scaleY = containerHeight / dagHeight;
-        // Use the smaller scale to ensure DAG fits, allow larger scaling
-        const calculatedScale = Math.min(scaleX, scaleY, 4.0);
-        setAutoScale(Math.max(0.5, calculatedScale));
-      };
-
-      calculateAutoScale();
-
-      // Use ResizeObserver for better container size detection
-      if (resizeObserverRef.current) {
-        resizeObserverRef.current.disconnect();
-      }
-      resizeObserverRef.current = new ResizeObserver(() => {
-        calculateAutoScale();
-      });
-      resizeObserverRef.current.observe(containerRef.current);
-
-      return () => {
-        if (resizeObserverRef.current) {
-          resizeObserverRef.current.disconnect();
-        }
-      };
-    }
-  }, [compact, bbox.width, bbox.height]);
-
-  // Use auto-scale when in compact mode, otherwise use manual scale
-  const effectiveScale = compact ? autoScale : scale;
-
   const toggleFullscreen = useCallback(() => {
     if (!isFullscreen && containerRef.current?.requestFullscreen) {
       containerRef.current.requestFullscreen();
@@ -113,10 +75,11 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
     );
   }
 
-  // Offset to center the graph (shift so minX/minY map to padding)
-  // Add extra padding at top to ensure human node is fully visible
-  const offsetX = -bbox.minX + 60;
-  const offsetY = -bbox.minY + 80;
+  const viewWidth = bounds.width / (compact ? 1 : scale);
+  const viewHeight = bounds.height / (compact ? 1 : scale);
+  const viewX = bounds.x + (bounds.width - viewWidth) / 2;
+  const viewY = bounds.y + (bounds.height - viewHeight) / 2;
+  const viewBox = `${viewX} ${viewY} ${viewWidth} ${viewHeight}`;
 
   return (
     <>
@@ -124,7 +87,11 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
         ref={containerRef}
         className={`relative ${className}`}
         style={{
-          height: compact ? '100%' : (isFullscreen ? '100vh' : Math.max(280, Math.min(500, bbox.height * effectiveScale + 120))),
+          height: compact
+            ? '100%'
+            : isFullscreen
+              ? '100vh'
+              : Math.max(360, Math.min(680, bounds.height + 96)),
           background: 'var(--dag-bg-main)',
           borderRadius: '12px',
           border: '1px solid var(--dag-border)',
@@ -175,132 +142,72 @@ function CSSTurnDAG({ steps, className = '', compact = false }: CSSTurnDAGProps)
           </div>
         )}
 
-        {/* Canvas area - centered in compact mode, scrollable otherwise */}
-        <div
-          className={compact ? 'w-full h-full' : 'w-full overflow-auto dag-scroll-container'}
-          style={{
-            height: '100%',
-            ...(compact ? { display: 'flex', alignItems: 'center', justifyContent: 'center' } : { paddingTop: '44px', paddingBottom: '44px' }),
-          }}
+        <svg
+          width="100%"
+          height="100%"
+          viewBox={viewBox}
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          aria-label={t('process.executionSteps') || 'Execution graph'}
+          style={{ display: 'block' }}
         >
-          <div
-            style={{
-              width: bbox.width,
-              height: bbox.height,
-              position: 'relative',
-              transform: `scale(${effectiveScale})`,
-              transformOrigin: compact ? 'center center' : 'top center',
-              transition: 'transform 0.15s ease',
-              margin: '0 auto',
-              flexShrink: 0,
-            }}
-          >
-            {/* SVG Edges layer */}
-            <svg
-              style={{
-                position: 'absolute',
-                top: 0,
-                left: 0,
-                width: '100%',
-                height: '100%',
-                pointerEvents: 'none',
-                overflow: 'visible',
-              }}
+          <defs>
+            <marker
+              id={markerId}
+              markerWidth="8"
+              markerHeight="6"
+              refX="7"
+              refY="3"
+              orient="auto"
+              markerUnits="strokeWidth"
             >
-              <defs>
-                <marker
-                  id="dag-arrow"
-                  markerWidth="8"
-                  markerHeight="6"
-                  refX="7"
-                  refY="3"
-                  orient="auto"
-                  markerUnits="strokeWidth"
-                >
-                  <polygon
-                    points="0 0, 8 3, 0 6"
-                    fill="var(--dag-edge)"
-                  />
-                </marker>
-              </defs>
-              {edges.map(edge => {
-                const sourceNode = nodeMap.get(edge.sourceId);
-                const targetNode = nodeMap.get(edge.targetId);
-                if (!sourceNode || !targetNode) return null;
-
-                const sx = sourceNode.x + offsetX + sourceNode.width / 2;
-                const sy = sourceNode.y + offsetY + sourceNode.height;
-                const tx = targetNode.x + offsetX + targetNode.width / 2;
-                const ty = targetNode.y + offsetY;
-
-                // Calculate orthogonal path with rounded corners
-                // Use fixed vertical segments for cleaner look
-                const verticalGap = 30; // Distance before horizontal turn
-                const cornerRadius = 6;
-
-                let pathD: string;
-
-                if (Math.abs(sx - tx) < 1) {
-                  // Direct vertical line (same x position)
-                  pathD = `M ${sx},${sy} L ${tx},${ty}`;
-                } else {
-                  // Orthogonal path with rounded corners
-                  // Go down from source, then horizontal at midpoint, then down to target
-                  const turnY1 = sy + verticalGap;
-
-                  pathD = `M ${sx},${sy} ` +
-                    `L ${sx},${turnY1 - cornerRadius} ` +
-                    `Q ${sx},${turnY1} ${sx + (tx > sx ? cornerRadius : -cornerRadius)},${turnY1} ` +
-                    `L ${tx - (tx > sx ? cornerRadius : -cornerRadius)},${turnY1} ` +
-                    `Q ${tx},${turnY1} ${tx},${turnY1 + cornerRadius} ` +
-                    `L ${tx},${ty - cornerRadius * 2} ` +
-                    `Q ${tx},${ty} ${tx},${ty}`;
-                }
-
-                return (
-                  <path
-                    key={edge.id}
-                    d={pathD}
-                    fill="none"
-                    stroke="var(--dag-edge)"
-                    strokeWidth={1.5}
-                    markerEnd="url(#dag-arrow)"
-                    opacity={0.5}
-                  />
-                );
-              })}
-            </svg>
-
-            {/* Nodes layer */}
-            {nodes.map((node, idx) => {
-              const x = node.x + offsetX;
-              const y = node.y + offsetY;
-
-              return (
-                <div
-                  key={node.id}
-                  onClick={() => onNodeClick(node.data)}
-                  className="absolute cursor-pointer"
-                  style={{
-                    left: x,
-                    top: y,
-                    width: node.width,
-                    transition: 'transform 0.2s ease',
-                    animation: `nodeAppear 0.5s ease ${idx * 0.08}s both`,
-                  }}
-                  onMouseEnter={e => {
-                    e.currentTarget.style.transform = 'translateY(-2px)';
-                  }}
-                  onMouseLeave={e => {
-                    e.currentTarget.style.transform = 'translateY(0)';
-                  }}
-                >
-                  <DAGNodeCard data={node.data} width={node.width} />
-                </div>
-              );
-            })}
-          </div>
-        </div>
+              <polygon points="0 0, 8 3, 0 6" fill="var(--dag-edge)" />
+            </marker>
+          </defs>
+          {edges.map(edge => {
+            const sourceNode = nodeMap.get(edge.sourceId);
+            const targetNode = nodeMap.get(edge.targetId);
+            if (!sourceNode || !targetNode) return null;
+            const sx = sourceNode.x + sourceNode.width / 2;
+            const sy = sourceNode.y + sourceNode.height;
+            const tx = targetNode.x + targetNode.width / 2;
+            const ty = targetNode.y;
+            const middleY = sy + Math.max(16, (ty - sy) / 2);
+            const pathD = Math.abs(sx - tx) < 1
+              ? `M ${sx},${sy} L ${tx},${ty}`
+              : `M ${sx},${sy} L ${sx},${middleY} L ${tx},${middleY} L ${tx},${ty}`;
+            return (
+              <path
+                key={edge.id}
+                d={pathD}
+                fill="none"
+                stroke="var(--dag-edge)"
+                strokeWidth={1.8}
+                markerEnd={`url(#${markerId})`}
+                opacity={0.72}
+              />
+            );
+          })}
+          {nodes.map((node, idx) => (
+            <foreignObject
+              key={node.id}
+              x={node.x}
+              y={node.y}
+              width={node.width}
+              height={node.height}
+              style={{
+                cursor: 'pointer',
+                overflow: 'visible',
+                animation: `nodeAppear 0.5s ease ${idx * 0.08}s both`,
+              }}
+              onClick={() => onNodeClick(node.data)}
+            >
+              <div style={{ width: node.width, height: node.height }}>
+                <DAGNodeCard data={node.data} width={node.width} />
+              </div>
+            </foreignObject>
+          ))}
+        </svg>
 
         {/* Summary footer - hidden in compact mode */}
         {!compact && (
@@ -451,14 +358,21 @@ function AICard({ data }: { data: { type: 'ai'; modelName?: string | null; isFin
 // Tool Node — Purple
 // ============================================================================
 
-function ToolCard({ data, width }: { data: { type: 'tool'; toolName: string; toolOutput: string | null }; width: number }) {
+function ToolCard({ data, width }: { data: { type: 'tool'; toolName: string; toolOutput: string | null; toolStatus?: string | null; toolError?: string | null }; width: number }) {
   const { t } = useI18n();
-  const status = !data.toolOutput
-    ? 'pending'
-    : data.toolOutput === '...'
+  const normalizedStatus = data.toolStatus?.toLowerCase();
+  const status = normalizedStatus && ['failed', 'blocked', 'error', 'timeout'].includes(normalizedStatus)
+    ? 'error'
+    : normalizedStatus === 'running'
       ? 'running'
-      : data.toolOutput.includes('error') || data.toolOutput.includes('Error')
-        ? 'error'
+      : normalizedStatus && ['completed', 'success', 'skipped'].includes(normalizedStatus)
+        ? 'success'
+        : normalizedStatus && ['pending', 'queued'].includes(normalizedStatus)
+          ? 'pending'
+    : !data.toolOutput
+      ? 'pending'
+      : data.toolOutput === '...'
+        ? 'running'
         : 'success';
 
   const statusText = {

@@ -1,80 +1,52 @@
-"""
-Database / Vectorstore / Checkpointer / Store factory (singletons).
+"""Lifecycle and accessors for PostgreSQL infrastructure singletons."""
 
-All business code calls these ``get_xxx()`` functions. All components use
-PostgreSQL + pgvector exclusively.
-
-Lifecycle:
-    - ``init_database()`` is called during FastAPI startup (lifespan).
-    - ``dispose_database()`` is called during FastAPI shutdown.
-    - ``get_xxx()`` returns pre-created singletons (sync, no async lock needed).
-
-Embedding functions are provided by infra.llm.embedding module (singleton
-LiteLLMEmbeddings instance created at startup).
-
-Multi-table vectorstore support:
-    - ``get_vectorstore(table_name)`` returns instance for specific collection.
-    - Default table: "langchain_pg_embedding"
-    - Additional tables are lazily initialized on first access.
-"""
+from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from langgraph.checkpoint.base import BaseCheckpointSaver
 
-from app.infra.database.database import PostgresDatabase
-from app.infra.database.vectorstore import PGVectorVectorstore, _DEFAULT_TABLE
 from app.infra.database.checkpointer import PostgresCheckpointer
+from app.infra.database.database import PostgresDatabase
 from app.infra.database.store import PostgresStore
+from app.infra.database.vectorstore import PGVectorVectorstore, _DEFAULT_TABLE
+if TYPE_CHECKING:
+    from app.infra.embedding_spaces.runtime import EmbeddingSpaceRuntime
 
 logger = logging.getLogger(__name__)
 
-# Singleton instances (created during startup, accessed via get_xxx())
 _db_instance: PostgresDatabase | None = None
 _cp_instance: PostgresCheckpointer | None = None
 _store_instance: PostgresStore | None = None
-
-# Multi-table vectorstore cache: table_name -> PGVectorVectorstore instance
+_embedding_space_runtime: EmbeddingSpaceRuntime | None = None
 _vs_instances: dict[str, PGVectorVectorstore] = {}
 
 
-# ── Public accessors (sync — return pre-created singletons) ──────────────────
-
-
 def get_database() -> PostgresDatabase:
-    """Return the database singleton."""
     if _db_instance is None:
         raise RuntimeError(
-            "Database not initialized — call init_database() during startup"
+            "Database not initialized; call init_database() during startup"
         )
     return _db_instance
 
 
+def get_embedding_space_runtime() -> EmbeddingSpaceRuntime:
+    if _embedding_space_runtime is None:
+        raise RuntimeError("Embedding-space runtime is not initialized")
+    return _embedding_space_runtime
+
+
 def get_vectorstore(table_name: str = _DEFAULT_TABLE) -> PGVectorVectorstore:
-    """Return the vectorstore instance for the specified table.
+    """Resolve the logical default to its atomically active generation."""
 
-    Args:
-        table_name: PostgreSQL table name for storing vectors.
-                   Defaults to 'langchain_pg_embedding'.
-
-    Returns:
-        PGVectorVectorstore instance bound to the specified table.
-
-    Note:
-        Default table is initialized during startup. Additional tables
-        are lazily initialized on first access (requires async context).
-        For lazy initialization, use get_or_create_vectorstore() instead.
-    """
+    if table_name == _DEFAULT_TABLE:
+        return get_embedding_space_runtime().get_active_store("documents")
     if table_name not in _vs_instances:
-        if table_name == _DEFAULT_TABLE:
-            raise RuntimeError(
-                "Default vectorstore not initialized — call init_database() during startup"
-            )
-        # For non-default tables, suggest using async version
         raise RuntimeError(
-            f"Vectorstore table '{table_name}' not initialized. "
-            f"Use get_or_create_vectorstore() for lazy initialization."
+            f"Vectorstore table {table_name!r} is not initialized; "
+            "use get_or_create_vectorstore()"
         )
     return _vs_instances[table_name]
 
@@ -82,90 +54,98 @@ def get_vectorstore(table_name: str = _DEFAULT_TABLE) -> PGVectorVectorstore:
 async def get_or_create_vectorstore(
     table_name: str = _DEFAULT_TABLE,
 ) -> PGVectorVectorstore:
-    """Get or create vectorstore instance for the specified table.
-
-    Lazily initializes vectorstore for tables other than the default.
-    The default table is initialized during startup via init_database().
-
-    Args:
-        table_name: PostgreSQL table name for storing vectors.
-
-    Returns:
-        PGVectorVectorstore instance bound to the specified table.
-    """
+    if table_name == _DEFAULT_TABLE:
+        return get_vectorstore()
     if table_name in _vs_instances:
         return _vs_instances[table_name]
 
-    # Lazily create new vectorstore instance
-    from app.infra.llm import get_embeddings
+    from app.infra.llm.embedding import get_persistent_embeddings
 
-    logger.info("Lazily initializing vectorstore for table '%s'", table_name)
-    vs = PGVectorVectorstore(table_name=table_name)
-    vs.set_embed_fn(embeddings=get_embeddings())
-    await vs.initialize()
-
-    _vs_instances[table_name] = vs
-    logger.info("Vectorstore initialized for table '%s'", table_name)
-    return vs
+    embeddings = get_persistent_embeddings()
+    if embeddings is None:
+        raise RuntimeError(
+            "Persistent vectorstore is unavailable until the embedding "
+            "provider returns a valid vector"
+        )
+    vectorstore = PGVectorVectorstore(
+        table_name=table_name,
+        database=get_database(),
+    )
+    vectorstore.set_embed_fn(embeddings=embeddings)
+    await vectorstore.initialize()
+    _vs_instances[table_name] = vectorstore
+    return vectorstore
 
 
 def get_checkpointer() -> PostgresCheckpointer:
-    """Return the checkpointer singleton."""
     if _cp_instance is None:
         raise RuntimeError(
-            "Checkpointer not initialized — call init_database() during startup"
+            "Checkpointer not initialized; call init_database() during startup"
         )
     return _cp_instance
 
 
 def get_store() -> PostgresStore | None:
-    """Return the long-term Store singleton, or None if not initialized."""
     return _store_instance
 
 
 def get_saver() -> BaseCheckpointSaver:
-    """Convenience: return the LangGraph-compatible saver from the checkpointer."""
     return get_checkpointer().get_saver()
 
 
-# ── Lifecycle: init / dispose (called by FastAPI lifespan) ───────────────────
-
-
-async def init_database() -> None:
-    """Initialize all database components. Called during FastAPI startup.
-
-    Order: database first (others may depend on it), then vectorstore,
-    checkpointer, store in parallel.
-
-    Note: Embedding functions are provided by infra.llm.embedding module.
-    Call init_embedding_model() in main.py lifespan BEFORE init_database() to
-    ensure embedding functions are available.
-    """
-    global _db_instance, _cp_instance, _store_instance, _vs_instances
-
-    # Database must be initialized first
+async def init_database_connection() -> None:
+    global _db_instance
+    if _db_instance is not None:
+        logger.warning("Database connection already initialized, skipping")
+        return
     _db_instance = PostgresDatabase()
     await _db_instance.initialize()
     logger.info("Database initialized: postgres")
 
-    # Initialize default vectorstore only when an embedding model is configured.
-    # Book search and structured preference memory do not require embeddings, so
-    # local-only setups such as LM Studio can still boot without semantic search.
-    from app.infra.llm import get_embeddings
 
-    embeddings = get_embeddings()
-    if embeddings is not None:
-        default_vs = PGVectorVectorstore(table_name=_DEFAULT_TABLE)
-        default_vs.set_embed_fn(embeddings=embeddings)
-        await default_vs.initialize()
-        _vs_instances[_DEFAULT_TABLE] = default_vs
-        logger.info("Vectorstore initialized: pgvector (table=%s)", _DEFAULT_TABLE)
-    else:
-        logger.warning(
-            "Embedding model not configured; default vectorstore is disabled"
+async def init_database_components() -> None:
+    """Initialize dependants without waiting for vector generation builds."""
+
+    global _cp_instance, _store_instance, _embedding_space_runtime
+
+    if _db_instance is None:
+        raise RuntimeError(
+            "Database connection is not initialized; "
+            "call init_database_connection() first"
+        )
+    if (
+        _cp_instance is not None
+        or _store_instance is not None
+        or _embedding_space_runtime is not None
+    ):
+        if (
+            _cp_instance is not None
+            and _store_instance is not None
+            and _embedding_space_runtime is not None
+        ):
+            logger.warning("Database components already initialized, skipping")
+            return
+        raise RuntimeError(
+            "Database components are partially initialized; dispose them "
+            "before retrying startup"
         )
 
-    # Initialize checkpointer and store in parallel
+    from app.infra.llm.embedding import (
+        get_active_embedding_config,
+        get_embeddings,
+    )
+
+    from app.infra.embedding_spaces.runtime import EmbeddingSpaceRuntime
+
+    _embedding_space_runtime = EmbeddingSpaceRuntime(_db_instance)
+    _embedding_space_runtime.start(
+        config=get_active_embedding_config(),
+        embeddings=get_embeddings(),
+    )
+    logger.info(
+        "Embedding-space runtime initialized; generation builds are asynchronous"
+    )
+
     async def _init_checkpointer() -> None:
         global _cp_instance
         _cp_instance = PostgresCheckpointer()
@@ -181,61 +161,91 @@ async def init_database() -> None:
     await asyncio.gather(_init_checkpointer(), _init_store())
 
 
+async def init_database() -> None:
+    """Backward-compatible full startup in canonical dependency order."""
+
+    await init_database_connection()
+
+    from app.infra.llm.embedding import (
+        initialize_embedding_runtime,
+        probe_embedding_runtime,
+    )
+    from app.infra.llm.manager import get_model_manager
+
+    manager = get_model_manager()
+    if not getattr(manager, "_initialized", False):
+        await manager.refresh()
+    config = initialize_embedding_runtime()
+    if config is not None:
+        await probe_embedding_runtime(config)
+    await init_database_components()
+
+
 async def dispose_database() -> None:
-    """Dispose all database components. Called during FastAPI shutdown.
+    """Dispose embedding spaces before their shared database connection."""
 
-    Order: vectorstores → checkpointer → store → database (last,
-    in case other backends depend on it).
-    """
-    global _db_instance, _cp_instance, _store_instance, _vs_instances
+    global _db_instance, _cp_instance, _store_instance
+    global _embedding_space_runtime, _vs_instances
 
-    # Clear singleton references first
-    vs_instances = _vs_instances.copy()
+    vectorstores = _vs_instances.copy()
     _vs_instances.clear()
+    embedding_spaces = _embedding_space_runtime
+    checkpointer = _cp_instance
+    store = _store_instance
+    database = _db_instance
+    _embedding_space_runtime = None
+    _cp_instance = None
+    _store_instance = None
+    _db_instance = None
 
-    cp, store, db = _cp_instance, _store_instance, _db_instance
-    _cp_instance = _store_instance = _db_instance = None
-
-    # Dispose all vectorstores
-    for table_name, vs in vs_instances.items():
+    if embedding_spaces is not None:
         try:
-            await vs.dispose()
-            logger.info("Vectorstore disposed (table=%s)", table_name)
-        except Exception as e:
-            logger.warning("Error disposing vectorstore (table=%s): %s", table_name, e)
+            await embedding_spaces.dispose()
+        except Exception as exc:
+            logger.warning("Error disposing embedding spaces: %s", exc)
 
-    # Dispose checkpointer
-    if cp is not None:
+    for table_name, vectorstore in vectorstores.items():
         try:
-            await cp.dispose()
-            logger.info("Checkpointer disposed")
-        except Exception as e:
-            logger.warning("Error disposing checkpointer: %s", e)
+            await vectorstore.dispose()
+        except Exception as exc:
+            logger.warning(
+                "Error disposing vectorstore (table=%s): %s",
+                table_name,
+                exc,
+            )
 
-    # Dispose store
+    if checkpointer is not None:
+        try:
+            await checkpointer.dispose()
+        except Exception as exc:
+            logger.warning("Error disposing checkpointer: %s", exc)
     if store is not None:
         try:
             await store.dispose()
-            logger.info("Store disposed")
-        except Exception as e:
-            logger.warning("Error disposing store: %s", e)
-
-    # Dispose database (last)
-    if db is not None:
+        except Exception as exc:
+            logger.warning("Error disposing store: %s", exc)
+    if database is not None:
         try:
-            await db.dispose()
-            logger.info("Database disposed")
-        except Exception as e:
-            logger.warning("Error disposing database: %s", e)
+            await database.dispose()
+        except Exception as exc:
+            logger.warning("Error disposing database: %s", exc)
+
+    from app.infra.llm.embedding import reset_embedding_runtime
+
+    reset_embedding_runtime()
+    logger.info("Database and embedding runtimes disposed")
 
 
 __all__ = [
-    "get_database",
-    "get_vectorstore",
-    "get_or_create_vectorstore",
-    "get_checkpointer",
-    "get_store",
-    "get_saver",
-    "init_database",
     "dispose_database",
+    "get_checkpointer",
+    "get_database",
+    "get_embedding_space_runtime",
+    "get_or_create_vectorstore",
+    "get_saver",
+    "get_store",
+    "get_vectorstore",
+    "init_database",
+    "init_database_components",
+    "init_database_connection",
 ]

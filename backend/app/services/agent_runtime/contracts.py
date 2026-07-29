@@ -22,14 +22,9 @@ SYSTEM_ARGUMENT_FIELDS = frozenset(
     }
 )
 
-PlanSource = Literal[
-    "deterministic_rule",
-    "llm_planner",
-    "llm_planner_fallback",
-    "model_tool_call",
-]
+PlanSource = Literal["routing_decision"]
 RouteType = Literal["fast_path", "slow_path"]
-ResponseMode = Literal["deterministic", "model"]
+ResponseMode = Literal["deterministic", "receipt", "model"]
 ReceiptStatus = Literal["completed", "failed", "blocked", "skipped"]
 PlanStatus = Literal["completed", "partial", "failed", "blocked"]
 
@@ -164,4 +159,4 @@ class PreparedRuntimeTurn(BaseModel):
 
     @property
     def can_finalize_without_model(self) -> bool:
-        return self.plan.response_mode == "deterministic"
+        return self.plan.response_mode in {"deterministic", "receipt"}

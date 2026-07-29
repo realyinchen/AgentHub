@@ -550,12 +550,11 @@ def build_turn_policy(user_message: str) -> TurnPolicy:
     if can_write_memory:
         allowed_tools.extend(
             [
-                "remember_memory",
-                "revise_memory",
                 "remember_reading_preference",
                 "record_book_feedback",
             ]
         )
+        denied_tools.extend(["remember_memory", "revise_memory"])
     else:
         denied_tools.extend(
             [

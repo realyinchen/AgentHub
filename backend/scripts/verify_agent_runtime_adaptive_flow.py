@@ -1,9 +1,9 @@
 r"""Verify the ActionPlan -> SystemRuntime -> PlanReceipt architecture.
 
 This check intentionally avoids live web, research, and LLM provider calls. It
-verifies deterministic planning, runtime-owned context injection, durable raw
-user-state capture, cross-conversation recall, visible memory receipts, and
-on-demand planner selection.
+verifies deterministic planning, runtime-owned context injection, canonical
+pre-commit memory writes, cross-conversation recall, visible memory receipts,
+and on-demand planner selection.
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import asyncio
 import sys
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 from dotenv import load_dotenv
 from pydantic import ValidationError
@@ -34,7 +35,8 @@ from app.services.agent_runtime.finalizer import (
 )
 from app.services.agent_runtime.planner import ActionPlanner, build_fast_action_plan
 from app.services.context_pack import ContextBuilder
-from app.services.fast_path import decide_fast_path
+from app.services.routing.funnel import RoutingFunnel
+from app.services.routing.semantic import InMemorySemanticRecall
 from scripts.init_database import _init_postgres
 
 
@@ -95,9 +97,10 @@ async def _delete_user(user_id: uuid.UUID) -> None:
         )
 
 
-class _OfflinePlanner(ActionPlanner):
-    async def _llm_plan(self, **_: object):
-        return None, {"status": "offline_verification"}
+class _NoLiveVectorSemantic(InMemorySemanticRecall):
+    async def _vector_candidates(self, text: str):
+        del text
+        return []
 
 
 def _verify_contract_boundary() -> None:
@@ -113,15 +116,17 @@ def _verify_contract_boundary() -> None:
         raise AssertionError("ActionPlan accepted a system-owned user_id")
 
     import app.services.fast_path as fast_path
-    import app.services.turn_execution as turn_execution
 
     _assert(
         not hasattr(fast_path, "try_handle_fast_path"),
         "legacy direct-answer fast path still exists",
     )
+    planner_source = (
+        BACKEND_DIR / "app" / "services" / "agent_runtime" / "planner.py"
+    ).read_text(encoding="utf-8")
     _assert(
-        not hasattr(turn_execution, "prepare_turn_execution_context"),
-        "legacy pre-execution entry still exists",
+        "turn_execution" not in planner_source,
+        "planner still imports the legacy routing/execution module",
     )
     prompt = (
         BACKEND_DIR / "app" / "agents" / "prompts" / "supervisor.md"
@@ -159,14 +164,11 @@ async def _verify_planning_without_live_calls(
     )
     _assert(not mutable_role.planner_used, str(mutable_role))
 
-    uncertain_fact = await _OfflinePlanner().plan(
+    stable_authorship = await ActionPlanner().plan(
         _input("\u300a\u4e09\u4f53\u300b\u7684\u4f5c\u8005\u662f\u8c01\uff1f", user_id, thread_id)
     )
-    _assert(uncertain_fact.planner_used, str(uncertain_fact))
-    _assert(
-        [item.operation for item in uncertain_fact.actions] == ["web_search"],
-        str(uncertain_fact),
-    )
+    _assert(not stable_authorship.planner_used, str(stable_authorship))
+    _assert(not stable_authorship.actions, str(stable_authorship))
 
     stable_explanation = await ActionPlanner().plan(
         _input("\u4ec0\u4e48\u662f\u9012\u5f52\uff1f", user_id, thread_id)
@@ -174,10 +176,10 @@ async def _verify_planning_without_live_calls(
     _assert(not stable_explanation.planner_used, str(stable_explanation))
     _assert(not stable_explanation.actions, str(stable_explanation))
 
-    ambiguous_memory = await _OfflinePlanner().plan(
+    ambiguous_memory = await ActionPlanner().plan(
         _input("\u6211\u4ec0\u4e48\u65f6\u5019\u4ea4\u623f\u79df\uff1f", user_id, thread_id)
     )
-    _assert(ambiguous_memory.planner_used, str(ambiguous_memory))
+    _assert(not ambiguous_memory.planner_used, str(ambiguous_memory))
     _assert(
         [item.operation for item in ambiguous_memory.actions] == ["search_memory"],
         str(ambiguous_memory),
@@ -205,10 +207,20 @@ async def _verify_planning_without_live_calls(
     compound_operations = [item.operation for item in compound_plan.actions]
     _assert(
         compound_operations
-        == ["capture_user_state", "search_memory", "web_search", "search_books"],
+        == [
+            "process_memory_write_request",
+            "search_memory",
+            "web_search",
+            "search_books",
+        ],
         str(compound_plan),
     )
-    _assert(compound_plan.actions[0].arguments.get("raw_text") == "\u6211\u559c\u6b22\u84dd\u8272", str(compound_plan))
+    memory_request = compound_plan.actions[0].arguments.get("request") or {}
+    _assert(
+        memory_request.get("utterance")
+        == "\u5148\u8bb0\u4f4f\u6211\u559c\u6b22\u84dd\u8272",
+        str(compound_plan),
+    )
     _assert(
         compound_plan.actions[-1].arguments.get("query")
         == "\u975e\u66b4\u529b\u6c9f\u901a \u7c7b\u4f3c\u4e66\u7c4d \u63a8\u8350",
@@ -221,12 +233,22 @@ async def _verify_planning_without_live_calls(
         "\u6700\u597d\u6709\u4e2d\u6587\u7248\uff0c"
         "\u4f7f\u7528 deep research \u80fd\u529b"
     )
-    complex_plan = await _OfflinePlanner().plan(
+    complex_plan = await ActionPlanner().plan(
         _input(complex_request, user_id, thread_id)
     )
     _assert(complex_plan.complexity == "high", str(complex_plan))
-    _assert(complex_plan.planner_used, str(complex_plan))
-    _assert(complex_plan.source == "llm_planner_fallback", str(complex_plan))
+    _assert(not complex_plan.planner_used, str(complex_plan))
+    _assert(
+        complex_plan.metadata.get("planner_required") is True,
+        str(complex_plan),
+    )
+    _assert(
+        complex_plan.metadata.get("planning_strategy")
+        == "explicit_runtime_search_tasks",
+        str(complex_plan),
+    )
+    _assert(complex_plan.source == "routing_decision", str(complex_plan))
+    _assert(complex_plan.response_mode == "receipt", str(complex_plan))
 
     feedback = build_fast_action_plan(
         _input("\u300a\u4e09\u4f53\u300b\u6211\u5df2\u7ecf\u770b\u8fc7\u4e86", user_id, thread_id)
@@ -247,11 +269,11 @@ async def _verify_memory_runtime(
     name_turn = await prepare_runtime_turn(
         _input("\u6211\u662f\u51b0\u9732", user_id, first_thread)
     )
-    _assert(name_turn.plan.intent == "memory_write", str(name_turn.plan))
+    _assert(name_turn.plan.intent == "memory_update", str(name_turn.plan))
     _assert(name_turn.receipt.status == "completed", str(name_turn.receipt))
     _assert(
         [item.operation for item in name_turn.receipt.actions]
-        == ["capture_user_state"],
+        == ["process_memory_write_request"],
         str(name_turn.receipt),
     )
     name_answer = finalize_deterministic_receipt(name_turn.plan, name_turn.receipt)
@@ -271,39 +293,38 @@ async def _verify_memory_runtime(
     trace = receipt_trace_steps(lookup_turn.receipt)
     _assert(trace and trace[0]["tool_name"] == "search_memory", str(trace))
 
-    garment_text = "\u6211\u6709\u4e00\u4ef6\u7ea2\u8272\u5916\u5957\uff0c\u653e\u5728\u8863\u67dc\u5de6\u8fb9"
-    garment_input = _input(garment_text, user_id, first_thread)
-    garment_decision = decide_fast_path(garment_input)
-    _assert(
-        garment_decision.handled
-        and garment_decision.metadata.get("generic_user_state") is True,
-        str(garment_decision),
+    correction_turn = await prepare_runtime_turn(
+        _input(
+            "\u6211\u73b0\u5728\u4e0d\u53eb\u51b0\u9732\uff0c\u6211\u73b0\u5728\u53eb\u9c81\u73ed",
+            user_id,
+            first_thread,
+        )
     )
-    garment_turn = await prepare_runtime_turn(garment_input)
-    garment_output = garment_turn.receipt.actions[0].output
-    _assert(garment_output["status"] == "saved_pending", str(garment_output))
     _assert(
-        garment_output["memory"]["raw_text"] == garment_text,
-        str(garment_output),
+        [item.operation for item in correction_turn.receipt.actions]
+        == ["process_memory_write_request"],
+        str(correction_turn.receipt),
     )
+    corrected_lookup = await prepare_runtime_turn(
+        _input("\u6211\u662f\u8c01\uff1f", user_id, second_thread)
+    )
+    corrected_answer = finalize_deterministic_receipt(
+        corrected_lookup.plan,
+        corrected_lookup.receipt,
+    )
+    _assert("\u9c81\u73ed" in corrected_answer.content, corrected_answer.content)
 
-    garment_lookup = await prepare_runtime_turn(
-        _input("\u6211\u7684\u7ea2\u8272\u5916\u5957\u653e\u5728\u54ea\uff1f", user_id, second_thread)
+    unresolved = await ActionPlanner().plan(
+        _input("\u628a\u8fd9\u4e2a\u8bb0\u4f4f", user_id, second_thread)
     )
-    search_output = garment_lookup.receipt.actions[0].output
+    _assert(not unresolved.actions, str(unresolved))
     _assert(
-        any(item.get("raw_text") == garment_text for item in search_output["memories"]),
-        str(search_output),
+        unresolved.metadata.get("routing_decision", {})
+        .get("interaction_decision", {})
+        .get("status")
+        == "clarification_required",
+        str(unresolved),
     )
-
-    turtle_text = "\u6211\u517b\u4e86\u4e00\u53ea\u4e4c\u9f9f\uff0c\u540d\u5b57\u53eb\u6162\u6162"
-    turtle_turn = await prepare_runtime_turn(
-        _input(turtle_text, user_id, first_thread)
-    )
-    turtle_output = turtle_turn.receipt.actions[0].output
-    saved_raw = (turtle_output.get("memory") or {}).get("raw_text")
-    captured = turtle_output.get("captured_count", 0)
-    _assert(saved_raw == turtle_text or captured > 0, str(turtle_output))
 
     context_pack = await ContextBuilder().build(
         user_id=user_id,
@@ -323,8 +344,15 @@ async def _run() -> None:
     second_thread = uuid.uuid4()
     await _insert_user_and_threads(user_id, [first_thread, second_thread])
     try:
-        await _verify_planning_without_live_calls(user_id, second_thread)
-        await _verify_memory_runtime(user_id, first_thread, second_thread)
+        offline_funnel = RoutingFunnel(
+            semantic_provider=_NoLiveVectorSemantic()
+        )
+        with patch(
+            "app.services.agent_runtime.planner.get_routing_funnel",
+            return_value=offline_funnel,
+        ):
+            await _verify_planning_without_live_calls(user_id, second_thread)
+            await _verify_memory_runtime(user_id, first_thread, second_thread)
         print("action-plan runtime verification passed")
     finally:
         await _delete_user(user_id)

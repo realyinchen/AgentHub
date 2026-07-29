@@ -80,8 +80,12 @@ class Settings(BaseSettings):
     # (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_HOST, POSTGRES_PORT, POSTGRES_DB).
     # No additional configuration required.
 
-    # Default embedding dimension for vector databases
-    EMBEDDING_DIMENSION: int = Field(default=1024, ge=1)
+    # Optional provider hint only. Persistent storage always uses the observed
+    # model output and never treats this value as a schema dimension.
+    EMBEDDING_DIMENSION: Optional[int] = Field(default=None, ge=1)
+    # Operator-controlled semantic revision for providers that change model
+    # weights without changing their public model identifier.
+    EMBEDDING_SPACE_REVISION: str = ""
 
     # =========================================================================
     # CORS Configuration
@@ -145,6 +149,8 @@ class Settings(BaseSettings):
 
     # Tavily Search API
     TAVILY_API_KEY: Optional[SecretStr] = None
+    # AnySearch API is optional because the provider also supports anonymous use.
+    ANYSEARCH_API_KEY: Optional[SecretStr] = None
 
     # App-owned external provider configuration. This JSON may define providers
     # such as mem0 and gbrain, but their fields still map into app contracts.
@@ -221,6 +227,7 @@ class Settings(BaseSettings):
         "LANGCHAIN_API_KEY",
         "AMAP_KEY",
         "TAVILY_API_KEY",
+        "ANYSEARCH_API_KEY",
         "API_KEY_ENCRYPTION_KEY",
         "SYSTEM_DEFAULT_LLM_API_KEY",
         "JWT_SECRET_KEY",

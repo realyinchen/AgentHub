@@ -548,11 +548,35 @@ export function ProviderConfigDialog({ open, onOpenChange, onConfigChanged }: Pr
     }
 
     const checkedAt = new Date(capability.checked_at).toLocaleString()
+    const probeKind = capability.probe_kind
+      ?? (model.model_type === "embedding" ? "embedding" : "chat")
+    const probeOk = capability.probe_ok ?? capability.chat_ok ?? false
+    const embeddingDimensions = capability.embedding_dimensions ?? capability.dimensions
     const fieldPath = capability.reasoning_field_path ? ` · ${capability.reasoning_field_path}` : ""
+    const errorCategory = capability.error_category
+      ? ` · ${t("model.validationErrorCategory", { category: capability.error_category })}`
+      : ""
     const errorText = capability.last_error ? ` · ${capability.last_error}` : ""
-    const tooltip = `${t("model.validationLastChecked", { time: checkedAt })}${fieldPath}${errorText}`
+    const tooltip = `${t("model.validationLastChecked", { time: checkedAt })}${fieldPath}${errorCategory}${errorText}`
 
-    if (!capability.chat_ok) {
+    if (probeKind === "embedding") {
+      if (!probeOk) {
+        return {
+          label: t("model.validationEmbeddingFailed"),
+          variant: "destructive",
+          tooltip,
+        }
+      }
+      return {
+        label: embeddingDimensions
+          ? t("model.validationEmbeddingOk", { dimensions: embeddingDimensions })
+          : t("model.validationEmbeddingOkUnknownDimensions"),
+        variant: "success",
+        tooltip,
+      }
+    }
+
+    if (!probeOk) {
       return { label: t("model.validationFailed"), variant: "destructive", tooltip }
     }
     if (capability.thinking_request_ok && capability.reasoning_text_ok) {

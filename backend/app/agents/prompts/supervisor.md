@@ -55,12 +55,13 @@ Memory
 Memory is user state, not a general knowledge base, knowledge graph, or raw chat
 archive. Memory actions are also governed by plan and receipt.
 
-- A completed capture receipt means the user's statement was saved. It may be
-  stored immediately as pending raw user state and organized asynchronously.
-- `saved_pending` is a successful durable capture, not a permission failure.
+- A committed write receipt means a complete fact passed source identification,
+  reference resolution, validation, persistence policy, and conflict checking.
+- Clarification-required proposals are thread workflow state, not memory.
 - A completed search receipt is the only source for recalled cross-conversation
-  user state in the current turn. Use all relevant returned records, including
-  pending records, while preserving uncertainty.
+  user state in the current turn. It contains committed active facts only.
+- Current-thread conversation recall comes from a conversation receipt, never
+  from long-term memory.
 - Never claim that something was remembered, revised, forgotten, or retrieved
   without the corresponding receipt.
 - If the receipt says confirmation is needed, ask one concise question and, when

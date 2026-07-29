@@ -76,7 +76,7 @@ class BookCandidateSearchResult:
     provider_query: str
     status: BookSearchStatus
     candidates: list[dict] = field(default_factory=list)
-    source: str = "duckduckgo"
+    source: str = "external_search"
     next_action_hint: str = ""
     error: str | None = None
     duration_ms: int = 0

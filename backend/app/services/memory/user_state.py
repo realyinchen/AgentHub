@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import re
 import time
@@ -9,7 +8,7 @@ from datetime import timedelta
 from typing import Any
 from uuid import UUID
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel
 from sqlalchemy import select
 
 from app.infra.database import get_database
@@ -23,11 +22,14 @@ from app.services.memory.contracts import (
     validate_memory_token,
 )
 from app.services.memory.providers.postgres import PostgresMemoryProvider
+from app.services.memory.semantic_interpreter import (
+    UserStateOrganization,
+    interpret_user_state,
+)
 
 
 logger = logging.getLogger(__name__)
 
-_ORGANIZER_TIMEOUT_SECONDS = 60
 _BACKGROUND_TASKS: set[asyncio.Task[None]] = set()
 _SCHEDULED_MEMORY_IDS: set[UUID] = set()
 _EXPLICIT_MEMORY_RE = re.compile(
@@ -51,41 +53,6 @@ class UserStateCaptureDecision(BaseModel):
     should_capture: bool = False
     explicit: bool = False
     reason: str = ""
-
-
-class UserStateOrganization(BaseModel):
-    category: str
-    state_key: str = ""
-    summary: str
-    state_value: dict[str, Any] = Field(default_factory=dict)
-    relation: dict[str, Any] = Field(default_factory=dict)
-    use_when: list[str] = Field(default_factory=list)
-    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
-    needs_confirmation: bool = False
-    confirmation_question: str = ""
-    ttl_hours: int | None = Field(default=None, ge=1, le=24 * 365)
-
-    @field_validator("category", mode="before")
-    @classmethod
-    def validate_category(cls, value: Any) -> str:
-        return validate_memory_token("category", value, USER_STATE_CATEGORIES)
-
-    @field_validator("state_key", "summary", "confirmation_question", mode="before")
-    @classmethod
-    def clean_text(cls, value: Any) -> str:
-        return normalize_memory_value(value)
-
-    @field_validator("use_when", mode="before")
-    @classmethod
-    def clean_use_when(cls, value: Any) -> list[str]:
-        if not isinstance(value, list):
-            return []
-        result: list[str] = []
-        for item in value:
-            text = normalize_memory_value(item)
-            if text and text not in result:
-                result.append(text[:120])
-        return result[:12]
 
 
 class UserStateCaptureResult(BaseModel):
@@ -141,63 +108,27 @@ async def persist_raw_user_state(
     schedule_organization: bool = True,
     route_type: str = "slow_path",
 ) -> UserStateCaptureResult:
-    """Persist the user's exact words before any semantic interpretation."""
+    """Reject the retired raw-first write path.
+
+    Legacy pending records may still be organized for migration, but no new
+    durable row may be created before semantic resolution.
+    """
     started = time.perf_counter()
     text = " ".join(str(raw_text or "").split()).strip()
     if not text:
         return UserStateCaptureResult(status="skipped")
-
-    captured_at = utc_now()
-    metadata = {
-        "capture_source": "generic_user_state",
-        "user_state": {
-            "status": "pending",
-            "category": None,
-            "state_key": "",
-            "raw_text": text,
-            "state_value": {},
-            "relation": {},
-            "use_when": [],
-            "valid_until": None,
-            "confirmation_question": "",
-            "explicit_memory_request": explicit,
-            "observed_at": captured_at.isoformat(),
-            "organization_attempts": 0,
-            "organizer_model_id": str(organizer_model_id or "").strip(),
-        },
-    }
-    event = MemoryEvent(
-        user_id=user_id,
-        thread_id=thread_id,
-        type="state",
-        subject="user",
-        value=text,
-        polarity="neutral",
-        confidence=1.0,
-        source="chat_turn",
-        metadata=metadata,
-        state_status="pending",
-        raw_text=text,
-    )
-    db = get_database()
-    async with db.session() as session:
-        saved = await PostgresMemoryProvider(session).remember(event)
-
-    scheduled = False
-    if schedule_organization and saved.id is not None:
-        scheduled = schedule_user_state_organization(saved.id, user_id)
     duration_ms = int((time.perf_counter() - started) * 1000)
-    logger.info(
-        "memory_admission route_type=%s decision=allow status=pending memory_id=%s duration_ms=%d",
+    logger.warning(
+        "raw-first memory write rejected route_type=%s explicit=%s duration_ms=%d",
         route_type,
-        saved.id,
+        explicit,
         duration_ms,
     )
     return UserStateCaptureResult(
-        status="saved_pending",
-        memory=saved,
+        status="rejected_raw_first",
+        memory=None,
         duration_ms=duration_ms,
-        organization_scheduled=scheduled,
+        organization_scheduled=False,
     )
 
 
@@ -256,7 +187,7 @@ async def organize_user_state(*, memory_id: UUID, user_id: UUID) -> None:
         user_state = dict((record.metadata_json or {}).get("user_state") or {})
         if user_state.get("status") != "pending":
             return
-        proposal = await _extract_organization(
+        proposal = await interpret_user_state(
             str(user_state.get("raw_text") or record.value),
             requested_model_id=str(user_state.get("organizer_model_id") or ""),
         )
@@ -405,83 +336,6 @@ async def _load_record(*, memory_id: UUID, user_id: UUID) -> MemoryEventRecord |
         return record
 
 
-async def _extract_organization(
-    raw_text: str,
-    *,
-    requested_model_id: str = "",
-) -> UserStateOrganization:
-    prompt = f"""You organize user-authored state for a personal AI assistant.
-Memory is user state, not general knowledge, a chat summary, or a knowledge graph.
-Classify this exact user statement without inventing facts.
-
-Categories:
-- profile: identity, stable routine, role, personal background
-- preference: likes, dislikes, habits with preference meaning, constraints
-- relation: an open-vocabulary relation between the user and any person, pet, object, place, project, account, or other entity
-- feedback: explicit outcome or interaction feedback, including read/bought/rejected/completed
-- short_term: temporary mood, plan, deadline, location, or transient state
-
-Return one JSON object only:
-{{
-  "category": "profile|preference|relation|feedback|short_term",
-  "state_key": "stable.open.vocabulary.key",
-  "summary": "concise statement in the user's language",
-  "state_value": {{"open": "structured values"}},
-  "relation": {{"subject": "user", "predicate": "open vocabulary", "object": "...", "object_type": "..."}},
-  "use_when": ["queries or situations where this state helps"],
-  "confidence": 0.0,
-  "needs_confirmation": false,
-  "confirmation_question": "question in the user's language when ambiguous",
-  "ttl_hours": null
-}}
-
-Rules:
-- The raw statement is authoritative. Your structure is only an interpretation.
-- Keep relation predicates and entity types open-vocabulary; do not limit them to pets or books.
-- Set needs_confirmation=true for unclear referents, inferred details, or ambiguous ownership/time.
-- For short_term choose a practical ttl_hours. Other categories use null.
-- use_when must include likely recall wording and task contexts.
-
-User statement:
-{raw_text}
-"""
-    model_errors: list[str] = []
-    models: list[tuple[str, Any]] = []
-    try:
-        from app.infra.llm import get_llm
-        from app.infra.llm.manager import get_model_manager
-
-        if requested_model_id:
-            models.append(("turn_model", get_llm(requested_model_id)))
-        manager = get_model_manager()
-        model_id = manager.default_llm_id or manager.get_first_active_llm_id()
-        if not model_id and not getattr(manager, "_initialized", False):
-            await manager.refresh()
-            model_id = manager.default_llm_id or manager.get_first_active_llm_id()
-        if model_id and model_id != requested_model_id:
-            models.append(("runtime_default", get_llm(model_id)))
-    except Exception as exc:
-        model_errors.append(f"runtime_default: {exc}")
-    try:
-        from app.infra.llm import get_system_llm
-
-        models.append(("system", get_system_llm()))
-    except Exception as exc:
-        model_errors.append(f"system: {exc}")
-
-    for model_name, model in models:
-        try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(model.invoke, prompt),
-                timeout=_ORGANIZER_TIMEOUT_SECONDS,
-            )
-            payload = _extract_json_object(_message_text(response))
-            return UserStateOrganization.model_validate(payload)
-        except Exception as exc:
-            model_errors.append(f"{model_name}: {exc}")
-    raise RuntimeError("; ".join(model_errors) or "no memory organizer model available")
-
-
 async def _find_state_key_conflicts(
     *,
     session: Any,
@@ -565,36 +419,3 @@ def _legacy_subject(proposal: UserStateOrganization) -> str:
     if proposal.category == "preference":
         return "content"
     return "user"
-
-
-def _message_text(message: Any) -> str:
-    content = getattr(message, "content", message)
-    if isinstance(content, str):
-        return content
-    if isinstance(content, list):
-        return "\n".join(
-            str(item.get("text") or item.get("content") or "")
-            if isinstance(item, dict)
-            else str(item or "")
-            for item in content
-        )
-    return str(content or "")
-
-
-def _extract_json_object(text: str) -> dict[str, Any]:
-    cleaned = str(text or "").strip()
-    if cleaned.startswith("```"):
-        cleaned = cleaned.strip("`").strip()
-        if cleaned.lower().startswith("json"):
-            cleaned = cleaned[4:].strip()
-    try:
-        payload = json.loads(cleaned)
-    except json.JSONDecodeError:
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start < 0 or end <= start:
-            raise ValueError("memory organizer did not return JSON")
-        payload = json.loads(cleaned[start : end + 1])
-    if not isinstance(payload, dict):
-        raise ValueError("memory organizer returned a non-object payload")
-    return payload

@@ -156,11 +156,7 @@ export function AppProviderConfigDialog({
         ),
       )
       setApiKey("")
-      if (
-        updated.provider_key === "tavily" &&
-        updated.enabled &&
-        updated.credential_status === "configured"
-      ) {
+      if (updated.provider_type === "web_search" && updated.enabled) {
         const checked = await checkAppProviderHealth(updated.provider_key)
         setProviders((current) =>
           current.map((provider) =>
@@ -297,10 +293,11 @@ export function AppProviderConfigDialog({
                       </span>
                     )}
                   </div>
-                  {selected.provider_key === "tavily" && (
+                  {selected.provider_type === "web_search" && (
                     <div className="mt-2 text-xs text-muted-foreground">
                       Save stores the encrypted key, then Test connection runs a live
-                      Tavily query from the backend. Only an ok result means web search is usable.
+                      provider query from the backend. AnySearch can run anonymously;
+                      only an ok result means this provider is usable.
                     </div>
                   )}
                 </div>

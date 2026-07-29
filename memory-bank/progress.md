@@ -10,6 +10,20 @@
 
 ### Core Platform ✅
 
+## 2026-07-24 Architecture Baseline
+
+- Routing uses Layer 0 rules and Layer 1 keyword/vector recall; Layer 2 remains
+  disabled behind a candidate-only port.
+- `execution-graph-v2` is authoritative for trace/DAG rendering.
+- Deep Research uses seven explicit actions ending in constrained synthesis and
+  deterministic publication.
+- Evidence quality separates provenance, readability, relevance,
+  corroboration, and publishability.
+- Research answers are bounded localized Markdown; raw search dumps and
+  internal dependency IDs are excluded.
+- Backend architecture verifiers, live HTTP verification, frontend graph
+  verification, and production build pass.
+
 | Feature | Status | Notes |
 |---------|--------|-------|
 | Supervisor Agent | ✅ Complete | Basic conversation with tool calling |

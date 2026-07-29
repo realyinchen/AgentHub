@@ -11,8 +11,28 @@ async def create_capability_check(
     db: AsyncSession,
     data: dict,
 ) -> ModelCapabilityCheck:
-    """Persist a model capability check result."""
-    check = ModelCapabilityCheck(**data)
+    """Persist canonical probe fields while retaining the legacy table shape."""
+
+    payload = dict(data)
+    raw_summary = dict(payload.pop("raw_summary", {}) or {})
+    for field in (
+        "probe_kind",
+        "probe_ok",
+        "embedding_dimensions",
+        "error_category",
+    ):
+        if field in payload:
+            value = payload.pop(field)
+            if value is not None:
+                raw_summary[field] = value
+
+    if "chat_ok" not in payload:
+        payload["chat_ok"] = bool(raw_summary.get("probe_ok", False))
+    raw_summary.setdefault("probe_kind", "chat")
+    raw_summary.setdefault("probe_ok", bool(payload["chat_ok"]))
+    payload["raw_summary"] = raw_summary
+
+    check = ModelCapabilityCheck(**payload)
     db.add(check)
     await db.flush()
     await db.refresh(check)

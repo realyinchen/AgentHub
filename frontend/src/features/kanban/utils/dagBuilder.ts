@@ -65,7 +65,12 @@ export function buildDAGFromSteps(steps: MessageStepRaw[]): DAGResult {
   const sortedSteps = [...steps].sort((a, b) => a.step_number - b.step_number);
 
   if (sortedSteps.length === 0) {
-    return { nodes: [], edges: [], summary: { totalToolCalls: 0, totalSteps: 0, hasThinking: false } };
+    return {
+      nodes: [],
+      edges: [],
+      bounds: { x: 0, y: 0, width: 400, height: 300 },
+      summary: { totalToolCalls: 0, totalSteps: 0, hasThinking: false },
+    };
   }
 
   // Pass 1: Group steps into layers
@@ -89,9 +94,16 @@ export function buildDAGFromSteps(steps: MessageStepRaw[]): DAGResult {
     }
   }
 
+  const bounds = calculateBoundingBox(nodes);
   return {
     nodes,
     edges,
+    bounds: {
+      x: bounds.minX - 80,
+      y: bounds.minY - 80,
+      width: bounds.width,
+      height: bounds.height,
+    },
     summary: { totalToolCalls, totalSteps: sortedSteps.length, hasThinking, modelName },
   };
 }
@@ -111,6 +123,8 @@ interface ToolInfo {
   toolName: string;
   toolArgs: Record<string, unknown> | null;
   toolOutput: string | null;
+  toolStatus?: string | null;
+  toolError?: string | null;
   toolCallId?: string;
 }
 
@@ -158,6 +172,8 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
           toolName: tc.name,
           toolArgs: tc.args && Object.keys(tc.args).length > 0 ? tc.args : null,
           toolOutput: matchingResult?.tool_output || null,
+          toolStatus: matchingResult?.tool_status || null,
+          toolError: matchingResult?.tool_error || null,
           toolCallId: tc.id,
         });
       }
@@ -172,6 +188,8 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
             toolName: r.tool_name || 'unknown',
             toolArgs: r.tool_args || null,
             toolOutput: r.tool_output || null,
+            toolStatus: r.tool_status || null,
+            toolError: r.tool_error || null,
           });
         }
       }
@@ -203,6 +221,8 @@ function buildLayers(steps: MessageStepRaw[]): LayerInfo[] {
           toolName: step.tool_name || 'unknown',
           toolArgs: step.tool_args || null,
           toolOutput: step.tool_output || null,
+          toolStatus: step.tool_status || null,
+          toolError: step.tool_error || null,
         }],
       });
       i++;
@@ -297,6 +317,8 @@ function createNodes(layers: LayerInfo[], steps: MessageStepRaw[]): { nodes: Lay
             toolName: toolInfo.toolName,
             toolArgs: toolInfo.toolArgs,
             toolOutput: toolInfo.toolOutput,
+            toolStatus: toolInfo.toolStatus,
+            toolError: toolInfo.toolError,
             index: toolIndex,
             stepNumber: stepNum,
           },

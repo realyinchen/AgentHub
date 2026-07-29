@@ -69,7 +69,7 @@ async def _seed_cached_book() -> None:
 
 async def _run_cache_fusion_flow() -> None:
     call_count = 0
-    original_service_search = book_search.search_duckduckgo_book_candidates
+    original_service_search = book_search.search_external_book_candidates
     original_tool_search = book_tools.search_and_cache_books_with_status
 
     async def fake_external_search(
@@ -101,7 +101,7 @@ async def _run_cache_fusion_flow() -> None:
     await _cleanup_books()
     await _seed_cached_book()
     try:
-        book_search.search_duckduckgo_book_candidates = fake_external_search
+        book_search.search_external_book_candidates = fake_external_search
         book_tools.search_and_cache_books_with_status = (
             book_search.search_and_cache_books_with_status
         )
@@ -194,7 +194,7 @@ async def _run_cache_fusion_flow() -> None:
 
     finally:
         book_tools.search_and_cache_books_with_status = original_tool_search
-        book_search.search_duckduckgo_book_candidates = original_service_search
+        book_search.search_external_book_candidates = original_service_search
         book_tools.reset_search_books_guard()
         await _cleanup_books()
 

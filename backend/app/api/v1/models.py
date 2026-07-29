@@ -200,7 +200,7 @@ async def validate_model(
     request: ModelValidationRequest | None = None,
     db: AsyncSession = Depends(get_db),
 ) -> ModelCapabilityStatus:
-    """Run a real chat + thinking capability check for one configured model."""
+    """Run the configured model's modality-specific capability probe."""
     try:
         check = await validate_model_capability(
             db,

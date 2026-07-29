@@ -30,7 +30,6 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from cachetools import TTLCache
 from langchain.agents.middleware import dynamic_prompt, ModelRequest
 
-from app.services.book_intent import build_turn_policy
 from app.services.context_pack import ContextBuilder, render_context_pack_prompt
 from app.utils.turn_context import get_current_user_message
 
@@ -165,10 +164,12 @@ async def supervisor_prompt(request: ModelRequest) -> str:
             timezone = tz
         user_id = str(getattr(request.runtime.context, "user_id", "") or "")
         thread_id = str(getattr(request.runtime.context, "thread_id", "") or "")
+        action_plan = getattr(request.runtime.context, "action_plan", None)
         plan_receipt = getattr(request.runtime.context, "plan_receipt", None)
     else:
         user_id = ""
         thread_id = ""
+        action_plan = None
         plan_receipt = None
 
     # Get template (from cache or file)
@@ -176,13 +177,12 @@ async def supervisor_prompt(request: ModelRequest) -> str:
 
     # Inject runtime context
     user_message = get_current_user_message()
-    turn_policy = build_turn_policy(user_message)
     context_pack = await ContextBuilder().build(
         user_id=_coerce_uuid(user_id),
         thread_id=_coerce_uuid(thread_id),
         user_message=user_message,
         messages=getattr(request, "messages", []),
-        turn_policy=turn_policy,
+        action_plan=action_plan,
         plan_receipt=plan_receipt,
     )
     context_pack_prompt = render_context_pack_prompt(context_pack)

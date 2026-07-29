@@ -31,7 +31,6 @@ from app.infra.llm.embedding import init_embedding_model
 from app.schemas.chat import UserInput
 from app.services.book_intent import build_turn_policy
 from app.services.book_turn_orchestration import plan_book_assistant_turn
-from app.services.context_pack import ContextBuilder
 from app.services.memory.orchestrator import get_memory_orchestrator
 from app.services.profile_memory_capture import capture_explicit_profile_memories
 from scripts.init_database import _init_postgres
@@ -91,20 +90,18 @@ async def _run_profile_memory_capture_flow() -> None:
     user_id = uuid.uuid4()
     first_thread_id = uuid.uuid4()
     second_thread_id = uuid.uuid4()
-    missing_thread_id = uuid.uuid4()
-
     await _insert_temp_user_and_thread(user_id, first_thread_id)
     await _insert_temp_user_and_thread(user_id, second_thread_id)
     try:
         name_text = _text(25105, 26159, 20912, 38706)
         name_policy = build_turn_policy(name_text)
         _assert(name_policy.can_write_memory is True, str(name_policy))
-        _assert("remember_memory" in name_policy.allowed_tools, str(name_policy))
+        _assert("remember_memory" in name_policy.denied_tools, str(name_policy))
         first = await capture_explicit_profile_memories(
             UserInput(
                 content=name_text,
                 user_id=user_id,
-                thread_id=missing_thread_id,
+                thread_id=first_thread_id,
                 request_id="verify-profile-name",
             )
         )
@@ -114,9 +111,8 @@ async def _run_profile_memory_capture_flow() -> None:
             == _text(110, 97, 109, 101, 58, 32, 20912, 38706),
             str(first.memories[0]),
         )
-        _assert(first.memories[0]["memory"]["thread_id"] is None, str(first.memories[0]))
         _assert(
-            first.memories[0]["memory"]["metadata"].get("thread_id_dropped") is True,
+            first.memories[0]["memory"]["thread_id"] == str(first_thread_id),
             str(first.memories[0]),
         )
 
@@ -161,13 +157,11 @@ async def _run_profile_memory_capture_flow() -> None:
         _assert(plan.route == "answer_question", str(plan))
         _assert(plan.recommended_next_tools == ["search_memory"], str(plan))
 
-        pack = await ContextBuilder().build(
+        visible = await get_memory_orchestrator().list_current_memories(
             user_id=user_id,
-            thread_id=second_thread_id,
-            user_message=lookup_text,
-            messages=[],
+            limit=20,
         )
-        active_values = [memory.value for memory in pack.current_memories]
+        active_values = [memory.value for memory in visible.memories]
         _assert(
             _text(110, 97, 109, 101, 58, 32, 20912, 38706) in active_values,
             str(active_values),
@@ -202,7 +196,6 @@ async def _run_profile_memory_capture_flow() -> None:
         print(f"user_id={user_id}")
         print(f"first_thread_id={first_thread_id}")
         print(f"second_thread_id={second_thread_id}")
-        print(f"missing_thread_id={missing_thread_id}")
     finally:
         await _delete_temp_user(user_id)
 

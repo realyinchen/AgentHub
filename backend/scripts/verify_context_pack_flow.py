@@ -15,6 +15,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
+from app.services.book_intent import build_turn_policy
 from app.services.context_pack import ContextBuilder, render_context_pack_prompt
 
 
@@ -128,6 +129,139 @@ async def _run() -> None:
     _assert("System Runtime Receipt" in rendered, rendered)
     _assert(pack.metadata["hidden_memory_reads"] is False, str(pack.metadata))
     _assert(pack.metadata["hidden_research_reads"] is False, str(pack.metadata))
+
+    routed_policy = build_turn_policy("Answer this directly.").model_copy(
+        update={
+            "can_write_memory": False,
+            "can_search_memory": False,
+            "allowed_tools": [],
+            "denied_tools": [
+                "process_memory_write_request",
+                "search_memory",
+            ],
+            "response_boundary": "Use the already-routed direct-answer policy.",
+            "metadata": {
+                "contract_version": "routing-execution-policy-v1",
+                "derived_from_routing_decision": True,
+            },
+        }
+    )
+    conflicting_legacy_policy = build_turn_policy("Remember that my name is Ada.")
+    authoritative_pack = await builder.build(
+        user_id=user_id,
+        thread_id=thread_id,
+        user_message="Remember that my name is Ada.",
+        turn_policy=conflicting_legacy_policy,
+        action_plan={
+            "result_mode": "action_plan",
+            "policy": routed_policy.model_dump(mode="json"),
+            "metadata": {},
+        },
+    )
+    _assert(
+        authoritative_pack.turn_policy == routed_policy,
+        "legacy policy overrode ActionPlan.policy",
+    )
+    _assert(
+        authoritative_pack.metadata["policy_source"] == "action_plan.policy",
+        str(authoritative_pack.metadata),
+    )
+    _assert(
+        authoritative_pack.metadata["routing_policy_authoritative"] is True,
+        str(authoritative_pack.metadata),
+    )
+
+    embedded_policy = routed_policy.model_copy(
+        update={"response_boundary": "Use embedded RoutingDecision policy."}
+    )
+    embedded_pack = await builder.build(
+        user_id=user_id,
+        thread_id=thread_id,
+        user_message="Remember this contradictory raw text.",
+        action_plan={
+            "result_mode": "action_plan",
+            "policy": {},
+            "metadata": {
+                "routing_decision": {
+                    "policy": embedded_policy.model_dump(mode="json"),
+                    "requirements": {
+                        "direct_answer_allowed": True,
+                        "external_search_required": False,
+                    },
+                    "constraints": [
+                        {
+                            "field": "external_search",
+                            "operator": "equals",
+                            "value": False,
+                            "source": "rule",
+                            "reason": "User prohibited external search.",
+                        }
+                    ],
+                }
+            },
+        },
+    )
+    _assert(
+        embedded_pack.turn_policy == embedded_policy,
+        "embedded RoutingDecision policy was not consumed",
+    )
+    _assert(
+        embedded_pack.metadata["policy_source"]
+        == "action_plan.routing_decision.policy",
+        str(embedded_pack.metadata),
+    )
+    _assert(
+        "routing_requirement:external_search_required=no"
+        in embedded_pack.current_turn_constraints,
+        str(embedded_pack.current_turn_constraints),
+    )
+    _assert(
+        "routing_constraint:external_search:equals:false"
+        in embedded_pack.current_turn_constraints,
+        str(embedded_pack.current_turn_constraints),
+    )
+    embedded_rendered = render_context_pack_prompt(embedded_pack)
+    _assert(
+        "policy_source: action_plan.routing_decision.policy" in embedded_rendered,
+        embedded_rendered,
+    )
+    _assert(
+        "Never infer a replacement capability policy from raw text"
+        in embedded_rendered,
+        embedded_rendered,
+    )
+
+    fallback_pack = await builder.build(
+        user_id=user_id,
+        thread_id=thread_id,
+        user_message="Remember that this is the legacy no-plan path.",
+    )
+    _assert(
+        fallback_pack.metadata["policy_source"] == "legacy_raw_text_fallback",
+        str(fallback_pack.metadata),
+    )
+    _assert(
+        fallback_pack.metadata["routing_policy_authoritative"] is False,
+        str(fallback_pack.metadata),
+    )
+
+    try:
+        await builder.build(
+            user_id=user_id,
+            thread_id=thread_id,
+            user_message="Remember this, but do not trust invalid plan policy.",
+            action_plan={
+                "result_mode": "action_plan",
+                "policy": {"invalid": "policy"},
+            },
+        )
+    except ValueError as exc:
+        _assert(
+            "refusing legacy raw-text reclassification" in str(exc),
+            str(exc),
+        )
+    else:
+        raise AssertionError("invalid ActionPlan policy silently fell back to raw text")
     print("ContextPack receipt projection verification passed")
 
 

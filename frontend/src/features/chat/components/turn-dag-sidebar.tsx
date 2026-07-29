@@ -18,7 +18,7 @@ import {
 import CSSTurnDAG from "@/features/kanban/components/dag/CSSTurnDAG"
 import { SciFiLoader } from "@/components/ai/neural-network-loader"
 import { useI18n } from "@/i18n"
-import type { MessageStepRaw } from "@/features/kanban/types/dag"
+import type { ExecutionDagRaw } from "@/features/kanban/types/dag"
 import { getCurrentUserId } from "@/lib/api"
 
 // API base URL - same origin
@@ -35,13 +35,13 @@ interface TurnDAGSidebarProps {
 
 // Hook to fetch DAG by request_id
 function useDagByRequestId(threadId: string | null, requestId: string | null | undefined) {
-  const [steps, setSteps] = useState<MessageStepRaw[]>([])
+  const [dag, setDag] = useState<ExecutionDagRaw | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     if (!threadId || !requestId) {
-      setSteps([])
+      setDag(null)
       return
     }
 
@@ -63,10 +63,8 @@ function useDagByRequestId(threadId: string | null, requestId: string | null | u
         if (!response.ok) {
           throw new Error(`Failed to fetch DAG: ${response.status}`)
         }
-        const data = await response.json()
-        // Extract steps from DAG response
-        const dagSteps = data.steps || []
-        setSteps(dagSteps)
+        const data = await response.json() as ExecutionDagRaw
+        setDag(data)
       } catch (err) {
         if (err instanceof Error && err.name === 'AbortError') {
           return
@@ -84,7 +82,7 @@ function useDagByRequestId(threadId: string | null, requestId: string | null | u
     }
   }, [threadId, requestId])
 
-  return { steps, loading, error }
+  return { dag, loading, error }
 }
 
 export function TurnDAGSidebar({
@@ -96,22 +94,19 @@ export function TurnDAGSidebar({
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
   // Fetch DAG by request_id
-  const { steps: fetchedSteps, loading: fetchedLoading, error } = useDagByRequestId(threadId, requestId)
+  const { dag: fetchedDag, loading: fetchedLoading, error } = useDagByRequestId(threadId, requestId)
 
   // IMPORTANT: During streaming, always show loading state
   // - Don't show stale data from previous turn
   // - Only fetch and display DAG after streaming ends
-  const steps = isStreaming ? [] : fetchedSteps
+  const dag = isStreaming ? null : fetchedDag
   const loading = isStreaming || fetchedLoading
 
   // Determine if we have valid steps to display
-  const hasSteps = steps.length > 0
-
-  // Dialog steps: use same steps, no loading state for dialog
-  const dialogSteps = steps
+  const hasSteps = Boolean(dag && (dag.execution_graph?.nodes.length || dag.nodes.length))
 
   // Calculate step count for header
-  const stepCount = steps.length
+  const stepCount = dag?.execution_graph?.nodes.length || dag?.nodes.length || 0
 
   // Loading state - use SciFiLoader animation
   if (loading) {
@@ -226,7 +221,7 @@ export function TurnDAGSidebar({
 
         {/* DAG container - compact mode, fills available space */}
         <div className="flex-1 min-h-0 p-2">
-          <CSSTurnDAG steps={steps} compact={true} className="w-full h-full" />
+          {dag && <CSSTurnDAG dag={dag} compact={true} className="w-full h-full" />}
         </div>
       </div>
 
@@ -240,7 +235,7 @@ export function TurnDAGSidebar({
           </DialogHeader>
 
           <div className="flex-1 overflow-auto">
-            <CSSTurnDAG steps={dialogSteps} compact={false} className="w-full min-h-[400px]" />
+            {dag && <CSSTurnDAG dag={dag} compact={false} className="w-full min-h-[400px]" />}
           </div>
         </DialogContent>
       </Dialog>
