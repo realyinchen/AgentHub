@@ -9,6 +9,7 @@ from app.services.external_capabilities.availability import (
     ExternalCapabilityAvailability,
 )
 from app.services.external_capabilities.contracts import (
+    BookSearchInput,
     WeatherGetInput,
     WebSearchInput,
 )
@@ -142,6 +143,18 @@ class CapabilityRegistry:
                 side_effect=False,
                 enabled=True,
                 compiler_key="web_search",
+            )
+        if external.book_search:
+            self._specs["book_search"] = CapabilitySpec(
+                name="book_search",
+                description=(
+                    "Retrieve read-only public evidence for books matching "
+                    "explicit subject, author, genre, audience, or year filters."
+                ),
+                input_model=BookSearchInput,
+                side_effect=False,
+                enabled=True,
+                compiler_key="book_search",
             )
 
     def get(self, name: str) -> CapabilitySpec | None:

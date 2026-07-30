@@ -97,6 +97,9 @@ class ExternalCapabilityRuntime:
 
 
 def get_external_capability_runtime() -> ExternalCapabilityRuntime:
+    from app.services.external_capabilities.book import (
+        BookSearchRuntimeAdapter,
+    )
     from app.services.external_capabilities.weather import (
         WeatherRuntimeAdapter,
     )
@@ -108,6 +111,7 @@ def get_external_capability_runtime() -> ExternalCapabilityRuntime:
         adapters=[
             WeatherRuntimeAdapter(),
             WebSearchRuntimeAdapter(),
+            BookSearchRuntimeAdapter(),
         ]
     )
 
