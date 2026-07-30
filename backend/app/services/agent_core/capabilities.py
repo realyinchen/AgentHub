@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.services.conversation.contracts import ConversationReadRequest
+from app.services.external_capabilities.availability import (
+    ExternalCapabilityAvailability,
+)
+from app.services.external_capabilities.contracts import WeatherGetInput
 from app.services.memory.version_contracts import (
     ForgetMemoryRequest,
     MemoryAssertionProposal,
@@ -50,7 +54,12 @@ class CapabilitySpec:
 class CapabilityRegistry:
     """Small app-owned registry; it never validates or executes proposals."""
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        availability: ExternalCapabilityAvailability | None = None,
+    ) -> None:
+        external = availability or ExternalCapabilityAvailability.from_settings()
         self._specs = {
             "conversation_read": CapabilitySpec(
                 name="conversation_read",
@@ -107,6 +116,18 @@ class CapabilityRegistry:
                 compiler_key="cancel_active_task",
             ),
         }
+        if external.weather_get:
+            self._specs["weather_get"] = CapabilitySpec(
+                name="weather_get",
+                description=(
+                    "Retrieve current weather evidence for one explicit location "
+                    "and date. Supply business fields only."
+                ),
+                input_model=WeatherGetInput,
+                side_effect=False,
+                enabled=True,
+                compiler_key="weather_get",
+            )
 
     def get(self, name: str) -> CapabilitySpec | None:
         return self._specs.get(str(name or "").strip())

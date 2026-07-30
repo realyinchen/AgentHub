@@ -102,8 +102,14 @@ _THREAD_ID_OPERATIONS = frozenset(
 class SystemRuntime:
     """The only component allowed to turn a plan into side effects/results."""
 
-    def __init__(self, *, ledger: ExecutionLedger | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        ledger: ExecutionLedger | None = None,
+        external_runtime: Any | None = None,
+    ) -> None:
         self._ledger = ledger
+        self._external_runtime = external_runtime
 
     async def execute(
         self,
@@ -154,7 +160,11 @@ class SystemRuntime:
                     )
                     continue
 
-                admitted, reason = _admit_action(plan, action, policy)
+                admitted, reason = self._admit_action(
+                    plan,
+                    action,
+                    policy,
+                )
                 if not admitted:
                     receipt = ActionReceipt(
                         action_id=action.action_id,
@@ -233,6 +243,35 @@ class SystemRuntime:
             ],
         )
         return receipt
+
+    def _admit_action(
+        self,
+        plan: ActionPlan,
+        action: PlannedAction,
+        policy: TurnPolicy,
+    ) -> tuple[bool, str]:
+        admitted, reason = _admit_action(plan, action, policy)
+        if not admitted:
+            return admitted, reason
+        runtime = self._external_capability_runtime(action.operation)
+        if runtime is None:
+            return admitted, reason
+        return runtime.admit(action.operation)
+
+    def _external_capability_runtime(self, operation: str) -> Any | None:
+        from app.services.external_capabilities.operation_registry import (
+            descriptor_for_operation,
+        )
+
+        if descriptor_for_operation(operation) is None:
+            return None
+        if self._external_runtime is None:
+            from app.services.external_capabilities.runtime import (
+                get_external_capability_runtime,
+            )
+
+            self._external_runtime = get_external_capability_runtime()
+        return self._external_runtime
 
     async def _recovered_receipt(
         self,
@@ -357,6 +396,17 @@ class SystemRuntime:
                 )
             elif action.operation == "search_memory":
                 output = await _search_memory(action, context=context)
+            elif (
+                external_runtime := self._external_capability_runtime(
+                    action.operation
+                )
+            ) is not None:
+                output = await external_runtime.execute(
+                    action.operation,
+                    action.arguments,
+                    context=context,
+                    previous=previous,
+                )
             else:
                 output = await _execute_tool_operation(
                     action,

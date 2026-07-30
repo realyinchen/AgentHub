@@ -7,6 +7,10 @@ from app.services.agent_runtime.contracts import (
     ActionPlan,
     PlannedAction,
     PlanSource,
+    ResponseMode,
+)
+from app.services.external_capabilities.operation_registry import (
+    descriptor_for_capability,
 )
 
 
@@ -24,8 +28,10 @@ class WorkflowCompiler:
             raise ValueError("cannot compile an empty capability batch")
 
         actions: list[PlannedAction] = []
+        response_modes: list[ResponseMode] = []
         for proposal in batch.proposals:
             compiled = compile_capability(proposal.capability)
+            response_modes.append(compiled.response_mode)
             actions.append(
                 PlannedAction(
                     action_id=_action_id(proposal.call_id),
@@ -51,7 +57,9 @@ class WorkflowCompiler:
             confidence=1.0,
             complexity="low",
             planner_used=True,
-            response_mode="receipt",
+            response_mode=(
+                "model" if "model" in response_modes else "receipt"
+            ),
             actions=actions,
             metadata={
                 "agent_core_contract": batch.contract_version,
@@ -65,9 +73,18 @@ class CompiledCapability:
     operation: str
     domain: str
     reason: str
+    response_mode: ResponseMode = "receipt"
 
 
 def compile_capability(name: str) -> CompiledCapability:
+    external = descriptor_for_capability(name)
+    if external is not None:
+        return CompiledCapability(
+            operation=external.operation,
+            domain=external.domain,
+            reason=external.reason,
+            response_mode=external.response_mode,
+        )
     compiled = {
         "conversation_read": CompiledCapability(
             operation="conversation_read",

@@ -121,6 +121,11 @@ class Settings(BaseSettings):
         default=None,
         pattern="^[0-9a-f]{40}$",
     )
+    # R4 read-only capabilities are independently projected and admitted.
+    AGENT_CAPABILITY_WEATHER_V1: bool = False
+    AGENT_CAPABILITY_WEB_V1: bool = False
+    AGENT_CAPABILITY_BOOK_V1: bool = False
+    AGENT_CAPABILITY_RESEARCH_V1: bool = False
 
     # =========================================================================
     # LiteLLM Router — Per-Call Timeout
