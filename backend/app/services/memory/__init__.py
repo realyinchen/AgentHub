@@ -37,6 +37,36 @@ from app.services.memory.write_contracts import (
     MemoryWriteRequest,
     ResolvedMemoryFact,
 )
+from app.services.memory.canonicalizer import MemoryCanonicalizer
+from app.services.memory.version_contracts import (
+    CanonicalMemoryFact,
+    CanonicalMemoryTarget,
+    ForgetMemoryRequest,
+    ForgetMemoryTargetProposal,
+    MemoryAssertionProposal,
+    MemoryCanonicalizationResult,
+    MemoryMutation,
+    MemoryMutationReceipt,
+    MemorySearchReceipt,
+    MemoryTargetResolutionResult,
+    MemoryVersionCommitCommand,
+    MemoryVersionForgetCommand,
+    MemoryVersionRecord,
+    RememberMemoryRequest,
+    SearchMemoryRequest,
+)
+from app.services.memory.version_errors import (
+    MemoryVersionError,
+    MemoryVersionIdempotencyConflict,
+    MemoryVersionSourceError,
+    MemoryVersionTargetNotFound,
+)
+from app.services.memory.version_store import MemoryVersionStore
+from app.services.memory.version_search import VersionedMemorySearch
+from app.services.memory.versioned_schema_registry import (
+    VersionedMemorySchema,
+    VersionedMemorySchemaRegistry,
+)
 
 __all__ = [
     "CurrentMemoryListResult",
@@ -53,6 +83,9 @@ __all__ = [
     "MemoryAdmissionEngine",
     "MemoryAdmissionError",
     "MemoryAdmissionResult",
+    "MemoryAssertionProposal",
+    "MemoryCanonicalizationResult",
+    "MemoryCanonicalizer",
     "MemoryCandidate",
     "MemoryClarificationContext",
     "MemoryConflict",
@@ -64,6 +97,12 @@ __all__ = [
     "MemoryEntityFact",
     "MemoryEventListResult",
     "MemoryForgetResult",
+    "ForgetMemoryRequest",
+    "ForgetMemoryTargetProposal",
+    "MemoryMutation",
+    "MemoryMutationReceipt",
+    "MemorySearchReceipt",
+    "MemoryTargetResolutionResult",
     "MemoryOrchestrator",
     "MemoryRecallProviderRequest",
     "MemoryRecallProviderResult",
@@ -71,6 +110,21 @@ __all__ = [
     "MemoryWriteDecision",
     "MemoryWriteOutcome",
     "MemoryWriteRequest",
+    "MemoryVersionCommitCommand",
+    "MemoryVersionError",
+    "MemoryVersionForgetCommand",
+    "MemoryVersionIdempotencyConflict",
+    "MemoryVersionRecord",
+    "MemoryVersionSourceError",
+    "MemoryVersionStore",
+    "MemoryVersionTargetNotFound",
+    "RememberMemoryRequest",
+    "SearchMemoryRequest",
     "ResolvedMemoryFact",
+    "CanonicalMemoryFact",
+    "CanonicalMemoryTarget",
+    "VersionedMemorySearch",
+    "VersionedMemorySchema",
+    "VersionedMemorySchemaRegistry",
     "get_memory_orchestrator",
 ]

@@ -1,7 +1,16 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text, Uuid
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    Uuid,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +44,32 @@ class MemoryEventRecord(Base):
     )
     superseded_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid, ForeignKey("memory_events.id", ondelete="SET NULL"), nullable=True
+    )
+    chain_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    schema_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    memory_key: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    version_no: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    operation: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    previous_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("memory_events.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    source_event_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid,
+        ForeignKey("conversation_events.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    receipt_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    canonical_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    valid_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    valid_to: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
     )
     is_deleted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     deleted_at: Mapped[datetime | None] = mapped_column(

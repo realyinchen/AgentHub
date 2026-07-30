@@ -112,6 +112,16 @@ class Settings(BaseSettings):
     # Recommended: 300 (5 minutes) for production.
     AGENT_STREAM_TIMEOUT: float = Field(default=300.0, ge=0)
 
+    # Agent Controller migration gate. "off" preserves the current path,
+    # "shadow" runs complete dry validation, and "live" authorizes the new
+    # Controller only after an exact configuration-bound certification.
+    AGENT_CONTROLLER_V1_MODE: Literal["off", "shadow", "live"] = "off"
+    AGENT_TASK_RESUME_V1: bool = False
+    AGENT_RELEASE_COMMIT_SHA: str | None = Field(
+        default=None,
+        pattern="^[0-9a-f]{40}$",
+    )
+
     # =========================================================================
     # LiteLLM Router — Per-Call Timeout
     # =========================================================================

@@ -17,6 +17,10 @@ from app.api.v1.dependencies import get_db
 from app.crud import trace as trace_crud
 from app.crud.chat import read_conversation_by_thread_id
 from app.schemas.chat import ChatHistory, ChatMessage
+from app.services.conversation import (
+    ConversationEventRepository,
+    project_journal_chat_messages,
+)
 from app.schemas.trace import StepOutput
 from app.utils.message import (
     collect_tool_calls_for_final_response,
@@ -52,11 +56,25 @@ async def history(
         )
         return ChatHistory(messages=[], message_sequence=[])
 
-    supervisor = get_agent()
-
     # Get message steps from persisted DAG for sidebar (no graph needed)
     _, steps, _ = await trace_crud.get_latest_dag_and_steps(db, thread_id)
     message_sequence: list[StepOutput] = [StepOutput(**s) for s in (steps or [])]
+
+    journal_page = await ConversationEventRepository().list_events(
+        db,
+        user_id=user_id,
+        thread_id=thread_id,
+        limit=500,
+    )
+    if journal_page.events:
+        return ChatHistory(
+            messages=project_journal_chat_messages(journal_page.events),
+            message_sequence=message_sequence,
+        )
+
+    # Temporary migration fallback for conversations created before
+    # change_011. New conversations never use the checkpointer as history truth.
+    supervisor = get_agent()
 
     # Get all traces for this thread to map request_id to AI messages
     # Traces are ordered by creation time (chronological order)

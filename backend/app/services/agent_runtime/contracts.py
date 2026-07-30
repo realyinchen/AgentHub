@@ -6,27 +6,36 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from app.services.system_owned_fields import (
+    ACTION_ARGUMENT_FORBIDDEN_FIELDS,
+    find_forbidden_paths,
+)
 
 ACTION_PLAN_CONTRACT_VERSION = "action-plan-v1"
 PLAN_RECEIPT_CONTRACT_VERSION = "plan-receipt-v1"
 
-SYSTEM_ARGUMENT_FIELDS = frozenset(
-    {
-        "user_id",
-        "thread_id",
-        "conversation_id",
-        "request_id",
-        "tenant_id",
-        "workspace_id",
-        "permissions",
-    }
-)
-
-PlanSource = Literal["routing_decision"]
+PlanSource = Literal[
+    "routing_decision",
+    "controller_proposal",
+    "workflow_resume",
+    "shadow_validation",
+]
 RouteType = Literal["fast_path", "slow_path"]
 ResponseMode = Literal["deterministic", "receipt", "model"]
-ReceiptStatus = Literal["completed", "failed", "blocked", "skipped"]
-PlanStatus = Literal["completed", "partial", "failed", "blocked"]
+ReceiptStatus = Literal[
+    "completed",
+    "failed",
+    "blocked",
+    "skipped",
+    "waiting",
+]
+PlanStatus = Literal[
+    "completed",
+    "partial",
+    "failed",
+    "blocked",
+    "waiting",
+]
 
 
 def _utc_now() -> datetime:
@@ -61,7 +70,12 @@ class PlannedAction(BaseModel):
     @field_validator("arguments")
     @classmethod
     def reject_system_arguments(cls, value: dict[str, Any]) -> dict[str, Any]:
-        invalid = sorted(SYSTEM_ARGUMENT_FIELDS.intersection(value))
+        invalid = sorted(
+            find_forbidden_paths(
+                value,
+                forbidden_fields=ACTION_ARGUMENT_FORBIDDEN_FIELDS,
+            )
+        )
         if invalid:
             raise ValueError(
                 "system-owned fields are not valid action arguments: "
@@ -114,6 +128,9 @@ class ExecutionContext(BaseModel):
     model_name: str = ""
     timezone: str = "Asia/Shanghai"
     permissions: list[str] = Field(default_factory=list)
+    task_id: UUID | None = None
+    plan_version_id: UUID | None = None
+    lease_owner: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

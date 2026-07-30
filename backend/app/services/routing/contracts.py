@@ -4,10 +4,13 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.services.agent_runtime.contracts import SYSTEM_ARGUMENT_FIELDS
 from app.services.routing.interaction_contracts import (
     BusinessRoutingContext,
     InteractionDecision,
+)
+from app.services.system_owned_fields import (
+    ACTION_ARGUMENT_FORBIDDEN_FIELDS,
+    find_forbidden_paths,
 )
 
 
@@ -109,7 +112,12 @@ class ProposedAction(RoutingModel):
     @field_validator("arguments")
     @classmethod
     def reject_system_arguments(cls, value: dict[str, Any]) -> dict[str, Any]:
-        invalid = sorted(_system_argument_paths(value))
+        invalid = sorted(
+            find_forbidden_paths(
+                value,
+                forbidden_fields=ACTION_ARGUMENT_FORBIDDEN_FIELDS,
+            )
+        )
         if invalid:
             raise ValueError(
                 "routing cannot propose system-owned fields: " + ", ".join(invalid)
@@ -169,23 +177,3 @@ class RoutingDecision(RoutingModel):
                 "non-accepted interaction decisions cannot authorize actions"
             )
         return self
-
-
-def _system_argument_paths(
-    value: Any,
-    *,
-    prefix: str = "arguments",
-) -> set[str]:
-    invalid: set[str] = set()
-    if isinstance(value, dict):
-        for key, nested in value.items():
-            path = f"{prefix}.{key}"
-            if str(key) in SYSTEM_ARGUMENT_FIELDS:
-                invalid.add(path)
-            invalid.update(_system_argument_paths(nested, prefix=path))
-    elif isinstance(value, (list, tuple)):
-        for index, nested in enumerate(value):
-            invalid.update(
-                _system_argument_paths(nested, prefix=f"{prefix}[{index}]")
-            )
-    return invalid

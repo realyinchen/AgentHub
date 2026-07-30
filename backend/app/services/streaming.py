@@ -33,6 +33,7 @@ from app.infra.config import get_settings
 from app.infra.database import get_database
 from app.infra.llm.resolver import refresh_model_cache_if_missing, resolve_model_name
 from app.schemas.chat import UserInput
+from app.services.conversation import ConversationJournalService
 from app.utils.sse import (
     AsyncWriteQueue,
     StreamState,
@@ -56,6 +57,11 @@ from app.services.agent_runtime.contracts import ActionPlan, PlanReceipt
 from app.services.agent_runtime.execution_graph import build_execution_graph
 from app.services.agent_runtime.finalizer import receipt_tool_info, receipt_trace_steps
 from app.services.agent_runtime.persistence import persist_runtime_finalized_turn
+from app.services.agent_core.chat_entry import AgentChatEntry
+from app.services.agent_core.shadow_enrollment import (
+    is_current_shadow_enrollment,
+    prepare_shadow_enrollment,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -126,6 +132,115 @@ class ChatStreamingService:
         Yields:
             SSE-formatted strings (e.g. ``"data: {...}\\n\\n"``).
         """
+        journal = ConversationJournalService()
+        database = get_database()
+        settings = get_settings()
+        controller_mode = settings.AGENT_CONTROLLER_V1_MODE
+        prepared_shadow = prepare_shadow_enrollment(
+            user_input,
+            mode=controller_mode,
+            model_resolver=resolve_model_name,
+            source_commit_sha=settings.AGENT_RELEASE_COMMIT_SHA,
+        )
+        user_input = prepared_shadow.user_input
+        initial_model = prepared_shadow.resolved_model_name
+        async with database.session() as session:
+            user_event = await journal.record_user_message(
+                session,
+                user_input,
+                shadow_enrollment=prepared_shadow.enrollment,
+            )
+
+        run_controller = controller_mode != "off"
+        if controller_mode == "shadow" and not is_current_shadow_enrollment(
+            user_event.shadow_enrollment,
+            source_commit_sha=settings.AGENT_RELEASE_COMMIT_SHA,
+        ):
+            run_controller = False
+            logger.info(
+                "[request_id=%s] Shadow skipped: no current durable enrollment",
+                user_input.request_id,
+            )
+        if run_controller:
+            requested_model = user_input.model_uuid or user_input.model_name
+            initial_model = initial_model or resolve_model_name(
+                requested_model
+            )
+            if not initial_model:
+                yield sse_error(
+                    "No AI models are currently available. Please check your configuration.",
+                    error_type="no_models_available",
+                )
+                return
+            if requested_model:
+                await refresh_model_cache_if_missing(initial_model)
+            if user_input.model_name != initial_model:
+                user_input = user_input.model_copy(
+                    update={"model_name": initial_model}
+                )
+            async with database.session() as session:
+                entry = await AgentChatEntry().run(
+                    session,
+                    user_input=user_input,
+                    model_name=initial_model,
+                    journal_sequence_watermark=(
+                        user_event.sequence_no
+                    ),
+                    shadow_enrollment=user_event.shadow_enrollment,
+                )
+                if entry.handled and entry.message is not None:
+                    await journal.record_assistant_message(
+                        session,
+                        user_input=user_input,
+                        message=entry.message,
+                    )
+            if entry.handled:
+                if entry.message is None:
+                    yield sse_error(
+                        "Agent Controller did not produce a safe response.",
+                        error_type="agent_controller_unavailable",
+                    )
+                    return
+                yield f": {' ' * 2048}\n\n"
+                yield sse(
+                    {
+                        "type": "request_start",
+                        "request_id": user_input.request_id,
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "step",
+                        "step": 1,
+                        "action": "human",
+                        "content": user_input.content,
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "step",
+                        "step": 2,
+                        "action": "agent_controller_v1",
+                        "content": {
+                            "status": entry.attempt.status,
+                            "mode": entry.attempt.mode,
+                        },
+                    }
+                )
+                yield sse(
+                    {
+                        "type": "message",
+                        "content": entry.message.model_dump(),
+                    }
+                )
+                yield "data: [DONE]\n\n"
+                return
+            logger.info(
+                "[request_id=%s] Agent Controller shadow status=%s",
+                user_input.request_id,
+                entry.attempt.status,
+            )
+
         runtime_turn = await prepare_runtime_turn(
             user_input,
             model_name=str(user_input.model_uuid or user_input.model_name or ""),
@@ -136,13 +251,20 @@ class ChatStreamingService:
                 runtime_turn.plan,
                 runtime_turn.receipt,
             )
-            await persist_runtime_finalized_turn(
-                agent=self._agent,
-                user_input=user_input,
-                message=final_message,
-                plan=runtime_turn.plan,
-                receipt=runtime_turn.receipt,
-            )
+            async with database.session() as session:
+                await persist_runtime_finalized_turn(
+                    agent=self._agent,
+                    user_input=user_input,
+                    message=final_message,
+                    plan=runtime_turn.plan,
+                    receipt=runtime_turn.receipt,
+                    db=session,
+                )
+                await journal.record_assistant_message(
+                    session,
+                    user_input=user_input,
+                    message=final_message,
+                )
             yield f": {' ' * 2048}\n\n"
             yield sse({"type": "request_start", "request_id": user_input.request_id})
             yield sse(
@@ -185,7 +307,7 @@ class ChatStreamingService:
 
         # ── Validate model availability ────────────────────────────
         requested_model = user_input.model_uuid or user_input.model_name
-        initial_model = resolve_model_name(requested_model)
+        initial_model = initial_model or resolve_model_name(requested_model)
         if not initial_model:
             logger.error("No models available for streaming")
             yield sse_error(
@@ -315,6 +437,7 @@ class ChatStreamingService:
             user_input.thinking_mode,
         ):
             async for event in self._generate_non_streaming_sse(
+                user_input=user_input,
                 kwargs=kwargs,
                 config=config,
                 context=context,
@@ -477,6 +600,7 @@ class ChatStreamingService:
                 if getattr(fallback_msg, "type", None) == "ai":
                     last_ai_msg = fallback_msg
 
+            chat_msg = None
             if last_ai_msg and hasattr(last_ai_msg, "content") and last_ai_msg.content:
                 try:
                     # Store thinking in additional_kwargs for immediate frontend display
@@ -517,9 +641,17 @@ class ChatStreamingService:
                             },
                         }
                     )
-                    yield sse({"type": "message", "content": chat_msg.model_dump()})
                 except Exception as e:
                     logger.error("Error converting final message: %s", e)
+                    chat_msg = None
+            if chat_msg is not None:
+                async with database.session() as session:
+                    await journal.record_assistant_message(
+                        session,
+                        user_input=user_input,
+                        message=chat_msg,
+                    )
+                yield sse({"type": "message", "content": chat_msg.model_dump()})
 
             # ── Persist tokens and DAG (non-blocking) ──────────────
             tokens = state["accumulated_tokens"]
@@ -610,6 +742,7 @@ class ChatStreamingService:
     async def _generate_non_streaming_sse(
         self,
         *,
+        user_input: UserInput,
         kwargs: dict,
         config: dict,
         context: object,
@@ -685,6 +818,13 @@ class ChatStreamingService:
             except Exception:
                 chat_msg.custom_data["tool_info"] = []
 
+        database = get_database()
+        async with database.session() as session:
+            await ConversationJournalService().record_assistant_message(
+                session,
+                user_input=user_input,
+                message=chat_msg,
+            )
         if chat_msg.content:
             yield sse({"type": "token", "content": chat_msg.content})
         yield sse({"type": "message", "content": chat_msg.model_dump()})

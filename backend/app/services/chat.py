@@ -31,6 +31,12 @@ from app.services.agent_runtime import (
 from app.services.agent_runtime.finalizer import receipt_tool_info, receipt_trace_steps
 from app.services.agent_runtime.persistence import persist_runtime_finalized_turn
 from app.services.agent_runtime.execution_graph import build_execution_graph
+from app.services.conversation import ConversationJournalService
+from app.services.agent_core.chat_entry import AgentChatEntry
+from app.services.agent_core.shadow_enrollment import (
+    is_current_shadow_enrollment,
+    prepare_shadow_enrollment,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -83,6 +89,77 @@ class ChatService:
         Raises:
             HTTPException: If no models available or agent returns no events.
         """
+        journal = ConversationJournalService()
+        settings = get_settings()
+        controller_mode = settings.AGENT_CONTROLLER_V1_MODE
+        prepared_shadow = prepare_shadow_enrollment(
+            user_input,
+            mode=controller_mode,
+            model_resolver=resolve_model_name,
+            source_commit_sha=settings.AGENT_RELEASE_COMMIT_SHA,
+        )
+        user_input = prepared_shadow.user_input
+        initial_model = prepared_shadow.resolved_model_name
+        user_event = await journal.record_user_message(
+            db,
+            user_input,
+            shadow_enrollment=prepared_shadow.enrollment,
+        )
+        # The user event is the authoritative source for every downstream
+        # decision and side effect, so it must be durable before any runtime
+        # opens an independent transaction.
+        await db.commit()
+        run_controller = controller_mode != "off"
+        if controller_mode == "shadow" and not is_current_shadow_enrollment(
+            user_event.shadow_enrollment,
+            source_commit_sha=settings.AGENT_RELEASE_COMMIT_SHA,
+        ):
+            run_controller = False
+            logger.info(
+                "[request_id=%s] Shadow skipped: no current durable enrollment",
+                user_input.request_id,
+            )
+        if run_controller:
+            requested_model = user_input.model_uuid or user_input.model_name
+            initial_model = initial_model or resolve_model_name(
+                requested_model
+            )
+            if not initial_model:
+                raise HTTPException(
+                    status_code=503,
+                    detail="No AI models are currently available.",
+                )
+            if requested_model:
+                await refresh_model_cache_if_missing(initial_model)
+            if user_input.model_name != initial_model:
+                user_input = user_input.model_copy(
+                    update={"model_name": initial_model}
+                )
+            entry = await AgentChatEntry().run(
+                db,
+                user_input=user_input,
+                model_name=initial_model,
+                journal_sequence_watermark=user_event.sequence_no,
+                shadow_enrollment=user_event.shadow_enrollment,
+            )
+            if entry.handled:
+                if entry.message is None:
+                    raise HTTPException(
+                        status_code=503,
+                        detail="Agent Controller did not produce a safe response.",
+                    )
+                await journal.record_assistant_message(
+                    db,
+                    user_input=user_input,
+                    message=entry.message,
+                )
+                return entry.message
+            logger.info(
+                "[request_id=%s] Agent Controller shadow status=%s",
+                user_input.request_id,
+                entry.attempt.status,
+            )
+
         runtime_turn = await prepare_runtime_turn(
             user_input,
             model_name=str(user_input.model_uuid or user_input.model_name or ""),
@@ -101,11 +178,16 @@ class ChatService:
                 receipt=runtime_turn.receipt,
                 db=db,
             )
+            await journal.record_assistant_message(
+                db,
+                user_input=user_input,
+                message=output,
+            )
             return output
 
         # 1. Resolve model (with default → first-active fallback)
         requested_model = user_input.model_uuid or user_input.model_name
-        initial_model = resolve_model_name(requested_model)
+        initial_model = initial_model or resolve_model_name(requested_model)
         if not initial_model:
             logger.error("No models available for invoke")
             raise HTTPException(
@@ -242,6 +324,11 @@ class ChatService:
             }
         )
 
+        await journal.record_assistant_message(
+            db,
+            user_input=user_input,
+            message=output,
+        )
         return output
 
     async def stream(

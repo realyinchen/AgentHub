@@ -6,6 +6,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.services.conversation.contracts import ConversationTurn
+from app.services.system_owned_fields import (
+    MODEL_PROPOSAL_FORBIDDEN_FIELDS,
+    find_forbidden_paths,
+)
 
 
 INTERACTION_DECISION_CONTRACT_VERSION = "interaction-decision-v1"
@@ -62,25 +66,6 @@ ConstraintOperator = Literal[
     "lte",
     "exists",
 ]
-
-
-_SYSTEM_OWNED_FIELDS = frozenset(
-    {
-        "user_id",
-        "thread_id",
-        "conversation_id",
-        "request_id",
-        "tenant_id",
-        "workspace_id",
-        "permissions",
-        "credential",
-        "credentials",
-        "authorization",
-        "api_key",
-        "access_token",
-        "refresh_token",
-    }
-)
 
 
 class InteractionModel(BaseModel):
@@ -190,14 +175,18 @@ class DecisionConstraint(InteractionModel):
         token = str(value or "").strip()
         if not token:
             raise ValueError("constraint field cannot be empty")
-        if token.lower() in _SYSTEM_OWNED_FIELDS:
+        if token.casefold() in MODEL_PROPOSAL_FORBIDDEN_FIELDS:
             raise ValueError(f"system-owned field is forbidden: {token}")
         return token
 
     @field_validator("value")
     @classmethod
     def reject_system_values(cls, value: Any) -> Any:
-        invalid = _find_system_fields(value)
+        invalid = find_forbidden_paths(
+            value,
+            forbidden_fields=MODEL_PROPOSAL_FORBIDDEN_FIELDS,
+            root="value",
+        )
         if invalid:
             raise ValueError(
                 "system-owned fields are forbidden in constraints: "
@@ -467,17 +456,3 @@ def _legacy_constraint(constraint: Any) -> DecisionConstraint:
         source=source,
         reason=data.get("reason", ""),
     )
-
-
-def _find_system_fields(value: Any, *, prefix: str = "value") -> set[str]:
-    invalid: set[str] = set()
-    if isinstance(value, dict):
-        for key, nested in value.items():
-            token = str(key).lower()
-            if token in _SYSTEM_OWNED_FIELDS:
-                invalid.add(f"{prefix}.{key}")
-            invalid.update(_find_system_fields(nested, prefix=f"{prefix}.{key}"))
-    elif isinstance(value, (list, tuple)):
-        for index, nested in enumerate(value):
-            invalid.update(_find_system_fields(nested, prefix=f"{prefix}[{index}]"))
-    return invalid

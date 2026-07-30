@@ -26,6 +26,10 @@ from app.services.agent_runtime.failure_projection import (
     project_runtime_failure,
     render_research_failure,
 )
+from app.services.agent_runtime.ledger import (
+    ExecutionLedger,
+    action_idempotency_key,
+)
 
 __all__ = [
     "ACTION_PLAN_CONTRACT_VERSION",
@@ -34,6 +38,7 @@ __all__ = [
     "ActionPlanner",
     "ActionReceipt",
     "ExecutionContext",
+    "ExecutionLedger",
     "PlanReceipt",
     "PlannedAction",
     "PreparedRuntimeTurn",
@@ -44,6 +49,7 @@ __all__ = [
     "ExecutionGraphNode",
     "RuntimeFailureSummary",
     "build_execution_graph",
+    "action_idempotency_key",
     "build_fast_action_plan",
     "finalize_deterministic_receipt",
     "finalize_runtime_receipt",

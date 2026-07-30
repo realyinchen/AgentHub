@@ -1,4 +1,8 @@
 from app.models.chat import Conversation
+from app.models.agent_capability_certification import AgentCapabilityCertification
+from app.models.agent_shadow_observation import AgentShadowObservationRecord
+from app.models.conversation_event import ConversationEventRecord
+from app.models.conversation_summary import ConversationSummaryRecord
 from app.models.book import (
     Book,
     BookInteraction,
@@ -18,15 +22,24 @@ from app.models.research import (
     ResearchStepRecord,
 )
 from app.models.trace import TraceExecution
+from app.models.task import (
+    ActionExecutionReceiptRecord,
+    TaskPlanVersionRecord,
+    TaskStateRecord,
+)
 from app.models.user import User
 from app.models.user_channel import UserChannel
 
 __all__ = [
+    "AgentCapabilityCertification",
+    "AgentShadowObservationRecord",
     "Book",
     "BookInteraction",
     "RecommendationEvent",
     "AppProviderConfigRecord",
     "Conversation",
+    "ConversationEventRecord",
+    "ConversationSummaryRecord",
     "Model",
     "ModelCapabilityCheck",
     "MemoryEventRecord",
@@ -37,6 +50,9 @@ __all__ = [
     "ResearchStateSnapshotRecord",
     "ResearchStepRecord",
     "TraceExecution",
+    "ActionExecutionReceiptRecord",
+    "TaskPlanVersionRecord",
+    "TaskStateRecord",
     "User",
     "UserChannel",
     "UserPreferenceProfile",

@@ -37,3 +37,28 @@ class ConversationRecallResult(ConversationModel):
     status: Literal["completed", "empty"] = "completed"
     turns: list[ConversationTurn] = Field(default_factory=list)
     answer: str = ""
+
+
+class ConversationReadRequest(ConversationModel):
+    """Business-only selection for exact recent-conversation reading."""
+
+    target: Literal["user", "assistant", "exchange"] = "exchange"
+    selection: Literal["latest", "last_n"] = "latest"
+    count: int = Field(default=1, ge=1, le=8)
+
+
+class ConversationExchange(ConversationModel):
+    """One user message paired only with its published assistant response."""
+
+    user: ConversationTurn
+    assistant: ConversationTurn | None = None
+    status: Literal["completed", "incomplete"] = "completed"
+
+
+class ConversationReadResult(ConversationModel):
+    result_mode: Literal["conversation_read"] = "conversation_read"
+    status: Literal["completed", "empty"] = "completed"
+    target: Literal["user", "assistant", "exchange"] = "exchange"
+    exchanges: list[ConversationExchange] = Field(default_factory=list)
+    turns: list[ConversationTurn] = Field(default_factory=list)
+    answer: str = ""

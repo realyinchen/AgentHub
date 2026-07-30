@@ -4,7 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from datetime import datetime
 from typing import Any, Optional, Literal
 
-
 # ==================== Mixin: Mutable Fields ====================
 
 
@@ -134,6 +133,81 @@ class ModelValidationRequest(BaseModel):
         default=True,
         description="Whether to send a real thinking/reasoning request.",
     )
+
+
+class AgentValidationRequest(BaseModel):
+    """Explicit request for the multi-call, no-side-effect Agent probe."""
+
+    timeout_seconds: float = Field(default=45, ge=5, le=120)
+
+
+class AgentProbeCaseStatus(BaseModel):
+    name: Literal[
+        "basic_chat",
+        "strict_tool_schema",
+        "streaming_tool_arguments",
+        "multiple_tool_calls",
+        "tool_message_roundtrip",
+        "mixed_text_tool_call",
+        "multilingual_context",
+        "direct_answer_with_tools",
+        "task_plan_schema",
+        "tool_failure_termination",
+    ]
+    required: bool = True
+    passed: bool
+    latency_ms: int = Field(ge=0)
+    error_type: str | None = None
+    error_message: str | None = None
+    observations: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentCapabilityCertificationStatus(BaseModel):
+    id: str
+    model_id: str
+    provider: str
+    provider_model_id: str
+    configuration_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
+    controller_fingerprint: str | None = Field(
+        default=None,
+        pattern="^[0-9a-f]{64}$",
+    )
+    source_commit_sha: str | None = Field(
+        default=None,
+        pattern="^[0-9a-f]{40}$",
+    )
+    contract_version: Literal["agent-capability-v3"]
+    certified: bool
+    checked_at: datetime
+    latency_ms: int = Field(ge=0)
+    cases: list[AgentProbeCaseStatus] = Field(default_factory=list)
+    failure_cases: list[str] = Field(default_factory=list)
+    error_type: str | None = None
+    last_error: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator("id", "model_id", mode="before")
+    @classmethod
+    def convert_certification_uuid_to_str(cls, value):
+        return str(value) if isinstance(value, UUID) else value
+
+
+class AgentModeAdmissionStatus(BaseModel):
+    admitted: bool
+    certification_id: str | None = None
+    reason: Literal[
+        "certification_missing",
+        "configuration_changed",
+        "contract_changed",
+        "controller_changed",
+        "release_changed",
+        "certification_failed",
+    ] | None = None
+    configuration_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
+    controller_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
+    source_commit_sha: str = Field(pattern="^[0-9a-f]{40}$")
+    contract_version: Literal["agent-capability-v3"]
 
 
 # ==================== Response Schemas ====================
