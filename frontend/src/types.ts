@@ -1043,6 +1043,66 @@ export type StoredToolCallInfo = {
 
 export type StreamEvent =
   | {
+    protocol_version: "agent-stream-v1"
+    sequence: number
+    type: "turn.started"
+    request_id: string
+    content: Record<string, never>
+  }
+  | {
+    protocol_version: "agent-stream-v1"
+    sequence: number
+    type: "graph.snapshot"
+    request_id: string
+    content: {
+      graph: {
+        contract_version: "public-execution-graph-v1"
+        nodes: Array<{
+          node_id: string
+          kind: "user" | "action" | "response"
+          label: string
+          status: string
+          order: number
+        }>
+        edges: Array<{
+          source_id: string
+          target_id: string
+          relation: "dependency" | "entry" | "response"
+        }>
+      }
+    }
+  }
+  | {
+    protocol_version: "agent-stream-v1"
+    sequence: number
+    type: "answer.completed" | "clarification.required"
+    request_id: string
+    content: {
+      answer: {
+        status: "completed" | "clarification_required" | "failed"
+        content: string
+        publication_mode:
+          | "direct"
+          | "deterministic_receipt"
+          | "model_synthesis"
+        receipt_backed: boolean
+        receipt_refs: string[]
+      }
+      message: ChatMessage
+      journal_sequence: number
+    }
+  }
+  | {
+    protocol_version: "agent-stream-v1"
+    sequence: number
+    type: "turn.failed"
+    request_id: string
+    content: {
+      code: string
+      message: string
+    }
+  }
+  | {
     type: "request_start"
     request_id: string
   }

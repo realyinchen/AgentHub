@@ -31,6 +31,23 @@ class WorkflowCompiler:
         if not batch.proposals:
             raise ValueError("cannot compile an empty capability batch")
 
+        model_synthesis_requested = any(
+            (
+                descriptor_for_capability(proposal.capability) is not None
+                and descriptor_for_capability(
+                    proposal.capability
+                ).response_mode
+                == "model"
+            )
+            for proposal in batch.proposals
+        )
+        if model_synthesis_requested and any(
+            proposal.side_effect for proposal in batch.proposals
+        ):
+            raise ValueError(
+                "read-only model synthesis cannot be mixed with side effects"
+            )
+
         terminal_ids = {
             proposal.call_id: (
                 research_terminal_action_id(proposal.call_id)
@@ -66,6 +83,7 @@ class WorkflowCompiler:
                     metadata={
                         "controller_call_id": proposal.call_id,
                         "high_level_capability": proposal.capability,
+                        "side_effect": proposal.side_effect,
                     },
                 )
             )

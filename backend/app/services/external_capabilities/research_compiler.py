@@ -61,6 +61,7 @@ def compile_research_workflow(
                     "controller_call_id": proposal.call_id,
                     "high_level_capability": proposal.capability,
                     "research_stage": stage,
+                    "side_effect": False,
                 },
             )
         )
@@ -83,4 +84,3 @@ __all__ = [
     "research_action_id",
     "research_terminal_action_id",
 ]
-

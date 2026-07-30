@@ -84,6 +84,15 @@ def assistant_event_metadata(message: ChatMessage) -> dict[str, Any]:
 def receipt_references(message: ChatMessage) -> list[str]:
     """Extract only completed action identifiers from a validated receipt."""
 
+    explicit = (message.custom_data or {}).get("receipt_refs")
+    if isinstance(explicit, list):
+        refs = [
+            str(item).strip()
+            for item in explicit
+            if str(item).strip()
+        ][:64]
+        if refs:
+            return list(dict.fromkeys(refs))
     receipt = (message.custom_data or {}).get("plan_receipt")
     if not isinstance(receipt, dict):
         return []

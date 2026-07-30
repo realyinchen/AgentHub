@@ -76,6 +76,7 @@ class ConversationJournalService:
         *,
         user_input: UserInput,
         question: str,
+        receipt_refs: list[str] | None = None,
     ) -> ConversationJournalEvent:
         return await self._repository.append(
             db,
@@ -86,6 +87,7 @@ class ConversationJournalService:
                 event_type="clarification_requested",
                 role="assistant",
                 content=question,
+                receipt_refs=list(receipt_refs or []),
                 metadata={"lifecycle": {"status": "waiting_clarification"}},
             ),
         )

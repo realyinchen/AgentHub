@@ -9,6 +9,10 @@ from app.services.agent_core.contracts import (
     PublishedAnswer,
 )
 from app.services.agent_core.prompt_contracts import ControllerModelRequest
+from app.services.agent_core.publication.contracts import (
+    ReceiptEvidenceBundle,
+)
+from app.services.agent_core.publication.service import TrustedPublisher
 from app.services.agent_core.receipt_projector import (
     ReceiptContextProjector,
 )
@@ -49,6 +53,7 @@ class TurnControllerLoop:
         controller: ControllerPort,
         harness: HarnessPort,
         projector: ReceiptContextProjector | None = None,
+        publisher: TrustedPublisher | None = None,
         max_rounds: int = MAX_CONTROLLER_ROUNDS,
     ) -> None:
         value = int(max_rounds)
@@ -57,6 +62,7 @@ class TurnControllerLoop:
         self._controller = controller
         self._harness = harness
         self._projector = projector or ReceiptContextProjector()
+        self._publisher = publisher or TrustedPublisher()
         self._max_rounds = value
 
     async def run(
@@ -70,6 +76,7 @@ class TurnControllerLoop:
         request = model_request
         rounds: list[ControllerRoundReceipt] = []
         plan_receipts = []
+        evidence: list[ReceiptEvidenceBundle] = []
 
         for round_no in range(1, self._max_rounds + 1):
             try:
@@ -102,24 +109,62 @@ class TurnControllerLoop:
                     content="本轮执行未能形成可信回执。",
                 )
 
+            if result.receipt is not None:
+                plan_receipts.append(result.receipt)
+                if result.plan is not None:
+                    evidence.append(
+                        ReceiptEvidenceBundle(
+                            plan=result.plan,
+                            receipt=result.receipt,
+                        )
+                    )
+
+            answer = result.answer
+            if (
+                answer is not None
+                and output.mode == "direct_answer"
+                and evidence
+            ):
+                try:
+                    answer = self._publisher.publish_synthesis(
+                        output,
+                        evidence=evidence,
+                    )
+                except Exception:
+                    rounds.append(
+                        ControllerRoundReceipt(
+                            round_no=round_no,
+                            output=result.output,
+                            plan=result.plan,
+                            receipt=result.receipt,
+                        )
+                    )
+                    return _failed_turn(
+                        request_id=context.request_id,
+                        rounds=rounds,
+                        plan_receipts=plan_receipts,
+                        content=(
+                            "本轮综合结果未通过可信发布校验，"
+                            "因此没有发布未经验证的内容。"
+                        ),
+                    )
+
             round_receipt = ControllerRoundReceipt(
                 round_no=round_no,
                 output=result.output,
                 plan=result.plan,
                 receipt=result.receipt,
-                answer=result.answer,
+                answer=answer,
             )
             rounds.append(round_receipt)
-            if result.receipt is not None:
-                plan_receipts.append(result.receipt)
 
-            if result.answer is not None:
+            if answer is not None:
                 return TurnReceipt(
-                    status=_answer_status(result.answer),
+                    status=_answer_status(answer),
                     request_id=context.request_id,
                     rounds=rounds,
                     plan_receipts=plan_receipts,
-                    final_answer=result.answer,
+                    final_answer=answer,
                 )
             if result.plan is None or result.receipt is None:
                 return _failed_turn(

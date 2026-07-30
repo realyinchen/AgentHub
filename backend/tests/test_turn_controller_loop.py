@@ -199,6 +199,15 @@ class TurnControllerLoopTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(receipt.status, "completed")
         self.assertEqual(len(receipt.rounds), 2)
+        self.assertEqual(
+            receipt.final_answer.publication_mode,
+            "model_synthesis",
+        )
+        self.assertTrue(receipt.final_answer.receipt_backed)
+        self.assertEqual(
+            receipt.final_answer.receipt_refs,
+            ["model-action-1"],
+        )
         self.assertEqual(len(controller.requests[1].context.receipts), 1)
         projected = controller.requests[1].context.receipts[0]
         self.assertNotIn(harness.raw_output, projected.summary)

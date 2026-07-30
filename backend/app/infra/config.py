@@ -116,6 +116,7 @@ class Settings(BaseSettings):
     # "shadow" runs complete dry validation, and "live" authorizes the new
     # Controller only after an exact configuration-bound certification.
     AGENT_CONTROLLER_V1_MODE: Literal["off", "shadow", "live"] = "off"
+    AGENT_STREAM_V1: bool = False
     AGENT_TASK_RESUME_V1: bool = False
     AGENT_RELEASE_COMMIT_SHA: str | None = Field(
         default=None,

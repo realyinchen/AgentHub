@@ -19,6 +19,13 @@ class TrustedMemoryContext(AgentCoreModel):
     source: Literal["user_journal"] = "user_journal"
 
 
+class TrustedReceiptSource(AgentCoreModel):
+    title: str = Field(default="", max_length=300)
+    url: str = Field(min_length=1, max_length=2_000)
+    snippet: str = Field(default="", max_length=1_000)
+    published_date: str = Field(default="", max_length=64)
+
+
 class TrustedReceiptContext(AgentCoreModel):
     capability: str = Field(min_length=1, max_length=128)
     status: Literal[
@@ -30,6 +37,13 @@ class TrustedReceiptContext(AgentCoreModel):
         "waiting",
     ]
     summary: str = Field(min_length=1, max_length=2_000)
+    result_mode: str = Field(default="", max_length=128)
+    facts: list[str] = Field(default_factory=list, max_length=20)
+    sources: list[TrustedReceiptSource] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    limitations: list[str] = Field(default_factory=list, max_length=10)
 
 
 class TrustedTaskContext(AgentCoreModel):
@@ -101,6 +115,7 @@ __all__ = [
     "TrustedConversationSummary",
     "TrustedMemoryContext",
     "TrustedReceiptContext",
+    "TrustedReceiptSource",
     "TrustedTaskContext",
     "TrustedWorkingStateContext",
 ]

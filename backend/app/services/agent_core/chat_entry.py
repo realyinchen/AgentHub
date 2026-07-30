@@ -14,6 +14,11 @@ from app.services.agent_core.gateway import (
     AgentControllerGateway,
     AgentControllerMode,
 )
+from app.services.agent_core.contracts import (
+    ControllerOutput,
+    PublishedAnswer,
+)
+from app.services.agent_core.publication.service import TrustedPublisher
 from app.services.agent_core.shadow_dispatcher import (
     ShadowControllerCommand,
     ShadowDispatchReceipt,
@@ -41,6 +46,7 @@ class AgentChatEntryResult:
     handled: bool
     attempt: AgentControllerAttempt
     message: ChatMessage | None = None
+    answer: PublishedAnswer | None = None
 
 
 class PlainChatClient:
@@ -217,20 +223,36 @@ class AgentChatEntry:
                     custom_data={
                         "agent_mode": "controller_v1",
                         "turn_status": attempt.turn.status,
+                        "publication_mode": answer.publication_mode,
                         "receipt_backed": answer.receipt_backed,
                         "receipt_refs": list(answer.receipt_refs),
                     },
                 ),
+                answer=answer,
             )
         message = await self._plain_chat.answer(
             db,
             user_input=user_input,
             model_name=model_name,
         )
+        answer = TrustedPublisher().publish_direct(
+            ControllerOutput(
+                mode="direct_answer",
+                text=message.content,
+            )
+        )
+        message.custom_data.update(
+            {
+                "publication_mode": answer.publication_mode,
+                "receipt_backed": False,
+                "receipt_refs": [],
+            }
+        )
         return AgentChatEntryResult(
             handled=True,
             attempt=attempt,
             message=message,
+            answer=answer,
         )
 
     def _dispatch_shadow(

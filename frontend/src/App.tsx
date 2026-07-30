@@ -909,6 +909,79 @@ function App() {
           },
           (event: StreamEvent) => {
             const isTargetActive = activeThreadIdRef.current === targetThreadId
+            if (event.type === "turn.started") {
+              if (isTargetActive) {
+                currentRequestIdRef.current = event.request_id
+              }
+              const placeholderId = streamingPlaceholderIdsRef.current.get(targetThreadId)
+              if (placeholderId) {
+                updateThreadMessages(targetThreadId, (previous) =>
+                  previous.map((item) =>
+                    item.local_id === placeholderId
+                      ? { ...item, request_id: event.request_id }
+                      : item,
+                  ),
+                )
+              }
+              return
+            }
+
+            if (event.type === "graph.snapshot") {
+              if (!isTargetActive) {
+                return
+              }
+              if (isProcessingRef.current) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+              }
+              const actionNodes = event.content.graph.nodes.filter(
+                (node) => node.kind === "action",
+              )
+              setCalledTools(
+                actionNodes.map((node) => ({
+                  name: node.label,
+                  id: node.node_id,
+                  args: {},
+                  status:
+                    node.status === "completed"
+                      ? ("completed" as const)
+                      : ("calling" as const),
+                })),
+              )
+              return
+            }
+
+            if (
+              event.type === "answer.completed"
+              || event.type === "clarification.required"
+            ) {
+              if (isTargetActive) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+                setIsAgentThinking(false)
+                setActiveToolCall(null)
+              }
+              addMessageFromStream(event.content.message, targetThreadId)
+              return
+            }
+
+            if (event.type === "turn.failed") {
+              if (isTargetActive) {
+                setIsProcessing(false)
+                isProcessingRef.current = false
+                setAppError(event.content.message)
+              }
+              updateThreadMessages(targetThreadId, (previous) => [
+                ...previous,
+                toLocalMessage({
+                  type: "ai",
+                  content: event.content.message,
+                  request_id: event.request_id,
+                }),
+              ])
+              return
+            }
+
             // Handle request_start event - store request_id for DAG viewing
             if (event.type === "request_start") {
               if (isTargetActive) {

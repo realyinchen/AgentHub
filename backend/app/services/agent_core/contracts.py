@@ -17,6 +17,11 @@ ControllerMode = Literal[
     "capability_proposals",
 ]
 ExecutionMode = Literal["live", "shadow"]
+PublicationMode = Literal[
+    "direct",
+    "deterministic_receipt",
+    "model_synthesis",
+]
 
 
 class AgentCoreModel(BaseModel):
@@ -105,6 +110,44 @@ class PublishedAnswer(AgentCoreModel):
     content: str = Field(min_length=1, max_length=32_000)
     receipt_backed: bool = False
     receipt_refs: list[str] = Field(default_factory=list)
+    publication_mode: PublicationMode = "direct"
+
+    @model_validator(mode="before")
+    @classmethod
+    def infer_legacy_publication_mode(cls, value):
+        if isinstance(value, dict) and "publication_mode" not in value:
+            return {
+                **value,
+                "publication_mode": (
+                    "deterministic_receipt"
+                    if bool(value.get("receipt_backed"))
+                    else "direct"
+                ),
+            }
+        return value
+
+    @model_validator(mode="after")
+    def validate_publication_mode(self) -> "PublishedAnswer":
+        if self.publication_mode == "direct" and self.receipt_backed:
+            raise ValueError("direct publication cannot claim receipts")
+        if (
+            self.publication_mode
+            in {"deterministic_receipt", "model_synthesis"}
+            and not self.receipt_backed
+        ):
+            raise ValueError(
+                f"{self.publication_mode} publication requires receipts"
+            )
+        if self.receipt_backed and not self.receipt_refs:
+            if self.status == "completed":
+                raise ValueError(
+                    "completed receipt-backed publication requires receipt refs"
+                )
+        elif not self.receipt_backed and self.receipt_refs:
+            raise ValueError(
+                "unbacked publication cannot contain receipt refs"
+            )
+        return self
 
 
 class ShadowEvaluationRecord(AgentCoreModel):

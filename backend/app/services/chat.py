@@ -33,6 +33,9 @@ from app.services.agent_runtime.persistence import persist_runtime_finalized_tur
 from app.services.agent_runtime.execution_graph import build_execution_graph
 from app.services.conversation import ConversationJournalService
 from app.services.agent_core.chat_entry import AgentChatEntry
+from app.services.agent_core.publication.commit import (
+    TurnPublicationCommitter,
+)
 from app.services.agent_core.shadow_enrollment import (
     is_current_shadow_enrollment,
     prepare_shadow_enrollment,
@@ -143,17 +146,19 @@ class ChatService:
                 shadow_enrollment=user_event.shadow_enrollment,
             )
             if entry.handled:
-                if entry.message is None:
+                if entry.message is None or entry.answer is None:
                     raise HTTPException(
                         status_code=503,
                         detail="Agent Controller did not produce a safe response.",
                     )
-                await journal.record_assistant_message(
+                committed = await TurnPublicationCommitter().commit(
                     db,
                     user_input=user_input,
-                    message=entry.message,
+                    answer=entry.answer,
+                    turn=entry.attempt.turn,
+                    model_name=initial_model,
                 )
-                return entry.message
+                return committed.message
             logger.info(
                 "[request_id=%s] Agent Controller shadow status=%s",
                 user_input.request_id,

@@ -132,10 +132,23 @@ class ChatStreamingService:
         Yields:
             SSE-formatted strings (e.g. ``"data: {...}\\n\\n"``).
         """
-        journal = ConversationJournalService()
-        database = get_database()
         settings = get_settings()
         controller_mode = settings.AGENT_CONTROLLER_V1_MODE
+        if settings.AGENT_STREAM_V1 and controller_mode == "live":
+            # Keep the candidate path import-free for every disabled/simple
+            # request. Its first semantic event is emitted before Journal,
+            # model resolution, Controller, or runtime preparation.
+            from app.services.agent_core.trusted_stream import (
+                TrustedControllerStream,
+            )
+
+            yield f": {' ' * 2048}\n\n"
+            async for event in TrustedControllerStream().generate(user_input):
+                yield event
+            return
+
+        journal = ConversationJournalService()
+        database = get_database()
         prepared_shadow = prepare_shadow_enrollment(
             user_input,
             mode=controller_mode,
