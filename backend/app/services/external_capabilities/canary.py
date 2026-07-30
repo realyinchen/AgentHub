@@ -149,10 +149,31 @@ def _failure_code(exc: Exception) -> str:
     return "canary_execution_failed"
 
 
+def contains_forbidden_keys(
+    payload: Any,
+    forbidden: set[str],
+) -> bool:
+    """Inspect structured keys without treating ordinary text as schema."""
+
+    normalized = {str(item).casefold() for item in forbidden}
+    if isinstance(payload, dict):
+        for key, value in payload.items():
+            if str(key).casefold() in normalized:
+                return True
+            if contains_forbidden_keys(value, normalized):
+                return True
+        return False
+    if isinstance(payload, list):
+        return any(
+            contains_forbidden_keys(item, normalized) for item in payload
+        )
+    return False
+
+
 __all__ = [
     "CapabilityCanaryRun",
     "CapabilityCanarySpec",
     "_failure_code",
+    "contains_forbidden_keys",
     "run_capability_canary",
 ]
-

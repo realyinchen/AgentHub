@@ -20,6 +20,7 @@ from app.services.external_capabilities.availability import (
 )
 from app.services.external_capabilities.canary import (
     CapabilityCanarySpec,
+    contains_forbidden_keys,
     run_capability_canary,
 )
 from app.services.external_capabilities.policy import (
@@ -161,6 +162,28 @@ class WeatherCapabilityContractTests(unittest.TestCase):
         self.assertEqual(
             _failure_code(TimeoutError("sensitive timeout detail")),
             "model_provider_timeout",
+        )
+
+    def test_canary_leakage_gate_checks_keys_not_ordinary_text(self):
+        safe = {
+            "sources": [
+                {
+                    "url": "https://example.test/content/provider-guide",
+                    "snippet": "This text discusses provider content.",
+                }
+            ]
+        }
+        self.assertFalse(
+            contains_forbidden_keys(
+                safe,
+                {"provider", "content", "metadata"},
+            )
+        )
+        self.assertTrue(
+            contains_forbidden_keys(
+                {"sources": [{"metadata": {"raw": "secret"}}]},
+                {"provider", "content", "metadata"},
+            )
         )
 
 

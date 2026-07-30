@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import uuid
 
 from sqlalchemy import select
@@ -21,6 +20,7 @@ from app.services.external_capabilities.availability import (
 from app.services.external_capabilities.canary import (
     CapabilityCanarySpec,
     _failure_code,
+    contains_forbidden_keys,
     run_capability_canary,
 )
 from app.services.external_capabilities.canary_contracts import (
@@ -109,15 +109,24 @@ async def run_configured_capability_canary(
                 timezone="Asia/Shanghai",
             ),
         )
-        serialized = json.dumps(run.runtime_output, ensure_ascii=False)
-        provider_exposed = "provider" in serialized.casefold()
-        raw_exposed = any(
-            token in serialized
-            for token in ("attempts", "content", "metadata")
+        provider_exposed = contains_forbidden_keys(
+            run.runtime_output,
+            {"provider", "provider_name", "upstream_provider"},
         )
-        system_fields_exposed = any(
-            token in serialized
-            for token in ("user_id", "thread_id", "request_id")
+        raw_exposed = contains_forbidden_keys(
+            run.runtime_output,
+            {
+                "attempts",
+                "content",
+                "metadata",
+                "raw",
+                "raw_response",
+                "upstream_request_id",
+            },
+        )
+        system_fields_exposed = contains_forbidden_keys(
+            run.runtime_output,
+            {"user_id", "thread_id", "request_id"},
         )
         passed = (
             run.model_phase_status == "passed"
