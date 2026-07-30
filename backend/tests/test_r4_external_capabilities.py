@@ -29,6 +29,7 @@ from app.services.external_search.contracts import (
     SearchHit,
     SearchResult,
 )
+from scripts.verify_r4_weather_live import _failure_code
 
 
 def _availability(*, weather: bool) -> ExternalCapabilityAvailability:
@@ -137,6 +138,17 @@ class WeatherCapabilityContractTests(unittest.TestCase):
         self.assertEqual(action.arguments["location"], "杭州")
         self.assertNotIn("user_id", action.arguments)
         self.assertNotIn("provider", action.arguments)
+
+    def test_live_canary_failure_codes_never_copy_provider_error(self):
+        RateLimitError = type("RateLimitError", (Exception,), {})
+        self.assertEqual(
+            _failure_code(RateLimitError("sensitive upstream quota detail")),
+            "model_provider_capacity",
+        )
+        self.assertEqual(
+            _failure_code(TimeoutError("sensitive timeout detail")),
+            "model_provider_timeout",
+        )
 
 
 class WeatherCapabilityRuntimeTests(unittest.IsolatedAsyncioTestCase):

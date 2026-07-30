@@ -27,7 +27,10 @@ from app.services.agent_core.controller_fingerprint import (
     current_controller_fingerprint,
 )
 from app.services.agent_core.evidence_artifact import EvidenceArtifactWriter
-from app.services.agent_core.evidence_source import GitSourceStateReader
+from app.services.agent_core.evidence_source import (
+    GitSourceState,
+    GitSourceStateReader,
+)
 from app.services.agent_core.prompt_contracts import ControllerModelRequest
 from app.services.agent_core.proposal_validator import ProposalValidator
 from app.services.agent_runtime.contracts import ExecutionContext
@@ -56,7 +59,11 @@ def _arguments() -> argparse.Namespace:
     return parser.parse_args()
 
 
-async def _run(arguments: argparse.Namespace) -> R4CapabilityCanaryEvidence:
+async def _run(
+    arguments: argparse.Namespace,
+    *,
+    source: GitSourceState,
+) -> R4CapabilityCanaryEvidence:
     from app.infra.database import (
         dispose_database,
         get_database,
@@ -66,19 +73,14 @@ async def _run(arguments: argparse.Namespace) -> R4CapabilityCanaryEvidence:
     from app.models.model import Model
     from scripts.init_database import _init_postgres
 
-    source = GitSourceStateReader().require_release_state(
-        REPOSITORY_ROOT,
-        expected_commit_sha=arguments.commit_sha,
-    )
     model_uuid = uuid.UUID(arguments.model_id)
     enabled = ExternalCapabilityAvailability(weather_get=True)
     registry = CapabilityRegistry(availability=enabled)
-    writer = EvidenceArtifactWriter()
-    writer.require_available(arguments.output)
 
     _init_postgres()
     await init_database_connection()
     database = get_database()
+    provider_model_id = ""
     try:
         async with database.session() as session:
             model = (
@@ -92,6 +94,7 @@ async def _run(arguments: argparse.Namespace) -> R4CapabilityCanaryEvidence:
             ).scalar_one_or_none()
             if model is None:
                 raise AssertionError("explicit active chat model was not found")
+            provider_model_id = str(model.model_id)
             target = await resolve_probe_target(
                 session,
                 model_uuid,
@@ -157,12 +160,12 @@ async def _run(arguments: argparse.Namespace) -> R4CapabilityCanaryEvidence:
             and source_count > 0
             and "provider" not in serialized.casefold()
         )
-        evidence = R4CapabilityCanaryEvidence(
+        return R4CapabilityCanaryEvidence(
             capability="weather_get",
             status="passed" if passed else "failed",
             source_commit_sha=source.commit_sha,
             model_id=str(model_uuid),
-            provider_model_id=str(model.model_id),
+            provider_model_id=provider_model_id,
             controller_mode=output.mode,
             proposed_capabilities=proposed,
             compiled_operations=operations,
@@ -182,14 +185,29 @@ async def _run(arguments: argparse.Namespace) -> R4CapabilityCanaryEvidence:
             ),
             failure_code="" if passed else "weather_canary_incomplete",
         )
-        writer.write_json_new(arguments.output, evidence)
-        return evidence
+    except Exception as exc:
+        return R4CapabilityCanaryEvidence(
+            capability="weather_get",
+            status="failed",
+            source_commit_sha=source.commit_sha,
+            model_id=str(model_uuid),
+            provider_model_id=provider_model_id,
+            controller_mode="error",
+            failure_code=_failure_code(exc),
+        )
     finally:
         await dispose_database()
 
 
 async def _main(arguments: argparse.Namespace) -> int:
-    evidence = await _run(arguments)
+    writer = EvidenceArtifactWriter()
+    writer.require_available(arguments.output)
+    source = GitSourceStateReader().require_release_state(
+        REPOSITORY_ROOT,
+        expected_commit_sha=arguments.commit_sha,
+    )
+    evidence = await _run(arguments, source=source)
+    writer.write_json_new(arguments.output, evidence)
     print(
         json.dumps(
             evidence.model_dump(mode="json"),
@@ -200,6 +218,18 @@ async def _main(arguments: argparse.Namespace) -> int:
         )
     )
     return 0 if evidence.status == "passed" else 1
+
+
+def _failure_code(exc: Exception) -> str:
+    name = exc.__class__.__name__.casefold()
+    message = str(exc).casefold()
+    if "ratelimit" in name or "quota" in message or "额度不足" in message:
+        return "model_provider_capacity"
+    if isinstance(exc, TimeoutError) or "timeout" in name:
+        return "model_provider_timeout"
+    if isinstance(exc, (AssertionError, ValueError)):
+        return "canary_contract_invalid"
+    return "canary_execution_failed"
 
 
 if __name__ == "__main__":
