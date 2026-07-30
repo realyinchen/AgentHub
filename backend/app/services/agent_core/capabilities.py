@@ -8,7 +8,10 @@ from app.services.conversation.contracts import ConversationReadRequest
 from app.services.external_capabilities.availability import (
     ExternalCapabilityAvailability,
 )
-from app.services.external_capabilities.contracts import WeatherGetInput
+from app.services.external_capabilities.contracts import (
+    WeatherGetInput,
+    WebSearchInput,
+)
 from app.services.memory.version_contracts import (
     ForgetMemoryRequest,
     MemoryAssertionProposal,
@@ -127,6 +130,18 @@ class CapabilityRegistry:
                 side_effect=False,
                 enabled=True,
                 compiler_key="weather_get",
+            )
+        if external.web_search:
+            self._specs["web_search"] = CapabilitySpec(
+                name="web_search",
+                description=(
+                    "Retrieve current public web evidence for one explicit "
+                    "query. Supply business filters only."
+                ),
+                input_model=WebSearchInput,
+                side_effect=False,
+                enabled=True,
+                compiler_key="web_search",
             )
 
     def get(self, name: str) -> CapabilitySpec | None:

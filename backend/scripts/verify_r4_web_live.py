@@ -1,4 +1,4 @@
-"""Run one clean-source LongCat weather canary with isolated phases."""
+"""Run one clean-source LongCat web canary with isolated phases."""
 
 from __future__ import annotations
 
@@ -22,17 +22,14 @@ from app.services.agent_core.evidence_source import GitSourceStateReader
 from app.services.external_capabilities.availability import (
     ExternalCapabilityAvailability,
 )
-from app.services.external_capabilities.canary import (
-    CapabilityCanarySpec,
-    _failure_code,
-)
+from app.services.external_capabilities.canary import CapabilityCanarySpec
 from app.services.external_capabilities.live_canary_runner import (
     run_configured_capability_canary,
 )
 from app.services.external_capabilities.runtime import (
     ExternalCapabilityRuntime,
 )
-from app.services.external_capabilities.weather import WeatherRuntimeAdapter
+from app.services.external_capabilities.web import WebSearchRuntimeAdapter
 
 
 def _arguments() -> argparse.Namespace:
@@ -40,8 +37,10 @@ def _arguments() -> argparse.Namespace:
     parser.add_argument("--model-id", required=True)
     parser.add_argument("--commit-sha", required=True)
     parser.add_argument("--output", required=True)
-    parser.add_argument("--location", default="杭州")
-    parser.add_argument("--date", default="tomorrow")
+    parser.add_argument(
+        "--query",
+        default="本周人工智能领域的重要新闻",
+    )
     parser.add_argument("--timeout-seconds", type=float, default=60)
     return parser.parse_args()
 
@@ -53,29 +52,29 @@ async def _main(arguments: argparse.Namespace) -> int:
         REPOSITORY_ROOT,
         expected_commit_sha=arguments.commit_sha,
     )
-    availability = ExternalCapabilityAvailability(weather_get=True)
+    availability = ExternalCapabilityAvailability(web_search=True)
     evidence = await run_configured_capability_canary(
         source=source,
         model_id=arguments.model_id,
         timeout_seconds=arguments.timeout_seconds,
         spec=CapabilityCanarySpec(
-            capability="weather_get",
-            operation="weather_get_v1",
-            user_message=(
-                f"{arguments.location}{arguments.date}天气怎么样？"
-            ),
+            capability="web_search",
+            operation="web_search_v2",
+            user_message=f"搜索：{arguments.query}",
             arguments={
-                "location": arguments.location,
-                "date": arguments.date,
-                "units": "metric",
+                "query": arguments.query,
+                "max_results": 5,
+                "detail": "standard",
+                "time_range": "week",
                 "language": "zh-CN",
+                "category": "news",
             },
-            expected_result_mode="weather_evidence",
+            expected_result_mode="web_evidence",
         ),
         availability=availability,
         external_runtime=ExternalCapabilityRuntime(
             availability=availability,
-            adapters=[WeatherRuntimeAdapter()],
+            adapters=[WebSearchRuntimeAdapter()],
         ),
     )
     writer.write_json_new(arguments.output, evidence)

@@ -100,12 +100,19 @@ def get_external_capability_runtime() -> ExternalCapabilityRuntime:
     from app.services.external_capabilities.weather import (
         WeatherRuntimeAdapter,
     )
+    from app.services.external_capabilities.web import (
+        WebSearchRuntimeAdapter,
+    )
 
-    return ExternalCapabilityRuntime(adapters=[WeatherRuntimeAdapter()])
+    return ExternalCapabilityRuntime(
+        adapters=[
+            WeatherRuntimeAdapter(),
+            WebSearchRuntimeAdapter(),
+        ]
+    )
 
 
 __all__ = [
     "ExternalCapabilityRuntime",
     "get_external_capability_runtime",
 ]
-

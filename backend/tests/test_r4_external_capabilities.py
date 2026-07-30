@@ -5,16 +5,22 @@ import unittest
 from uuid import uuid4
 
 from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.certification_contracts import AgentModeAdmission
 from app.services.agent_core.compiler import WorkflowCompiler
 from app.services.agent_core.contracts import (
     ControllerOutput,
     ControllerToolCall,
 )
 from app.services.agent_core.proposal_validator import ProposalValidator
+from app.services.agent_core.prompt_contracts import ControllerModelRequest
 from app.services.agent_runtime.contracts import ExecutionContext
 from app.services.agent_runtime.runtime import SystemRuntime
 from app.services.external_capabilities.availability import (
     ExternalCapabilityAvailability,
+)
+from app.services.external_capabilities.canary import (
+    CapabilityCanarySpec,
+    run_capability_canary,
 )
 from app.services.external_capabilities.policy import (
     CapabilityRuntimePolicy,
@@ -95,6 +101,13 @@ class _SlowSearchGatewayStub:
         raise AssertionError("timeout should cancel this adapter")
 
 
+class _CapacityBlockedController:
+    async def decide(self, request):
+        del request
+        RateLimitError = type("RateLimitError", (Exception,), {})
+        raise RateLimitError("upstream quota detail")
+
+
 class WeatherCapabilityContractTests(unittest.TestCase):
     def test_weather_schema_is_flagged_and_contains_only_business_fields(self):
         disabled = CapabilityRegistry(
@@ -152,6 +165,66 @@ class WeatherCapabilityContractTests(unittest.TestCase):
 
 
 class WeatherCapabilityRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_canary_runs_provider_phase_after_model_capacity_failure(
+        self,
+    ):
+        enabled = _availability(weather=True)
+        registry = CapabilityRegistry(availability=enabled)
+        runtime = SystemRuntime(
+            external_runtime=ExternalCapabilityRuntime(
+                availability=enabled,
+                adapters=[
+                    WeatherRuntimeAdapter(
+                        search_gateway=_SearchGatewayStub()
+                    )
+                ],
+            )
+        )
+        context = ExecutionContext(
+            user_id=uuid4(),
+            thread_id=uuid4(),
+            request_id="r4-weather-phase-isolation",
+        )
+
+        result = await run_capability_canary(
+            spec=CapabilityCanarySpec(
+                capability="weather_get",
+                operation="weather_get_v1",
+                user_message="杭州明天天气怎么样？",
+                arguments={
+                    "location": "杭州",
+                    "date": "tomorrow",
+                },
+                expected_result_mode="weather_evidence",
+            ),
+            controller=_CapacityBlockedController(),
+            registry=registry,
+            request=ControllerModelRequest(
+                model_name="fixture-model",
+                current_user_message="杭州明天天气怎么样？",
+                admission=AgentModeAdmission(
+                    admitted=True,
+                    certification_id="candidate-canary",
+                    configuration_fingerprint="0" * 64,
+                    controller_fingerprint="1" * 64,
+                    source_commit_sha="2" * 40,
+                ),
+            ),
+            runtime=runtime,
+            context=context,
+        )
+
+        self.assertEqual(result.model_phase_status, "failed")
+        self.assertEqual(
+            result.model_failure_code,
+            "model_provider_capacity",
+        )
+        self.assertEqual(result.runtime_phase_status, "passed")
+        self.assertEqual(
+            result.runtime_input_source,
+            "registered_fixture",
+        )
+
     async def test_disabled_runtime_rejects_compiled_bypass(self):
         plan = _compile_weather_plan()
         runtime = ExternalCapabilityRuntime(
