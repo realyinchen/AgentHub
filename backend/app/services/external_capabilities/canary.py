@@ -29,6 +29,7 @@ class CapabilityCanarySpec(AgentCoreModel):
         "research_start",
     ]
     operation: str
+    expected_operations: list[str] = Field(default_factory=list)
     user_message: str
     arguments: dict[str, Any]
     expected_result_mode: str
@@ -78,7 +79,13 @@ async def run_capability_canary(
             compiler.compile(batch, goal=spec.user_message)
         )
         operations = [item.operation for item in candidate.actions]
-        if proposed != [spec.capability] or operations != [spec.operation]:
+        expected_operations = (
+            spec.expected_operations or [spec.operation]
+        )
+        if (
+            proposed != [spec.capability]
+            or operations != expected_operations
+        ):
             model_failure = "model_proposal_mismatch"
         else:
             model_status = "passed"

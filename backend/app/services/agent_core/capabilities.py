@@ -10,6 +10,7 @@ from app.services.external_capabilities.availability import (
 )
 from app.services.external_capabilities.contracts import (
     BookSearchInput,
+    ResearchStartInput,
     WeatherGetInput,
     WebSearchInput,
 )
@@ -53,6 +54,7 @@ class CapabilitySpec:
     side_effect: bool
     enabled: bool
     compiler_key: str
+    task_plan_allowed: bool = True
 
 
 class CapabilityRegistry:
@@ -155,6 +157,20 @@ class CapabilityRegistry:
                 side_effect=False,
                 enabled=True,
                 compiler_key="book_search",
+            )
+        if external.research_start:
+            self._specs["research_start"] = CapabilitySpec(
+                name="research_start",
+                description=(
+                    "Run one bounded current-turn research workflow that "
+                    "publishes only admitted public evidence. Do not place "
+                    "this capability inside plan_task."
+                ),
+                input_model=ResearchStartInput,
+                side_effect=False,
+                enabled=True,
+                compiler_key="research_start",
+                task_plan_allowed=False,
             )
 
     def get(self, name: str) -> CapabilitySpec | None:

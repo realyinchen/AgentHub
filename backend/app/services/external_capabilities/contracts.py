@@ -104,6 +104,29 @@ class BookSearchInput(ExternalCapabilityInput):
         return self
 
 
+class ResearchStartInput(ExternalCapabilityInput):
+    objective: str = Field(min_length=1, max_length=2_000)
+    mode: Literal["deep_search", "deep_research"] = "deep_search"
+    subquestions: list[str] = Field(default_factory=list, max_length=8)
+    constraints: list[str] = Field(default_factory=list, max_length=10)
+    max_sources: int = Field(default=8, ge=3, le=20)
+    max_rounds: int = Field(default=2, ge=1, le=3)
+    time_range: Literal["day", "week", "month", "year"] | None = None
+    language: str = Field(default="", max_length=24)
+
+    @field_validator("objective", "language", mode="before")
+    @classmethod
+    def normalize_text(cls, value: Any) -> str:
+        return " ".join(str(value or "").split())
+
+    @field_validator("subquestions", "constraints", mode="before")
+    @classmethod
+    def normalize_lists(cls, value: Any) -> list[str]:
+        values = value if isinstance(value, list) else [value] if value else []
+        cleaned = [" ".join(str(item or "").split()) for item in values]
+        return list(dict.fromkeys(item for item in cleaned if item))
+
+
 class ExternalEvidenceSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -154,11 +177,30 @@ class BookEvidence(BaseModel):
     error: str = Field(default="", max_length=120)
 
 
+class ResearchReportEvidence(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    result_mode: Literal[
+        "research_report_evidence"
+    ] = "research_report_evidence"
+    status: Literal["ok", "empty_result", "unavailable"]
+    objective: str
+    findings: list[str] = Field(default_factory=list, max_length=20)
+    sources: list[ExternalEvidenceSource] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+    limitations: list[str] = Field(default_factory=list, max_length=10)
+    error: str = Field(default="", max_length=120)
+
+
 __all__ = [
     "BookEvidence",
     "BookSearchInput",
     "ExternalCapabilityInput",
     "ExternalEvidenceSource",
+    "ResearchReportEvidence",
+    "ResearchStartInput",
     "WebEvidence",
     "WebSearchInput",
     "WeatherEvidence",

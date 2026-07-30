@@ -14,6 +14,7 @@ class CapabilitySpecPort(Protocol):
     name: str
     input_model: type[BaseModel]
     side_effect: bool
+    task_plan_allowed: bool
 
 
 class CapabilityRegistryPort(Protocol):
@@ -40,6 +41,11 @@ class TaskPlanDraftValidator:
         side_effect_step_keys: list[str] = []
         for step in draft.steps:
             spec = self._registry.require_enabled(step.capability)
+            if not getattr(spec, "task_plan_allowed", True):
+                raise ValueError(
+                    f"capability cannot be used as a durable task step: "
+                    f"{spec.name}"
+                )
             arguments = spec.input_model.model_validate(step.arguments)
             normalized_steps.append(
                 step.model_copy(

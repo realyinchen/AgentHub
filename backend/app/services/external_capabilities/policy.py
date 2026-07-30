@@ -31,8 +31,20 @@ _DEFAULT_POLICIES = MappingProxyType(
             timeout_seconds=25.0,
             max_attempts=1,
         ),
-        "research_start_v1": CapabilityRuntimePolicy(
+        "research_prepare_v1": CapabilityRuntimePolicy(
+            timeout_seconds=5.0,
+            max_attempts=1,
+        ),
+        "research_search_v1": CapabilityRuntimePolicy(
             timeout_seconds=120.0,
+            max_attempts=1,
+        ),
+        "research_admit_evidence_v1": CapabilityRuntimePolicy(
+            timeout_seconds=5.0,
+            max_attempts=1,
+        ),
+        "research_report_v1": CapabilityRuntimePolicy(
+            timeout_seconds=5.0,
             max_attempts=1,
         ),
     }
@@ -62,4 +74,3 @@ __all__ = [
     "CapabilityRuntimePolicy",
     "ExternalCapabilityPolicyRegistry",
 ]
-

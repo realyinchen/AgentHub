@@ -103,6 +103,12 @@ def get_external_capability_runtime() -> ExternalCapabilityRuntime:
     from app.services.external_capabilities.weather import (
         WeatherRuntimeAdapter,
     )
+    from app.services.external_capabilities.research import (
+        ResearchEvidenceAdmissionAdapter,
+        ResearchPrepareAdapter,
+        ResearchReportAdapter,
+        ResearchSearchAdapter,
+    )
     from app.services.external_capabilities.web import (
         WebSearchRuntimeAdapter,
     )
@@ -112,6 +118,10 @@ def get_external_capability_runtime() -> ExternalCapabilityRuntime:
             WeatherRuntimeAdapter(),
             WebSearchRuntimeAdapter(),
             BookSearchRuntimeAdapter(),
+            ResearchPrepareAdapter(),
+            ResearchSearchAdapter(),
+            ResearchEvidenceAdmissionAdapter(),
+            ResearchReportAdapter(),
         ]
     )
 

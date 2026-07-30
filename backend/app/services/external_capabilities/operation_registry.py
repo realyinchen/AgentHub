@@ -37,7 +37,7 @@ _DESCRIPTORS = (
     ),
     ExternalCapabilityDescriptor(
         capability="research_start",
-        operation="research_start_v1",
+        operation="research_report_v1",
         domain="research",
         reason="Start an app-owned evidence-bounded research workflow.",
         response_mode="model",
@@ -45,6 +45,14 @@ _DESCRIPTORS = (
 )
 _BY_CAPABILITY = {item.capability: item for item in _DESCRIPTORS}
 _BY_OPERATION = {item.operation: item for item in _DESCRIPTORS}
+_RESEARCH_DESCRIPTOR = _BY_CAPABILITY["research_start"]
+for _operation in (
+    "research_prepare_v1",
+    "research_search_v1",
+    "research_admit_evidence_v1",
+    "research_report_v1",
+):
+    _BY_OPERATION[_operation] = _RESEARCH_DESCRIPTOR
 
 
 def descriptor_for_capability(
@@ -64,4 +72,3 @@ __all__ = [
     "descriptor_for_capability",
     "descriptor_for_operation",
 ]
-

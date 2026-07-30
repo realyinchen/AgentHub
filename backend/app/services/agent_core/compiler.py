@@ -12,6 +12,10 @@ from app.services.agent_runtime.contracts import (
 from app.services.external_capabilities.operation_registry import (
     descriptor_for_capability,
 )
+from app.services.external_capabilities.research_compiler import (
+    compile_research_workflow,
+    research_terminal_action_id,
+)
 
 
 class WorkflowCompiler:
@@ -27,11 +31,30 @@ class WorkflowCompiler:
         if not batch.proposals:
             raise ValueError("cannot compile an empty capability batch")
 
+        terminal_ids = {
+            proposal.call_id: (
+                research_terminal_action_id(proposal.call_id)
+                if proposal.capability == "research_start"
+                else _action_id(proposal.call_id)
+            )
+            for proposal in batch.proposals
+        }
         actions: list[PlannedAction] = []
         response_modes: list[ResponseMode] = []
         for proposal in batch.proposals:
             compiled = compile_capability(proposal.capability)
             response_modes.append(compiled.response_mode)
+            dependencies = [
+                terminal_ids[item] for item in proposal.depends_on
+            ]
+            if proposal.capability == "research_start":
+                actions.extend(
+                    compile_research_workflow(
+                        proposal,
+                        depends_on=dependencies,
+                    )
+                )
+                continue
             actions.append(
                 PlannedAction(
                     action_id=_action_id(proposal.call_id),
@@ -39,9 +62,7 @@ class WorkflowCompiler:
                     operation=compiled.operation,
                     arguments=dict(proposal.arguments),
                     reason=compiled.reason,
-                    depends_on=[
-                        _action_id(item) for item in proposal.depends_on
-                    ],
+                    depends_on=dependencies,
                     metadata={
                         "controller_call_id": proposal.call_id,
                         "high_level_capability": proposal.capability,
