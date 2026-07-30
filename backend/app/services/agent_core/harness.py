@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from app.schemas.chat import UserInput
+from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_core.compiler import WorkflowCompiler
 from app.services.agent_core.contracts import (
     AgentCoreTurnResult,
@@ -34,17 +35,24 @@ class AgentCoreHarness:
         normalizer: PlanGraphNormalizer | None = None,
         runtime: SystemRuntime | None = None,
         publisher: ResponsePublisher | None = None,
+        registry: CapabilityRegistry | None = None,
     ) -> None:
-        self._validator = validator or ProposalValidator()
+        capability_registry = registry or CapabilityRegistry()
+        self._validator = validator or ProposalValidator(
+            capability_registry
+        )
         self._compiler = compiler or WorkflowCompiler()
         self._task_planning_compiler = (
             task_planning_compiler or TaskPlanningCompiler()
         )
         self._task_plan_validator = (
-            task_plan_validator or TaskPlanDraftValidator()
+            task_plan_validator
+            or TaskPlanDraftValidator(capability_registry)
         )
         self._normalizer = normalizer or PlanGraphNormalizer()
-        self._runtime = runtime or SystemRuntime()
+        self._runtime = runtime or SystemRuntime(
+            capability_registry=capability_registry
+        )
         self._publisher = publisher or ResponsePublisher()
 
     async def run(

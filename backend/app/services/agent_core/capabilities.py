@@ -4,6 +4,9 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.conversation.contracts import ConversationReadRequest
 from app.services.external_capabilities.availability import (
     ExternalCapabilityAvailability,
@@ -64,8 +67,14 @@ class CapabilityRegistry:
         self,
         *,
         availability: ExternalCapabilityAvailability | None = None,
+        core_availability: CoreCapabilityAvailability | None = None,
     ) -> None:
         external = availability or ExternalCapabilityAvailability.from_settings()
+        core = (
+            core_availability
+            or CoreCapabilityAvailability.from_settings()
+        )
+        self._core_availability = core
         self._specs = {
             "conversation_read": CapabilitySpec(
                 name="conversation_read",
@@ -75,7 +84,7 @@ class CapabilityRegistry:
                 ),
                 input_model=ConversationReadInput,
                 side_effect=False,
-                enabled=True,
+                enabled=core.capability_enabled("conversation_read"),
                 compiler_key="conversation_read",
             ),
             "remember_memory": CapabilitySpec(
@@ -86,7 +95,7 @@ class CapabilityRegistry:
                 ),
                 input_model=RememberMemoryInput,
                 side_effect=True,
-                enabled=True,
+                enabled=core.capability_enabled("remember_memory"),
                 compiler_key="remember_memory",
             ),
             "search_memory": CapabilitySpec(
@@ -97,7 +106,7 @@ class CapabilityRegistry:
                 ),
                 input_model=SearchMemoryInput,
                 side_effect=False,
-                enabled=True,
+                enabled=core.capability_enabled("search_memory"),
                 compiler_key="search_memory",
             ),
             "forget_memory": CapabilitySpec(
@@ -107,7 +116,7 @@ class CapabilityRegistry:
                 ),
                 input_model=ForgetMemoryInput,
                 side_effect=True,
-                enabled=True,
+                enabled=core.capability_enabled("forget_memory"),
                 compiler_key="forget_memory",
             ),
             "cancel_active_task": CapabilitySpec(
@@ -118,7 +127,7 @@ class CapabilityRegistry:
                 ),
                 input_model=CancelActiveTaskInput,
                 side_effect=True,
-                enabled=True,
+                enabled=core.capability_enabled("cancel_active_task"),
                 compiler_key="cancel_active_task",
             ),
         }
@@ -210,3 +219,11 @@ class CapabilityRegistry:
                 }
             )
         return tuple(schemas)
+
+    @property
+    def task_planning_enabled(self) -> bool:
+        return self._core_availability.task_control
+
+    @property
+    def core_availability(self) -> CoreCapabilityAvailability:
+        return self._core_availability

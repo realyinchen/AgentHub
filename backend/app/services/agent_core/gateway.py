@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.infra.config import get_settings
 from app.schemas.chat import UserInput
+from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_core.certification_contracts import AgentModeAdmission
 from app.services.agent_core.contracts import (
     AgentCoreModel,
@@ -95,9 +96,15 @@ class AgentControllerGateway:
         request_builder: ControllerRequestBuilder | None = None,
         resume_dispatcher: TaskResumeDispatcher | None = None,
         admission_loader=None,
+        registry: CapabilityRegistry | None = None,
     ) -> None:
-        self._controller = controller or ControllerClient()
-        self._harness = harness or AgentCoreHarness()
+        capability_registry = registry or CapabilityRegistry()
+        self._controller = controller or ControllerClient(
+            registry=capability_registry
+        )
+        self._harness = harness or AgentCoreHarness(
+            registry=capability_registry
+        )
         self._request_builder = (
             request_builder or ControllerRequestBuilder()
         )

@@ -12,6 +12,10 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.agent_core.certification_contracts import AgentModeAdmission
+from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.agent_core.controller_client import (
     PLAN_TASK_TOOL,
     ControllerClient,
@@ -67,6 +71,12 @@ def _request(*, admitted: bool = True) -> ControllerModelRequest:
     )
 
 
+def _enabled_registry() -> CapabilityRegistry:
+    return CapabilityRegistry(
+        core_availability=CoreCapabilityAvailability.all_enabled()
+    )
+
+
 class _BoundModel:
     def __init__(self, response: AIMessage) -> None:
         self.response = response
@@ -90,6 +100,7 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
     ) -> None:
         model = _BoundModel(AIMessage(content="你说你叫冰露，我向你问好。"))
         output = await ControllerClient(
+            registry=_enabled_registry(),
             model_factory=lambda _name: model
         ).decide(_request())
 
@@ -129,6 +140,7 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         output = await ControllerClient(
+            registry=_enabled_registry(),
             model_factory=lambda _name: model
         ).decide(_request())
 
@@ -154,6 +166,7 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         output = await ControllerClient(
+            registry=_enabled_registry(),
             model_factory=lambda _name: model
         ).decide(_request())
 
@@ -184,6 +197,7 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
             "cannot be mixed",
         ):
             ControllerClient(
+                registry=_enabled_registry(),
                 model_factory=lambda _name: _BoundModel(response)
             ).parse(response)
 
@@ -220,6 +234,7 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         output = await ControllerClient(
+            registry=_enabled_registry(),
             model_factory=lambda _name: model
         ).decide(_request())
 

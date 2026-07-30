@@ -5,7 +5,13 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from app.services.agent_core.capabilities import CancelActiveTaskInput
+from app.services.agent_core.capabilities import (
+    CancelActiveTaskInput,
+    CapabilityRegistry,
+)
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.agent_runtime.contracts import (
     ActionReceipt,
     ExecutionContext,
@@ -39,12 +45,18 @@ def _draft() -> TaskPlanDraft:
     )
 
 
+def _enabled_registry() -> CapabilityRegistry:
+    return CapabilityRegistry(
+        core_availability=CoreCapabilityAvailability.all_enabled()
+    )
+
+
 class TaskPlanningCompilerTests(unittest.TestCase):
     def test_unified_plan_action_contains_no_system_identity(self) -> None:
         from app.services.tasks.draft_validator import TaskPlanDraftValidator
 
         plan = TaskPlanningCompiler().compile(
-            TaskPlanDraftValidator().validate(_draft()),
+            TaskPlanDraftValidator(_enabled_registry()).validate(_draft()),
             goal="Continue the durable task",
         )
 

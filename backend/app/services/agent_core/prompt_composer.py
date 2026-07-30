@@ -19,10 +19,7 @@ You are the Controller for an application-owned Agent runtime.
 Choose exactly one behavior for this turn:
 1. Answer directly when no capability is needed.
 2. Call request_clarification when essential information is missing.
-3. Call plan_task for a durable multi-step goal that requires dependent steps,
-   multiple controller rounds, clarification, or crash recovery. You propose
-   semantics only; the application decides whether to create or revise.
-4. Propose one or more available high-level capabilities for work that can finish
+3. Propose one or more available high-level capabilities for work that can finish
    in the current turn.
 
 Rules:
@@ -145,10 +142,19 @@ class PromptComposer:
         """Return the exact model-visible policy prompt."""
 
         enabled = ", ".join(self._registry.enabled_names)
+        task_instruction = (
+            "\nThe plan_task control is available for a durable multi-step "
+            "goal that requires dependent steps, multiple controller rounds, "
+            "clarification, or crash recovery. Propose semantics only; the "
+            "application decides whether to create or revise.\n"
+            if self._registry.task_planning_enabled
+            else "\nThe plan_task control is not available in this rollout.\n"
+        )
         return (
             CORE_HARNESS
+            + task_instruction
             + "\nAvailable high-level capabilities: "
-            + enabled
+            + (enabled or "none")
             + ".\n"
         )
 

@@ -4,6 +4,9 @@ import unittest
 from uuid import uuid4
 
 from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.agent_core.compiler import WorkflowCompiler
 from app.services.agent_core.contracts import (
     ControllerOutput,
@@ -155,7 +158,10 @@ class ResearchCapabilityContractTests(unittest.TestCase):
 
     def test_research_start_cannot_be_a_half_compiled_task_step(self):
         registry = CapabilityRegistry(
-            availability=_availability(research=True)
+            availability=_availability(research=True),
+            core_availability=CoreCapabilityAvailability(
+                task_control=True
+            ),
         )
         draft = TaskPlanDraft(
             goal="研究科幻文学趋势",

@@ -3,6 +3,10 @@ from __future__ import annotations
 import unittest
 import uuid
 
+from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.agent_core.contracts import (
     AgentCoreTurnResult,
     ControllerOutput,
@@ -36,6 +40,12 @@ def _request() -> ControllerModelRequest:
             source_commit_sha="c" * 40,
         ),
         context=ControllerContextSnapshot(),
+    )
+
+
+def _enabled_registry() -> CapabilityRegistry:
+    return CapabilityRegistry(
+        core_availability=CoreCapabilityAvailability.all_enabled()
     )
 
 
@@ -82,7 +92,9 @@ class _ModelRoundHarness:
     async def run(self, output, *, goal, context, user_input=None):
         self.calls += 1
         if output.mode == "direct_answer":
-            return await AgentCoreHarness().run(
+            return await AgentCoreHarness(
+                registry=_enabled_registry()
+            ).run(
                 output,
                 goal=goal,
                 context=context,
@@ -169,7 +181,7 @@ class TurnControllerLoopTests(unittest.IsolatedAsyncioTestCase):
         )
         receipt = await TurnControllerLoop(
             controller=controller,
-            harness=AgentCoreHarness(),
+            harness=AgentCoreHarness(registry=_enabled_registry()),
         ).run(
             model_request=_request(),
             context=_context(),
@@ -269,7 +281,10 @@ class TurnControllerLoopTests(unittest.IsolatedAsyncioTestCase):
         runtime = _TerminalRuntime("waiting")
         receipt = await TurnControllerLoop(
             controller=controller,
-            harness=AgentCoreHarness(runtime=runtime),  # type: ignore[arg-type]
+            harness=AgentCoreHarness(
+                registry=_enabled_registry(),
+                runtime=runtime,  # type: ignore[arg-type]
+            ),
         ).run(
             model_request=_request(),
             context=_context(),
@@ -286,7 +301,10 @@ class TurnControllerLoopTests(unittest.IsolatedAsyncioTestCase):
         runtime = _TerminalRuntime("failed")
         receipt = await TurnControllerLoop(
             controller=controller,
-            harness=AgentCoreHarness(runtime=runtime),  # type: ignore[arg-type]
+            harness=AgentCoreHarness(
+                registry=_enabled_registry(),
+                runtime=runtime,  # type: ignore[arg-type]
+            ),
         ).run(
             model_request=_request(),
             context=_context(),

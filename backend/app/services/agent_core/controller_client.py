@@ -85,11 +85,7 @@ class ControllerClient:
         bind_tools = getattr(model, "bind_tools", None)
         if not callable(bind_tools):
             raise ControllerClientError("certified model no longer exposes bind_tools")
-        schemas = (
-            *self._registry.tool_schemas(),
-            PLAN_TASK_TOOL,
-            REQUEST_CLARIFICATION_TOOL,
-        )
+        schemas = controller_tool_schemas(self._registry)
         runnable = bind_tools(list(schemas), tool_choice="auto")
         response = await asyncio.wait_for(
             runnable.ainvoke(list(self._prompt_composer.compose(request))),
@@ -163,6 +159,18 @@ def _default_model_factory(model_name: str):
     return get_llm(model_name, thinking_mode=False)
 
 
+def controller_tool_schemas(
+    registry: CapabilityRegistry,
+) -> tuple[dict[str, Any], ...]:
+    """Project only independently enabled model-facing controls."""
+
+    schemas = list(registry.tool_schemas())
+    if registry.task_planning_enabled:
+        schemas.append(PLAN_TASK_TOOL)
+    schemas.append(REQUEST_CLARIFICATION_TOOL)
+    return tuple(schemas)
+
+
 def _extract_calls(response: AIMessage) -> list[ControllerToolCall]:
     raw_calls = list(response.tool_calls or [])
     if not raw_calls:
@@ -223,4 +231,5 @@ __all__ = [
     "ControllerClient",
     "ControllerClientError",
     "REQUEST_CLARIFICATION_TOOL",
+    "controller_tool_schemas",
 ]

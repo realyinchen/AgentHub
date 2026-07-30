@@ -10,6 +10,10 @@ from pydantic import ValidationError
 from app.services.agent_core.certification_contracts import (
     AgentModeAdmission,
 )
+from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.agent_core.contracts import (
     ControllerOutput,
     ControllerToolCall,
@@ -25,7 +29,10 @@ from app.services.agent_core.controller_golden_runner import (
     ControllerGoldenRunner,
 )
 from app.services.agent_core.evidence_source import GitSourceState
+from app.services.agent_core.proposal_validator import ProposalValidator
+from app.services.agent_core.shadow import ShadowValidator
 from app.services.memory.version_contracts import SearchMemoryRequest
+from app.services.tasks.draft_validator import TaskPlanDraftValidator
 
 
 DATASET = (
@@ -33,6 +40,18 @@ DATASET = (
     / "evals"
     / "controller_golden_v1.json"
 )
+
+
+def _enabled_case_evaluator() -> ControllerGoldenCaseEvaluator:
+    registry = CapabilityRegistry(
+        core_availability=CoreCapabilityAvailability.all_enabled()
+    )
+    return ControllerGoldenCaseEvaluator(
+        shadow_validator=ShadowValidator(
+            validator=ProposalValidator(registry),
+            task_plan_validator=TaskPlanDraftValidator(registry),
+        )
+    )
 
 
 class _ReferenceController:
@@ -62,7 +81,7 @@ class ControllerGoldenDatasetTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(item.explicit_tool for item in dataset.cases))
 
     def test_reference_outputs_pass_but_are_not_live_evidence(self) -> None:
-        evaluator = ControllerGoldenCaseEvaluator()
+        evaluator = _enabled_case_evaluator()
         results = [
             evaluator.evaluate(case, case.reference_output)
             for case in self.loaded.dataset.cases
@@ -92,7 +111,7 @@ class ControllerGoldenDatasetTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("你好我是冰露", rendered)
 
     def test_stable_case_failure_codes_cover_quality_axes(self) -> None:
-        evaluator = ControllerGoldenCaseEvaluator()
+        evaluator = _enabled_case_evaluator()
         recall = next(
             item
             for item in self.loaded.dataset.cases
@@ -223,7 +242,8 @@ class ControllerGoldenDatasetTests(unittest.IsolatedAsyncioTestCase):
         controller = _ReferenceController(self.loaded)
         model_id = uuid4()
         report = await ControllerGoldenRunner(
-            controller=controller
+            controller=controller,
+            case_evaluator=_enabled_case_evaluator(),
         ).run(
             self.loaded,
             model_name="fixture-controller",

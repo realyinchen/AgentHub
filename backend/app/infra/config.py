@@ -127,6 +127,17 @@ class Settings(BaseSettings):
     AGENT_CAPABILITY_WEB_V1: bool = False
     AGENT_CAPABILITY_BOOK_V1: bool = False
     AGENT_CAPABILITY_RESEARCH_V1: bool = False
+    # R6 core capabilities use the same switch for model visibility and
+    # SystemRuntime admission. Enable and certify one domain at a time.
+    AGENT_CAPABILITY_CONVERSATION_V1: bool = False
+    AGENT_CAPABILITY_MEMORY_READ_V1: bool = False
+    AGENT_CAPABILITY_MEMORY_WRITE_V1: bool = False
+    AGENT_CAPABILITY_TASK_V1: bool = False
+    # Read-only migration bridge for conversations that predate Journal.
+    AGENT_LEGACY_HISTORY_READ_FALLBACK: bool = True
+    # Temporary old-routing write bridge. R6 cutover sets this false; rollback
+    # must leave it false and preserve only read compatibility.
+    AGENT_LEGACY_MEMORY_WRITE_COMPAT: bool = True
 
     # =========================================================================
     # LiteLLM Router — Per-Call Timeout

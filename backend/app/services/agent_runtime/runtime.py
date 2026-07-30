@@ -8,6 +8,7 @@ from typing import Any
 
 from app.infra.database import get_database
 from app.schemas.chat import UserInput
+from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_runtime.contracts import (
     ActionPlan,
     ActionReceipt,
@@ -19,17 +20,13 @@ from app.services.agent_runtime.ledger import (
     ExecutionLedger,
     action_idempotency_key,
 )
-from app.services.book_intent import TurnPolicy, build_turn_policy
-from app.services.conversation import (
-    ConversationReadRequest,
-    ConversationEventRepository,
-    ConversationTurn,
-    ConversationWindow,
-    read_journal_events,
-    read_conversation,
-    recall_recent_conversation,
+from app.services.agent_runtime.legacy_availability import (
+    LegacyRuntimeAvailability,
 )
-from app.services.memory import get_memory_orchestrator
+from app.services.conversation.authoritative_reader import (
+    JournalConversationReader,
+)
+from app.services.conversation.contracts import ConversationReadRequest
 from app.services.memory.version_contracts import (
     ForgetMemoryRequest,
     RememberMemoryRequest,
@@ -40,8 +37,6 @@ from app.services.memory.version_runtime import (
     execute_remember_memory,
     execute_search_memory,
 )
-from app.services.memory.write_contracts import MemoryWriteRequest
-from app.services.memory.write_coordinator import MemoryWriteCoordinator
 from app.services.tasks.contracts import TaskPlanDraft
 from app.utils.turn_context import user_message_scope
 
@@ -50,6 +45,13 @@ logger = logging.getLogger(__name__)
 
 _RETIRED_CHAT_MEMORY_WRITE_OPERATIONS = frozenset(
     {"remember_memory", "revise_memory"}
+)
+_LEGACY_CONTEXT_OPERATIONS = frozenset(
+    {
+        "process_memory_write_request",
+        "recall_recent_conversation",
+        "search_memory",
+    }
 )
 
 _USER_ID_OPERATIONS = frozenset(
@@ -107,9 +109,17 @@ class SystemRuntime:
         *,
         ledger: ExecutionLedger | None = None,
         external_runtime: Any | None = None,
+        capability_registry: CapabilityRegistry | None = None,
+        legacy_availability: LegacyRuntimeAvailability | None = None,
     ) -> None:
         self._ledger = ledger
         self._external_runtime = external_runtime
+        self._capability_registry = (
+            capability_registry or CapabilityRegistry()
+        )
+        self._legacy_availability = (
+            legacy_availability or LegacyRuntimeAvailability.from_settings()
+        )
 
     async def execute(
         self,
@@ -248,9 +258,29 @@ class SystemRuntime:
         self,
         plan: ActionPlan,
         action: PlannedAction,
-        policy: TurnPolicy,
+        policy: Any | None,
     ) -> tuple[bool, str]:
-        admitted, reason = _admit_action(plan, action, policy)
+        core_admission = (
+            self._capability_registry.core_availability.operation_admission(
+                action.operation
+            )
+        )
+        if core_admission is not None and not core_admission[0]:
+            return core_admission
+        if (
+            action.operation == "process_memory_write_request"
+            and (
+                self._capability_registry.core_availability.memory_write
+                or not self._legacy_availability.memory_write_compat
+            )
+        ):
+            return False, "legacy_memory_write_disabled_for_r6"
+        admitted, reason = _admit_action(
+            plan,
+            action,
+            policy,
+            capability_registry=self._capability_registry,
+        )
         if not admitted:
             return admitted, reason
         runtime = self._external_capability_runtime(action.operation)
@@ -337,13 +367,21 @@ class SystemRuntime:
         started = time.perf_counter()
         try:
             if action.operation == "process_memory_write_request":
-                output = await _process_memory_write_request(
+                from app.services.agent_runtime.legacy_operations import (
+                    process_memory_write_request,
+                )
+
+                output = await process_memory_write_request(
                     action,
                     context=context,
                     user_input=user_input,
                 )
             elif action.operation == "recall_recent_conversation":
-                output = _recall_recent_conversation(
+                from app.services.agent_runtime.legacy_operations import (
+                    recall_conversation,
+                )
+
+                output = recall_conversation(
                     action,
                     context=context,
                 )
@@ -377,6 +415,7 @@ class SystemRuntime:
                 output = await execute_create_task(
                     action.arguments,
                     context=context,
+                    capability_registry=self._capability_registry,
                 )
             elif action.operation == "plan_task_v1":
                 from app.services.tasks.runtime import execute_plan_task
@@ -384,6 +423,7 @@ class SystemRuntime:
                 output = await execute_plan_task(
                     action.arguments,
                     context=context,
+                    capability_registry=self._capability_registry,
                 )
             elif action.operation == "cancel_active_task_v1":
                 from app.services.tasks.runtime import (
@@ -395,7 +435,11 @@ class SystemRuntime:
                     context=context,
                 )
             elif action.operation == "search_memory":
-                output = await _search_memory(action, context=context)
+                from app.services.agent_runtime.legacy_operations import (
+                    search_memory,
+                )
+
+                output = await search_memory(action, context=context)
             elif (
                 external_runtime := self._external_capability_runtime(
                     action.operation
@@ -444,142 +488,24 @@ class SystemRuntime:
             )
 
 
-async def _process_memory_write_request(
-    action: PlannedAction,
-    *,
-    context: ExecutionContext,
-    user_input: UserInput | None,
-) -> dict[str, Any]:
-    if user_input is None:
-        raise RuntimeError(
-            "process_memory_write_request requires the current user input"
-        )
-    request_payload = action.arguments.get("request")
-    if not isinstance(request_payload, dict):
-        raise ValueError("memory write action requires a typed request")
-    request = MemoryWriteRequest.model_validate(request_payload)
-    outcome = await MemoryWriteCoordinator().process(
-        request,
-        user_input=user_input,
-        conversation=_conversation_window(context),
-        user_id=context.user_id,
-        thread_id=context.thread_id,
-        model_id=context.model_name,
-    )
-    return outcome.model_dump(mode="json")
-
-
-def _recall_recent_conversation(
-    action: PlannedAction,
-    *,
-    context: ExecutionContext,
-) -> dict[str, Any]:
-    result = recall_recent_conversation(
-        _conversation_window(context),
-        query=str(action.arguments.get("query") or ""),
-        limit=int(action.arguments.get("limit") or 4),
-    )
-    return result.model_dump(mode="json")
-
-
 async def _read_conversation(
     action: PlannedAction,
     *,
     context: ExecutionContext,
 ) -> dict[str, Any]:
     request = ConversationReadRequest.model_validate(action.arguments)
-    if context.thread_id is not None:
-        try:
-            database = get_database()
-        except RuntimeError:
-            database = None
-        if database is not None:
-            async with database.session() as session:
-                page = await ConversationEventRepository().list_events(
-                    session,
-                    user_id=context.user_id,
-                    thread_id=context.thread_id,
-                    limit=500,
-                )
-            if page.events:
-                prior_events = [
-                    event
-                    for event in page.events
-                    if event.request_id != context.request_id
-                ]
-                result = read_journal_events(prior_events, request)
-                return result.model_dump(mode="json")
-    result = read_conversation(_conversation_window(context), request)
+    if context.thread_id is None:
+        raise ValueError("conversation_read requires a conversation thread")
+    database = get_database()
+    async with database.session() as session:
+        result = await JournalConversationReader().read(
+            session,
+            user_id=context.user_id,
+            thread_id=context.thread_id,
+            exclude_request_id=context.request_id,
+            request=request,
+        )
     return result.model_dump(mode="json")
-
-
-def _conversation_window(context: ExecutionContext) -> ConversationWindow:
-    raw_turns = context.metadata.get("conversation_turns")
-    turns: list[ConversationTurn] = []
-    if isinstance(raw_turns, list):
-        for item in raw_turns:
-            try:
-                turns.append(ConversationTurn.model_validate(item))
-            except Exception:
-                continue
-    if not turns:
-        recent = context.metadata.get("recent_user_messages")
-        messages = recent if isinstance(recent, list) else []
-        turns = [
-            ConversationTurn(
-                role="user",
-                turn_offset=index - len(messages),
-                content=str(message),
-            )
-            for index, message in enumerate(messages)
-            if str(message or "").strip()
-        ]
-    return ConversationWindow(turns=turns[-16:])
-
-
-async def _search_memory(
-    action: PlannedAction,
-    *,
-    context: ExecutionContext,
-) -> dict[str, Any]:
-    query = str(action.arguments.get("query") or "").strip()
-    lookup_kind = str(action.arguments.get("lookup_kind") or "generic")
-    limit = max(1, min(int(action.arguments.get("limit") or 20), 100))
-    memory_types = action.arguments.get("memory_types")
-    orchestrator = get_memory_orchestrator()
-
-    if query:
-        result = await orchestrator.search_memory(
-            user_id=context.user_id,
-            query=query,
-            memory_types=memory_types if isinstance(memory_types, list) else None,
-            limit=limit,
-        )
-        memories = list(result.relevant_events)
-        profile = result.model_dump(mode="json")
-    else:
-        current = await orchestrator.list_current_memories(
-            user_id=context.user_id,
-            memory_types=memory_types if isinstance(memory_types, list) else None,
-            limit=limit,
-        )
-        memories = list(current.memories)
-        profile = {}
-
-    return {
-        "status": "completed",
-        "result_mode": "memory_recall_receipt",
-        "query": query,
-        "lookup_kind": lookup_kind,
-        "result_count": len(memories),
-        "memories": [item.model_dump(mode="json") for item in memories],
-        "profile": profile,
-        "selection": {
-            "strategy": "query_relevance" if query else "bounded_current_state",
-            "limit": limit,
-            "hidden_context_read": False,
-        },
-    }
 
 
 async def _execute_tool_operation(
@@ -659,13 +585,23 @@ def _injected_field_names(operation: str, context: ExecutionContext) -> list[str
 def _admit_action(
     plan: ActionPlan,
     action: PlannedAction,
-    policy: TurnPolicy,
+    policy: Any | None,
+    *,
+    capability_registry: CapabilityRegistry,
 ) -> tuple[bool, str]:
     if action.operation in set(plan.forbidden_operations):
         return False, "operation_forbidden_by_action_plan"
+    if (
+        action.operation in _LEGACY_CONTEXT_OPERATIONS
+        and plan.source != "routing_decision"
+    ):
+        return False, "legacy_operation_requires_routing_plan"
     if action.operation in _RETIRED_CHAT_MEMORY_WRITE_OPERATIONS:
         return False, "chat_memory_write_requires_precommit_pipeline"
-    if plan.policy and action.operation not in set(policy.allowed_tools):
+    if plan.policy and (
+        policy is None
+        or action.operation not in set(policy.allowed_tools)
+    ):
         return False, "operation_not_authorized_by_routing_policy"
 
     flag = {
@@ -675,25 +611,17 @@ def _admit_action(
         "get_recommendation_history": "can_view_recommendation_history",
         "start_research": "can_start_research",
     }.get(action.operation)
-    if flag and not bool(getattr(policy, flag)):
+    if flag and (
+        policy is None or not bool(getattr(policy, flag, False))
+    ):
         return False, f"turn_policy_{flag}_false"
 
-    if action.operation == "search_memory":
-        return True, "app_plan_memory_read"
-    if action.operation == "process_memory_write_request":
-        request_payload = action.arguments.get("request")
-        if not isinstance(request_payload, dict):
-            return False, "memory_write_request_missing"
-        try:
-            request = MemoryWriteRequest.model_validate(request_payload)
-        except Exception:
-            return False, "memory_write_request_invalid"
-        goal = " ".join(str(plan.goal or "").split()).strip()
-        if request.utterance not in goal:
-            return False, "memory_request_must_be_user_authored"
-        return True, "precommit_memory_pipeline"
-    if action.operation == "recall_recent_conversation":
-        return True, "app_plan_conversation_read"
+    if action.operation in _LEGACY_CONTEXT_OPERATIONS:
+        from app.services.agent_runtime.legacy_admission import (
+            admit_legacy_context_operation,
+        )
+
+        return admit_legacy_context_operation(plan, action)
     if action.operation == "conversation_read":
         return True, "agent_core_conversation_read"
     if action.operation == "remember_memory_v2":
@@ -737,7 +665,7 @@ def _admit_action(
             )
 
             draft = TaskPlanDraft.model_validate(action.arguments["draft"])
-            TaskPlanDraftValidator().validate(draft)
+            TaskPlanDraftValidator(capability_registry).validate(draft)
         except Exception:
             return False, "task_plan_draft_invalid"
         return True, "task_creation_v1"
@@ -755,7 +683,7 @@ def _admit_action(
             )
 
             draft = TaskPlanDraft.model_validate(action.arguments["draft"])
-            TaskPlanDraftValidator().validate(draft)
+            TaskPlanDraftValidator(capability_registry).validate(draft)
         except Exception:
             return False, "task_plan_draft_invalid"
         return True, "task_planning_v1"
@@ -770,7 +698,11 @@ def _admit_action(
     return True, "admitted"
 
 
-def _policy_from_plan(plan: ActionPlan, user_message: str) -> TurnPolicy:
+def _policy_from_plan(plan: ActionPlan, user_message: str) -> Any | None:
+    if plan.source != "routing_decision":
+        return None
+    from app.services.book_intent import TurnPolicy, build_turn_policy
+
     if plan.policy:
         try:
             return TurnPolicy.model_validate(plan.policy)

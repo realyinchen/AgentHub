@@ -20,6 +20,9 @@ class CapabilitySpecPort(Protocol):
 class CapabilityRegistryPort(Protocol):
     def require_enabled(self, name: str) -> CapabilitySpecPort: ...
 
+    @property
+    def task_planning_enabled(self) -> bool: ...
+
 
 class TaskPlanDraftValidator:
     """Validate and normalize semantic task steps without persistence."""
@@ -37,6 +40,8 @@ class TaskPlanDraftValidator:
         self._registry = registry
 
     def validate(self, draft: TaskPlanDraft) -> ValidatedTaskPlanDraft:
+        if not self._registry.task_planning_enabled:
+            raise ValueError("task planning capability is not enabled")
         normalized_steps = []
         side_effect_step_keys: list[str] = []
         for step in draft.steps:

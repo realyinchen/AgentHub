@@ -8,24 +8,25 @@ import logging
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from langchain_core.messages import AIMessage, AnyMessage, ToolMessage
-from langchain_core.runnables import RunnableConfig
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.agents import get_agent
 from app.api.v1.dependencies import get_db
 from app.crud import trace as trace_crud
 from app.crud.chat import read_conversation_by_thread_id
-from app.schemas.chat import ChatHistory, ChatMessage
-from app.services.conversation import (
-    ConversationEventRepository,
+from app.schemas.chat import ChatHistory
+from app.services.conversation.journal_chat_projection import (
     project_journal_chat_messages,
 )
-from app.schemas.trace import StepOutput
-from app.utils.message import (
-    collect_tool_calls_for_final_response,
-    langchain_to_chat_message,
+from app.services.conversation.journal_repository import (
+    ConversationEventRepository,
 )
+from app.services.conversation.legacy_backfill_policy import (
+    LegacyHistoryBackfillPolicy,
+)
+from app.services.conversation.legacy_history_reader import (
+    read_legacy_checkpointer_history,
+)
+from app.schemas.trace import StepOutput
 
 logger = logging.getLogger(__name__)
 
@@ -72,49 +73,15 @@ async def history(
             message_sequence=message_sequence,
         )
 
-    # Temporary migration fallback for conversations created before
-    # change_011. New conversations never use the checkpointer as history truth.
-    supervisor = get_agent()
-
-    # Get all traces for this thread to map request_id to AI messages
-    # Traces are ordered by creation time (chronological order)
-    traces = await trace_crud.get_traces_by_thread(db, thread_id)
-    trace_index = 0  # Track which trace corresponds to which AI message
-
-    # Get messages from checkpointer for main chat UI
-    config = RunnableConfig({"configurable": {"thread_id": thread_id}})
-    state_snapshot = await supervisor.aget_state(config=config)
-    messages: list[AnyMessage] = state_snapshot.values.get("messages", [])
-
-    # Build messages for main chat UI: only human and final AI messages
-    chat_messages: list[ChatMessage] = []
-
-    for i, msg in enumerate(messages):
-        # Skip ToolMessage - not shown in main chat
-        if isinstance(msg, ToolMessage):
-            continue
-
-        # For AIMessage: only include if it has content and no tool_calls
-        if isinstance(msg, AIMessage):
-            if msg.tool_calls:
-                continue
-            if not msg.content or not str(msg.content).strip():
-                continue
-
-        chat_message = langchain_to_chat_message(msg)
-
-        # For final AI messages, collect tool info from preceding messages
-        if isinstance(msg, AIMessage) and msg.content and str(msg.content).strip():
-            tool_info = collect_tool_calls_for_final_response(messages, i)
-            if tool_info:
-                chat_message.custom_data["tool_info"] = tool_info
-
-            # Assign request_id from traces (chronological order)
-            # Each final AI message corresponds to one trace
-            if trace_index < len(traces):
-                chat_message.request_id = traces[trace_index][0]
-                trace_index += 1
-
-        chat_messages.append(chat_message)
+    policy = LegacyHistoryBackfillPolicy.from_settings()
+    if not policy.authorize(user_id=user_id, thread_id=thread_id):
+        return ChatHistory(
+            messages=[],
+            message_sequence=message_sequence,
+        )
+    chat_messages = await read_legacy_checkpointer_history(
+        db,
+        thread_id=thread_id,
+    )
 
     return ChatHistory(messages=chat_messages, message_sequence=message_sequence)

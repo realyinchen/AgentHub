@@ -21,6 +21,10 @@ from app.services.agent_runtime import (
     SystemRuntime,
     action_idempotency_key,
 )
+from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.tasks import (
     TaskPlanDraft,
     TaskPlanStepDraft,
@@ -33,6 +37,12 @@ from app.services.tasks.execution_ledger import (
     ExecutionReceiptConflict,
     _assert_identity,
 )
+
+
+def _enabled_registry() -> CapabilityRegistry:
+    return CapabilityRegistry(
+        core_availability=CoreCapabilityAvailability.all_enabled()
+    )
 
 
 class TaskPlanContractTests(unittest.TestCase):
@@ -85,7 +95,7 @@ class TaskPlanContractTests(unittest.TestCase):
             ],
         )
         with self.assertRaisesRegex(ValueError, "unknown capability"):
-            TaskPlanDraftValidator().validate(draft)
+            TaskPlanDraftValidator(_enabled_registry()).validate(draft)
 
     def test_draft_validator_rejects_invalid_capability_arguments(self) -> None:
         draft = TaskPlanDraft(
@@ -100,7 +110,7 @@ class TaskPlanContractTests(unittest.TestCase):
             ],
         )
         with self.assertRaises(ValidationError):
-            TaskPlanDraftValidator().validate(draft)
+            TaskPlanDraftValidator(_enabled_registry()).validate(draft)
 
     def test_compiler_emits_only_ready_steps_with_stable_action_id(self) -> None:
         task_id = uuid.uuid4()
@@ -134,7 +144,7 @@ class TaskPlanContractTests(unittest.TestCase):
             source="controller",
             created_at=datetime.now(timezone.utc),
         )
-        compiler = TaskPlanCompiler()
+        compiler = TaskPlanCompiler(registry=_enabled_registry())
         first = compiler.compile_next(version, completed_step_keys=set())
         repeated = compiler.compile_next(version, completed_step_keys=set())
         self.assertEqual(first.status, "ready")
@@ -181,7 +191,10 @@ class _MemoryLedger:
 
 class _CountingRuntime(SystemRuntime):
     def __init__(self, ledger) -> None:
-        super().__init__(ledger=ledger)
+        super().__init__(
+            ledger=ledger,
+            capability_registry=_enabled_registry(),
+        )
         self.execution_count = 0
 
     async def _execute_action(self, action, *, context, user_input, previous):
@@ -293,7 +306,9 @@ class RuntimeLedgerTests(unittest.IsolatedAsyncioTestCase):
                 )
             ],
         )
-        receipt = await SystemRuntime().execute(
+        receipt = await SystemRuntime(
+            capability_registry=_enabled_registry()
+        ).execute(
             plan,
             context=ExecutionContext(
                 user_id=uuid.uuid4(),
@@ -308,7 +323,9 @@ class RuntimeLedgerTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_waiting_action_never_marks_plan_completed(self) -> None:
-        receipt = await _WaitingRuntime().execute(
+        receipt = await _WaitingRuntime(
+            capability_registry=_enabled_registry()
+        ).execute(
             self._plan(),
             context=self._context(),
         )

@@ -6,6 +6,9 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.agent_core.compiler import WorkflowCompiler
 from app.services.agent_core.contracts import (
     ControllerOutput,
@@ -63,6 +66,12 @@ def _context() -> ExecutionContext:
     )
 
 
+def _enabled_registry() -> CapabilityRegistry:
+    return CapabilityRegistry(
+        core_availability=CoreCapabilityAvailability.all_enabled()
+    )
+
+
 def _conversation_output() -> ControllerOutput:
     return ControllerOutput(
         mode="capability_proposals",
@@ -114,7 +123,7 @@ class ControllerContractTests(unittest.TestCase):
             ProposalValidator().validate(output)
 
     def test_remember_contract_compiles_without_storage_identity(self) -> None:
-        registry = CapabilityRegistry()
+        registry = _enabled_registry()
         self.assertIsNotNone(registry.get("remember_memory"))
         self.assertIn("remember_memory", registry.enabled_names)
         output = ControllerOutput(
@@ -296,7 +305,39 @@ class PlanGraphTests(unittest.TestCase):
 
 class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
     async def test_live_fixture_closes_runtime_receipt_loop(self) -> None:
-        result = await AgentCoreHarness().run(
+        class _ConversationRuntime:
+            async def execute(self, plan, *, context, user_input=None):
+                action = plan.actions[0]
+                return PlanReceipt(
+                    plan_id=plan.plan_id,
+                    request_id=context.request_id,
+                    route_type=plan.route_type,
+                    intent=plan.intent,
+                    status="completed",
+                    actions=[
+                        ActionReceipt(
+                            action_id=action.action_id,
+                            capability=action.capability,
+                            operation=action.operation,
+                            status="completed",
+                            admitted=True,
+                            output={
+                                "result_mode": "conversation_read",
+                                "status": "completed",
+                                "answer": (
+                                    "\u8bb0\u4f4f\u6211\u7684\u540d\u5b57\n"
+                                    "\u6211\u9700\u8981\u6267\u884c\u6210\u529f"
+                                    "\u540e\u624d\u80fd\u786e\u8ba4\u3002"
+                                ),
+                            },
+                        )
+                    ],
+                )
+
+        result = await AgentCoreHarness(
+            registry=_enabled_registry(),
+            runtime=_ConversationRuntime(),  # type: ignore[arg-type]
+        ).run(
             _conversation_output(),
             goal="刚才我说什么了，你回复什么了？",
             context=_context(),
@@ -315,6 +356,7 @@ class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError("shadow mode executed runtime")
 
         result = await AgentCoreHarness(
+            registry=_enabled_registry(),
             runtime=_ForbiddenRuntime(),  # type: ignore[arg-type]
         ).run(
             _conversation_output(),
@@ -337,6 +379,7 @@ class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
 
         runtime = _ForbiddenRuntime()
         result = await AgentCoreHarness(
+            registry=_enabled_registry(),
             runtime=runtime,  # type: ignore[arg-type]
         ).run(
             ControllerOutput(
@@ -376,7 +419,7 @@ class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
             text="已经记录你的名字。",
         )
         with self.assertRaisesRegex(ValueError, "receipt"):
-            await AgentCoreHarness().run(
+            await AgentCoreHarness(registry=_enabled_registry()).run(
                 output,
                 goal="remember",
                 context=_context(),
@@ -390,7 +433,9 @@ class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
             text="已经记录你的名字。",
         )
 
-        result = await AgentCoreHarness().run(
+        result = await AgentCoreHarness(
+            registry=_enabled_registry()
+        ).run(
             output,
             goal="remember",
             context=_context(),
@@ -437,6 +482,7 @@ class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         result = await AgentCoreHarness(
+            registry=_enabled_registry(),
             runtime=_TaskRuntime(),  # type: ignore[arg-type]
         ).run(
             ControllerOutput(
@@ -465,6 +511,7 @@ class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
                 raise AssertionError("shadow mode executed runtime")
 
         result = await AgentCoreHarness(
+            registry=_enabled_registry(),
             runtime=_ForbiddenRuntime(),  # type: ignore[arg-type]
         ).run(
             ControllerOutput(
@@ -535,6 +582,7 @@ class AgentCoreHarnessTests(unittest.IsolatedAsyncioTestCase):
                 )
 
         result = await AgentCoreHarness(
+            registry=_enabled_registry(),
             compiler=_ModelCompiler(),  # type: ignore[arg-type]
             runtime=_Runtime(),  # type: ignore[arg-type]
             publisher=_Publisher(),  # type: ignore[arg-type]

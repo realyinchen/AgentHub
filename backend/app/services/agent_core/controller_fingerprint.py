@@ -14,8 +14,7 @@ from app.services.agent_core.contracts import (
     ControllerOutput,
 )
 from app.services.agent_core.controller_client import (
-    PLAN_TASK_TOOL,
-    REQUEST_CLARIFICATION_TOOL,
+    controller_tool_schemas,
 )
 from app.services.agent_core.prompt_composer import PromptComposer
 from app.services.tasks.contracts import (
@@ -73,11 +72,7 @@ def current_controller_fingerprint(
         ).core_prompt(),
         controller_schema=ControllerOutput.model_json_schema(),
         task_schema=TaskPlanDraft.model_json_schema(),
-        tool_schemas=(
-            *capability_registry.tool_schemas(),
-            PLAN_TASK_TOOL,
-            REQUEST_CLARIFICATION_TOOL,
-        ),
+        tool_schemas=controller_tool_schemas(capability_registry),
         contract_versions={
             "agent_core": AGENT_CORE_CONTRACT_VERSION,
             "agent_certification": AGENT_CERTIFICATION_CONTRACT_VERSION,
