@@ -464,12 +464,12 @@ async def _run() -> None:
         migration_count = len(
             list((BACKEND_DIR / "scripts" / "sql").glob("*.sql"))
         )
-        if migration_count != 25:
+        if migration_count != 26:
             raise AssertionError(
-                f"expected 25 migrations, got {migration_count}"
+                f"expected 26 migrations, got {migration_count}"
             )
         print("controller Shadow Gate data flow verification passed")
-        print("migration_files=25")
+        print("migration_files=26")
         print("enrollment_replay_preserves_first_stamp=1")
         print("eligible_enrollments=2")
         print("observed_enrollments=1")

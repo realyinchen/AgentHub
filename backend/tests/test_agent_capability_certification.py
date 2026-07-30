@@ -15,6 +15,9 @@ from app.services.agent_core.certification_probe import (
     AgentCapabilityProbe,
     AgentProbeRequest,
 )
+from app.services.agent_core.certification_contracts import (
+    AGENT_PROBE_REQUIRED_CASE_NAMES,
+)
 from app.services.model_probe import ProbeConfig
 
 
@@ -162,7 +165,18 @@ class AgentCapabilityProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(outcome.certified)
         self.assertEqual(len(outcome.cases), 10)
         self.assertFalse(outcome.failure_cases)
-        self.assertTrue(all(case.required and case.passed for case in outcome.cases))
+        self.assertTrue(all(case.passed for case in outcome.cases))
+        self.assertEqual(
+            {case.name for case in outcome.cases if case.required},
+            set(AGENT_PROBE_REQUIRED_CASE_NAMES),
+        )
+        self.assertTrue(
+            all(
+                request.tool_choice == "auto"
+                for request in transport.requests
+                if request.tools
+            )
+        )
         self.assertEqual(len(transport.requests), 12)
 
     async def test_one_required_failure_fails_closed(self) -> None:
@@ -188,6 +202,32 @@ class AgentCapabilityProbeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(failed.passed)
         self.assertEqual(failed.error_type, "ValidationError")
+
+    async def test_observation_case_failure_does_not_block_r3(self) -> None:
+        class InvalidStreamingTransport(_PassingTransport):
+            async def stream(self, request: AgentProbeRequest):
+                self.requests.append(request)
+                if request.case_name != "streaming_tool_arguments":
+                    raise AssertionError(
+                        f"unexpected stream case: {request.case_name}"
+                    )
+                if False:
+                    yield AIMessageChunk(content="")
+                raise ValueError("optional_streaming_failure")
+
+        outcome = await AgentCapabilityProbe(
+            lambda _config: InvalidStreamingTransport()
+        ).run(_config())
+
+        self.assertTrue(outcome.certified)
+        self.assertFalse(outcome.failure_cases)
+        failed = next(
+            case
+            for case in outcome.cases
+            if case.name == "streaming_tool_arguments"
+        )
+        self.assertFalse(failed.required)
+        self.assertFalse(failed.passed)
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ from app.services.agent_certification import (
 )
 from app.services.agent_core.certification_contracts import (
     AGENT_PROBE_CASE_NAMES,
+    AGENT_PROBE_REQUIRED_CASE_NAMES,
     AgentCapabilityCertificationOutcome,
     AgentProbeCaseResult,
 )
@@ -52,6 +53,7 @@ class _PassingProbe:
             cases=[
                 AgentProbeCaseResult(
                     name=name,
+                    required=name in AGENT_PROBE_REQUIRED_CASE_NAMES,
                     passed=True,
                     latency_ms=1,
                 )
@@ -129,7 +131,7 @@ async def _run() -> None:
                 raise AssertionError(
                     "another release reused the current certification"
                 )
-            v3_without_release_blocked = False
+            v4_without_release_blocked = False
             try:
                 async with session.begin_nested():
                     session.add(
@@ -161,10 +163,10 @@ async def _run() -> None:
                     )
                     await session.flush()
             except IntegrityError:
-                v3_without_release_blocked = True
-            if not v3_without_release_blocked:
+                v4_without_release_blocked = True
+            if not v4_without_release_blocked:
                 raise AssertionError(
-                    "database accepted v3 certification without release"
+                    "database accepted v4 certification without release"
                 )
             session.add(
                 AgentCapabilityCertification(
@@ -205,12 +207,21 @@ async def _run() -> None:
 
         print("controller capability certification verification passed")
         print("probe_tools=non_executable")
-        print("required_cases=10/10")
+        print(
+            "required_cases="
+            f"{len(AGENT_PROBE_REQUIRED_CASE_NAMES)}/"
+            f"{len(AGENT_PROBE_REQUIRED_CASE_NAMES)}"
+        )
+        print(
+            "observation_cases="
+            f"{len(CASE_NAMES) - len(AGENT_PROBE_REQUIRED_CASE_NAMES)}/"
+            f"{len(CASE_NAMES) - len(AGENT_PROBE_REQUIRED_CASE_NAMES)}"
+        )
         print("configuration_binding=exact")
         print("controller_contract_binding=exact")
         print("release_commit_binding=exact")
         print("other_release_admission=blocked")
-        print("v3_without_release=blocked")
+        print("v4_without_release=blocked")
         print("legacy_v2_admission=blocked")
         print("agent_admission=fail_closed")
     finally:

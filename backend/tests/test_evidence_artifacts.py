@@ -254,6 +254,23 @@ class EvidenceArtifactTests(unittest.TestCase):
 class LiveCertificationPreflightTests(
     unittest.IsolatedAsyncioTestCase
 ):
+    def test_cli_requires_explicit_model_id(self) -> None:
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch(
+                "sys.argv",
+                [
+                    "verify_controller_capability_live.py",
+                    "--commit-sha",
+                    "c" * 40,
+                    "--output",
+                    str(Path(directory) / "certification.json"),
+                ],
+            ),
+            self.assertRaises(SystemExit),
+        ):
+            live_certification._arguments()
+
     async def test_existing_output_stops_before_database_or_provider(
         self,
     ) -> None:
@@ -263,7 +280,7 @@ class LiveCertificationPreflightTests(
             arguments = SimpleNamespace(
                 output=str(output),
                 commit_sha="c" * 40,
-                model_id=None,
+                model_id=str(uuid4()),
                 timeout_seconds=45,
             )
             with patch.object(
@@ -285,7 +302,7 @@ class LiveCertificationPreflightTests(
             arguments = SimpleNamespace(
                 output=str(Path(directory) / "certification.json"),
                 commit_sha="c" * 40,
-                model_id=None,
+                model_id=str(uuid4()),
                 timeout_seconds=45,
             )
             with (

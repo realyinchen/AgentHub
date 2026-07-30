@@ -176,7 +176,7 @@ class AgentCapabilityCertificationStatus(BaseModel):
         default=None,
         pattern="^[0-9a-f]{40}$",
     )
-    contract_version: Literal["agent-capability-v3"]
+    contract_version: Literal["agent-capability-v4"]
     certified: bool
     checked_at: datetime
     latency_ms: int = Field(ge=0)
@@ -207,7 +207,7 @@ class AgentModeAdmissionStatus(BaseModel):
     configuration_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
     controller_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
     source_commit_sha: str = Field(pattern="^[0-9a-f]{40}$")
-    contract_version: Literal["agent-capability-v3"]
+    contract_version: Literal["agent-capability-v4"]
 
 
 # ==================== Response Schemas ====================

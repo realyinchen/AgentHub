@@ -20,6 +20,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.infra.llm.factory import create_llm_from_config
 from app.services.agent_core.certification_contracts import (
     AGENT_PROBE_CASE_NAMES,
+    AGENT_PROBE_REQUIRED_CASE_NAMES,
     AgentCapabilityCertificationOutcome,
     AgentProbeCaseName,
     AgentProbeCaseResult,
@@ -218,10 +219,12 @@ class AgentCapabilityProbe:
         case_name: AgentProbeCaseName,
     ) -> AgentProbeCaseResult:
         started = time.perf_counter()
+        required = case_name in AGENT_PROBE_REQUIRED_CASE_NAMES
         try:
             observations = await getattr(self, f"_case_{case_name}")(transport)
             return AgentProbeCaseResult(
                 name=case_name,
+                required=required,
                 passed=True,
                 latency_ms=_elapsed_ms(started),
                 observations=observations,
@@ -229,6 +232,7 @@ class AgentCapabilityProbe:
         except Exception as exc:
             return AgentProbeCaseResult(
                 name=case_name,
+                required=required,
                 passed=False,
                 latency_ms=_elapsed_ms(started),
                 error_type=type(exc).__name__,
@@ -261,7 +265,7 @@ class AgentCapabilityProbe:
                 "Call probe_echo exactly once with text='schema-ok' and count=2. "
                 "Do not answer in prose.",
                 tools=(PROBE_ECHO_TOOL,),
-                tool_choice="probe_echo",
+                tool_choice="auto",
             )
         )
         call = _require_single_call(response, "probe_echo")
@@ -279,7 +283,7 @@ class AgentCapabilityProbe:
             "Call probe_echo exactly once with text='stream-中文-ok' and count=3. "
             "Do not answer in prose.",
             tools=(PROBE_ECHO_TOOL,),
-            tool_choice="probe_echo",
+            tool_choice="auto",
         )
         aggregate: AIMessageChunk | None = None
         chunk_count = 0
@@ -309,7 +313,7 @@ class AgentCapabilityProbe:
                 "probe_echo(text='multi', count=1) and "
                 "probe_lookup(query='books', language='en'). No prose.",
                 tools=(PROBE_ECHO_TOOL, PROBE_LOOKUP_TOOL),
-                tool_choice="required",
+                tool_choice="auto",
             )
         )
         calls = _extract_tool_calls(response)
@@ -332,7 +336,7 @@ class AgentCapabilityProbe:
             "tool_message_roundtrip",
             "Call probe_lookup with query='roundtrip' and language='en'.",
             tools=(PROBE_LOOKUP_TOOL,),
-            tool_choice="probe_lookup",
+            tool_choice="auto",
         )
         first = await transport.invoke(first_request)
         call = _require_single_call(first, "probe_lookup")
@@ -367,7 +371,7 @@ class AgentCapabilityProbe:
                 "Write the text MIXED_TEXT_OK and, in the same response, call "
                 "probe_echo with text='mixed' and count=1.",
                 tools=(PROBE_ECHO_TOOL,),
-                tool_choice="probe_echo",
+                tool_choice="auto",
             )
         )
         call = _require_single_call(response, "probe_echo")
@@ -393,7 +397,7 @@ class AgentCapabilityProbe:
                     ),
                 ),
                 tools=(PROBE_LOOKUP_TOOL,),
-                tool_choice="probe_lookup",
+                tool_choice="auto",
             )
         )
         call = _require_single_call(response, "probe_lookup")
@@ -427,7 +431,7 @@ class AgentCapabilityProbe:
             "tool_failure_termination",
             "Call probe_fail with reason='certification'.",
             tools=(PROBE_FAIL_TOOL,),
-            tool_choice="probe_fail",
+            tool_choice="auto",
         )
         first = await transport.invoke(first_request)
         call = _require_single_call(first, "probe_fail")
@@ -469,7 +473,7 @@ class AgentCapabilityProbe:
                 "arguments target='exchange', selection='latest', count=1. "
                 "Do not include system IDs or answer in prose.",
                 tools=(PROBE_PLAN_TASK_TOOL,),
-                tool_choice="plan_task",
+                tool_choice="auto",
             )
         )
         call = _require_single_call(response, "plan_task")

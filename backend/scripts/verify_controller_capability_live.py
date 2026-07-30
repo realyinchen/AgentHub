@@ -1,4 +1,4 @@
-"""Run and persist the real v2 Agent capability probe for the active model."""
+"""Run and persist Agent capability v4 for one explicit configured model."""
 
 from __future__ import annotations
 
@@ -33,33 +33,29 @@ from app.services.agent_core.evidence_source import (
     GitSourceState,
     GitSourceStateReader,
 )
-async def _select_model(session, model_id: str | None):
+
+
+async def _select_model(session, model_id: str):
     from app.models.model import Model
 
+    try:
+        parsed = uuid.UUID(model_id)
+    except ValueError as exc:
+        raise AssertionError("--model-id must be a UUID") from exc
     query = select(Model).where(
         Model.model_type.in_(("llm", "vlm")),
         Model.is_active.is_(True),
+        Model.id == parsed,
     )
-    if model_id:
-        try:
-            parsed = uuid.UUID(model_id)
-        except ValueError as exc:
-            raise AssertionError("--model-id must be a UUID") from exc
-        query = query.where(Model.id == parsed)
-    else:
-        query = query.order_by(
-            Model.is_default.desc(),
-            Model.created_at.asc(),
-        )
     result = await session.execute(query.limit(1))
     model = result.scalar_one_or_none()
     if model is None:
-        raise AssertionError("no active chat model is configured")
+        raise AssertionError("selected active chat model was not found")
     return model
 
 
 async def _run(
-    model_id: str | None,
+    model_id: str,
     timeout_seconds: float,
     *,
     source_state: GitSourceState,
@@ -111,7 +107,7 @@ async def _run(
 
 def _arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model-id")
+    parser.add_argument("--model-id", required=True)
     parser.add_argument(
         "--timeout-seconds",
         type=float,

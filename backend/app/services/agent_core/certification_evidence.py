@@ -44,7 +44,7 @@ class AgentCertificationEvidenceArtifact(AgentCoreModel):
     configuration_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
     controller_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
     certification_contract_version: Literal[
-        "agent-capability-v3"
+        "agent-capability-v4"
     ] = AGENT_CERTIFICATION_CONTRACT_VERSION
     status: Literal["passed", "failed"]
     certified: bool

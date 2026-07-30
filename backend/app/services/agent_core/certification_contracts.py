@@ -7,7 +7,7 @@ from pydantic import Field, model_validator
 from app.services.agent_core.contracts import AgentCoreModel
 
 
-AGENT_CERTIFICATION_CONTRACT_VERSION = "agent-capability-v3"
+AGENT_CERTIFICATION_CONTRACT_VERSION = "agent-capability-v4"
 
 AgentProbeCaseName = Literal[
     "basic_chat",
@@ -33,6 +33,17 @@ AGENT_PROBE_CASE_NAMES: tuple[AgentProbeCaseName, ...] = (
     "task_plan_schema",
     "tool_failure_termination",
 )
+AGENT_PROBE_REQUIRED_CASE_NAMES: frozenset[AgentProbeCaseName] = frozenset(
+    {
+        "basic_chat",
+        "strict_tool_schema",
+        "tool_message_roundtrip",
+        "multilingual_context",
+        "direct_answer_with_tools",
+        "task_plan_schema",
+        "tool_failure_termination",
+    }
+)
 AgentModeDenialReason = Literal[
     "certification_missing",
     "configuration_changed",
@@ -55,7 +66,7 @@ class AgentProbeCaseResult(AgentCoreModel):
 
 class AgentCapabilityCertificationOutcome(AgentCoreModel):
     contract_version: Literal[
-        "agent-capability-v3"
+        "agent-capability-v4"
     ] = AGENT_CERTIFICATION_CONTRACT_VERSION
     certified: bool
     latency_ms: int = Field(ge=0)
@@ -71,7 +82,7 @@ class AgentModeAdmission(AgentCoreModel):
     controller_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
     source_commit_sha: str = Field(pattern="^[0-9a-f]{40}$")
     contract_version: Literal[
-        "agent-capability-v3"
+        "agent-capability-v4"
     ] = AGENT_CERTIFICATION_CONTRACT_VERSION
 
     @model_validator(mode="after")
@@ -90,6 +101,7 @@ class AgentModeAdmission(AgentCoreModel):
 __all__ = [
     "AGENT_CERTIFICATION_CONTRACT_VERSION",
     "AGENT_PROBE_CASE_NAMES",
+    "AGENT_PROBE_REQUIRED_CASE_NAMES",
     "AgentCapabilityCertificationOutcome",
     "AgentModeAdmission",
     "AgentModeDenialReason",
