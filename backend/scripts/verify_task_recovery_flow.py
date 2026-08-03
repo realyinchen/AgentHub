@@ -33,17 +33,24 @@ from app.services.tasks import (
     TaskPlanStepDraft,
     TaskRepository,
 )
-from app.services.tasks.draft_validator import TaskPlanDraftValidator
 from app.services.tasks.execution_ledger import PostgresExecutionLedger
-from app.services.tasks.plan_compiler import TaskPlanCompiler
-from app.services.tasks.runner import TaskRunner
 from app.services.tasks.runner_contracts import TaskRunCommand
+from scripts.agent_core_verifier_fixtures import (
+    FIXTURE_REGISTRY_NAME,
+    build_task_plan_compiler,
+    build_task_plan_validator,
+    build_verifier_registry,
+    build_verifier_task_runner,
+)
 from scripts.init_database import _init_postgres
 
 
 class _CountingRuntime(SystemRuntime):
     def __init__(self) -> None:
-        super().__init__(ledger=PostgresExecutionLedger())
+        super().__init__(
+            ledger=PostgresExecutionLedger(),
+            capability_registry=build_verifier_registry(),
+        )
         self.execution_count = 0
 
     async def _execute_action(self, action, *, context, user_input, previous):
@@ -120,7 +127,7 @@ async def _run() -> None:
                 user_id=user_id,
                 thread_id=thread_id,
                 origin_request_id=f"task-recovery-{uuid.uuid4()}",
-                validated=TaskPlanDraftValidator().validate(draft),
+                validated=build_task_plan_validator().validate(draft),
             )
             state = created.state
             version = created.plan_version
@@ -149,7 +156,7 @@ async def _run() -> None:
         else:
             raise AssertionError("competing worker acquired an active lease")
 
-        compiler = TaskPlanCompiler()
+        compiler = build_task_plan_compiler()
         first = compiler.compile_next(version, completed_step_keys=set())
         if first.plan is None:
             raise AssertionError("first task batch was not compiled")
@@ -177,7 +184,7 @@ async def _run() -> None:
             raise AssertionError("ExecutionLedger wrote TaskState implicitly")
 
         recovered_runtime = _CountingRuntime()
-        recovered = await TaskRunner(
+        recovered = await build_verifier_task_runner(
             repository=repository,
             runtime=recovered_runtime,
         ).run(
@@ -204,7 +211,7 @@ async def _run() -> None:
         if len(recovered.task_state.completed_receipt_refs) != 2:
             raise AssertionError("completed task receipt refs are incomplete")
 
-        repeated = await TaskRunner(
+        repeated = await build_verifier_task_runner(
             repository=repository,
             runtime=_CountingRuntime(),
         ).run(
@@ -245,6 +252,7 @@ async def _run() -> None:
         print("duplicate_projection_growth=0")
         print("competing_lease_acquisitions=0")
         print("terminal_reacquire=blocked")
+        print(f"fixture_registry={FIXTURE_REGISTRY_NAME}")
     finally:
         async with database.session() as session:
             await session.execute(

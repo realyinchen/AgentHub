@@ -26,7 +26,6 @@ from app.services.agent_core.contracts import (
     ControllerOutput,
     ControllerToolCall,
 )
-from app.services.agent_core.harness import AgentCoreHarness
 from app.services.agent_runtime import (
     ActionReceipt,
     ExecutionContext,
@@ -41,14 +40,22 @@ from app.services.tasks.contracts import (
 from app.services.tasks.execution_ledger import PostgresExecutionLedger
 from app.services.tasks.repository import TaskLeaseError, TaskRepository
 from app.services.tasks.resume_factory import TaskResumeCommandFactory
-from app.services.tasks.runner import TaskRunner
 from app.services.tasks.runner_contracts import TaskResumeCommand, TaskRunCommand
+from scripts.agent_core_verifier_fixtures import (
+    FIXTURE_REGISTRY_NAME,
+    build_verifier_registry,
+    build_verifier_harness,
+    build_verifier_task_runner,
+)
 from scripts.init_database import _init_postgres
 
 
 class _WaitingRuntime(SystemRuntime):
     def __init__(self) -> None:
-        super().__init__(ledger=PostgresExecutionLedger())
+        super().__init__(
+            ledger=PostgresExecutionLedger(),
+            capability_registry=build_verifier_registry(),
+        )
         self.execution_count = 0
 
     async def _execute_action(self, action, *, context, user_input, previous):
@@ -69,7 +76,10 @@ class _WaitingRuntime(SystemRuntime):
 
 class _CompletedRuntime(SystemRuntime):
     def __init__(self) -> None:
-        super().__init__(ledger=PostgresExecutionLedger())
+        super().__init__(
+            ledger=PostgresExecutionLedger(),
+            capability_registry=build_verifier_registry(),
+        )
         self.execution_count = 0
 
     async def _execute_action(self, action, *, context, user_input, previous):
@@ -159,7 +169,7 @@ async def _run() -> None:
     await init_database_connection()
     database = get_database()
     repository = TaskRepository()
-    harness = AgentCoreHarness()
+    harness = build_verifier_harness()
     user_id = uuid.uuid4()
     try:
         async with database.session() as session:
@@ -189,7 +199,7 @@ async def _run() -> None:
             raise AssertionError("initial plan did not create one task")
 
         waiting_runtime = _WaitingRuntime()
-        waiting = await TaskRunner(
+        waiting = await build_verifier_task_runner(
             repository=repository,
             runtime=waiting_runtime,
         ).run(
@@ -214,7 +224,9 @@ async def _run() -> None:
             lease_owner="r3-illegal-resume",
         )
         try:
-            await TaskRunner(repository=repository).resume(same_version)
+            await build_verifier_task_runner(repository=repository).resume(
+                same_version
+            )
         except TaskLeaseError:
             pass
         else:
@@ -290,7 +302,7 @@ async def _run() -> None:
             lease_owner="r3-resume-worker",
         )
         completed_runtime = _CompletedRuntime()
-        resumed = await TaskRunner(
+        resumed = await build_verifier_task_runner(
             repository=repository,
             runtime=completed_runtime,
         ).resume(resume_command)
@@ -383,6 +395,7 @@ async def _run() -> None:
             raise AssertionError("cancellation receipt did not match TaskState")
 
         print("task plan coordination verification passed")
+        print(f"fixture_registry={FIXTURE_REGISTRY_NAME}")
         print("plan_task_model_tools=1")
         print("concurrent_revision_appends=1")
         print("concurrent_revision_reuses=1")

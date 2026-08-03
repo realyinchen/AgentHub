@@ -23,12 +23,15 @@ from app.infra.database import (
     init_database_connection,
 )
 from app.services.agent_core.contracts import ControllerOutput
-from app.services.agent_core.harness import AgentCoreHarness
 from app.services.agent_runtime import ExecutionContext
 from app.services.tasks.contracts import (
     TaskPlanDraft,
     TaskPlanMutationReceipt,
     TaskPlanStepDraft,
+)
+from scripts.agent_core_verifier_fixtures import (
+    FIXTURE_REGISTRY_NAME,
+    build_verifier_harness,
 )
 from scripts.init_database import _init_postgres
 
@@ -131,7 +134,7 @@ async def _run() -> None:
             thread_id=thread_id,
             request_id=request_id,
         )
-        harness = AgentCoreHarness()
+        harness = build_verifier_harness()
 
         before = await _counts(thread_id)
         shadow = await harness.run(
@@ -207,6 +210,7 @@ async def _run() -> None:
         print("conflicting_replay=blocked")
         print("cross_user_creation=blocked")
         print("shadow_business_writes=0")
+        print(f"fixture_registry={FIXTURE_REGISTRY_NAME}")
         print("publication=receipt_backed")
     finally:
         async with database.session() as session:

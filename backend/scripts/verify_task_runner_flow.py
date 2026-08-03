@@ -29,16 +29,23 @@ from app.services.tasks import (
     TaskPlanStepDraft,
     TaskRepository,
 )
-from app.services.tasks.draft_validator import TaskPlanDraftValidator
 from app.services.tasks.execution_ledger import PostgresExecutionLedger
-from app.services.tasks.runner import TaskRunner
 from app.services.tasks.runner_contracts import TaskRunCommand
+from scripts.agent_core_verifier_fixtures import (
+    FIXTURE_REGISTRY_NAME,
+    build_task_plan_validator,
+    build_verifier_registry,
+    build_verifier_task_runner,
+)
 from scripts.init_database import _init_postgres
 
 
 class _CountingRuntime(SystemRuntime):
     def __init__(self) -> None:
-        super().__init__(ledger=PostgresExecutionLedger())
+        super().__init__(
+            ledger=PostgresExecutionLedger(),
+            capability_registry=build_verifier_registry(),
+        )
         self.execution_count = 0
 
     async def _execute_action(self, action, *, context, user_input, previous):
@@ -56,7 +63,10 @@ class _CountingRuntime(SystemRuntime):
 
 class _WaitingRuntime(SystemRuntime):
     def __init__(self) -> None:
-        super().__init__(ledger=PostgresExecutionLedger())
+        super().__init__(
+            ledger=PostgresExecutionLedger(),
+            capability_registry=build_verifier_registry(),
+        )
         self.execution_count = 0
 
     async def _execute_action(self, action, *, context, user_input, previous):
@@ -77,7 +87,10 @@ class _WaitingRuntime(SystemRuntime):
 
 class _FailedRuntime(SystemRuntime):
     def __init__(self) -> None:
-        super().__init__(ledger=PostgresExecutionLedger())
+        super().__init__(
+            ledger=PostgresExecutionLedger(),
+            capability_registry=build_verifier_registry(),
+        )
         self.execution_count = 0
 
     async def _execute_action(self, action, *, context, user_input, previous):
@@ -107,7 +120,7 @@ async def _create_task(
             user_id=user_id,
             thread_id=thread_id,
             origin_request_id=f"task-runner-{uuid.uuid4()}",
-            validated=TaskPlanDraftValidator().validate(draft),
+            validated=build_task_plan_validator().validate(draft),
         )
 
 
@@ -160,7 +173,7 @@ async def _run() -> None:
             ),
         )
         waiting_runtime = _WaitingRuntime()
-        waiting = await TaskRunner(
+        waiting = await build_verifier_task_runner(
             repository=repository,
             runtime=waiting_runtime,
         ).run(
@@ -188,7 +201,7 @@ async def _run() -> None:
             raise AssertionError("waiting clarification was not preserved")
 
         forbidden_runtime = _CountingRuntime()
-        replay = await TaskRunner(
+        replay = await build_verifier_task_runner(
             repository=repository,
             runtime=forbidden_runtime,
         ).run(
@@ -237,7 +250,7 @@ async def _run() -> None:
             ),
         )
         failed_runtime = _FailedRuntime()
-        failed = await TaskRunner(
+        failed = await build_verifier_task_runner(
             repository=repository,
             runtime=failed_runtime,
         ).run(
@@ -263,7 +276,7 @@ async def _run() -> None:
             raise AssertionError("failed task retained its lease")
 
         failed_replay_runtime = _CountingRuntime()
-        failed_replay = await TaskRunner(
+        failed_replay = await build_verifier_task_runner(
             repository=repository,
             runtime=failed_replay_runtime,
         ).run(
@@ -313,7 +326,7 @@ async def _run() -> None:
             ),
         )
         first_runtime = _CountingRuntime()
-        yielded = await TaskRunner(
+        yielded = await build_verifier_task_runner(
             repository=repository,
             runtime=first_runtime,
         ).run(
@@ -334,7 +347,7 @@ async def _run() -> None:
             raise AssertionError("first bounded batch was not projected")
 
         second_runtime = _CountingRuntime()
-        completed = await TaskRunner(
+        completed = await build_verifier_task_runner(
             repository=repository,
             runtime=second_runtime,
         ).run(
@@ -367,6 +380,7 @@ async def _run() -> None:
         print("bounded_second_executions=1")
         print("bounded_final_cursor=2")
         print("yielded_lease_owner=none")
+        print(f"fixture_registry={FIXTURE_REGISTRY_NAME}")
     finally:
         async with database.session() as session:
             await session.execute(
