@@ -119,6 +119,23 @@ class VectorSchemaManager:
         )
         return int(result.scalar_one())
 
+    async def validate_single_generation_query(
+        self,
+        space: EmbeddingSpaceRecord,
+    ) -> None:
+        """Probe only the candidate table; never compose generations."""
+
+        table = _quoted_identifier(space.table_name)
+        await self._database.execute_query(
+            text(
+                f"""
+                SELECT embedding <=> embedding AS self_distance
+                FROM public.{table}
+                LIMIT 1
+                """
+            )
+        )
+
     async def clear_rows(self, space: EmbeddingSpaceRecord) -> None:
         """Clear only a non-active build target before a retry."""
 

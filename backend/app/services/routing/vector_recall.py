@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import math
 import time
 from dataclasses import dataclass
 
 from app.infra.embedding_spaces.contracts import build_embedding_space_spec
+from app.infra.embedding_spaces.similarity import cosine_similarity
+from app.infra.config import get_settings
 from app.infra.llm.embedding import get_configured_embeddings
 from app.infra.llm.embedding_config import ResolvedEmbeddingConfig
 from app.infra.llm.embedding_errors import (
@@ -18,13 +19,17 @@ from app.infra.llm.embedding_errors import (
 )
 from app.infra.llm.manager import get_model_manager
 from app.services.routing.config import (
+    LEGACY_VECTOR_DIAGNOSTIC_THRESHOLD,
     SEMANTIC_WARMUP_TIMEOUT_SECONDS,
-    VECTOR_CANDIDATE_THRESHOLD,
     VECTOR_REQUEST_TIMEOUT_SECONDS,
 )
 from app.services.routing.contracts import IntentCandidate
 from app.services.routing.interaction_contracts import RecallBatch
 from app.services.routing.recall_projection import recall_batch
+from app.services.routing.semantic_generation import (
+    RoutingSemanticGeneration,
+    RoutingSemanticGenerationBuilder,
+)
 from app.services.routing.semantic_prototypes import PROTOTYPES
 
 
@@ -47,9 +52,11 @@ class SemanticWarmupResult:
 class VectorPrototypeRecall:
     """Own the vector index and embedding-provider lifecycle only."""
 
-    def __init__(self) -> None:
-        self.prototype_vectors: dict[str, list[float]] = {}
-        self.model_key = ""
+    def __init__(self, *, calibration_required: bool | None = None) -> None:
+        self._active_generation: RoutingSemanticGeneration | None = None
+        self._previous_generation: RoutingSemanticGeneration | None = None
+        self._builder = RoutingSemanticGenerationBuilder()
+        self._calibration_required = calibration_required
         self._lock = asyncio.Lock()
         self.last_batch = RecallBatch(
             provider="routing_vector",
@@ -61,6 +68,29 @@ class VectorPrototypeRecall:
             ready=False,
             message="not_started",
         )
+
+    @property
+    def active_generation(self) -> RoutingSemanticGeneration | None:
+        return self._active_generation
+
+    @property
+    def previous_generation(self) -> RoutingSemanticGeneration | None:
+        return self._previous_generation
+
+    @property
+    def prototype_vectors(self) -> dict[str, list[float]]:
+        generation = self._active_generation
+        if generation is None:
+            return {}
+        return {
+            phrase: list(vector)
+            for phrase, vector in generation.vectors_by_phrase().items()
+        }
+
+    @property
+    def model_key(self) -> str:
+        generation = self._active_generation
+        return generation.model_fingerprint if generation is not None else ""
 
     async def recall(self, text: str) -> list[IntentCandidate]:
         started = time.perf_counter()
@@ -156,12 +186,12 @@ class VectorPrototypeRecall:
                 safe_embedding_error(exc),
                 fingerprint=model_key or embedding_fingerprint(embeddings),
             )
-        first_vector = next(iter(self.prototype_vectors.values()), [])
+        generation = self._active_generation
         model_key = self.model_key
         result = SemanticWarmupResult(
-            ready=bool(self.prototype_vectors),
+            ready=generation is not None,
             fingerprint=model_key,
-            dimensions=len(first_vector) or None,
+            dimensions=generation.dimensions if generation is not None else None,
             elapsed_ms=_elapsed_ms(started),
         )
         self.last_warmup_result = result
@@ -169,50 +199,71 @@ class VectorPrototypeRecall:
             "Routing semantic index ready: fingerprint=%s prototypes=%d "
             "dimensions=%d elapsed_ms=%.1f",
             model_key[:12],
-            len(self.prototype_vectors),
-            len(first_vector),
+            len(generation.prototype_vectors) if generation is not None else 0,
+            generation.dimensions if generation is not None else 0,
             result.elapsed_ms,
         )
         return result
 
     async def ensure_index(self, embeddings: object, model_key: str) -> None:
-        if self.prototype_vectors and self.model_key == model_key:
-            return
-        async with self._lock:
-            if self.prototype_vectors and self.model_key == model_key:
-                return
-            phrases = [phrase for item in PROTOTYPES for phrase in item.phrases]
-            vectors = await embeddings.aembed_documents(phrases)  # type: ignore[attr-defined]
-            dimensions = {len(vector) for vector in vectors}
-            if len(dimensions) != 1:
-                raise ValueError(
-                    "Routing prototypes returned inconsistent dimensions"
-                )
-            observed_dimensions = next(iter(dimensions), 0)
-            if observed_dimensions <= 0:
-                raise ValueError("Routing prototypes returned empty vectors")
-            resolved_key = model_key or embedding_fingerprint(
+        active = self._active_generation
+        if active is not None:
+            resolved_current_key = model_key or embedding_fingerprint(
                 embeddings,
-                dimensions=observed_dimensions,
+                dimensions=active.dimensions,
             )
-            new_index = dict(zip(phrases, vectors, strict=True))
-            self.prototype_vectors = new_index
-            self.model_key = resolved_key
+            if active.model_fingerprint == resolved_current_key:
+                return
+        async with self._lock:
+            active = self._active_generation
+            if active is not None:
+                resolved_current_key = model_key or embedding_fingerprint(
+                    embeddings,
+                    dimensions=active.dimensions,
+                )
+                if active.model_fingerprint == resolved_current_key:
+                    return
+            calibration_required = (
+                get_settings().EMBEDDING_GENERATION_GATES_V1
+                if self._calibration_required is None
+                else self._calibration_required
+            )
+            generation = await self._builder.build(
+                embeddings=embeddings,
+                model_fingerprint=model_key or embedding_fingerprint(embeddings),
+                model_fingerprint_for_dimensions=(
+                    None
+                    if model_key
+                    else lambda dimensions: embedding_fingerprint(
+                        embeddings,
+                        dimensions=dimensions,
+                    )
+                ),
+                expected_dimensions=None,
+                calibrated=calibration_required,
+                compatibility_threshold=LEGACY_VECTOR_DIAGNOSTIC_THRESHOLD,
+            )
+            self._previous_generation = self._active_generation
+            self._active_generation = generation
 
     def _rank(self, query_vector: list[float]) -> list[IntentCandidate]:
+        generation = self._active_generation
+        if generation is None or len(query_vector) != generation.dimensions:
+            return []
+        prototype_vectors = generation.vectors_by_phrase()
         candidates: list[IntentCandidate] = []
         for prototype in PROTOTYPES:
             best_score = 0.0
             best_phrase = ""
             for phrase in prototype.phrases:
-                vector = self.prototype_vectors.get(phrase)
+                vector = prototype_vectors.get(phrase)
                 if vector is None:
                     continue
-                score = cosine(query_vector, vector)
+                score = cosine_similarity(query_vector, vector)
                 if score > best_score:
                     best_score = score
                     best_phrase = phrase
-            if best_score < VECTOR_CANDIDATE_THRESHOLD:
+            if best_score < generation.threshold:
                 continue
             candidates.append(
                 IntentCandidate(
@@ -271,17 +322,6 @@ def embedding_fingerprint(
     if fingerprint:
         return fingerprint
     return str(getattr(embeddings, "model", "") or "unknown_embedding_client")
-
-
-def cosine(left: list[float], right: list[float]) -> float:
-    if not left or len(left) != len(right):
-        return 0.0
-    dot = sum(a * b for a, b in zip(left, right, strict=True))
-    left_norm = math.sqrt(sum(value * value for value in left))
-    right_norm = math.sqrt(sum(value * value for value in right))
-    if not left_norm or not right_norm:
-        return 0.0
-    return max(-1.0, min(1.0, dot / (left_norm * right_norm)))
 
 
 def _unavailable_batch(started: float, reason: str) -> RecallBatch:

@@ -1,5 +1,7 @@
 """Verify the first non-production Agent Core closed loop."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -16,8 +18,16 @@ from app.services.agent_core.contracts import (
     ControllerOutput,
     ControllerToolCall,
 )
+from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
 from app.services.agent_core.harness import AgentCoreHarness
-from app.services.agent_runtime.contracts import ExecutionContext
+from app.services.agent_runtime.contracts import (
+    ActionReceipt,
+    ExecutionContext,
+    PlanReceipt,
+)
 
 
 def _assert(condition: bool, message: str) -> None:
@@ -47,25 +57,45 @@ def _context() -> ExecutionContext:
         user_id=uuid4(),
         thread_id=uuid4(),
         request_id="verify-agent-core",
-        metadata={
-            "conversation_turns": [
-                {
-                    "role": "user",
-                    "turn_offset": -2,
-                    "content": "你好我是冰露",
-                },
-                {
-                    "role": "assistant",
-                    "turn_offset": -1,
-                    "content": "你好，冰露！",
-                },
-            ]
-        },
     )
 
 
+class _ConversationRuntime:
+    """Typed fixture; Journal/SystemRuntime integration has a separate gate."""
+
+    async def execute(self, plan, *, context, user_input=None):
+        del user_input
+        action = plan.actions[0]
+        return PlanReceipt(
+            plan_id=plan.plan_id,
+            request_id=context.request_id,
+            route_type=plan.route_type,
+            intent=plan.intent,
+            status="completed",
+            actions=[
+                ActionReceipt(
+                    action_id=action.action_id,
+                    capability=action.capability,
+                    operation=action.operation,
+                    status="completed",
+                    admitted=True,
+                    output={
+                        "result_mode": "conversation_read",
+                        "status": "completed",
+                        "answer": "你好我是冰露\n你好，冰露！",
+                    },
+                )
+            ],
+        )
+
+
 async def _run() -> None:
-    harness = AgentCoreHarness()
+    harness = AgentCoreHarness(
+        registry=CapabilityRegistry(
+            core_availability=CoreCapabilityAvailability.all_enabled()
+        ),
+        runtime=_ConversationRuntime(),  # type: ignore[arg-type]
+    )
     shadow = await harness.run(
         _output(),
         goal="刚才我说什么了，你回复什么了？",
@@ -89,8 +119,7 @@ async def _run() -> None:
     _assert("你好我是冰露" in live.answer.content, live.answer.content)
     _assert("你好，冰露" in live.answer.content, live.answer.content)
     _assert(
-        live.plan is not None
-        and live.plan.metadata.get("graph_normalized") is True,
+        live.plan is not None and live.plan.metadata.get("graph_normalized") is True,
         str(live.plan),
     )
 

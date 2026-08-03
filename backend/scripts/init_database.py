@@ -12,6 +12,7 @@ Configuration via .env:
 """
 
 import os
+import re
 import sqlalchemy as sa
 from sqlalchemy import text
 from dotenv import load_dotenv
@@ -20,6 +21,7 @@ from pathlib import Path
 load_dotenv()
 
 SQL_DIR = Path(__file__).parent / "sql"
+_CHANGE_NUMBER = re.compile(r"^change_(\d+)")
 
 
 def _build_postgres_url() -> str:
@@ -40,15 +42,18 @@ def _get_sorted_sql_files() -> list[str]:
     Sort order: init_database.sql first, then change_*.sql files by numeric suffix.
     """
     sql_files = list(SQL_DIR.glob("*.sql"))
-    sorted_files = sorted(
-        sql_files,
-        key=lambda p: (
-            0 if p.name == "init_database.sql" else 1,
-            int("".join(filter(str.isdigit, p.stem)))
-            if "change_" in p.name
-            else 9999,
-        ),
-    )
+
+    def migration_key(path: Path) -> tuple[int, int, str]:
+        if path.name == "init_database.sql":
+            return (0, 0, path.name)
+        match = _CHANGE_NUMBER.match(path.name)
+        return (
+            1,
+            int(match.group(1)) if match is not None else 9999,
+            path.name,
+        )
+
+    sorted_files = sorted(sql_files, key=migration_key)
     return [str(f) for f in sorted_files]
 
 

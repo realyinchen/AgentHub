@@ -3,14 +3,39 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from collections.abc import Callable
+from datetime import datetime
 
 from langchain_core.embeddings import Embeddings
 from sqlalchemy import text
 
 from app.infra.database.database import PostgresDatabase
 from app.infra.database.vectorstore import PGVectorVectorstore, _DEFAULT_TABLE
+from app.infra.embedding_spaces.activator import EmbeddingGenerationActivator
+from app.infra.embedding_spaces.calibration_contracts import (
+    CalibrationDatasetArtifact,
+    EmbeddingActivationCommand,
+    EmbeddingActivationReceipt,
+    EmbeddingCalibrationMeasurement,
+    EmbeddingCalibrationReportRecord,
+    GenerationValidationEvidence,
+    bind_calibration_report,
+)
+from app.infra.embedding_spaces.calibration_dataset import (
+    load_default_calibration_dataset,
+)
+from app.infra.embedding_spaces.calibration import (
+    calibrate_embedding_generation,
+)
+from app.infra.embedding_spaces.calibration_repository import (
+    EmbeddingCalibrationRepository,
+)
+from app.infra.embedding_spaces.calibration_runner import (
+    EmbeddingCalibrationRunner,
+)
 from app.infra.embedding_spaces.contracts import (
     EmbeddingPurpose,
     EmbeddingSpaceRecord,
@@ -18,8 +43,12 @@ from app.infra.embedding_spaces.contracts import (
 )
 from app.infra.embedding_spaces.rebuild import VectorRebuildJob
 from app.infra.embedding_spaces.registry import EmbeddingSpaceRegistry
+from app.infra.embedding_spaces.legacy_activation import (
+    LegacyEmbeddingActivationBridge,
+)
 from app.infra.embedding_spaces.schema import VectorSchemaManager
 from app.infra.embedding_spaces.locks import generation_write_lock
+from app.infra.config import get_settings
 from app.infra.llm.embedding import (
     EmbeddingObservation,
     get_observed_embedding_dimension,
@@ -42,10 +71,22 @@ class EmbeddingSpaceRuntime:
         self._database = database
         self._purposes = purposes
         self._registry = EmbeddingSpaceRegistry(database)
+        self._legacy_activation = LegacyEmbeddingActivationBridge(self._registry)
         self._schema = VectorSchemaManager(database)
         self._rebuild = VectorRebuildJob(database)
+        self._calibration = EmbeddingCalibrationRunner()
+        self._calibration_reports = EmbeddingCalibrationRepository(database)
+        self._activator = EmbeddingGenerationActivator(database)
         self._active_stores: dict[EmbeddingPurpose, PGVectorVectorstore] = {}
         self._active_records: dict[EmbeddingPurpose, EmbeddingSpaceRecord] = {}
+        self._last_calibration_reports: dict[
+            EmbeddingPurpose,
+            EmbeddingCalibrationReportRecord,
+        ] = {}
+        self._last_activation_receipts: dict[
+            EmbeddingPurpose,
+            EmbeddingActivationReceipt,
+        ] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
         self._unsubscribe: Callable[[], None] | None = None
         self._closed = False
@@ -76,9 +117,7 @@ class EmbeddingSpaceRuntime:
     ) -> PGVectorVectorstore:
         store = self._active_stores.get(purpose)
         if store is None:
-            raise RuntimeError(
-                f"No active {purpose!r} embedding generation is ready"
-            )
+            raise RuntimeError(f"No active {purpose!r} embedding generation is ready")
         return store
 
     def get_active_record(
@@ -86,6 +125,18 @@ class EmbeddingSpaceRuntime:
         purpose: EmbeddingPurpose = "documents",
     ) -> EmbeddingSpaceRecord | None:
         return self._active_records.get(purpose)
+
+    def get_last_calibration_report(
+        self,
+        purpose: EmbeddingPurpose = "documents",
+    ) -> EmbeddingCalibrationReportRecord | None:
+        return self._last_calibration_reports.get(purpose)
+
+    def get_last_activation_receipt(
+        self,
+        purpose: EmbeddingPurpose = "documents",
+    ) -> EmbeddingActivationReceipt | None:
+        return self._last_activation_receipts.get(purpose)
 
     def schedule_reconcile(
         self,
@@ -133,9 +184,13 @@ class EmbeddingSpaceRuntime:
             await asyncio.gather(*tasks, return_exceptions=True)
         self._tasks.clear()
 
-        stores = list({id(store): store for store in self._active_stores.values()}.values())
+        stores = list(
+            {id(store): store for store in self._active_stores.values()}.values()
+        )
         self._active_stores.clear()
         self._active_records.clear()
+        self._last_calibration_reports.clear()
+        self._last_activation_receipts.clear()
         for store in stores:
             await store.dispose()
 
@@ -266,12 +321,21 @@ class EmbeddingSpaceRuntime:
         if target.status == "failed":
             target = await self._registry.retry_build(target.id)
 
+        cutover_complete = False
         try:
             source_watermark = await self._rebuild.source_watermark()
-            result, store = await self._rebuild.run(
+            _result, store = await self._rebuild.run(
                 target=target,
                 embeddings=embeddings,
             )
+            calibration_artifact: CalibrationDatasetArtifact | None = None
+            calibration_measurement: EmbeddingCalibrationMeasurement | None = None
+            if get_settings().EMBEDDING_GENERATION_GATES_V1:
+                calibration_artifact = load_default_calibration_dataset()
+                calibration_measurement = await self._calibration.measure(
+                    embeddings=embeddings,
+                    artifact=calibration_artifact,
+                )
             async with generation_write_lock(
                 self._database,
                 purpose=purpose,
@@ -284,11 +348,26 @@ class EmbeddingSpaceRuntime:
                     updated_since=source_watermark,
                 )
                 document_count = await self._schema.count_rows(target)
-                await self._registry.mark_ready(
+                ready = await self._registry.mark_ready(
                     target.id,
                     document_count=document_count,
                 )
-                activated = await self._registry.activate(target.id)
+                if get_settings().EMBEDDING_GENERATION_GATES_V1:
+                    activated = await self._activate_calibrated_generation(
+                        target=ready,
+                        source_count=await self._rebuild.source_count(
+                            target.source_table_name
+                        ),
+                        stored_count=document_count,
+                        artifact=calibration_artifact,
+                        measurement=calibration_measurement,
+                        source_watermark=source_watermark,
+                    )
+                else:
+                    # Temporary R7 migration bridge. R8 removes Registry.activate
+                    # after calibrated cutover is certified in live mode.
+                    activated = await self._legacy_activation.activate(target.id)
+                cutover_complete = True
                 store.promote_to_active()
                 self._swap_active(purpose, activated, store)
             logger.info(
@@ -304,13 +383,89 @@ class EmbeddingSpaceRuntime:
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            await self._registry.mark_failed(target.id, str(exc))
+            if not cutover_complete:
+                await self._registry.mark_failed(target.id, str(exc))
             logger.exception(
                 "Embedding generation build failed: purpose=%s space=%s",
                 purpose,
                 spec.fingerprint[:12],
             )
             raise
+
+    async def _activate_calibrated_generation(
+        self,
+        *,
+        target: EmbeddingSpaceRecord,
+        source_count: int,
+        stored_count: int,
+        artifact: CalibrationDatasetArtifact | None,
+        measurement: EmbeddingCalibrationMeasurement | None,
+        source_watermark: datetime,
+    ) -> EmbeddingSpaceRecord:
+        if artifact is None or measurement is None:
+            raise RuntimeError("embedding_calibration_measurement_missing")
+        single_generation_query = "passed"
+        try:
+            await self._schema.validate_single_generation_query(target)
+        except Exception:
+            single_generation_query = "failed"
+        validation = GenerationValidationEvidence(
+            purpose=target.spec.purpose,
+            expected_dimensions=target.spec.dimensions,
+            observed_dimensions=measurement.observed_dimensions,
+            source_count=source_count,
+            # Every stored row has a NOT NULL vector in the generation table.
+            embedded_count=stored_count,
+            stored_count=stored_count,
+            active_fact_filter=(
+                "failed" if target.spec.purpose == "memory" else "not_applicable"
+            ),
+            tenant_isolation=(
+                "failed" if target.spec.purpose == "memory" else "not_applicable"
+            ),
+            single_generation_query=single_generation_query,
+        )
+        calibration = calibrate_embedding_generation(
+            artifact=artifact,
+            scores=measurement.scores,
+            evidence=validation,
+        )
+        report_draft = bind_calibration_report(
+            space_id=target.id,
+            source_watermark=source_watermark,
+            result=calibration,
+        )
+        if calibration.status != "passed":
+            failed_report = await self._calibration_reports.append(report_draft)
+            self._last_calibration_reports[target.spec.purpose] = failed_report
+            raise RuntimeError(
+                "embedding_calibration_rejected:" + ",".join(calibration.failure_codes)
+            )
+        settings = get_settings()
+        idempotency_key = _activation_idempotency_key(
+            purpose=target.spec.purpose,
+            space_id=str(target.id),
+            report_fingerprint=report_draft.report_fingerprint,
+        )
+        activation = await self._activator.activate(
+            EmbeddingActivationCommand(
+                purpose=target.spec.purpose,
+                to_space_id=target.id,
+                report=report_draft,
+                expected_dataset_sha256=artifact.sha256,
+                idempotency_key=idempotency_key,
+                source_commit_sha=settings.AGENT_RELEASE_COMMIT_SHA or "",
+                reason="r7_calibrated_generation_cutover",
+            )
+        )
+        self._last_calibration_reports[target.spec.purpose] = activation.report
+        self._last_activation_receipts[target.spec.purpose] = activation.receipt
+        return target.model_copy(
+            update={
+                "status": "active",
+                "activated_at": (activation.receipt.created_at or target.activated_at),
+            }
+        )
 
     async def _open_store(
         self,
@@ -353,6 +508,26 @@ class EmbeddingSpaceRuntime:
                 "Embedding-space reconciliation task crashed",
                 exc_info=(type(error), error, error.__traceback__),
             )
+
+
+def _activation_idempotency_key(
+    *,
+    purpose: str,
+    space_id: str,
+    report_fingerprint: str,
+) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            {
+                "action": "activate",
+                "purpose": purpose,
+                "space_id": space_id,
+                "report_fingerprint": report_fingerprint,
+            },
+            separators=(",", ":"),
+            sort_keys=True,
+        ).encode("utf-8")
+    ).hexdigest()
 
 
 __all__ = ["EmbeddingSpaceRuntime"]

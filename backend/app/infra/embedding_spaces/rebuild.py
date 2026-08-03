@@ -110,6 +110,9 @@ class VectorRebuildJob:
     async def source_watermark(self) -> datetime:
         return await self._source.watermark()
 
+    async def source_count(self, table_name: str | None) -> int:
+        return await self._source.count(table_name)
+
     async def catch_up(
         self,
         *,

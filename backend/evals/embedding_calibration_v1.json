@@ -1,0 +1,127 @@
+{
+  "dataset_version": "embedding-calibration-v1",
+  "minimum_precision": 0.8,
+  "minimum_recall": 0.8,
+  "samples": [
+    {
+      "sample_id": "conversation-positive-en",
+      "query": "what did I just say in this chat",
+      "anchor": "what did you say earlier in this chat",
+      "relevant": true
+    },
+    {
+      "sample_id": "conversation-positive-zh",
+      "query": "回忆一下我刚才说过的话",
+      "anchor": "我刚才跟你说了什么",
+      "relevant": true
+    },
+    {
+      "sample_id": "memory-positive-en",
+      "query": "what personal facts do you remember about me",
+      "anchor": "what do you remember about me",
+      "relevant": true
+    },
+    {
+      "sample_id": "memory-positive-zh",
+      "query": "查询我以前告诉你的个人信息",
+      "anchor": "查询我的个人信息",
+      "relevant": true
+    },
+    {
+      "sample_id": "weather-positive-en",
+      "query": "is rain expected today",
+      "anchor": "will it rain today",
+      "relevant": true
+    },
+    {
+      "sample_id": "weather-positive-zh",
+      "query": "今天气温和降雨怎么样",
+      "anchor": "今天的天气预报",
+      "relevant": true
+    },
+    {
+      "sample_id": "book-positive-en",
+      "query": "suggest recently acclaimed novels",
+      "anchor": "recommend well reviewed books",
+      "relevant": true
+    },
+    {
+      "sample_id": "book-positive-zh",
+      "query": "推荐近期口碑不错的新书",
+      "anchor": "推荐最近口碑好的书",
+      "relevant": true
+    },
+    {
+      "sample_id": "research-positive-en",
+      "query": "investigate this topic and cite reliable evidence",
+      "anchor": "conduct deep research with verified sources",
+      "relevant": true
+    },
+    {
+      "sample_id": "research-positive-zh",
+      "query": "深入研究并整理可信来源",
+      "anchor": "深度搜索并给出证据",
+      "relevant": true
+    },
+    {
+      "sample_id": "conversation-weather-negative",
+      "query": "what did I just say in this chat",
+      "anchor": "today's temperature and rain forecast",
+      "relevant": false
+    },
+    {
+      "sample_id": "memory-book-negative",
+      "query": "what personal facts do you remember about me",
+      "anchor": "recommend well reviewed books",
+      "relevant": false
+    },
+    {
+      "sample_id": "weather-research-negative",
+      "query": "is rain expected today",
+      "anchor": "produce a source backed research report",
+      "relevant": false
+    },
+    {
+      "sample_id": "book-conversation-negative",
+      "query": "suggest recently acclaimed novels",
+      "anchor": "what did you say earlier in this chat",
+      "relevant": false
+    },
+    {
+      "sample_id": "research-memory-negative",
+      "query": "investigate this topic and cite reliable evidence",
+      "anchor": "query my saved personal information",
+      "relevant": false
+    },
+    {
+      "sample_id": "zh-conversation-weather-negative",
+      "query": "回忆一下我刚才说过的话",
+      "anchor": "今天的天气预报",
+      "relevant": false
+    },
+    {
+      "sample_id": "zh-memory-book-negative",
+      "query": "查询我以前告诉你的个人信息",
+      "anchor": "推荐最近口碑好的书",
+      "relevant": false
+    },
+    {
+      "sample_id": "zh-weather-research-negative",
+      "query": "今天气温和降雨怎么样",
+      "anchor": "深度搜索并给出证据",
+      "relevant": false
+    },
+    {
+      "sample_id": "zh-book-conversation-negative",
+      "query": "推荐近期口碑不错的新书",
+      "anchor": "我刚才跟你说了什么",
+      "relevant": false
+    },
+    {
+      "sample_id": "zh-research-memory-negative",
+      "query": "深入研究并整理可信来源",
+      "anchor": "查询我的个人信息",
+      "relevant": false
+    }
+  ]
+}

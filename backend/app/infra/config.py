@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # Operator-controlled semantic revision for providers that change model
     # weights without changing their public model identifier.
     EMBEDDING_SPACE_REVISION: str = ""
+    # R7 candidate gate. When false, existing embedding activation and the
+    # routing compatibility threshold remain unchanged.
+    EMBEDDING_GENERATION_GATES_V1: bool = False
 
     # =========================================================================
     # CORS Configuration
