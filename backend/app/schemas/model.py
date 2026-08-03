@@ -16,7 +16,10 @@ class ModelMutableFields(BaseModel):
       naturally excludes fields that the client didn't send
     """
 
-    thinking: Optional[bool] = False
+    thinking: Optional[bool] = Field(
+        default=False,
+        description="Configured default thinking mode for runtime requests.",
+    )
     is_default: Optional[bool] = False
     is_active: Optional[bool] = True
 
@@ -257,6 +260,8 @@ class TestConnectionResponse(BaseModel):
 
 
 class ThinkingModeStatus(BaseModel):
-    """Response for GET /models/thinking-mode."""
+    """Legacy response for the default model's configured request mode."""
 
-    available: bool = Field(description="Whether thinking mode is available")
+    available: bool = Field(
+        description="Whether thinking mode is configured for the default model"
+    )

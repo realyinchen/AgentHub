@@ -14,7 +14,7 @@ Public API:
 Usage:
     from app.infra.llm import get_llm
 
-    llm = get_llm("qwen3-235b-a22b")  # thinking disabled (default)
+    llm = get_llm("qwen3-235b-a22b")  # use the database configuration
     llm = get_llm("qwen3-235b-a22b", thinking_mode=True)  # thinking enabled
 """
 
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 def get_llm(
     model_id: str,
-    thinking_mode: bool = False,
+    thinking_mode: bool | None = None,
 ) -> Runnable[LanguageModelInput, AIMessage]:
     """Build a ChatLiteLLM for the given model (DB-backed).
 
@@ -50,8 +50,8 @@ def get_llm(
     Args:
         model_id: Model identifier (e.g. "qwen3-235b-a22b").
                   Can be plain model_id or "provider/model-id" format.
-        thinking_mode: Whether to enable thinking/reasoning mode.
-                      Defaults to False (disabled).
+        thinking_mode: Explicit thinking/reasoning override. When omitted,
+                      use the selected database model's configured mode.
 
     Returns:
         A ChatLiteLLM ready for invoke/stream.
@@ -68,6 +68,11 @@ def get_llm(
         model_config = manager.get_model(model_id.split("/", 1)[1])
     if model_config is None:
         raise ValueError(f"Model '{model_id}' not found in database.")
+    effective_thinking_mode = (
+        bool(getattr(model_config, "thinking", False))
+        if thinking_mode is None
+        else bool(thinking_mode)
+    )
 
     connection = manager.get_connection(str(model_config.connection_id))
     provider_key = connection.provider if connection is not None else model_config.provider
@@ -97,7 +102,7 @@ def get_llm(
         api_key=api_key or manager.get_api_key(provider_key),
         base_url=base_url or manager.get_base_url(provider_key),
         is_openai_compatible=is_openai_compatible,
-        thinking_mode=thinking_mode,
+        thinking_mode=effective_thinking_mode,
     )
 
 

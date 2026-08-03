@@ -20,6 +20,7 @@ from app.services.agent_core.controller_client import (
     PLAN_TASK_TOOL,
     ControllerClient,
     ControllerClientError,
+    _default_model_factory,
 )
 from app.services.agent_core.prompt_contracts import (
     ControllerContextSnapshot,
@@ -95,6 +96,17 @@ class _BoundModel:
 
 
 class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
+    def test_default_factory_defers_thinking_mode_to_model_config(self) -> None:
+        model = object()
+        with unittest.mock.patch(
+            "app.services.agent_core.controller_client.get_llm",
+            return_value=model,
+        ) as get_llm:
+            result = _default_model_factory("configured-controller")
+
+        self.assertIs(result, model)
+        get_llm.assert_called_once_with("configured-controller")
+
     async def test_whole_conversation_is_sent_and_direct_answer_is_parsed(
         self,
     ) -> None:

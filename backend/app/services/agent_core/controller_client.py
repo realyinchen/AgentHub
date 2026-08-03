@@ -156,7 +156,7 @@ class ControllerClient:
 
 
 def _default_model_factory(model_name: str):
-    return get_llm(model_name, thinking_mode=False)
+    return get_llm(model_name)
 
 
 def controller_tool_schemas(

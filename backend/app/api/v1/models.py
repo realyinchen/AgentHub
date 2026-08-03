@@ -609,7 +609,7 @@ async def update_provider(
 
 @api_router.get("/thinking-mode", response_model=ThinkingModeStatus)
 async def get_thinking_mode_status() -> ThinkingModeStatus:
-    """Check if thinking mode is available."""
+    """Return the default model's configured mode (legacy response shape)."""
     return ThinkingModeStatus(
-        available=get_model_manager().is_thinking_mode_available()
+        available=get_model_manager().is_thinking_mode_configured()
     )

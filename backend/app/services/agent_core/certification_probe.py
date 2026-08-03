@@ -140,7 +140,7 @@ class LangChainAgentProbeTransport:
             api_key=config.api_key,
             base_url=config.base_url,
             is_openai_compatible=config.is_openai_compatible,
-            thinking_mode=False,
+            thinking_mode=config.configured_thinking,
             extra_headers=config.extra_headers,
         )
 

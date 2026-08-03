@@ -33,7 +33,7 @@ class ChatProbe:
         try:
             basic_response = await self._invoker(
                 config=config,
-                thinking_mode=False,
+                thinking_mode=config.configured_thinking,
                 prompt=BASIC_PROMPT,
             )
             basic_content = convert_message_content_to_string(basic_response.content)

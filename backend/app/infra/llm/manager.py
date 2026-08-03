@@ -172,14 +172,21 @@ class ModelManager:
     def get_model(self, model_id: str):
         return self._models_cache.get(model_id)
 
-    def is_thinking_mode_available(self, model_id: str | None = None) -> bool:
-        """Check if thinking mode is available for a model."""
+    def is_thinking_mode_configured(self, model_id: str | None = None) -> bool:
+        """Return the configured request mode, not an observed capability."""
         if model_id is None:
             model_id = self._default_llm_id
             if model_id is None:
                 return False
         m = self._models_cache.get(model_id)
         return bool(m.thinking) if m else False
+
+    def is_thinking_mode_available(self, model_id: str | None = None) -> bool:
+        """Compatibility alias for the legacy endpoint response shape.
+
+        Capability consumers must read append-only probe records instead.
+        """
+        return self.is_thinking_mode_configured(model_id)
 
     def get_model_info_list(self, active_only: bool = False) -> "list[ModelInfo]":
         """Return all cached models as ``ModelInfo`` schemas."""

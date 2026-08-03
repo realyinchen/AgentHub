@@ -98,6 +98,7 @@ async def resolve_probe_target(
         connection_id=(
             str(model.connection_id) if model.connection_id else None
         ),
+        configured_thinking=bool(model.thinking),
         api_key=api_key,
         extra_headers=extra_headers,
     )
@@ -116,6 +117,7 @@ async def resolve_probe_target(
             base_url=base_url,
             is_openai_compatible=bool(provider.is_openai_compatible),
             timeout_seconds=timeout_seconds,
+            configured_thinking=bool(model.thinking),
             check_thinking=bool(check_thinking and model_type != "embedding"),
             extra_headers=extra_headers,
             expected_embedding_dimensions=(
@@ -134,6 +136,7 @@ def _configuration_fingerprint(
     base_url: str | None,
     is_openai_compatible: bool,
     connection_id: str | None,
+    configured_thinking: bool,
     api_key: str,
     extra_headers: dict[str, str],
 ) -> str:
@@ -144,6 +147,7 @@ def _configuration_fingerprint(
         "base_url": str(base_url or "").rstrip("/"),
         "is_openai_compatible": is_openai_compatible,
         "connection_id": connection_id,
+        "configured_thinking": configured_thinking,
         "credential_hash": hashlib.sha256(api_key.encode("utf-8")).hexdigest(),
         "headers_hash": hashlib.sha256(
             json.dumps(

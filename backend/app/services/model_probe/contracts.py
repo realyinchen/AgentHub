@@ -28,6 +28,7 @@ class ProbeConfig:
     base_url: str | None
     is_openai_compatible: bool
     timeout_seconds: float
+    configured_thinking: bool = False
     check_thinking: bool = True
     extra_headers: Mapping[str, str] = field(default_factory=dict)
     expected_embedding_dimensions: int | None = None

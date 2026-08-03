@@ -296,13 +296,19 @@ class AgentCertificationServiceTests(unittest.IsolatedAsyncioTestCase):
             "is_openai_compatible": True,
             "connection_id": str(uuid.uuid4()),
             "extra_headers": {"X-Title": "test"},
+            "configured_thinking": False,
         }
         first = _configuration_fingerprint(api_key="secret-one", **common)
         second = _configuration_fingerprint(api_key="secret-two", **common)
+        thinking = _configuration_fingerprint(
+            api_key="secret-one",
+            **{**common, "configured_thinking": True},
+        )
 
         self.assertEqual(len(first), 64)
         self.assertNotIn("secret-one", first)
         self.assertNotEqual(first, second)
+        self.assertNotEqual(first, thinking)
 
     async def test_changed_controller_fingerprint_fails_closed(self) -> None:
         target = _target()

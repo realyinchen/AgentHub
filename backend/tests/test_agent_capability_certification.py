@@ -16,6 +16,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from app.services.agent_core.certification_probe import (
     AgentCapabilityProbe,
     AgentProbeRequest,
+    LangChainAgentProbeTransport,
 )
 from app.services.agent_core.certification_contracts import (
     AGENT_PROBE_REQUIRED_CASE_NAMES,
@@ -158,6 +159,28 @@ class _PassingTransport:
 
 
 class AgentCapabilityProbeTests(unittest.IsolatedAsyncioTestCase):
+    def test_transport_uses_configured_thinking_mode(self) -> None:
+        model = object()
+        with unittest.mock.patch(
+            "app.services.agent_core.certification_probe."
+            "create_llm_from_config",
+            return_value=model,
+        ) as factory:
+            transport = LangChainAgentProbeTransport(
+                ProbeConfig(
+                    provider="test",
+                    provider_model_id="thinking-only",
+                    api_key="not-a-real-key",
+                    base_url=None,
+                    is_openai_compatible=True,
+                    timeout_seconds=1,
+                    configured_thinking=True,
+                )
+            )
+
+        self.assertIs(transport._llm, model)
+        self.assertTrue(factory.call_args.kwargs["thinking_mode"])
+
     async def test_all_required_cases_must_pass(self) -> None:
         transport = _PassingTransport()
         outcome = await AgentCapabilityProbe(lambda _config: transport).run(

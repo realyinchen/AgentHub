@@ -114,6 +114,25 @@ class ModelProbeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(outcome.thinking_request_ok)
         self.assertTrue(outcome.reasoning_text_ok)
 
+    async def test_chat_probe_uses_configured_thinking_for_basic_request(
+        self,
+    ) -> None:
+        observed: list[bool] = []
+
+        async def invoke(*, config, thinking_mode, prompt):
+            observed.append(thinking_mode)
+            return AIMessage(content="OK")
+
+        outcome = await ChatProbe(invoke).run(
+            _config(
+                check_thinking=False,
+                configured_thinking=True,
+            )
+        )
+
+        self.assertTrue(outcome.probe_ok)
+        self.assertEqual(observed, [True])
+
     def test_error_categories_are_stable(self) -> None:
         cases = {
             "Connection error": "network",
