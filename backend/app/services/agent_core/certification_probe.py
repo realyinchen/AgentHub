@@ -26,7 +26,10 @@ from app.services.agent_core.certification_contracts import (
     AgentProbeCaseResult,
 )
 from app.services.model_probe.contracts import ProbeConfig
-from app.services.model_probe.errors import safe_probe_error
+from app.services.model_probe.errors import (
+    classify_probe_error,
+    safe_probe_error,
+)
 from app.services.tasks.contracts import TaskPlanDraft
 from app.utils.message import convert_message_content_to_string
 
@@ -204,7 +207,21 @@ class AgentCapabilityProbe:
         transport = self._transport_factory(config)
         cases: list[AgentProbeCaseResult] = []
         for case_name in self._CASE_NAMES:
-            cases.append(await self._run_case(transport, case_name))
+            result = await self._run_case(transport, case_name)
+            cases.append(result)
+            if result.observations.get("failure_scope") == "provider":
+                remaining = self._CASE_NAMES[len(cases) :]
+                cases.extend(
+                    _short_circuited_case(
+                        name,
+                        triggered_by=case_name,
+                        error_category=str(
+                            result.observations["error_category"]
+                        ),
+                    )
+                    for name in remaining
+                )
+                break
         failures = [case.name for case in cases if case.required and not case.passed]
         return AgentCapabilityCertificationOutcome(
             certified=not failures,
@@ -230,6 +247,7 @@ class AgentCapabilityProbe:
                 observations=observations,
             )
         except Exception as exc:
+            category = classify_probe_error(exc)
             return AgentProbeCaseResult(
                 name=case_name,
                 required=required,
@@ -237,6 +255,16 @@ class AgentCapabilityProbe:
                 latency_ms=_elapsed_ms(started),
                 error_type=type(exc).__name__,
                 error_message=safe_probe_error(exc),
+                observations={
+                    "executed": True,
+                    "error_category": category,
+                    "failure_scope": (
+                        "provider"
+                        if category
+                        in {"auth", "rate_limit", "network", "model"}
+                        else "case"
+                    ),
+                },
             )
 
     async def _case_basic_chat(
@@ -497,6 +525,28 @@ class AgentCapabilityProbe:
             "task_plan_contract": draft.contract_version,
             "system_identity_fields": 0,
         }
+
+
+def _short_circuited_case(
+    case_name: AgentProbeCaseName,
+    *,
+    triggered_by: AgentProbeCaseName,
+    error_category: str,
+) -> AgentProbeCaseResult:
+    return AgentProbeCaseResult(
+        name=case_name,
+        required=case_name in AGENT_PROBE_REQUIRED_CASE_NAMES,
+        passed=False,
+        latency_ms=0,
+        error_type="ProbeShortCircuited",
+        error_message=f"provider_dependency_short_circuit:{error_category}",
+        observations={
+            "executed": False,
+            "error_category": error_category,
+            "failure_scope": "provider",
+            "triggered_by": triggered_by,
+        },
+    )
 
 
 def _request(

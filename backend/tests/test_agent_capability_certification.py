@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+# ruff: noqa: E402
+
 import sys
 import unittest
 from pathlib import Path
@@ -228,6 +230,59 @@ class AgentCapabilityProbeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertFalse(failed.required)
         self.assertFalse(failed.passed)
+
+    async def test_provider_wide_failure_short_circuits_remaining_cases(
+        self,
+    ) -> None:
+        RateLimitError = type("RateLimitError", (Exception,), {})
+
+        class RateLimitedTransport(_PassingTransport):
+            async def invoke(self, request: AgentProbeRequest) -> AIMessage:
+                self.requests.append(request)
+                raise RateLimitError("sensitive upstream quota detail")
+
+        transport = RateLimitedTransport()
+        outcome = await AgentCapabilityProbe(
+            lambda _config: transport
+        ).run(_config())
+
+        self.assertFalse(outcome.certified)
+        self.assertEqual(len(transport.requests), 1)
+        self.assertEqual(len(outcome.cases), 10)
+        self.assertEqual(
+            set(outcome.failure_cases),
+            set(AGENT_PROBE_REQUIRED_CASE_NAMES),
+        )
+        first, *remaining = outcome.cases
+        self.assertEqual(first.name, "basic_chat")
+        self.assertTrue(first.observations["executed"])
+        self.assertEqual(
+            first.observations["error_category"],
+            "rate_limit",
+        )
+        self.assertEqual(
+            first.observations["failure_scope"],
+            "provider",
+        )
+        self.assertTrue(
+            all(item.error_type == "ProbeShortCircuited" for item in remaining)
+        )
+        self.assertTrue(
+            all(item.observations["executed"] is False for item in remaining)
+        )
+        self.assertTrue(
+            all(
+                item.observations["triggered_by"] == "basic_chat"
+                for item in remaining
+            )
+        )
+        self.assertTrue(
+            all(
+                "sensitive upstream quota detail"
+                not in str(item.error_message)
+                for item in remaining
+            )
+        )
 
 
 if __name__ == "__main__":

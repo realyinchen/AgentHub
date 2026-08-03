@@ -16,6 +16,7 @@ from app.services.agent_core.certification_contracts import (
 )
 from app.services.agent_core.contracts import AgentCoreModel
 from app.services.agent_core.evidence_source import GitSourceState
+from app.services.model_probe.contracts import ProbeErrorCategory
 
 
 AGENT_CERTIFICATION_EVIDENCE_VERSION = (
@@ -28,6 +29,28 @@ class AgentCertificationCaseEvidence(AgentCoreModel):
     required: bool
     passed: bool
     latency_ms: int = Field(ge=0)
+    executed: bool = True
+    error_category: ProbeErrorCategory | None = None
+    short_circuited_by: AgentProbeCaseName | None = None
+
+    @model_validator(mode="after")
+    def validate_execution_state(
+        self,
+    ) -> "AgentCertificationCaseEvidence":
+        if self.passed and not self.executed:
+            raise ValueError("an unexecuted certification case cannot pass")
+        if not self.executed and (
+            self.error_category is None
+            or self.short_circuited_by is None
+        ):
+            raise ValueError(
+                "short-circuited certification evidence is incomplete"
+            )
+        if self.executed and self.short_circuited_by is not None:
+            raise ValueError(
+                "an executed certification case cannot be short-circuited"
+            )
+        return self
 
 
 class AgentCertificationEvidenceArtifact(AgentCoreModel):
@@ -185,6 +208,15 @@ class AgentCertificationEvidenceArtifact(AgentCoreModel):
                     required=case.required,
                     passed=case.passed,
                     latency_ms=case.latency_ms,
+                    executed=bool(
+                        case.observations.get("executed", True)
+                    ),
+                    error_category=case.observations.get(
+                        "error_category"
+                    ),
+                    short_circuited_by=case.observations.get(
+                        "triggered_by"
+                    ),
                 )
                 for case in cases
             ],

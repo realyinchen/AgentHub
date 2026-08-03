@@ -13,6 +13,7 @@ from pydantic import ValidationError
 from app.services.agent_core.certification_contracts import (
     AGENT_CERTIFICATION_CONTRACT_VERSION,
     AGENT_PROBE_CASE_NAMES,
+    AGENT_PROBE_REQUIRED_CASE_NAMES,
     AgentModeAdmission,
 )
 from app.services.agent_core.certification_evidence import (
@@ -249,6 +250,71 @@ class EvidenceArtifactTests(unittest.TestCase):
             "raw-provider-failure",
             artifact.model_dump_json(),
         )
+
+    def test_short_circuit_evidence_exposes_status_without_provider_text(
+        self,
+    ) -> None:
+        certification_id = uuid4()
+        failed_name = AGENT_PROBE_CASE_NAMES[0]
+        certification = SimpleNamespace(
+            id=certification_id,
+            model_id=uuid4(),
+            source_commit_sha="c" * 40,
+            configuration_fingerprint="a" * 64,
+            controller_fingerprint="b" * 64,
+            contract_version=AGENT_CERTIFICATION_CONTRACT_VERSION,
+            certified=False,
+            cases=[
+                {
+                    "name": name,
+                    "required": name in AGENT_PROBE_REQUIRED_CASE_NAMES,
+                    "passed": False,
+                    "latency_ms": 1 if name == failed_name else 0,
+                    "error_message": "raw-provider-failure",
+                    "observations": {
+                        "executed": name == failed_name,
+                        "error_category": "rate_limit",
+                        **(
+                            {}
+                            if name == failed_name
+                            else {"triggered_by": failed_name}
+                        ),
+                    },
+                }
+                for name in AGENT_PROBE_CASE_NAMES
+            ],
+            failure_cases=[
+                name
+                for name in AGENT_PROBE_CASE_NAMES
+                if name in AGENT_PROBE_REQUIRED_CASE_NAMES
+            ],
+        )
+        admission = AgentModeAdmission(
+            admitted=False,
+            certification_id=str(certification_id),
+            reason="certification_failed",
+            configuration_fingerprint="a" * 64,
+            controller_fingerprint="b" * 64,
+            source_commit_sha="c" * 40,
+        )
+
+        artifact = AgentCertificationEvidenceArtifact.build(
+            source_state=GitSourceState(
+                commit_sha="c" * 40,
+                dirty_worktree=False,
+            ),
+            certification=certification,
+            admission=admission,
+            generated_at=datetime.now(timezone.utc),
+        )
+
+        self.assertTrue(artifact.cases[0].executed)
+        self.assertTrue(all(not case.executed for case in artifact.cases[1:]))
+        self.assertEqual(
+            artifact.cases[1].short_circuited_by,
+            failed_name,
+        )
+        self.assertNotIn("raw-provider-failure", artifact.model_dump_json())
 
 
 class LiveCertificationPreflightTests(
