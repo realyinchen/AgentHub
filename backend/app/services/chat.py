@@ -26,13 +26,13 @@ from app.utils.message import langchain_to_chat_message
 from app.services.streaming import ChatStreamingService
 from app.services.agent_runtime import (
     finalize_runtime_receipt,
-    prepare_runtime_turn,
 )
 from app.services.agent_runtime.finalizer import receipt_tool_info, receipt_trace_steps
 from app.services.agent_runtime.persistence import persist_runtime_finalized_turn
 from app.services.agent_runtime.execution_graph import build_execution_graph
 from app.services.conversation import ConversationJournalService
 from app.services.agent_core.chat_entry import AgentChatEntry
+from app.services.agent_core.legacy_chat_runtime import LegacyChatRuntimeBridge
 from app.services.agent_core.publication.commit import (
     TurnPublicationCommitter,
 )
@@ -66,14 +66,26 @@ class ChatService:
             yield event
     """
 
-    def __init__(self, agent: CompiledStateGraph) -> None:
+    def __init__(
+        self,
+        agent: CompiledStateGraph,
+        *,
+        agent_entry: AgentChatEntry | None = None,
+        legacy_bridge: LegacyChatRuntimeBridge | None = None,
+    ) -> None:
         """Initialize the service with a compiled agent graph.
 
         Args:
             agent: A compiled LangGraph agent.
         """
         self._agent = agent
-        self._streaming = ChatStreamingService(agent)
+        self._agent_entry = agent_entry or AgentChatEntry()
+        self._legacy_bridge = legacy_bridge or LegacyChatRuntimeBridge()
+        self._streaming = ChatStreamingService(
+            agent,
+            agent_entry=self._agent_entry,
+            legacy_bridge=self._legacy_bridge,
+        )
 
     async def invoke(
         self,
@@ -112,6 +124,8 @@ class ChatService:
         # decision and side effect, so it must be durable before any runtime
         # opens an independent transaction.
         await db.commit()
+        agent_entry = self._agent_entry
+        controller_attempt = None
         run_controller = controller_mode != "off"
         if controller_mode == "shadow" and not is_current_shadow_enrollment(
             user_event.shadow_enrollment,
@@ -138,13 +152,14 @@ class ChatService:
                 user_input = user_input.model_copy(
                     update={"model_name": initial_model}
                 )
-            entry = await AgentChatEntry().run(
+            entry = await agent_entry.run(
                 db,
                 user_input=user_input,
                 model_name=initial_model,
                 journal_sequence_watermark=user_event.sequence_no,
                 shadow_enrollment=user_event.shadow_enrollment,
             )
+            controller_attempt = entry.attempt
             if entry.handled:
                 if entry.message is None or entry.answer is None:
                     raise HTTPException(
@@ -157,6 +172,11 @@ class ChatService:
                     answer=entry.answer,
                     turn=entry.attempt.turn,
                     model_name=initial_model,
+                    agent_mode=str(
+                        entry.message.custom_data.get(
+                            "agent_mode", "controller_v1"
+                        )
+                    ),
                 )
                 return committed.message
             logger.info(
@@ -165,11 +185,44 @@ class ChatService:
                 entry.attempt.status,
             )
 
-        runtime_turn = await prepare_runtime_turn(
+        legacy_result = await self._legacy_bridge.prepare(
             user_input,
             model_name=str(user_input.model_uuid or user_input.model_name or ""),
             agent=self._agent,
         )
+        runtime_turn = legacy_result.turn
+        if runtime_turn is None:
+            requested_model = user_input.model_uuid or user_input.model_name
+            initial_model = initial_model or resolve_model_name(requested_model)
+            if not initial_model:
+                raise HTTPException(
+                    status_code=503,
+                    detail="No AI models are currently available.",
+                )
+            if requested_model:
+                await refresh_model_cache_if_missing(initial_model)
+            if user_input.model_name != initial_model:
+                user_input = user_input.model_copy(update={"model_name": initial_model})
+            plain_entry = await agent_entry.run_plain(
+                db,
+                user_input=user_input,
+                model_name=initial_model,
+                attempt=controller_attempt,
+            )
+            if plain_entry.answer is None:
+                raise HTTPException(
+                    status_code=503,
+                    detail="Plain chat did not produce a safe response.",
+                )
+            committed = await TurnPublicationCommitter().commit(
+                db,
+                user_input=user_input,
+                answer=plain_entry.answer,
+                turn=None,
+                model_name=initial_model,
+                agent_mode="plain_chat",
+            )
+            return committed.message
         if runtime_turn.can_finalize_without_model:
             output = finalize_runtime_receipt(
                 runtime_turn.plan,

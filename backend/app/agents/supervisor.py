@@ -4,7 +4,8 @@ Built once at startup via `init_agent()` during the FastAPI lifespan.
 Multi-turn conversation state is maintained by the checkpointer.
 
 Architecture:
-    ActionPlanner -> SystemRuntime -> PlanReceipt -> Supervisor
+    Controller proposal -> WorkflowCompiler -> SystemRuntime -> PlanReceipt
+    -> Supervisor
 
 The supervisor consumes receipts and produces language. It has no direct tool
 execution path; deterministic and LLM planning both happen before this graph.

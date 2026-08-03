@@ -1,5 +1,7 @@
 """Verify R6 authority, capability, and compatibility boundaries."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import ast
@@ -136,9 +138,15 @@ def _assert_versioned_memory_path() -> None:
         "app.services.memory.version_runtime",
     }
     system_runtime = _source("app/services/agent_runtime/runtime.py")
-    assert "legacy_memory_write_disabled_for_r6" in system_runtime
-    assert "legacy_operation_requires_routing_plan" in system_runtime
-    assert "memory_write_compat" in system_runtime
+    assert "legacy_memory_write_disabled_for_r6" not in system_runtime
+    assert "legacy_operation_requires_routing_plan" not in system_runtime
+    assert "memory_write_compat" not in system_runtime
+    legacy_compatibility = _source(
+        "app/services/agent_runtime/legacy_compatibility.py"
+    )
+    assert "legacy_memory_write_disabled_for_r6" in legacy_compatibility
+    assert "memory_write_compat" in legacy_compatibility
+    assert "LegacyRoutingRuntimeCompatibility" in legacy_compatibility
 
 
 def _main() -> int:

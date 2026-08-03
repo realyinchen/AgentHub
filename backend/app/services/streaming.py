@@ -51,13 +51,13 @@ from app.utils.message import (
 )
 from app.services.agent_runtime import (
     finalize_runtime_receipt,
-    prepare_runtime_turn,
 )
 from app.services.agent_runtime.contracts import ActionPlan, PlanReceipt
 from app.services.agent_runtime.execution_graph import build_execution_graph
 from app.services.agent_runtime.finalizer import receipt_tool_info, receipt_trace_steps
 from app.services.agent_runtime.persistence import persist_runtime_finalized_turn
 from app.services.agent_core.chat_entry import AgentChatEntry
+from app.services.agent_core.legacy_chat_runtime import LegacyChatRuntimeBridge
 from app.services.agent_core.shadow_enrollment import (
     is_current_shadow_enrollment,
     prepare_shadow_enrollment,
@@ -114,8 +114,16 @@ class ChatStreamingService:
             yield sse_event
     """
 
-    def __init__(self, agent: CompiledStateGraph) -> None:
+    def __init__(
+        self,
+        agent: CompiledStateGraph,
+        *,
+        agent_entry: AgentChatEntry | None = None,
+        legacy_bridge: LegacyChatRuntimeBridge | None = None,
+    ) -> None:
         self._agent = agent
+        self._agent_entry = agent_entry or AgentChatEntry()
+        self._legacy_bridge = legacy_bridge or LegacyChatRuntimeBridge()
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -164,6 +172,8 @@ class ChatStreamingService:
                 shadow_enrollment=prepared_shadow.enrollment,
             )
 
+        agent_entry = self._agent_entry
+        controller_attempt = None
         run_controller = controller_mode != "off"
         if controller_mode == "shadow" and not is_current_shadow_enrollment(
             user_event.shadow_enrollment,
@@ -192,7 +202,7 @@ class ChatStreamingService:
                     update={"model_name": initial_model}
                 )
             async with database.session() as session:
-                entry = await AgentChatEntry().run(
+                entry = await agent_entry.run(
                     session,
                     user_input=user_input,
                     model_name=initial_model,
@@ -201,6 +211,7 @@ class ChatStreamingService:
                     ),
                     shadow_enrollment=user_event.shadow_enrollment,
                 )
+                controller_attempt = entry.attempt
                 if entry.handled and entry.message is not None:
                     await journal.record_assistant_message(
                         session,
@@ -254,11 +265,73 @@ class ChatStreamingService:
                 entry.attempt.status,
             )
 
-        runtime_turn = await prepare_runtime_turn(
+        legacy_result = await self._legacy_bridge.prepare(
             user_input,
             model_name=str(user_input.model_uuid or user_input.model_name or ""),
             agent=self._agent,
         )
+        runtime_turn = legacy_result.turn
+        if runtime_turn is None:
+            requested_model = user_input.model_uuid or user_input.model_name
+            initial_model = initial_model or resolve_model_name(requested_model)
+            if not initial_model:
+                yield sse_error(
+                    "No AI models are currently available. Please check your configuration.",
+                    error_type="no_models_available",
+                )
+                return
+            if requested_model:
+                await refresh_model_cache_if_missing(initial_model)
+            if user_input.model_name != initial_model:
+                user_input = user_input.model_copy(update={"model_name": initial_model})
+            async with database.session() as session:
+                plain_entry = await agent_entry.run_plain(
+                    session,
+                    user_input=user_input,
+                    model_name=initial_model,
+                    attempt=controller_attempt,
+                )
+                if plain_entry.message is not None:
+                    await journal.record_assistant_message(
+                        session,
+                        user_input=user_input,
+                        message=plain_entry.message,
+                    )
+            if plain_entry.message is None:
+                yield sse_error(
+                    "Plain chat did not produce a safe response.",
+                    error_type="plain_chat_unavailable",
+                )
+                return
+            yield f": {' ' * 2048}\n\n"
+            yield sse({"type": "request_start", "request_id": user_input.request_id})
+            yield sse(
+                {
+                    "type": "step",
+                    "step": 1,
+                    "action": "human",
+                    "content": user_input.content,
+                }
+            )
+            yield sse(
+                {
+                    "type": "step",
+                    "step": 2,
+                    "action": "plain_chat",
+                    "content": {
+                        "reason": legacy_result.reason,
+                        "side_effects": 0,
+                    },
+                }
+            )
+            yield sse(
+                {
+                    "type": "message",
+                    "content": plain_entry.message.model_dump(),
+                }
+            )
+            yield "data: [DONE]\n\n"
+            return
         if runtime_turn.can_finalize_without_model:
             final_message = finalize_runtime_receipt(
                 runtime_turn.plan,

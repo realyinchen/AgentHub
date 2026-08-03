@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -9,6 +8,10 @@ from typing import Any
 from app.infra.database import get_database
 from app.schemas.chat import UserInput
 from app.services.agent_core.capabilities import CapabilityRegistry
+from app.services.agent_runtime.compatibility import (
+    DisabledRuntimeCompatibility,
+    RuntimeCompatibilityPort,
+)
 from app.services.agent_runtime.contracts import (
     ActionPlan,
     ActionReceipt,
@@ -19,9 +22,6 @@ from app.services.agent_runtime.contracts import (
 from app.services.agent_runtime.ledger import (
     ExecutionLedger,
     action_idempotency_key,
-)
-from app.services.agent_runtime.legacy_availability import (
-    LegacyRuntimeAvailability,
 )
 from app.services.conversation.authoritative_reader import (
     JournalConversationReader,
@@ -46,57 +46,15 @@ logger = logging.getLogger(__name__)
 _RETIRED_CHAT_MEMORY_WRITE_OPERATIONS = frozenset(
     {"remember_memory", "revise_memory"}
 )
-_LEGACY_CONTEXT_OPERATIONS = frozenset(
+_NATIVE_OPERATIONS = frozenset(
     {
-        "process_memory_write_request",
-        "recall_recent_conversation",
-        "search_memory",
-    }
-)
-
-_USER_ID_OPERATIONS = frozenset(
-    {
-        "process_memory_write_request",
-        "search_memory",
-        "remember_memory",
-        "revise_memory",
-        "forget_memory",
-        "plan_book_assistant_turn",
-        "search_books",
-        "get_recommendation_history",
-        "remember_reading_preference",
-        "record_book_feedback",
-        "record_recommendation_signal",
-        "start_research",
-        "inspect_research_state",
-        "search_research",
-        "visit_source",
-        "add_evidence",
-        "update_research_state",
-        "finish_research",
-        "collect_research_sources",
-        "build_research_report",
-        "finalize_research_answer",
-        "plan_recommendation_research_workflow",
-        "run_recommendation_research_workflow",
-        "run_research_harness",
+        "conversation_read",
         "remember_memory_v2",
         "search_memory_v2",
         "forget_memory_v2",
-    }
-)
-_THREAD_ID_OPERATIONS = frozenset(
-    {
-        "process_memory_write_request",
-        "remember_memory",
-        "forget_memory",
-        "record_book_feedback",
-        "record_recommendation_signal",
-        "start_research",
-        "run_recommendation_research_workflow",
-        "run_research_harness",
-        "remember_memory_v2",
-        "forget_memory_v2",
+        "create_task_v1",
+        "plan_task_v1",
+        "cancel_active_task_v1",
     }
 )
 
@@ -110,16 +68,14 @@ class SystemRuntime:
         ledger: ExecutionLedger | None = None,
         external_runtime: Any | None = None,
         capability_registry: CapabilityRegistry | None = None,
-        legacy_availability: LegacyRuntimeAvailability | None = None,
+        compatibility: RuntimeCompatibilityPort | None = None,
     ) -> None:
         self._ledger = ledger
         self._external_runtime = external_runtime
         self._capability_registry = (
             capability_registry or CapabilityRegistry()
         )
-        self._legacy_availability = (
-            legacy_availability or LegacyRuntimeAvailability.from_settings()
-        )
+        self._compatibility = compatibility or DisabledRuntimeCompatibility()
 
     async def execute(
         self,
@@ -137,7 +93,6 @@ class SystemRuntime:
             if user_input is not None
             else str(context.metadata.get("user_message") or plan.goal)
         )
-        policy = _policy_from_plan(plan, user_message)
         with user_message_scope(user_message):
             for action in plan.actions:
                 recovered = await self._recovered_receipt(
@@ -173,7 +128,6 @@ class SystemRuntime:
                 admitted, reason = self._admit_action(
                     plan,
                     action,
-                    policy,
                 )
                 if not admitted:
                     receipt = ActionReceipt(
@@ -196,7 +150,8 @@ class SystemRuntime:
                     )
                     continue
 
-                receipt = await self._execute_action(
+                receipt = await self._execute_planned_action(
+                    plan,
                     action,
                     context=context,
                     user_input=user_input,
@@ -258,8 +213,9 @@ class SystemRuntime:
         self,
         plan: ActionPlan,
         action: PlannedAction,
-        policy: Any | None,
     ) -> tuple[bool, str]:
+        if action.operation in set(plan.forbidden_operations):
+            return False, "operation_forbidden_by_action_plan"
         core_admission = (
             self._capability_registry.core_availability.operation_admission(
                 action.operation
@@ -267,18 +223,11 @@ class SystemRuntime:
         )
         if core_admission is not None and not core_admission[0]:
             return core_admission
-        if (
-            action.operation == "process_memory_write_request"
-            and (
-                self._capability_registry.core_availability.memory_write
-                or not self._legacy_availability.memory_write_compat
-            )
-        ):
-            return False, "legacy_memory_write_disabled_for_r6"
+        if self._compatibility.handles(plan, action):
+            return self._compatibility.admit(plan, action)
         admitted, reason = _admit_action(
             plan,
             action,
-            policy,
             capability_registry=self._capability_registry,
         )
         if not admitted:
@@ -356,6 +305,42 @@ class SystemRuntime:
             receipt=identified,
         )
 
+    async def _execute_planned_action(
+        self,
+        plan: ActionPlan,
+        action: PlannedAction,
+        *,
+        context: ExecutionContext,
+        user_input: UserInput | None,
+        previous: list[ActionReceipt],
+    ) -> ActionReceipt:
+        if not self._compatibility.handles(plan, action):
+            return await self._execute_action(
+                action,
+                context=context,
+                user_input=user_input,
+                previous=previous,
+            )
+        started = time.perf_counter()
+        try:
+            output = await self._compatibility.execute(
+                plan,
+                action,
+                context=context,
+                user_input=user_input,
+                previous=previous,
+            )
+            return _completed_action_receipt(
+                action,
+                output=output,
+                started=started,
+                injected_fields=list(
+                    self._compatibility.injected_fields(action, context)
+                ),
+            )
+        except Exception as exc:
+            return _failed_action_receipt(action, exc=exc, started=started)
+
     async def _execute_action(
         self,
         action: PlannedAction,
@@ -364,28 +349,11 @@ class SystemRuntime:
         user_input: UserInput | None,
         previous: list[ActionReceipt],
     ) -> ActionReceipt:
+        """Execute one admitted modern operation; compatibility wraps this."""
+
         started = time.perf_counter()
         try:
-            if action.operation == "process_memory_write_request":
-                from app.services.agent_runtime.legacy_operations import (
-                    process_memory_write_request,
-                )
-
-                output = await process_memory_write_request(
-                    action,
-                    context=context,
-                    user_input=user_input,
-                )
-            elif action.operation == "recall_recent_conversation":
-                from app.services.agent_runtime.legacy_operations import (
-                    recall_conversation,
-                )
-
-                output = recall_conversation(
-                    action,
-                    context=context,
-                )
-            elif action.operation == "conversation_read":
+            if action.operation == "conversation_read":
                 output = await _read_conversation(
                     action,
                     context=context,
@@ -434,12 +402,6 @@ class SystemRuntime:
                     action.arguments,
                     context=context,
                 )
-            elif action.operation == "search_memory":
-                from app.services.agent_runtime.legacy_operations import (
-                    search_memory,
-                )
-
-                output = await search_memory(action, context=context)
             elif (
                 external_runtime := self._external_capability_runtime(
                     action.operation
@@ -452,40 +414,62 @@ class SystemRuntime:
                     previous=previous,
                 )
             else:
-                output = await _execute_tool_operation(
-                    action,
-                    context=context,
-                    previous=previous,
+                raise LookupError(
+                    f"runtime operation is not registered: {action.operation}"
                 )
-            status, error = _output_status(output)
-            return ActionReceipt(
-                action_id=action.action_id,
-                capability=action.capability,
-                operation=action.operation,
-                status=status,
-                business_input=action.arguments,
+            return _completed_action_receipt(
+                action,
                 output=output,
-                error=error,
-                duration_ms=int((time.perf_counter() - started) * 1000),
-                admitted=True,
-                metadata={
-                    "runtime_dispatch": "system_runtime",
-                    "injected_fields": _injected_field_names(action.operation, context),
-                },
+                started=started,
+                injected_fields=_injected_field_names(action.operation, context),
             )
         except Exception as exc:
-            logger.exception("System runtime action failed: %s", action.operation)
-            return ActionReceipt(
-                action_id=action.action_id,
-                capability=action.capability,
-                operation=action.operation,
-                status="failed",
-                business_input=action.arguments,
-                error=str(exc) or exc.__class__.__name__,
-                duration_ms=int((time.perf_counter() - started) * 1000),
-                admitted=True,
-                metadata={"runtime_dispatch": "system_runtime"},
-            )
+            return _failed_action_receipt(action, exc=exc, started=started)
+
+
+def _completed_action_receipt(
+    action: PlannedAction,
+    *,
+    output: Any,
+    started: float,
+    injected_fields: list[str],
+) -> ActionReceipt:
+    status, error = _output_status(output)
+    return ActionReceipt(
+        action_id=action.action_id,
+        capability=action.capability,
+        operation=action.operation,
+        status=status,
+        business_input=action.arguments,
+        output=output,
+        error=error,
+        duration_ms=int((time.perf_counter() - started) * 1000),
+        admitted=True,
+        metadata={
+            "runtime_dispatch": "system_runtime",
+            "injected_fields": injected_fields,
+        },
+    )
+
+
+def _failed_action_receipt(
+    action: PlannedAction,
+    *,
+    exc: Exception,
+    started: float,
+) -> ActionReceipt:
+    logger.exception("System runtime action failed: %s", action.operation)
+    return ActionReceipt(
+        action_id=action.action_id,
+        capability=action.capability,
+        operation=action.operation,
+        status="failed",
+        business_input=action.arguments,
+        error=str(exc) or exc.__class__.__name__,
+        duration_ms=int((time.perf_counter() - started) * 1000),
+        admitted=True,
+        metadata={"runtime_dispatch": "system_runtime"},
+    )
 
 
 async def _read_conversation(
@@ -508,120 +492,25 @@ async def _read_conversation(
     return result.model_dump(mode="json")
 
 
-async def _execute_tool_operation(
-    action: PlannedAction,
-    *,
-    context: ExecutionContext,
-    previous: list[ActionReceipt],
-) -> Any:
-    special = await _execute_research_dependency_action(
-        action,
-        context=context,
-        previous=previous,
-    )
-    if special is not None:
-        return special
-
-    tool = _resolve_internal_tool(action.operation)
-    args = _inject_system_arguments(action.operation, action.arguments, context)
-    raw = await tool.ainvoke(args)
-    return _json_or_text(raw)
-
-
-async def _execute_research_dependency_action(
-    action: PlannedAction,
-    *,
-    context: ExecutionContext,
-    previous: list[ActionReceipt],
-) -> Any | None:
-    from app.services.research.runtime_dependencies import (
-        execute_research_dependency,
-    )
-
-    return await execute_research_dependency(
-        action,
-        context=context,
-        previous=previous,
-    )
-
-
-def _resolve_internal_tool(operation: str) -> Any:
-    from app.agents import tools as agent_tools
-
-    if operation == "web_search":
-        return agent_tools.create_web_search()
-    tool = getattr(agent_tools, operation, None)
-    if tool is None:
-        raise LookupError(f"runtime operation is not registered: {operation}")
-    return tool
-
-
-def _inject_system_arguments(
-    operation: str,
-    business_input: dict[str, Any],
-    context: ExecutionContext,
-) -> dict[str, Any]:
-    args = dict(business_input)
-    if operation in _USER_ID_OPERATIONS:
-        args["user_id"] = str(context.user_id)
-    if operation in _THREAD_ID_OPERATIONS and context.thread_id is not None:
-        args["thread_id"] = str(context.thread_id)
-    return {key: value for key, value in args.items() if value is not None}
-
-
 def _injected_field_names(operation: str, context: ExecutionContext) -> list[str]:
+    del context
     if operation in {"create_task_v1", "plan_task_v1"}:
         return ["user_id", "thread_id", "origin_request_id"]
     if operation == "cancel_active_task_v1":
         return ["user_id", "thread_id"]
-    result: list[str] = []
-    if operation in _USER_ID_OPERATIONS:
-        result.append("user_id")
-    if operation in _THREAD_ID_OPERATIONS and context.thread_id is not None:
-        result.append("thread_id")
-    return result
+    return []
 
 
 def _admit_action(
     plan: ActionPlan,
     action: PlannedAction,
-    policy: Any | None,
     *,
     capability_registry: CapabilityRegistry,
 ) -> tuple[bool, str]:
-    if action.operation in set(plan.forbidden_operations):
-        return False, "operation_forbidden_by_action_plan"
-    if (
-        action.operation in _LEGACY_CONTEXT_OPERATIONS
-        and plan.source != "routing_decision"
-    ):
-        return False, "legacy_operation_requires_routing_plan"
     if action.operation in _RETIRED_CHAT_MEMORY_WRITE_OPERATIONS:
         return False, "chat_memory_write_requires_precommit_pipeline"
-    if plan.policy and (
-        policy is None
-        or action.operation not in set(policy.allowed_tools)
-    ):
-        return False, "operation_not_authorized_by_routing_policy"
-
-    flag = {
-        "web_search": "can_use_web_search",
-        "acquire_research_sources": "can_use_web_search",
-        "search_books": "can_search_books",
-        "get_recommendation_history": "can_view_recommendation_history",
-        "start_research": "can_start_research",
-    }.get(action.operation)
-    if flag and (
-        policy is None or not bool(getattr(policy, flag, False))
-    ):
-        return False, f"turn_policy_{flag}_false"
-
-    if action.operation in _LEGACY_CONTEXT_OPERATIONS:
-        from app.services.agent_runtime.legacy_admission import (
-            admit_legacy_context_operation,
-        )
-
-        return admit_legacy_context_operation(plan, action)
+    if plan.source == "routing_decision":
+        return False, "legacy_runtime_compatibility_disabled"
     if action.operation == "conversation_read":
         return True, "agent_core_conversation_read"
     if action.operation == "remember_memory_v2":
@@ -695,20 +584,15 @@ def _admit_action(
         if len(str(action.arguments.get("reason") or "")) > 1_000:
             return False, "task_cancellation_arguments_invalid"
         return True, "task_cancellation_v1"
-    return True, "admitted"
+    if action.operation in _NATIVE_OPERATIONS:
+        return True, "agent_core_runtime_operation"
+    from app.services.external_capabilities.operation_registry import (
+        descriptor_for_operation,
+    )
 
-
-def _policy_from_plan(plan: ActionPlan, user_message: str) -> Any | None:
-    if plan.source != "routing_decision":
-        return None
-    from app.services.book_intent import TurnPolicy, build_turn_policy
-
-    if plan.policy:
-        try:
-            return TurnPolicy.model_validate(plan.policy)
-        except Exception:
-            pass
-    return build_turn_policy(user_message)
+    if descriptor_for_operation(action.operation) is not None:
+        return True, "external_capability_operation"
+    return False, "runtime_operation_not_registered"
 
 
 def _dependency_failure(
@@ -755,33 +639,3 @@ def _plan_status(receipts: list[ActionReceipt]) -> str:
     if "completed" in statuses:
         return "partial"
     return "failed"
-
-
-def _capture_admission_summary(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    result: list[dict[str, Any]] = []
-    for item in items:
-        candidate = item.get("candidate") or {}
-        decision = item.get("decision") or {}
-        memory = item.get("memory") or {}
-        result.append(
-            {
-                "type": candidate.get("type"),
-                "subject": candidate.get("subject"),
-                "decision": decision.get("decision"),
-                "reason": decision.get("reason"),
-                "memory_id": memory.get("id"),
-            }
-        )
-    return result
-
-
-def _json_or_text(value: Any) -> Any:
-    if not isinstance(value, str):
-        return value
-    text = value.strip()
-    if not text:
-        return ""
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        return text

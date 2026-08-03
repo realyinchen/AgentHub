@@ -18,6 +18,9 @@ from app.services.agent_runtime.contracts import (
     PlannedAction,
 )
 from app.services.agent_runtime.runtime import SystemRuntime
+from app.services.agent_runtime.legacy_compatibility import (
+    LegacyRoutingRuntimeCompatibility,
+)
 from app.services.agent_runtime.legacy_availability import (
     LegacyRuntimeAvailability,
 )
@@ -70,10 +73,7 @@ class CoreCapabilityMatrixTests(unittest.TestCase):
             ("conversation_read", "search_memory"),
         )
         self.assertFalse(registry.task_planning_enabled)
-        names = {
-            item["function"]["name"]
-            for item in controller_tool_schemas(registry)
-        }
+        names = {item["function"]["name"] for item in controller_tool_schemas(registry)}
         self.assertEqual(
             names,
             {
@@ -95,8 +95,11 @@ class _CountingRuntime(SystemRuntime):
     ) -> None:
         super().__init__(
             capability_registry=registry,
-            legacy_availability=LegacyRuntimeAvailability(
-                memory_write_compat=legacy_memory_write
+            compatibility=LegacyRoutingRuntimeCompatibility(
+                core_availability=registry.core_availability,
+                availability=LegacyRuntimeAvailability(
+                    memory_write_compat=legacy_memory_write
+                ),
             ),
         )
         self.calls = 0
@@ -142,9 +145,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_manual_plan_cannot_bypass_disabled_projection(self) -> None:
-        runtime = _CountingRuntime(
-            _registry(CoreCapabilityAvailability())
-        )
+        runtime = _CountingRuntime(_registry(CoreCapabilityAvailability()))
         receipt = await runtime.execute(
             self._plan(),
             context=self._context(),
@@ -158,9 +159,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_same_matrix_authorizes_projection_and_execution(self) -> None:
         runtime = _CountingRuntime(
-            _registry(
-                CoreCapabilityAvailability(conversation_read=True)
-            )
+            _registry(CoreCapabilityAvailability(conversation_read=True))
         )
         receipt = await runtime.execute(
             self._plan(),
@@ -182,15 +181,13 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
                 ]
             }
         )
-        runtime = _CountingRuntime(
-            _registry(CoreCapabilityAvailability())
-        )
+        runtime = _CountingRuntime(_registry(CoreCapabilityAvailability()))
         receipt = await runtime.execute(plan, context=self._context())
         self.assertEqual(receipt.status, "blocked")
         self.assertEqual(runtime.calls, 0)
         self.assertEqual(
             receipt.actions[0].error,
-            "legacy_operation_requires_routing_plan",
+            "runtime_operation_not_registered",
         )
 
     async def test_r6_memory_write_disables_legacy_writer(self) -> None:
@@ -208,9 +205,7 @@ class RuntimeAdmissionTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         runtime = _CountingRuntime(
-            _registry(
-                CoreCapabilityAvailability(memory_write=True)
-            )
+            _registry(CoreCapabilityAvailability(memory_write=True))
         )
         receipt = await runtime.execute(plan, context=self._context())
         self.assertEqual(receipt.status, "blocked")
@@ -285,9 +280,7 @@ def _event(
         request_id=request_id,
         exchange_id=exchange_id,
         sequence_no=sequence,
-        event_type=(
-            "user_message" if role == "user" else "assistant_published"
-        ),
+        event_type=("user_message" if role == "user" else "assistant_published"),
         role=role,
         content=content,
         created_at=datetime.now(timezone.utc),

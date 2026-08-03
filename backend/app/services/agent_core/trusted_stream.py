@@ -166,6 +166,11 @@ class TrustedControllerStream:
                     answer=entry.answer,
                     turn=turn,
                     model_name=model_name,
+                    agent_mode=str(
+                        entry.message.custom_data.get(
+                            "agent_mode", "controller_v1"
+                        )
+                    ),
                 )
         except Exception:
             logger.exception(

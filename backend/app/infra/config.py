@@ -141,6 +141,10 @@ class Settings(BaseSettings):
     # Temporary old-routing write bridge. R6 cutover sets this false; rollback
     # must leave it false and preserve only read compatibility.
     AGENT_LEGACY_MEMORY_WRITE_COMPAT: bool = True
+    # R8 quarantine switch for the complete pre-Controller chat runtime. This
+    # remains true only while Shadow still needs the old baseline. Release is
+    # blocked until it is false; memory-write compatibility exits separately.
+    AGENT_LEGACY_RUNTIME_FALLBACK: bool = True
 
     # =========================================================================
     # LiteLLM Router — Per-Call Timeout
@@ -301,6 +305,26 @@ class Settings(BaseSettings):
         ):
             raise ValueError(
                 "POSTGRES_MIN_CONNECTIONS_PER_POOL must be <= POSTGRES_MAX_CONNECTIONS_PER_POOL"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_agent_legacy_transition(self) -> "Settings":
+        if (
+            self.AGENT_CONTROLLER_V1_MODE == "shadow"
+            and not self.AGENT_LEGACY_RUNTIME_FALLBACK
+        ):
+            raise ValueError(
+                "Shadow mode requires AGENT_LEGACY_RUNTIME_FALLBACK=true "
+                "until the comparison window is complete"
+            )
+        if (
+            self.AGENT_CAPABILITY_MEMORY_WRITE_V1
+            and self.AGENT_LEGACY_MEMORY_WRITE_COMPAT
+        ):
+            raise ValueError(
+                "Versioned memory write requires "
+                "AGENT_LEGACY_MEMORY_WRITE_COMPAT=false"
             )
         return self
 

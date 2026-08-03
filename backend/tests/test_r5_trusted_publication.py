@@ -468,6 +468,7 @@ class PublicationCommitTests(unittest.IsolatedAsyncioTestCase):
             answer=answer,
             turn=None,
             model_name="fixture",
+            agent_mode="plain_chat",
         )
         self.assertTrue(journal.assert_not_committed)
         self.assertEqual(trace_observations, [False])
@@ -475,6 +476,10 @@ class PublicationCommitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             committed.journal_event.event_type,
             "assistant_published",
+        )
+        self.assertEqual(
+            committed.message.custom_data["agent_mode"],
+            "plain_chat",
         )
 
 

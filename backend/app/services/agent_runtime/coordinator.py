@@ -4,12 +4,15 @@ from langgraph.graph.state import CompiledStateGraph
 
 from app.schemas.chat import UserInput
 from app.services.agent_runtime.contracts import ExecutionContext, PreparedRuntimeTurn
+from app.services.agent_runtime.legacy_compatibility import (
+    LegacyRoutingRuntimeCompatibility,
+)
 from app.services.agent_runtime.planner import ActionPlanner
 from app.services.agent_runtime.runtime import SystemRuntime
 from app.services.routing.context import project_business_routing_context
 
 
-async def prepare_runtime_turn(
+async def prepare_legacy_runtime_turn(
     user_input: UserInput,
     *,
     model_name: str = "",
@@ -42,12 +45,12 @@ async def prepare_runtime_turn(
                 turn.model_dump(mode="json")
                 for turn in routing_context.conversation_turns
             ],
-            "recent_user_messages": list(
-                routing_context.recent_user_messages
-            ),
+            "recent_user_messages": list(routing_context.recent_user_messages),
         },
     )
-    receipt = await SystemRuntime().execute(
+    receipt = await SystemRuntime(
+        compatibility=LegacyRoutingRuntimeCompatibility(),
+    ).execute(
         plan,
         context=context,
         user_input=user_input,
@@ -62,3 +65,11 @@ async def prepare_runtime_turn(
         context=context,
     )
     return PreparedRuntimeTurn(plan=plan, receipt=receipt)
+
+
+# Import compatibility for scripts outside the production entry. New runtime
+# code must depend on LegacyChatRuntimeBridge instead.
+prepare_runtime_turn = prepare_legacy_runtime_turn
+
+
+__all__ = ["prepare_legacy_runtime_turn", "prepare_runtime_turn"]

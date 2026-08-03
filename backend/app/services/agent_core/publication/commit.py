@@ -32,13 +32,14 @@ class TurnPublicationCommitter:
         answer: PublishedAnswer,
         turn: TurnReceipt | None,
         model_name: str,
+        agent_mode: str = "controller_v1",
     ) -> CommittedPublication:
         message = ChatMessage(
             type="ai",
             content=answer.content,
             request_id=user_input.request_id,
             custom_data={
-                "agent_mode": "controller_v1",
+                "agent_mode": agent_mode,
                 "turn_status": (
                     turn.status if turn is not None else answer.status
                 ),

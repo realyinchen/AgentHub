@@ -230,6 +230,45 @@ class AgentChatEntry:
                 ),
                 answer=answer,
             )
+        return await self._run_plain(
+            db,
+            user_input=user_input,
+            model_name=model_name,
+            attempt=attempt,
+        )
+
+    async def run_plain(
+        self,
+        db: AsyncSession,
+        *,
+        user_input: UserInput,
+        model_name: str,
+        attempt: AgentControllerAttempt | None = None,
+    ) -> AgentChatEntryResult:
+        """Produce a no-tool response when the legacy bridge is disabled."""
+
+        return await self._run_plain(
+            db,
+            user_input=user_input,
+            model_name=model_name,
+            attempt=(
+                attempt
+                or AgentControllerAttempt(
+                    mode="off",
+                    status="off",
+                    reason="legacy_runtime_fallback_disabled",
+                )
+            ),
+        )
+
+    async def _run_plain(
+        self,
+        db: AsyncSession,
+        *,
+        user_input: UserInput,
+        model_name: str,
+        attempt: AgentControllerAttempt,
+    ) -> AgentChatEntryResult:
         message = await self._plain_chat.answer(
             db,
             user_input=user_input,

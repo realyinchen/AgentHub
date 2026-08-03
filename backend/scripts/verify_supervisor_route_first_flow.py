@@ -42,9 +42,19 @@ def main() -> None:
         ast.parse(source, filename=name)
 
     _assert("tools: list = []" in supervisor, "supervisor still registers tools")
-    _assert("prepare_runtime_turn" in chat, "chat does not use unified runtime")
-    _assert("prepare_runtime_turn" in streaming, "streaming does not use unified runtime")
-    _assert("action_plan" in context and "plan_receipt" in context, "runtime context contract missing")
+    _assert(
+        "LegacyChatRuntimeBridge" in chat and "prepare_runtime_turn" not in chat,
+        "chat bypasses the R8 legacy quarantine boundary",
+    )
+    _assert(
+        "LegacyChatRuntimeBridge" in streaming
+        and "prepare_runtime_turn" not in streaming,
+        "streaming bypasses the R8 legacy quarantine boundary",
+    )
+    _assert(
+        "action_plan" in context and "plan_receipt" in context,
+        "runtime context contract missing",
+    )
     _assert(
         "build_turn_policy" not in prompt_middleware,
         "supervisor prompt still reclassifies raw user text",
@@ -53,8 +63,13 @@ def main() -> None:
         "action_plan=action_plan" in prompt_middleware,
         "compiled ActionPlan is not projected into the final prompt",
     )
-    _assert("plan_receipt=plan_receipt" in prompt_middleware, "receipt is not projected into prompt")
-    _assert("No direct tools are available" in prompt, "supervisor boundary prompt missing")
+    _assert(
+        "plan_receipt=plan_receipt" in prompt_middleware,
+        "receipt is not projected into prompt",
+    )
+    _assert(
+        "No direct tools are available" in prompt, "supervisor boundary prompt missing"
+    )
     _assert("try_handle_fast_path" not in fast_path, "direct-answer fast path remains")
     _assert("RoutingDecision" in routing_contracts, "routing contract is missing")
     _assert(
@@ -62,7 +77,9 @@ def main() -> None:
         and ".execute(" not in routing_funnel,
         "routing bypasses ActionPlan",
     )
-    _assert("System Pre-Executed Tool Context" not in prompt, "old pre-tool context remains")
+    _assert(
+        "System Pre-Executed Tool Context" not in prompt, "old pre-tool context remains"
+    )
     print("supervisor ActionPlan/runtime boundary verification passed")
 
 
