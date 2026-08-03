@@ -16,6 +16,8 @@ from typing import Any
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 WORKSPACE_ROOT = BACKEND_ROOT.parent
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 
 @dataclass(frozen=True)
