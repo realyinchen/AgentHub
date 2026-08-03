@@ -3,6 +3,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, HumanMessage
 
@@ -12,6 +13,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from app.services.agent_core.certification_contracts import AgentModeAdmission
+from app.infra.llm.history import model_history_projector
 from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_core.core_capabilities import (
     CoreCapabilityAvailability,
@@ -98,7 +100,7 @@ class _BoundModel:
 class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
     def test_default_factory_defers_thinking_mode_to_model_config(self) -> None:
         model = object()
-        with unittest.mock.patch(
+        with patch(
             "app.services.agent_core.controller_client.get_llm",
             return_value=model,
         ) as get_llm:
@@ -111,12 +113,18 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
         self,
     ) -> None:
         model = _BoundModel(AIMessage(content="你说你叫冰露，我向你问好。"))
-        output = await ControllerClient(
-            registry=_enabled_registry(),
-            model_factory=lambda _name: model
-        ).decide(_request())
+        with patch(
+            "app.services.agent_core.controller_client."
+            "model_history_projector.project",
+            wraps=model_history_projector.project,
+        ) as project:
+            output = await ControllerClient(
+                registry=_enabled_registry(),
+                model_factory=lambda _name: model
+            ).decide(_request())
 
         self.assertEqual(output.mode, "direct_answer")
+        project.assert_called_once()
         self.assertIn("冰露", output.text)
         human_messages = [
             message.content

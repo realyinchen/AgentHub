@@ -8,6 +8,7 @@ from typing import Any
 from langchain_core.messages import AIMessage
 
 from app.infra.llm.factory import get_llm
+from app.infra.llm.history import model_history_projector
 from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_core.contracts import (
     ControllerOutput,
@@ -87,8 +88,11 @@ class ControllerClient:
             raise ControllerClientError("certified model no longer exposes bind_tools")
         schemas = controller_tool_schemas(self._registry)
         runnable = bind_tools(list(schemas), tool_choice="auto")
+        messages = model_history_projector.project(
+            self._prompt_composer.compose(request)
+        )
         response = await asyncio.wait_for(
-            runnable.ainvoke(list(self._prompt_composer.compose(request))),
+            runnable.ainvoke(list(messages)),
             timeout=request.timeout_seconds,
         )
         if not isinstance(response, AIMessage):

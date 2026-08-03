@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
 
@@ -158,10 +159,24 @@ class _PassingTransport:
         )
 
 
+class _HistoryCaptureModel:
+    def __init__(self) -> None:
+        self.invoked_messages = None
+        self.streamed_messages = None
+
+    async def ainvoke(self, messages):
+        self.invoked_messages = messages
+        return AIMessage(content="OK")
+
+    async def astream(self, messages):
+        self.streamed_messages = messages
+        yield AIMessageChunk(content="OK")
+
+
 class AgentCapabilityProbeTests(unittest.IsolatedAsyncioTestCase):
     def test_transport_uses_configured_thinking_mode(self) -> None:
         model = object()
-        with unittest.mock.patch(
+        with patch(
             "app.services.agent_core.certification_probe."
             "create_llm_from_config",
             return_value=model,
@@ -180,6 +195,37 @@ class AgentCapabilityProbeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIs(transport._llm, model)
         self.assertTrue(factory.call_args.kwargs["thinking_mode"])
+
+    async def test_transport_projects_history_for_invoke_and_stream(self) -> None:
+        model = _HistoryCaptureModel()
+        with patch(
+            "app.services.agent_core.certification_probe."
+            "create_llm_from_config",
+            return_value=model,
+        ):
+            transport = LangChainAgentProbeTransport(_config())
+        assistant = AIMessage(
+            content=[
+                {"type": "thinking", "thinking": "private"},
+                {"type": "text", "text": "VISIBLE"},
+            ],
+            additional_kwargs={"reasoning_content": "private"},
+        )
+        request = AgentProbeRequest(
+            case_name="basic_chat",
+            messages=(assistant,),
+        )
+
+        await transport.invoke(request)
+        chunks = [chunk async for chunk in transport.stream(request)]
+
+        self.assertEqual(len(chunks), 1)
+        self.assertEqual(model.invoked_messages[0].content, "VISIBLE")
+        self.assertEqual(model.streamed_messages[0].content, "VISIBLE")
+        self.assertNotIn(
+            "reasoning_content",
+            model.invoked_messages[0].additional_kwargs,
+        )
 
     async def test_all_required_cases_must_pass(self) -> None:
         transport = _PassingTransport()

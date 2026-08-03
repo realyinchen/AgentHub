@@ -18,6 +18,7 @@ from langchain_core.messages import (
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.infra.llm.factory import create_llm_from_config
+from app.infra.llm.history import model_history_projector
 from app.services.agent_core.certification_contracts import (
     AGENT_PROBE_CASE_NAMES,
     AGENT_PROBE_REQUIRED_CASE_NAMES,
@@ -147,7 +148,9 @@ class LangChainAgentProbeTransport:
     async def invoke(self, request: AgentProbeRequest) -> AIMessage:
         runnable = self._bound(request)
         response = await asyncio.wait_for(
-            runnable.ainvoke(list(request.messages)),
+            runnable.ainvoke(
+                list(model_history_projector.project(request.messages))
+            ),
             timeout=self._timeout_seconds,
         )
         if not isinstance(response, AIMessage):
@@ -159,7 +162,9 @@ class LangChainAgentProbeTransport:
         request: AgentProbeRequest,
     ) -> AsyncIterator[AIMessageChunk]:
         runnable = self._bound(request)
-        iterator = runnable.astream(list(request.messages))
+        iterator = runnable.astream(
+            list(model_history_projector.project(request.messages))
+        )
         while True:
             try:
                 chunk = await asyncio.wait_for(

@@ -25,6 +25,7 @@ from typing import Any, Callable
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 
+from app.infra.llm.history import model_history_projector
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +40,10 @@ class ContentFilterMiddleware(AgentMiddleware):
     """Filter non-standard content types from messages before model call.
 
     Iterates through all messages in the input and:
-    1. Keeps string content as-is
-    2. Filters list content to only include supported types
-    3. Logs warnings when filtering removes content
+    1. Delegates assistant history to the shared model-history projector
+    2. Keeps other string content as-is
+    3. Filters other list content to only include supported types
+    4. Logs warnings when filtering removes content
 
     This ensures compatibility with providers that reject unknown content types.
     """
@@ -55,6 +57,9 @@ class ContentFilterMiddleware(AgentMiddleware):
         Returns:
             A new message instance with filtered content
         """
+        if isinstance(msg, AIMessage):
+            return model_history_projector.project_message(msg)
+
         # String content - no filtering needed
         if isinstance(msg.content, str):
             return msg
@@ -109,14 +114,6 @@ class ContentFilterMiddleware(AgentMiddleware):
                 return HumanMessage(
                     content=filtered_content,  # type: ignore[arg-type]
                     additional_kwargs=msg.additional_kwargs,
-                )
-            elif isinstance(msg, AIMessage):
-                return AIMessage(
-                    content=filtered_content,  # type: ignore[arg-type]
-                    additional_kwargs=msg.additional_kwargs,
-                    tool_calls=msg.tool_calls,
-                    response_metadata=msg.response_metadata,
-                    id=msg.id,
                 )
             elif isinstance(msg, ToolMessage):
                 return ToolMessage(
