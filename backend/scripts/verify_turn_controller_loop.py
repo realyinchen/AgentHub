@@ -1,8 +1,11 @@
 """Verify bounded Controller rounds and receipt-context isolation."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -36,7 +39,7 @@ from app.services.agent_runtime.contracts import (
 def _request() -> ControllerModelRequest:
     return ControllerModelRequest(
         model_name="controller-fixture",
-        current_user_message="读取后回答",
+        current_user_message="什么是递归？",
         admission=AgentModeAdmission(
             admitted=True,
             certification_id="fixture",
@@ -140,7 +143,12 @@ class _ModelHarness:
 
 async def _run() -> None:
     direct_controller = _Controller(
-        [ControllerOutput(mode="direct_answer", text="直接回答")]
+        [
+            ControllerOutput(
+                mode="direct_answer",
+                text="递归是一个过程在定义或执行中调用自身。",
+            )
+        ]
     )
     direct = await TurnControllerLoop(
         controller=direct_controller,
@@ -148,10 +156,12 @@ async def _run() -> None:
     ).run(
         model_request=_request(),
         context=_context(),
-        goal="直接回答",
+        goal="什么是递归？",
     )
     if direct.status != "completed" or len(direct.rounds) != 1:
         raise AssertionError("direct Controller round did not terminate")
+    if direct.plan_receipts or direct.rounds[0].plan is not None:
+        raise AssertionError("simple direct answer created an ActionPlan")
 
     controller = _Controller(
         [_tool_output(), ControllerOutput(mode="direct_answer", text="综合完成")]
@@ -191,11 +201,32 @@ async def _run() -> None:
 
     print("turn controller loop verification passed")
     print("direct_rounds=1")
+    print("direct_action_plans=0")
+    print("direct_tool_calls=0")
+    print("direct_embedding_calls=0")
     print("model_synthesis_rounds=2")
     print("raw_provider_output_leaks=0")
     print("limit_exceeded_rounds=2")
     print("post_limit_controller_calls=0")
     print("post_limit_tool_calls=0")
+    print(
+        json.dumps(
+            {
+                "case_id": "simple_direct",
+                "input": "什么是递归？",
+                "expected_capability": "direct_answer",
+                "controller_decision_source": "fixture",
+                "action_plans": 0,
+                "tool_calls": 0,
+                "embedding_calls": 0,
+                "online_model_calls": 0,
+                "release_gate_credit": False,
+                "status": "passed",
+            },
+            ensure_ascii=False,
+            sort_keys=True,
+        )
+    )
 
 
 if __name__ == "__main__":

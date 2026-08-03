@@ -1,5 +1,7 @@
 """Verify the R4 web contract with no database or external provider."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -39,9 +41,9 @@ class _FixtureGateway:
             query=request.query,
             hits=[
                 SearchHit(
-                    title="AI 新闻",
-                    url="https://news.example/ai",
-                    snippet="本周发布了一项新的人工智能研究。",
+                    title="法国总统官方资料",
+                    url="https://government.example/france-president",
+                    snippet="法国总统的当前公开资料。",
                     content="RAW_FIXTURE_BODY",
                     provider="fixture-provider",
                     metadata={"secret": "not-for-receipt"},
@@ -89,8 +91,8 @@ async def _main() -> int:
                 call_id="web",
                 name="web_search",
                 arguments={
-                    "query": "本周人工智能重要新闻",
-                    "time_range": "week",
+                    "query": "法国总统是谁",
+                    "time_range": "month",
                     "language": "zh-CN",
                     "category": "news",
                 },
@@ -100,7 +102,7 @@ async def _main() -> int:
     batch = ProposalValidator(registry).validate(output)
     plan = WorkflowCompiler().compile(
         batch,
-        goal="搜索本周人工智能重要新闻。",
+        goal="法国总统是谁？",
     )
     assert plan.response_mode == "model"
     assert [item.operation for item in plan.actions] == ["web_search_v2"]
@@ -131,11 +133,17 @@ async def _main() -> int:
     print(
         json.dumps(
             {
+                "case_id": "external_current_fact",
+                "input": "法国总统是谁？",
+                "expected_capability": "web_search",
                 "contract": "r4-web-v1",
                 "schema_business_fields_only": True,
                 "private_runtime_operation": "web_search_v2",
                 "runtime_flag_admission": True,
                 "receipt_sanitized": True,
+                "controller_decision_source": "fixture",
+                "online_model_calls": 0,
+                "release_gate_credit": False,
                 "status": "passed",
             },
             ensure_ascii=False,

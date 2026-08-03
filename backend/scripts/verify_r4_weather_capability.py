@@ -1,5 +1,7 @@
 """Verify the R4 weather contract with no database or external provider."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -39,9 +41,9 @@ class _FixtureGateway:
             query=request.query,
             hits=[
                 SearchHit(
-                    title="杭州天气",
-                    url="https://weather.example/hangzhou",
-                    snippet="明天多云。",
+                    title="北京天气",
+                    url="https://weather.example/beijing",
+                    snippet="今天北京天气晴。",
                     content="RAW_FIXTURE_BODY",
                     provider="fixture-provider",
                     metadata={"secret": "not-for-receipt"},
@@ -78,8 +80,8 @@ async def _main() -> int:
                 call_id="weather",
                 name="weather_get",
                 arguments={
-                    "location": "杭州",
-                    "date": "tomorrow",
+                    "location": "北京",
+                    "date": "today",
                 },
             )
         ],
@@ -87,7 +89,7 @@ async def _main() -> int:
     batch = ProposalValidator(registry).validate(output)
     plan = WorkflowCompiler().compile(
         batch,
-        goal="杭州明天天气怎么样？",
+        goal="今天北京天气怎么样？",
     )
     assert plan.response_mode == "model"
     assert [item.operation for item in plan.actions] == ["weather_get_v1"]
@@ -120,11 +122,17 @@ async def _main() -> int:
     print(
         json.dumps(
             {
+                "case_id": "weather_current",
+                "input": "今天北京天气怎么样？",
+                "expected_capability": "weather_get",
                 "contract": "r4-weather-v1",
                 "schema_business_fields_only": True,
                 "private_runtime_operation": "weather_get_v1",
                 "runtime_flag_admission": True,
                 "receipt_sanitized": True,
+                "controller_decision_source": "fixture",
+                "online_model_calls": 0,
+                "release_gate_credit": False,
                 "status": "passed",
             },
             ensure_ascii=False,
@@ -136,4 +144,3 @@ async def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(_main()))
-

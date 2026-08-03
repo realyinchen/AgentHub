@@ -1,8 +1,11 @@
 """Verify canonical memory create/correct/noop/forget chains in PostgreSQL."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -24,9 +27,13 @@ from app.infra.database import (
 )
 from app.models.memory import MemoryEventRecord
 from app.schemas.chat import UserInput
+from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_core.contracts import (
     ControllerOutput,
     ControllerToolCall,
+)
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
 )
 from app.services.agent_core.harness import AgentCoreHarness
 from app.services.agent_runtime.contracts import ExecutionContext
@@ -142,9 +149,14 @@ async def _cleanup(user_id: uuid.UUID) -> None:
         )
 
 
-async def _run() -> None:
+async def _run() -> dict:
     user_id = uuid.uuid4()
     thread_id = uuid.uuid4()
+    harness = AgentCoreHarness(
+        registry=CapabilityRegistry(
+            core_availability=CoreCapabilityAvailability.all_enabled()
+        )
+    )
     await _seed(user_id=user_id, thread_id=thread_id)
     try:
         await _user_event(
@@ -154,7 +166,7 @@ async def _run() -> None:
             content="I am 冰露",
         )
         first_fact = _canonical_name("冰露", "I am 冰露")
-        controller_result = await AgentCoreHarness().run(
+        controller_result = await harness.run(
             ControllerOutput(
                 mode="capability_proposals",
                 tool_calls=[
@@ -224,22 +236,89 @@ async def _run() -> None:
             str(duplicate),
         )
 
-        corrected_source = await _user_event(
+        corrected_text = "我现在不叫冰露，我现在叫鲁班"
+        await _user_event(
             user_id=user_id,
             thread_id=thread_id,
             request_id="memory-v2",
-            content="I am 小露",
+            content=corrected_text,
         )
-        corrected_fact = _canonical_name("小露", "I am 小露")
-        corrected = await _commit(
-            user_id=user_id,
-            thread_id=thread_id,
-            source_event_id=corrected_source.id,
-            receipt_id="memory-receipt-v2",
-            fact=corrected_fact,
+        corrected_result = await harness.run(
+            ControllerOutput(
+                mode="capability_proposals",
+                tool_calls=[
+                    ControllerToolCall(
+                        call_id="correct-name",
+                        name="remember_memory",
+                        arguments={
+                            "assertions": [
+                                {
+                                    "subject": "self",
+                                    "predicate": "name",
+                                    "value": {"name": "鲁班"},
+                                    "qualifiers": {},
+                                    "evidence_quote": "我现在叫鲁班",
+                                }
+                            ]
+                        },
+                    )
+                ],
+            ),
+            goal=corrected_text,
+            context=ExecutionContext(
+                user_id=user_id,
+                thread_id=thread_id,
+                request_id="memory-v2",
+            ),
+            user_input=UserInput(
+                content=corrected_text,
+                user_id=user_id,
+                thread_id=thread_id,
+                request_id="memory-v2",
+            ),
         )
-        _assert(corrected.mutations[0].status == "revised", str(corrected))
-        _assert(corrected.mutations[0].version.version_no == 2, str(corrected))
+        _assert(corrected_result.receipt is not None, str(corrected_result))
+        _assert(corrected_result.answer is not None, str(corrected_result))
+        corrected_output = corrected_result.receipt.actions[0].output
+        corrected_receipt_id = str(corrected_output["receipt_id"])
+        _assert(
+            corrected_output["mutations"][0]["status"] == "revised",
+            str(corrected_output),
+        )
+        _assert(
+            corrected_output["mutations"][0]["version"]["version_no"] == 2,
+            str(corrected_output),
+        )
+        _assert(
+            "已根据你的最新表述更新长期记忆"
+            in corrected_result.answer.content,
+            str(corrected_result.answer),
+        )
+
+        corrected_search = await harness.run(
+            ControllerOutput(
+                mode="capability_proposals",
+                tool_calls=[
+                    ControllerToolCall(
+                        call_id="search-corrected-name",
+                        name="search_memory",
+                        arguments={"predicate": "name", "query": ""},
+                    )
+                ],
+            ),
+            goal="我是谁？",
+            context=ExecutionContext(
+                user_id=user_id,
+                thread_id=thread_id,
+                request_id="memory-search-v2",
+            ),
+        )
+        _assert(corrected_search.answer is not None, str(corrected_search))
+        _assert(
+            "鲁班" in corrected_search.answer.content
+            and "冰露" not in corrected_search.answer.content,
+            str(corrected_search.answer),
+        )
 
         receipt_conflict_source = await _user_event(
             user_id=user_id,
@@ -252,7 +331,7 @@ async def _run() -> None:
                 user_id=user_id,
                 thread_id=thread_id,
                 source_event_id=receipt_conflict_source.id,
-                receipt_id="memory-receipt-v2",
+                receipt_id=corrected_receipt_id,
                 fact=first_fact,
             )
         except MemoryVersionIdempotencyConflict:
@@ -300,7 +379,7 @@ async def _run() -> None:
             str(concurrent_receipts),
         )
 
-        search_result = await AgentCoreHarness().run(
+        search_result = await harness.run(
             ControllerOutput(
                 mode="capability_proposals",
                 tool_calls=[
@@ -330,7 +409,7 @@ async def _run() -> None:
             request_id="memory-forget",
             content="忘记我的名字",
         )
-        forget_result = await AgentCoreHarness().run(
+        forget_result = await harness.run(
             ControllerOutput(
                 mode="capability_proposals",
                 tool_calls=[
@@ -415,26 +494,51 @@ async def _run() -> None:
             and history[-1].valid_to is None,
             "version validity interval is broken",
         )
+        return {
+            "status": "passed",
+            "fixture_registry": "all_enabled_explicit",
+            "cases": [
+                {
+                    "case_id": "identity_update",
+                    "input": "我现在不叫冰露，我现在叫鲁班",
+                    "expected_capability": "remember_memory",
+                    "operation": "remember_memory_v2",
+                    "mutation_status": "revised",
+                    "version_no": 2,
+                    "status": "passed",
+                },
+                {
+                    "case_id": "identity_read",
+                    "input": "我是谁？",
+                    "expected_capability": "search_memory",
+                    "operation": "search_memory_v2",
+                    "current_name": "鲁班",
+                    "superseded_name_exposed": False,
+                    "status": "passed",
+                },
+            ],
+        }
     finally:
         await _cleanup(user_id)
 
 
-async def _main_async() -> None:
+async def _main_async() -> dict:
     await init_database_connection()
     try:
-        await _run()
+        return await _run()
     finally:
         await dispose_database()
 
 
 def main() -> None:
     _init_postgres()
-    asyncio.run(_main_async())
+    evidence = asyncio.run(_main_async())
     print("memory version chain verification passed")
     print("duplicate_versions_created=0")
     print("active_heads=1")
     print("concurrent_revision=linear")
     print("forget=tombstone")
+    print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":

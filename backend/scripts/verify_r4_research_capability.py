@@ -1,5 +1,7 @@
 """Verify the R4 ephemeral research workflow without database/provider I/O."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -48,9 +50,9 @@ class _FixtureGateway:
             query=request.query,
             hits=[
                 SearchHit(
-                    title="中国科幻出版观察",
-                    url="https://research.example/scifi",
-                    snippet="近三年科幻出版品种增加。",
+                    title="近期好评图书观察",
+                    url="https://research.example/recent-books",
+                    snippet="近期获得可靠书评来源好评的图书。",
                     content="RAW_FIXTURE_BODY",
                     provider="fixture-provider",
                     metadata={"raw": "must-not-leak"},
@@ -91,9 +93,9 @@ async def _main() -> int:
                 call_id="research",
                 name="research_start",
                 arguments={
-                    "objective": "研究近三年中国科幻文学的发展趋势",
+                    "objective": "搜索最新的好评图书",
                     "mode": "deep_research",
-                    "subquestions": ["主要出版趋势是什么？"],
+                    "subquestions": ["近期有哪些获得可靠好评的图书？"],
                     "constraints": ["只使用可引用公开来源"],
                     "max_sources": 6,
                     "max_rounds": 2,
@@ -106,7 +108,7 @@ async def _main() -> int:
     plan = PlanGraphNormalizer().normalize(
         WorkflowCompiler().compile(
             batch,
-            goal="深度研究近三年中国科幻文学的发展趋势。",
+            goal="深度搜索下最新的好评图书",
         )
     )
     assert [item.operation for item in plan.actions] == list(
@@ -149,11 +151,17 @@ async def _main() -> int:
     print(
         json.dumps(
             {
+                "case_id": "deep_book_research",
+                "input": "深度搜索下最新的好评图书",
+                "expected_capability": "research_start",
                 "contract": "r4-research-v1",
                 "operations": list(RESEARCH_STAGE_OPERATIONS),
                 "continuous_dependencies": True,
                 "research_state_writes": 0,
                 "report_from_admitted_evidence_only": True,
+                "controller_decision_source": "fixture",
+                "online_model_calls": 0,
+                "release_gate_credit": False,
                 "status": "passed",
             },
             ensure_ascii=False,
@@ -165,4 +173,3 @@ async def _main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(asyncio.run(_main()))
-

@@ -1,8 +1,11 @@
 """Verify Journal-backed exchange recall and HTTP history projection."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import uuid
 from pathlib import Path
@@ -24,9 +27,13 @@ from app.infra.database import (
     init_database_connection,
 )
 from app.schemas.chat import ChatMessage, UserInput
+from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_core.contracts import (
     ControllerOutput,
     ControllerToolCall,
+)
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
 )
 from app.services.agent_core.harness import AgentCoreHarness
 from app.services.agent_runtime.contracts import ExecutionContext
@@ -78,7 +85,7 @@ async def _cleanup(user_id: uuid.UUID) -> None:
         )
 
 
-async def _run() -> None:
+async def _run() -> dict:
     user_id = uuid.uuid4()
     thread_id = uuid.uuid4()
     prior = UserInput(
@@ -144,7 +151,11 @@ async def _run() -> None:
                 )
             ],
         )
-        result = await AgentCoreHarness().run(
+        result = await AgentCoreHarness(
+            registry=CapabilityRegistry(
+                core_availability=CoreCapabilityAvailability.all_enabled()
+            )
+        ).run(
             output,
             goal=current.content,
             context=ExecutionContext(
@@ -192,25 +203,35 @@ async def _run() -> None:
             and "thinking" not in encoded_metadata,
             "unsafe execution metadata entered the journal projection",
         )
+        return {
+            "case_id": "conversation_recall",
+            "input": "刚才我说什么了，你回复什么了？",
+            "expected_capability": "conversation_read",
+            "operation": "conversation_read",
+            "exchange_complete": True,
+            "search_memory_calls": 0,
+            "status": "passed",
+        }
     finally:
         await _cleanup(user_id)
 
 
-async def _main_async() -> None:
+async def _main_async() -> dict:
     await init_database_connection()
     try:
-        await _run()
+        return await _run()
     finally:
         await dispose_database()
 
 
 def main() -> None:
     _init_postgres()
-    asyncio.run(_main_async())
+    evidence = asyncio.run(_main_async())
     print("conversation exchange recall verification passed")
     print("current_request_excluded=true")
     print("journal_history_projection=true")
     print("unsafe_metadata_persisted=false")
+    print(json.dumps(evidence, ensure_ascii=False, sort_keys=True))
 
 
 if __name__ == "__main__":
