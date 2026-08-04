@@ -75,7 +75,9 @@ Rules:
   contain the required read steps and dependency edges; do not call the first
   underlying capability directly in that turn.
 - A first plan for memory auditing is read-only: use conversation_read and
-  search_memory steps only. Do not place request_clarification or
+  search_memory steps only. The search_memory step must always include a
+  non-empty query (for example "当前长期事实") or a non-empty predicate;
+  never emit both as empty strings. Do not place request_clarification or
   remember_memory in the plan; conflicts are handled after evidence is read.
 - If no capability is needed, answer naturally without a tool call.
 """
