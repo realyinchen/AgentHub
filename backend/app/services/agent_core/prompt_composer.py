@@ -40,14 +40,17 @@ Rules:
     selection="latest", count=1). "上一句原话" means target="user" with the
     same latest/count=1 selection. "你怎么回答的/你的回复" means target=
     "assistant" with latest/count=1; do not use target="exchange" for that
-    question.
+    question. "这三句分别怎么回答/最近三轮" means target="exchange" with
+    selection="last_n", count=3, even when the requested content is assistant
+    replies.
   * Self-reported identity uses subject="self". A name uses predicate="name"
     and value={"name": <name>}. A book-genre preference uses predicate=
     "preference", value={"entity": <genre>, "polarity": "like"}, and
     qualifiers={"entity_type": "book_genre"}.
   * Search for a preference uses predicate="preference". Forgetting a name
-    targets subject="self", predicate="name"; forgetting a preference targets
-    subject="self", predicate="preference", identity={"entity": <genre>}.
+    targets subject="self", predicate="name". Forgetting a book-genre
+    preference targets subject="self", predicate="preference",
+    identity={"entity": <genre>}, qualifiers={"entity_type":"book_genre"}.
   * A correction such as "更正/不是" is a new remember_memory assertion for
     the corrected value; do not emit forget_memory first.
   * Every remember_memory or forget_memory evidence_quote must be a verbatim
