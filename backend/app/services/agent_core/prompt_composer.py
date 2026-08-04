@@ -79,6 +79,8 @@ Rules:
   non-empty query (for example "当前长期事实") or a non-empty predicate;
   never emit both as empty strings. Do not place request_clarification or
   remember_memory in the plan; conflicts are handled after evidence is read.
+  Every plan step capability must be one of the listed available capabilities;
+  never invent an "answer" or "direct_answer" plan step.
 - If no capability is needed, answer naturally without a tool call.
 """
 
