@@ -302,6 +302,7 @@ async def _live(args, loaded, *, source_state: GitSourceState):
     model_id = UUID(str(args.model_id))
     await init_database_connection()
     try:
+        await _refresh_live_model_cache()
         database = get_database()
         async with database.session() as db:
             admission = await get_agent_mode_admission(
@@ -327,6 +328,13 @@ async def _live(args, loaded, *, source_state: GitSourceState):
         )
     finally:
         await dispose_database()
+
+
+async def _refresh_live_model_cache() -> None:
+    """Mirror the application startup prerequisite for DB-backed get_llm."""
+    from app.infra.llm.manager import get_model_manager
+
+    await get_model_manager().refresh()
 
 
 async def _run(args: argparse.Namespace) -> int:

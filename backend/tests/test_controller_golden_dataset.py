@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import AsyncMock, Mock, patch
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -27,6 +28,9 @@ from app.services.agent_core.controller_golden_loader import (
 )
 from app.services.agent_core.controller_golden_runner import (
     ControllerGoldenRunner,
+)
+from scripts.verify_controller_golden_dataset import (
+    _refresh_live_model_cache,
 )
 from app.services.agent_core.evidence_source import GitSourceState
 from app.services.agent_core.proposal_validator import ProposalValidator
@@ -68,6 +72,17 @@ class _ReferenceController:
 
 
 class ControllerGoldenDatasetTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_cli_refreshes_db_backed_model_cache(self) -> None:
+        manager = Mock()
+        manager.refresh = AsyncMock()
+        with patch(
+            "app.infra.llm.manager.get_model_manager",
+            return_value=manager,
+        ):
+            await _refresh_live_model_cache()
+
+        manager.refresh.assert_awaited_once_with()
+
     def setUp(self) -> None:
         self.loaded = ControllerGoldenDatasetLoader().load(DATASET)
 
