@@ -34,7 +34,6 @@ from app.services.agent_core.controller_fingerprint import (
     current_controller_fingerprint,
 )
 from app.services.agent_core.controller_golden_evaluator import (
-    ControllerGoldenCaseEvaluator,
     ControllerGoldenReportEvaluator,
 )
 from app.services.agent_core.controller_golden_loader import (
@@ -42,6 +41,7 @@ from app.services.agent_core.controller_golden_loader import (
 )
 from app.services.agent_core.controller_golden_runner import (
     ControllerGoldenRunner,
+    golden_case_evaluator,
 )
 from app.services.agent_core.evidence_artifact import (
     EvidenceArtifactWriter,
@@ -72,7 +72,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _self_test(loaded, *, commit_sha: str):
-    evaluator = ControllerGoldenCaseEvaluator()
+    evaluator = golden_case_evaluator()
     results = [
         evaluator.evaluate(case, case.reference_output)
         for case in loaded.dataset.cases

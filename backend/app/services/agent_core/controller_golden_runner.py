@@ -6,6 +6,7 @@ from uuid import UUID
 from app.services.agent_core.certification_contracts import (
     AgentModeAdmission,
 )
+from app.services.agent_core.capabilities import CapabilityRegistry
 from app.services.agent_core.controller_client import ControllerClient
 from app.services.agent_core.controller_golden_contracts import (
     ControllerGoldenCaseResult,
@@ -17,9 +18,38 @@ from app.services.agent_core.controller_golden_evaluator import (
     ControllerGoldenReportEvaluator,
 )
 from app.services.agent_core.evidence_source import GitSourceState
+from app.services.agent_core.core_capabilities import (
+    CoreCapabilityAvailability,
+)
+from app.services.agent_core.proposal_validator import ProposalValidator
 from app.services.agent_core.prompt_contracts import (
     ControllerModelRequest,
 )
+from app.services.agent_core.shadow import ShadowValidator
+from app.services.tasks.draft_validator import TaskPlanDraftValidator
+
+
+def golden_capability_registry() -> CapabilityRegistry:
+    """Return the explicit non-production capability set for Golden runs.
+
+    Golden evaluates the candidate Controller contract. It must not inherit
+    production rollout flags, which intentionally remain disabled until the
+    release gates pass.
+    """
+
+    return CapabilityRegistry(
+        core_availability=CoreCapabilityAvailability.all_enabled()
+    )
+
+
+def golden_case_evaluator() -> ControllerGoldenCaseEvaluator:
+    registry = golden_capability_registry()
+    return ControllerGoldenCaseEvaluator(
+        shadow_validator=ShadowValidator(
+            validator=ProposalValidator(registry),
+            task_plan_validator=TaskPlanDraftValidator(registry),
+        )
+    )
 
 
 class ControllerGoldenRunner:
@@ -32,8 +62,12 @@ class ControllerGoldenRunner:
         case_evaluator: ControllerGoldenCaseEvaluator | None = None,
         report_evaluator: ControllerGoldenReportEvaluator | None = None,
     ) -> None:
-        self._controller = controller or ControllerClient()
-        self._cases = case_evaluator or ControllerGoldenCaseEvaluator()
+        if controller is None:
+            registry = golden_capability_registry()
+            self._controller = ControllerClient(registry=registry)
+        else:
+            self._controller = controller
+        self._cases = case_evaluator or golden_case_evaluator()
         self._reports = (
             report_evaluator or ControllerGoldenReportEvaluator()
         )
@@ -113,4 +147,8 @@ class ControllerGoldenRunner:
         )
 
 
-__all__ = ["ControllerGoldenRunner"]
+__all__ = [
+    "ControllerGoldenRunner",
+    "golden_capability_registry",
+    "golden_case_evaluator",
+]

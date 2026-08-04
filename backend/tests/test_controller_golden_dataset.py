@@ -28,6 +28,7 @@ from app.services.agent_core.controller_golden_loader import (
 )
 from app.services.agent_core.controller_golden_runner import (
     ControllerGoldenRunner,
+    golden_capability_registry,
 )
 from scripts.verify_controller_golden_dataset import (
     _refresh_live_model_cache,
@@ -94,6 +95,19 @@ class ControllerGoldenDatasetTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(any(item.safety for item in dataset.cases))
         self.assertTrue(any(item.simple_direct for item in dataset.cases))
         self.assertTrue(any(item.explicit_tool for item in dataset.cases))
+
+    def test_golden_registry_is_independent_of_production_flags(self) -> None:
+        registry = golden_capability_registry()
+        self.assertTrue(registry.task_planning_enabled)
+        self.assertTrue(
+            {
+                "conversation_read",
+                "remember_memory",
+                "search_memory",
+                "forget_memory",
+                "cancel_active_task",
+            }.issubset(registry.enabled_names)
+        )
 
     def test_reference_outputs_pass_but_are_not_live_evidence(self) -> None:
         evaluator = _enabled_case_evaluator()
