@@ -14,6 +14,14 @@ from app.services.agent_core.controller_golden_contracts import (
 )
 from app.services.agent_core.evidence_source import GitSourceState
 from app.services.agent_core.prompt_composer import CONTROLLER_PROMPT_VERSION
+from app.services.agent_core.shadow_gate_read_contracts import (
+    ShadowGateRawTurn,
+    ShadowGateRawWindow,
+    ShadowGateReadRequest,
+)
+from app.services.agent_core.shadow_observation_key import (
+    shadow_observation_key_from_identity,
+)
 from scripts.developer_shadow_preview.contracts import (
     DeveloperShadowBusinessWrites,
     DeveloperShadowCleanup,
@@ -289,6 +297,63 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
             evaluator.assert_no_raw_input_leakage(
                 prompts=["private input"],
                 payloads=[json.loads('{"value": "private input"}')],
+            )
+
+    def test_window_projection_selects_only_registered_subject(self) -> None:
+        evaluator = DeveloperShadowPreviewEvaluator()
+        thread_id = uuid.uuid4()
+        request_ids = ["request-1", "request-2"]
+        keys = [
+            shadow_observation_key_from_identity(
+                thread_id=thread_id,
+                request_id=request_id,
+                controller_fingerprint=CONTROLLER,
+            )
+            for request_id in request_ids
+        ]
+        now = datetime.now(timezone.utc)
+        read_request = ShadowGateReadRequest(
+            commit_sha=COMMIT,
+            controller_fingerprint=CONTROLLER,
+            configuration_fingerprint=CONFIGURATION,
+            prompt_version=CONTROLLER_PROMPT_VERSION,
+            window_started_at=now - timedelta(minutes=1),
+            window_ended_at=now,
+            collected_at=now,
+        )
+        turns = [
+            ShadowGateRawTurn(
+                observation_key=key,
+                enrolled_at=now - timedelta(seconds=1),
+                journal_sequence_watermark=index,
+            )
+            for index, key in enumerate(keys, start=1)
+        ]
+        turns.append(
+            ShadowGateRawTurn(
+                observation_key="f" * 64,
+                enrolled_at=now - timedelta(seconds=1),
+                journal_sequence_watermark=3,
+            )
+        )
+
+        selected = evaluator.select_request_scope(
+            ShadowGateRawWindow(request=read_request, turns=turns),
+            request_ids=request_ids,
+            thread_id=thread_id,
+            controller_fingerprint=CONTROLLER,
+        )
+
+        self.assertEqual(
+            [turn.observation_key for turn in selected.turns],
+            keys,
+        )
+        with self.assertRaises(DeveloperShadowEvaluationError):
+            evaluator.select_request_scope(
+                ShadowGateRawWindow(request=read_request, turns=turns[1:]),
+                request_ids=request_ids,
+                thread_id=thread_id,
+                controller_fingerprint=CONTROLLER,
             )
 
 

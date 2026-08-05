@@ -29,6 +29,36 @@ class DeveloperShadowEvaluationError(RuntimeError):
 class DeveloperShadowPreviewEvaluator:
     """Evaluate durable preview facts without database or network access."""
 
+    def select_request_scope(
+        self,
+        raw: ShadowGateRawWindow,
+        *,
+        request_ids: list[str],
+        thread_id: uuid.UUID,
+        controller_fingerprint: str,
+    ) -> ShadowGateRawWindow:
+        expected_keys = {
+            shadow_observation_key_from_identity(
+                thread_id=thread_id,
+                request_id=request_id,
+                controller_fingerprint=controller_fingerprint,
+            )
+            for request_id in request_ids
+        }
+        selected = [
+            turn
+            for turn in raw.turns
+            if turn.observation_key in expected_keys
+        ]
+        if (
+            len(selected) != len(expected_keys)
+            or {turn.observation_key for turn in selected} != expected_keys
+        ):
+            raise DeveloperShadowEvaluationError(
+                "shadow_enrollment_set_mismatch"
+            )
+        return raw.model_copy(update={"turns": selected})
+
     def validate_window(
         self,
         raw: ShadowGateRawWindow,

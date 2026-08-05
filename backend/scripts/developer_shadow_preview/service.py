@@ -149,6 +149,14 @@ class DeveloperShadowPreviewService:
                     timezone="Asia/Shanghai",
                 )
             )
+            raw = self._evaluator.select_request_scope(
+                raw,
+                request_ids=request_ids,
+                thread_id=thread_id,
+                controller_fingerprint=(
+                    admission.controller_fingerprint
+                ),
+            )
             coverage = self._evaluator.validate_window(
                 raw,
                 request_ids=request_ids,
