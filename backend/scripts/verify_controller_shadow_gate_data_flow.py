@@ -1,5 +1,7 @@
 """Verify durable Shadow enrollment, recovery, diff, review, and Gate reads."""
 
+# ruff: noqa: E402
+
 from __future__ import annotations
 
 import asyncio
@@ -461,15 +463,24 @@ async def _run() -> None:
             raise AssertionError(
                 "Shadow audit namespace contains execution receipts"
             )
-        migration_count = len(
-            list((BACKEND_DIR / "scripts" / "sql").glob("*.sql"))
+        migrations = sorted(
+            (BACKEND_DIR / "scripts" / "sql").glob("change_*.sql")
         )
-        if migration_count != 26:
+        migration_versions = [
+            int(path.stem.split("_", 2)[1])
+            for path in migrations
+        ]
+        expected_versions = list(
+            range(1, max(migration_versions, default=0) + 1)
+        )
+        if migration_versions != expected_versions:
             raise AssertionError(
-                f"expected 26 migrations, got {migration_count}"
+                "versioned migrations are not contiguous: "
+                f"{migration_versions}"
             )
+        migration_count = len(migrations)
         print("controller Shadow Gate data flow verification passed")
-        print("migration_files=26")
+        print(f"migration_files={migration_count}")
         print("enrollment_replay_preserves_first_stamp=1")
         print("eligible_enrollments=2")
         print("observed_enrollments=1")
