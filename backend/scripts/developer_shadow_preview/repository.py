@@ -8,10 +8,6 @@ from sqlalchemy import text
 
 from app.infra.database import get_database
 from app.services.agent_certification import get_agent_mode_admission
-from app.services.agent_core.certification_contracts import AgentModeAdmission
-from app.services.agent_core.controller_golden_contracts import (
-    ControllerGoldenReport,
-)
 from app.services.agent_core.evidence_source import GitSourceState
 from app.services.agent_core.shadow_gate_read_contracts import (
     ShadowGateRawWindow,
@@ -25,6 +21,10 @@ from scripts.developer_shadow_preview.contracts import (
     DeveloperShadowBusinessWrites,
     DeveloperShadowCleanup,
 )
+from scripts.developer_shadow_preview.admission import (
+    DeveloperShadowAdmissionCandidate,
+    DeveloperShadowModelProfile,
+)
 
 
 class DeveloperShadowRepositoryError(RuntimeError):
@@ -34,13 +34,12 @@ class DeveloperShadowRepositoryError(RuntimeError):
 class DeveloperShadowPreviewRepository:
     """Own all PostgreSQL reads and mock-scope cleanup for one preview."""
 
-    async def require_admission(
+    async def read_admission_candidate(
         self,
         *,
         model_id: uuid.UUID,
         source_state: GitSourceState,
-        golden: ControllerGoldenReport,
-    ) -> AgentModeAdmission:
+    ) -> DeveloperShadowAdmissionCandidate:
         async with get_database().session() as db:
             admission = await get_agent_mode_admission(
                 db,
@@ -58,28 +57,17 @@ class DeveloperShadowPreviewRepository:
                     {"model_id": model_id},
                 )
             ).mappings().one_or_none()
-        if (
-            not admission.admitted
-            or configured is None
-            or configured["model_type"] not in {"llm", "vlm"}
-            or not configured["is_active"]
-            or configured["thinking"]
-        ):
-            raise DeveloperShadowRepositoryError(
-                "stable_model_admission_missing"
+        profile = None
+        if configured is not None:
+            profile = DeveloperShadowModelProfile(
+                model_type=str(configured["model_type"]),
+                configured_thinking=bool(configured["thinking"]),
+                is_active=bool(configured["is_active"]),
             )
-        if (
-            admission.certification_id != golden.certification_id
-            or admission.configuration_fingerprint
-            != golden.configuration_fingerprint
-            or admission.controller_fingerprint
-            != golden.controller_fingerprint
-            or admission.source_commit_sha != golden.commit_sha
-        ):
-            raise DeveloperShadowRepositoryError(
-                "golden_admission_binding_mismatch"
-            )
-        return admission
+        return DeveloperShadowAdmissionCandidate(
+            admission=admission,
+            model_profile=profile,
+        )
 
     async def seed_mock_user(self, user_id: uuid.UUID) -> None:
         async with get_database().session() as db:

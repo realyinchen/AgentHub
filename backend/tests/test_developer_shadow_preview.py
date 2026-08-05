@@ -12,6 +12,7 @@ from pydantic import ValidationError
 from app.services.agent_core.controller_golden_contracts import (
     ControllerGoldenReport,
 )
+from app.services.agent_core.certification_contracts import AgentModeAdmission
 from app.services.agent_core.evidence_source import GitSourceState
 from app.services.agent_core.prompt_composer import CONTROLLER_PROMPT_VERSION
 from app.services.agent_core.shadow_gate_read_contracts import (
@@ -28,6 +29,12 @@ from scripts.developer_shadow_preview.contracts import (
     DeveloperShadowCoverage,
     DeveloperShadowPreviewArtifact,
     DeveloperShadowPreviewCommand,
+)
+from scripts.developer_shadow_preview.admission import (
+    DeveloperPreviewAdmissionError,
+    DeveloperPreviewAdmissionPolicy,
+    DeveloperShadowAdmissionCandidate,
+    DeveloperShadowModelProfile,
 )
 from scripts.developer_shadow_preview.evaluation import (
     DeveloperShadowEvaluationError,
@@ -79,6 +86,30 @@ def _golden(model_id: uuid.UUID) -> ControllerGoldenReport:
     )
 
 
+def _admission_candidate(
+    golden: ControllerGoldenReport,
+    *,
+    configured_thinking: bool = False,
+    profile: DeveloperShadowModelProfile | None = None,
+) -> DeveloperShadowAdmissionCandidate:
+    return DeveloperShadowAdmissionCandidate(
+        admission=AgentModeAdmission(
+            admitted=True,
+            certification_id=golden.certification_id,
+            reason=None,
+            configuration_fingerprint=golden.configuration_fingerprint,
+            controller_fingerprint=golden.controller_fingerprint,
+            source_commit_sha=golden.commit_sha,
+        ),
+        model_profile=profile
+        or DeveloperShadowModelProfile(
+            model_type="llm",
+            configured_thinking=configured_thinking,
+            is_active=True,
+        ),
+    )
+
+
 def _artifact(**updates) -> DeveloperShadowPreviewArtifact:
     now = datetime.now(timezone.utc)
     values = {
@@ -91,6 +122,8 @@ def _artifact(**updates) -> DeveloperShadowPreviewArtifact:
         "remote_ref": "origin/dev",
         "remote_commit_sha": COMMIT,
         "model_id": uuid.uuid4(),
+        "admission_profile": "developer_preview",
+        "configured_thinking": True,
         "certification_id": uuid.uuid4(),
         "configuration_fingerprint": CONFIGURATION,
         "controller_fingerprint": CONTROLLER,
@@ -148,6 +181,7 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
                 "repository": "scripts/developer_shadow_preview/repository.py",
                 "evaluation": "scripts/developer_shadow_preview/evaluation.py",
                 "service": "scripts/developer_shadow_preview/service.py",
+                "admission": "scripts/developer_shadow_preview/admission.py",
             }.items()
         }
         for forbidden in ("sqlalchemy", "httpx", "subprocess"):
@@ -161,13 +195,76 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
         self.assertNotIn("subprocess", sources["repository"])
         self.assertNotIn("sqlalchemy", sources["evaluation"])
         self.assertNotIn("httpx", sources["evaluation"])
+        for forbidden in ("sqlalchemy", "httpx", "subprocess"):
+            self.assertNotIn(forbidden, sources["admission"])
 
     def test_preview_contract_accepts_complete_non_release_evidence(self) -> None:
         artifact = _artifact()
 
+        self.assertEqual(
+            artifact.artifact_version,
+            "developer-shadow-preview-v2",
+        )
         self.assertEqual(artifact.status, "passed")
         self.assertFalse(artifact.release_gate_credit)
+        self.assertEqual(artifact.admission_profile, "developer_preview")
+        self.assertTrue(artifact.configured_thinking)
         self.assertEqual(artifact.coverage.accepted, 20)
+
+    def test_preview_policy_accepts_exact_thinking_model(self) -> None:
+        golden = _golden(uuid.uuid4())
+        candidate = _admission_candidate(golden, configured_thinking=True)
+
+        result = DeveloperPreviewAdmissionPolicy().require(
+            candidate,
+            golden=golden,
+        )
+
+        self.assertEqual(result.admission_profile, "developer_preview")
+        self.assertTrue(result.configured_thinking)
+
+    def test_preview_policy_rejects_inactive_or_non_chat_model(self) -> None:
+        golden = _golden(uuid.uuid4())
+        for profile in (
+            DeveloperShadowModelProfile(
+                model_type="llm",
+                configured_thinking=False,
+                is_active=False,
+            ),
+            DeveloperShadowModelProfile(
+                model_type="embedding",
+                configured_thinking=False,
+                is_active=True,
+            ),
+        ):
+            candidate = _admission_candidate(
+                golden,
+                profile=profile,
+            )
+            with self.assertRaisesRegex(
+                DeveloperPreviewAdmissionError,
+                "developer_preview_model_admission_missing",
+            ):
+                DeveloperPreviewAdmissionPolicy().require(
+                    candidate,
+                    golden=golden,
+                )
+
+    def test_preview_policy_rejects_golden_binding_mismatch(self) -> None:
+        golden = _golden(uuid.uuid4())
+        candidate = _admission_candidate(golden)
+        mismatched = golden.model_copy(
+            update={"configuration_fingerprint": "f" * 64}
+        )
+
+        with self.assertRaisesRegex(
+            DeveloperPreviewAdmissionError,
+            "golden_admission_binding_mismatch",
+        ):
+            DeveloperPreviewAdmissionPolicy().require(
+                candidate,
+                golden=mismatched,
+            )
 
     def test_preview_contract_rejects_controller_main_response(self) -> None:
         with self.assertRaises(ValidationError):

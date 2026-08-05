@@ -10,7 +10,7 @@ from app.services.agent_core.contracts import AgentCoreModel
 from app.services.agent_core.evidence_source import GitSourceState
 
 
-DEVELOPER_SHADOW_PREVIEW_VERSION = "developer-shadow-preview-v1"
+DEVELOPER_SHADOW_PREVIEW_VERSION = "developer-shadow-preview-v2"
 
 
 class DeveloperShadowPreviewCommand(AgentCoreModel):
@@ -97,7 +97,7 @@ class DeveloperShadowCleanup(AgentCoreModel):
 
 
 class DeveloperShadowPreviewArtifact(AgentCoreModel):
-    artifact_version: Literal["developer-shadow-preview-v1"] = (
+    artifact_version: Literal["developer-shadow-preview-v2"] = (
         DEVELOPER_SHADOW_PREVIEW_VERSION
     )
     status: Literal["passed"] = "passed"
@@ -111,6 +111,8 @@ class DeveloperShadowPreviewArtifact(AgentCoreModel):
     remote_ref: str = Field(pattern="^[A-Za-z0-9._/-]{1,256}$")
     remote_commit_sha: str = Field(pattern="^[0-9a-f]{40}$")
     model_id: UUID
+    admission_profile: Literal["developer_preview"] = "developer_preview"
+    configured_thinking: bool
     certification_id: UUID
     configuration_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")
     controller_fingerprint: str = Field(pattern="^[0-9a-f]{64}$")

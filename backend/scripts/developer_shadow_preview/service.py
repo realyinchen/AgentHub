@@ -27,6 +27,9 @@ from scripts.developer_shadow_preview.contracts import (
     DeveloperShadowPreviewArtifact,
     DeveloperShadowPreviewCommand,
 )
+from scripts.developer_shadow_preview.admission import (
+    DeveloperPreviewAdmissionPolicy,
+)
 from scripts.developer_shadow_preview.evaluation import (
     DeveloperShadowPreviewEvaluator,
 )
@@ -61,11 +64,15 @@ class DeveloperShadowPreviewService:
         http: DeveloperShadowHttpClient | None = None,
         repository: DeveloperShadowPreviewRepository | None = None,
         evaluator: DeveloperShadowPreviewEvaluator | None = None,
+        admission_policy: DeveloperPreviewAdmissionPolicy | None = None,
     ) -> None:
         self._source = source or DeveloperShadowSourceVerifier()
         self._http = http or DeveloperShadowHttpClient()
         self._repository = repository or DeveloperShadowPreviewRepository()
         self._evaluator = evaluator or DeveloperShadowPreviewEvaluator()
+        self._admission_policy = (
+            admission_policy or DeveloperPreviewAdmissionPolicy()
+        )
 
     async def run(
         self,
@@ -85,6 +92,7 @@ class DeveloperShadowPreviewService:
         )
         seeded = False
         admission = None
+        preview_admission = None
         raw: ShadowGateRawWindow | None = None
         review_queue: ShadowReviewQueueArtifact | None = None
         coverage: DeveloperShadowCoverage | None = None
@@ -97,11 +105,17 @@ class DeveloperShadowPreviewService:
 
         await init_database_connection()
         try:
-            admission = await self._repository.require_admission(
-                model_id=command.model_id,
-                source_state=proof.source_state,
+            admission_candidate = (
+                await self._repository.read_admission_candidate(
+                    model_id=command.model_id,
+                    source_state=proof.source_state,
+                )
+            )
+            preview_admission = self._admission_policy.require(
+                admission_candidate,
                 golden=proof.golden,
             )
+            admission = preview_admission.admission
             audit_ids = [
                 shadow_audit_request_id(
                     shadow_observation_key_from_identity(
@@ -196,6 +210,7 @@ class DeveloperShadowPreviewService:
             item is None
             for item in (
                 admission,
+                preview_admission,
                 raw,
                 review_queue,
                 coverage,
@@ -206,6 +221,7 @@ class DeveloperShadowPreviewService:
         ):
             raise DeveloperShadowServiceError("preview_result_incomplete")
         assert admission is not None
+        assert preview_admission is not None
         assert review_queue is not None
         assert coverage is not None
         assert writes is not None
@@ -219,6 +235,10 @@ class DeveloperShadowPreviewService:
             remote_ref=proof.remote_ref,
             remote_commit_sha=proof.remote_commit_sha,
             model_id=command.model_id,
+            admission_profile=preview_admission.admission_profile,
+            configured_thinking=(
+                preview_admission.configured_thinking
+            ),
             certification_id=uuid.UUID(admission.certification_id),
             configuration_fingerprint=(
                 admission.configuration_fingerprint
