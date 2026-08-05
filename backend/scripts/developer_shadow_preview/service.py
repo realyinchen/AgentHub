@@ -136,6 +136,9 @@ class DeveloperShadowPreviewService:
                 user_id=user_id,
                 thread_id=thread_id,
                 model_id=command.model_id,
+                configured_thinking=(
+                    preview_admission.configured_thinking
+                ),
                 request_ids=request_ids,
             )
             response_modes = dict(modes)

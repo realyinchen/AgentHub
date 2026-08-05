@@ -80,6 +80,26 @@ class DeveloperShadowHttpClient:
     def prompts(turn_count: int) -> list[str]:
         return [SAFE_PROMPTS[index % len(SAFE_PROMPTS)] for index in range(turn_count)]
 
+    @staticmethod
+    def request_payload(
+        *,
+        prompt: str,
+        user_id: uuid.UUID,
+        thread_id: uuid.UUID,
+        request_id: str,
+        model_id: uuid.UUID,
+        configured_thinking: bool,
+    ) -> dict[str, object]:
+        return {
+            "content": prompt,
+            "user_id": str(user_id),
+            "thread_id": str(thread_id),
+            "request_id": request_id,
+            "model_uuid": str(model_id),
+            "thinking_mode": configured_thinking,
+            "timezone": "Asia/Shanghai",
+        }
+
     async def send(
         self,
         *,
@@ -88,6 +108,7 @@ class DeveloperShadowHttpClient:
         user_id: uuid.UUID,
         thread_id: uuid.UUID,
         model_id: uuid.UUID,
+        configured_thinking: bool,
         request_ids: list[str],
     ) -> Counter[str]:
         prompts = self.prompts(len(request_ids))
@@ -102,15 +123,14 @@ class DeveloperShadowHttpClient:
             for request_id, prompt in zip(request_ids, prompts, strict=True):
                 response = await client.post(
                     "/api/v1/chat/invoke",
-                    json={
-                        "content": prompt,
-                        "user_id": str(user_id),
-                        "thread_id": str(thread_id),
-                        "request_id": request_id,
-                        "model_uuid": str(model_id),
-                        "thinking_mode": False,
-                        "timezone": "Asia/Shanghai",
-                    },
+                    json=self.request_payload(
+                        prompt=prompt,
+                        user_id=user_id,
+                        thread_id=thread_id,
+                        request_id=request_id,
+                        model_id=model_id,
+                        configured_thinking=configured_thinking,
+                    ),
                 )
                 if response.status_code != 200:
                     raise DeveloperShadowHttpError(

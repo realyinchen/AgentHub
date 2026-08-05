@@ -330,6 +330,18 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
         self.assertEqual(len(set(values)), 50)
         self.assertTrue(all(len(value) <= 128 for value in values))
 
+    def test_http_payload_uses_admitted_model_thinking_mode(self) -> None:
+        payload = DeveloperShadowHttpClient.request_payload(
+            prompt="safe prompt",
+            user_id=uuid.uuid4(),
+            thread_id=uuid.uuid4(),
+            request_id="request-1",
+            model_id=uuid.uuid4(),
+            configured_thinking=True,
+        )
+
+        self.assertIs(payload["thinking_mode"], True)
+
     def test_http_response_uses_typed_legacy_request_identity(self) -> None:
         payload = {
             "type": "ai",
