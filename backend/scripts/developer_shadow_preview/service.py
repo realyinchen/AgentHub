@@ -4,7 +4,7 @@ import hashlib
 import json
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 from app.infra.database import dispose_database, init_database_connection
@@ -42,6 +42,9 @@ from scripts.developer_shadow_preview.repository import (
 from scripts.developer_shadow_preview.source import (
     DeveloperShadowSourceVerifier,
 )
+from scripts.developer_shadow_preview.window import (
+    DeveloperShadowWindowClock,
+)
 
 
 @dataclass(frozen=True)
@@ -65,6 +68,7 @@ class DeveloperShadowPreviewService:
         repository: DeveloperShadowPreviewRepository | None = None,
         evaluator: DeveloperShadowPreviewEvaluator | None = None,
         admission_policy: DeveloperPreviewAdmissionPolicy | None = None,
+        window_clock: DeveloperShadowWindowClock | None = None,
     ) -> None:
         self._source = source or DeveloperShadowSourceVerifier()
         self._http = http or DeveloperShadowHttpClient()
@@ -73,6 +77,7 @@ class DeveloperShadowPreviewService:
         self._admission_policy = (
             admission_policy or DeveloperPreviewAdmissionPolicy()
         )
+        self._window_clock = window_clock or DeveloperShadowWindowClock()
 
     async def run(
         self,
@@ -87,9 +92,7 @@ class DeveloperShadowPreviewService:
         user_id = uuid.uuid4()
         thread_id = uuid.uuid4()
         request_ids = self._http.new_request_ids(command.turn_count)
-        window_started_at = (
-            datetime.now(timezone.utc) - timedelta(microseconds=1)
-        )
+        window_started_at = self._window_clock.open()
         seeded = False
         admission = None
         preview_admission = None
@@ -147,9 +150,10 @@ class DeveloperShadowPreviewService:
                 request_ids=request_ids,
                 timeout_seconds=command.observation_timeout_seconds,
             )
-            window_ended_at = (
-                datetime.now(timezone.utc) + timedelta(microseconds=1)
+            closed_window = self._window_clock.close(
+                started_at=window_started_at
             )
+            window_ended_at = closed_window.ended_at
             raw = await self._repository.read_window(
                 ShadowGateReadRequest(
                     commit_sha=proof.source_state.commit_sha,
@@ -162,7 +166,7 @@ class DeveloperShadowPreviewService:
                     prompt_version=CONTROLLER_PROMPT_VERSION,
                     window_started_at=window_started_at,
                     window_ended_at=window_ended_at,
-                    collected_at=datetime.now(timezone.utc),
+                    collected_at=closed_window.collected_at,
                     timezone="Asia/Shanghai",
                     thread_id=thread_id,
                     request_ids=request_ids,

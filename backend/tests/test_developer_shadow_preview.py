@@ -48,6 +48,9 @@ from scripts.developer_shadow_preview.source import (
     DeveloperShadowSourceError,
     DeveloperShadowSourceVerifier,
 )
+from scripts.developer_shadow_preview.window import (
+    DeveloperShadowWindowClock,
+)
 
 
 COMMIT = "c" * 40
@@ -182,6 +185,7 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
                 "evaluation": "scripts/developer_shadow_preview/evaluation.py",
                 "service": "scripts/developer_shadow_preview/service.py",
                 "admission": "scripts/developer_shadow_preview/admission.py",
+                "window": "scripts/developer_shadow_preview/window.py",
             }.items()
         }
         for forbidden in ("sqlalchemy", "httpx", "subprocess"):
@@ -197,6 +201,28 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
         self.assertNotIn("httpx", sources["evaluation"])
         for forbidden in ("sqlalchemy", "httpx", "subprocess"):
             self.assertNotIn(forbidden, sources["admission"])
+            self.assertNotIn(forbidden, sources["window"])
+
+    def test_window_clock_closes_even_when_clock_resolution_is_frozen(
+        self,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        clock = DeveloperShadowWindowClock(now=lambda: now)
+
+        started = clock.open()
+        closed = clock.close(started_at=started)
+
+        self.assertEqual(closed.started_at, started)
+        self.assertGreater(closed.ended_at, closed.started_at)
+        self.assertGreaterEqual(closed.collected_at, closed.ended_at)
+
+    def test_window_clock_rejects_naive_time(self) -> None:
+        clock = DeveloperShadowWindowClock(
+            now=lambda: datetime(2026, 8, 5)
+        )
+
+        with self.assertRaisesRegex(ValueError, "requires aware time"):
+            clock.open()
 
     def test_preview_contract_accepts_complete_non_release_evidence(self) -> None:
         artifact = _artifact()
