@@ -4,6 +4,9 @@ import uuid
 from collections import Counter
 
 import httpx
+from pydantic import ValidationError
+
+from app.schemas.chat import ChatMessage
 
 
 SAFE_PROMPTS = (
@@ -36,6 +39,34 @@ class DeveloperShadowHttpError(RuntimeError):
 
 class DeveloperShadowHttpClient:
     """Send only the fixed, non-writing preview conversation over HTTP."""
+
+    @staticmethod
+    def parse_response_mode(payload: object, *, request_id: str) -> str:
+        try:
+            message = ChatMessage.model_validate(payload)
+        except ValidationError as exc:
+            raise DeveloperShadowHttpError(
+                "http_response_invalid"
+            ) from exc
+        runtime_trace = message.custom_data.get("runtime_trace")
+        traced_request_id = (
+            runtime_trace.get("request_id")
+            if isinstance(runtime_trace, dict)
+            else None
+        )
+        response_request_id = message.request_id or traced_request_id
+        if message.type != "ai" or response_request_id != request_id:
+            raise DeveloperShadowHttpError(
+                "http_response_contract_mismatch"
+            )
+        mode = str(
+            message.custom_data.get("agent_mode") or "legacy_runtime"
+        )
+        if mode == "controller_v1":
+            raise DeveloperShadowHttpError(
+                "shadow_handled_main_response"
+            )
+        return mode
 
     @staticmethod
     def new_request_ids(turn_count: int) -> list[str]:
@@ -91,20 +122,10 @@ class DeveloperShadowHttpClient:
                     raise DeveloperShadowHttpError(
                         "http_response_invalid"
                     ) from exc
-                if (
-                    payload.get("type") != "ai"
-                    or payload.get("request_id") != request_id
-                ):
-                    raise DeveloperShadowHttpError(
-                        "http_response_contract_mismatch"
-                    )
-                custom = payload.get("custom_data")
-                safe_custom = custom if isinstance(custom, dict) else {}
-                mode = str(safe_custom.get("agent_mode") or "legacy_runtime")
-                if mode == "controller_v1":
-                    raise DeveloperShadowHttpError(
-                        "shadow_handled_main_response"
-                    )
+                mode = self.parse_response_mode(
+                    payload,
+                    request_id=request_id,
+                )
                 modes[mode] += 1
             return modes
 

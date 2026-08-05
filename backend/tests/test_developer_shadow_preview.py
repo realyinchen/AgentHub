@@ -26,6 +26,7 @@ from scripts.developer_shadow_preview.evaluation import (
     DeveloperShadowPreviewEvaluator,
 )
 from scripts.developer_shadow_preview.http_client import (
+    DeveloperShadowHttpError,
     DeveloperShadowHttpClient,
 )
 from scripts.developer_shadow_preview.source import (
@@ -223,6 +224,28 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
         self.assertEqual(len(values), 50)
         self.assertEqual(len(set(values)), 50)
         self.assertTrue(all(len(value) <= 128 for value in values))
+
+    def test_http_response_uses_typed_legacy_request_identity(self) -> None:
+        payload = {
+            "type": "ai",
+            "content": "ok",
+            "custom_data": {
+                "runtime_trace": {"request_id": "request-1"},
+            },
+        }
+
+        self.assertEqual(
+            DeveloperShadowHttpClient.parse_response_mode(
+                payload,
+                request_id="request-1",
+            ),
+            "legacy_runtime",
+        )
+        with self.assertRaises(DeveloperShadowHttpError):
+            DeveloperShadowHttpClient.parse_response_mode(
+                payload,
+                request_id="request-2",
+            )
 
     def test_golden_loader_requires_exact_passed_report(self) -> None:
         model_id = uuid.uuid4()
