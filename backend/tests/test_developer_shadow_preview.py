@@ -356,6 +356,23 @@ class DeveloperShadowPreviewContractTests(unittest.TestCase):
                 controller_fingerprint=CONTROLLER,
             )
 
+    def test_shadow_read_contract_carries_optional_subject_scope(self) -> None:
+        now = datetime.now(timezone.utc)
+        request = ShadowGateReadRequest(
+            commit_sha=COMMIT,
+            controller_fingerprint=CONTROLLER,
+            configuration_fingerprint=CONFIGURATION,
+            prompt_version=CONTROLLER_PROMPT_VERSION,
+            window_started_at=now - timedelta(minutes=1),
+            window_ended_at=now,
+            collected_at=now,
+            thread_id=uuid.uuid4(),
+            request_ids=["request-1", "request-2"],
+        )
+
+        self.assertEqual(len(request.request_ids), 2)
+        self.assertIsNotNone(request.thread_id)
+
 
 if __name__ == "__main__":
     unittest.main()

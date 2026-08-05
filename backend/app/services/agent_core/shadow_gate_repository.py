@@ -37,24 +37,29 @@ class ShadowGateRepository:
         request: ShadowGateReadRequest,
     ) -> ShadowGateRawWindow:
         enrollment = ConversationEventRecord.shadow_enrollment_json
+        filters = [
+            ConversationEventRecord.event_type == "user_message",
+            ConversationEventRecord.created_at >= request.window_started_at,
+            ConversationEventRecord.created_at < request.window_ended_at,
+            enrollment.is_not(None),
+            enrollment["schema_version"].astext
+            == "agent-shadow-enrollment-v2",
+            enrollment["source_commit_sha"].astext == request.commit_sha,
+            enrollment["controller_fingerprint"].astext
+            == request.controller_fingerprint,
+            enrollment["prompt_version"].astext == request.prompt_version,
+        ]
+        if request.thread_id is not None:
+            filters.append(
+                ConversationEventRecord.thread_id == request.thread_id
+            )
+        if request.request_ids:
+            filters.append(
+                ConversationEventRecord.request_id.in_(request.request_ids)
+            )
         result = await db.execute(
             select(ConversationEventRecord)
-            .where(
-                ConversationEventRecord.event_type == "user_message",
-                ConversationEventRecord.created_at
-                >= request.window_started_at,
-                ConversationEventRecord.created_at
-                < request.window_ended_at,
-                enrollment.is_not(None),
-                enrollment["schema_version"].astext
-                == "agent-shadow-enrollment-v2",
-                enrollment["source_commit_sha"].astext
-                == request.commit_sha,
-                enrollment["controller_fingerprint"].astext
-                == request.controller_fingerprint,
-                enrollment["prompt_version"].astext
-                == request.prompt_version,
-            )
+            .where(*filters)
             .order_by(
                 ConversationEventRecord.created_at.asc(),
                 ConversationEventRecord.id.asc(),

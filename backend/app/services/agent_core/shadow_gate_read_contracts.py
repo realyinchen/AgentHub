@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import Any, Literal
+from uuid import UUID
 
 from pydantic import Field, model_validator
 
@@ -21,6 +22,8 @@ class ShadowGateReadRequest(AgentCoreModel):
     collected_at: datetime
     timezone: str = Field(default="Asia/Shanghai", min_length=1, max_length=64)
     grace_period_seconds: int = Field(default=300, ge=1, le=86_400)
+    thread_id: UUID | None = None
+    request_ids: list[str] = Field(default_factory=list, max_length=50)
 
     @model_validator(mode="after")
     def validate_window(self) -> "ShadowGateReadRequest":

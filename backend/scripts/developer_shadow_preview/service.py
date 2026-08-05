@@ -147,6 +147,8 @@ class DeveloperShadowPreviewService:
                     window_ended_at=window_ended_at,
                     collected_at=datetime.now(timezone.utc),
                     timezone="Asia/Shanghai",
+                    thread_id=thread_id,
+                    request_ids=request_ids,
                 )
             )
             raw = self._evaluator.select_request_scope(
