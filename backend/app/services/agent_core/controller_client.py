@@ -16,7 +16,9 @@ from app.services.agent_core.contracts import (
 )
 from app.services.agent_core.prompt_composer import PromptComposer
 from app.services.agent_core.prompt_contracts import ControllerModelRequest
-from app.services.tasks.contracts import TaskPlanDraft
+from app.services.agent_core.task_plan_proposal import (
+    ControllerTaskPlanProposal,
+)
 from app.utils.message import convert_message_content_to_string
 
 
@@ -54,7 +56,7 @@ PLAN_TASK_TOOL: dict[str, Any] = {
             "application decides whether this creates or revises a task."
         ),
         "strict": True,
-        "parameters": TaskPlanDraft.model_json_schema(),
+        "parameters": ControllerTaskPlanProposal.model_json_schema(),
     },
 }
 
@@ -139,17 +141,17 @@ class ControllerClient:
                     "task planning cannot be mixed with capability proposals"
                 )
             try:
-                draft = TaskPlanDraft.model_validate(
+                proposal = ControllerTaskPlanProposal.model_validate(
                     task_planning[0].arguments
                 )
             except Exception as exc:
                 raise ControllerClientError(
-                    "task plan violates the task-plan-v1 contract"
+                    "task plan violates the Controller proposal contract"
                 ) from exc
             return ControllerOutput(
                 mode="task_plan_proposal",
                 progress_text=content,
-                task_plan_proposal=draft,
+                task_plan_proposal=proposal.to_task_plan_draft(),
             )
 
         return ControllerOutput(

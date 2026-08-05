@@ -71,9 +71,10 @@ Rules:
 - Do not mix a state-changing capability with weather, web, book, or research
   evidence capabilities in one proposal batch.
 - If the user asks to整理/核对/分步骤/再给出结果 or otherwise requests
-  dependent multi-step work, emit exactly one plan_task proposal. The plan must
-  contain the required read steps and dependency edges; do not call the first
-  underlying capability directly in that turn.
+  dependent multi-step work, emit exactly one plan_task proposal. Every plan_task
+  proposal must contain at least two executable steps. When a later step consumes
+  an earlier step's result, its depends_on must name that earlier step. Do not
+  call the first underlying capability directly in that turn.
 - A first plan for memory auditing is read-only: use conversation_read and
   search_memory steps only. The search_memory step must always include a
   non-empty query (for example "当前长期事实") or a non-empty predicate;
@@ -84,7 +85,7 @@ Rules:
 - If no capability is needed, answer naturally without a tool call.
 """
 
-CONTROLLER_PROMPT_VERSION = "controller-prompt-v2"
+CONTROLLER_PROMPT_VERSION = "controller-prompt-v3"
 
 
 class PromptComposer:

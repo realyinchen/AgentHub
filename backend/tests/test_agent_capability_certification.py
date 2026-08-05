@@ -126,6 +126,17 @@ class _PassingTransport:
                                 "selection": "latest",
                                 "count": 1,
                             },
+                        },
+                        {
+                            "step_key": "inspect",
+                            "title": "Inspect the prior exchange",
+                            "capability": "conversation_read",
+                            "arguments": {
+                                "target": "exchange",
+                                "selection": "latest",
+                                "count": 1,
+                            },
+                            "depends_on": ["read"],
                         }
                     ],
                 },

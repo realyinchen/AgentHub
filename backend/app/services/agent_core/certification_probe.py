@@ -31,7 +31,9 @@ from app.services.model_probe.errors import (
     classify_probe_error,
     safe_probe_error,
 )
-from app.services.tasks.contracts import TaskPlanDraft
+from app.services.agent_core.task_plan_proposal import (
+    ControllerTaskPlanProposal,
+)
 from app.utils.message import convert_message_content_to_string
 
 
@@ -111,7 +113,7 @@ PROBE_PLAN_TASK_TOOL: dict[str, Any] = {
             "probe never persists or executes the plan."
         ),
         "strict": True,
-        "parameters": TaskPlanDraft.model_json_schema(),
+        "parameters": ControllerTaskPlanProposal.model_json_schema(),
     },
 }
 
@@ -501,19 +503,23 @@ class AgentCapabilityProbe:
             _request(
                 "task_plan_schema",
                 "Call plan_task exactly once for the goal 'Read the prior "
-                "exchange'. Use one step with step_key='read', title='Read "
-                "the prior exchange', capability='conversation_read', and "
-                "arguments target='exchange', selection='latest', count=1. "
+                "exchange and inspect it'. Use a first step with step_key="
+                "'read', title='Read the prior exchange', capability="
+                "'conversation_read', and arguments target='exchange', "
+                "selection='latest', count=1. Use a second step with step_key="
+                "'inspect', title='Inspect the prior exchange', capability="
+                "'conversation_read', the same arguments, and depends_on="
+                "['read']. "
                 "Do not include system IDs or answer in prose.",
                 tools=(PROBE_PLAN_TASK_TOOL,),
                 tool_choice="auto",
             )
         )
         call = _require_single_call(response, "plan_task")
-        draft = TaskPlanDraft.model_validate(call["args"])
-        if len(draft.steps) != 1:
+        proposal = ControllerTaskPlanProposal.model_validate(call["args"])
+        if len(proposal.steps) != 2:
             raise ValueError("task_plan_step_count_incorrect")
-        step = draft.steps[0]
+        step = proposal.steps[0]
         if (
             step.step_key != "read"
             or step.capability != "conversation_read"
@@ -525,9 +531,19 @@ class AgentCapabilityProbe:
             }
         ):
             raise ValueError("task_plan_arguments_incorrect")
+        inspect = proposal.steps[1]
+        if (
+            inspect.step_key != "inspect"
+            or inspect.capability != "conversation_read"
+            or inspect.arguments != step.arguments
+            or inspect.depends_on != ["read"]
+        ):
+            raise ValueError("task_plan_dependency_incorrect")
         return {
             "tool_call_count": 1,
-            "task_plan_contract": draft.contract_version,
+            "task_plan_contract": proposal.contract_version,
+            "task_plan_step_count": len(proposal.steps),
+            "task_plan_dependency_count": 1,
             "system_identity_fields": 0,
         }
 

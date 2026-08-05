@@ -268,7 +268,17 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("制定", output.progress_text)
         self.assertEqual(
             PLAN_TASK_TOOL["function"]["parameters"]["title"],
-            "TaskPlanDraft",
+            "ControllerTaskPlanProposal",
+        )
+        self.assertEqual(
+            PLAN_TASK_TOOL["function"]["parameters"]["properties"]["steps"][
+                "minItems"
+            ],
+            2,
+        )
+        self.assertEqual(
+            output.task_plan_proposal.contract_version,
+            "task-plan-v1",
         )
         serialized = str(PLAN_TASK_TOOL)
         self.assertNotIn("create_task_plan", serialized)
@@ -315,6 +325,34 @@ class ControllerClientTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(
             ControllerClientError,
             "cannot be mixed",
+        ):
+            ControllerClient().parse(response)
+
+    def test_plan_task_rejects_single_step_model_proposal(self) -> None:
+        response = AIMessage(
+            content="",
+            tool_calls=[
+                {
+                    "name": "plan_task",
+                    "args": {
+                        "goal": "Read the prior exchange",
+                        "steps": [
+                            {
+                                "step_key": "read",
+                                "title": "Read the prior exchange",
+                                "capability": "conversation_read",
+                            }
+                        ],
+                    },
+                    "id": "call-task",
+                    "type": "tool_call",
+                }
+            ],
+        )
+
+        with self.assertRaisesRegex(
+            ControllerClientError,
+            "Controller proposal contract",
         ):
             ControllerClient().parse(response)
 
