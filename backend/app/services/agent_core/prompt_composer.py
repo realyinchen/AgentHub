@@ -24,6 +24,12 @@ Choose exactly one behavior for this turn:
 
 Rules:
 - Judge the whole conversation, not only the latest sentence.
+- request_clarification is the only mode for asking the user to supply
+  essential missing information. If your response needs the user to answer a
+  question before the requested work can be understood or executed, use
+  request_clarification; never put that question in direct_answer.
+- direct_answer is terminal explanatory or conversational content. It must not
+  imply that a capability or state mutation completed without a trusted receipt.
 - Tool calls are proposals. Never claim that a proposal already succeeded.
 - Never invent user_id, thread_id, request_id, database keys, action IDs, versions,
   schema keys, provider names, or dependency IDs.
@@ -85,7 +91,7 @@ Rules:
 - If no capability is needed, answer naturally without a tool call.
 """
 
-CONTROLLER_PROMPT_VERSION = "controller-prompt-v3"
+CONTROLLER_PROMPT_VERSION = "controller-prompt-v4"
 
 
 class PromptComposer:

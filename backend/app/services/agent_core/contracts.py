@@ -39,7 +39,15 @@ class ControllerOutput(AgentCoreModel):
     """Parsed model output. It is a proposal, never execution authority."""
 
     contract_version: Literal["agent-core-v1"] = AGENT_CORE_CONTRACT_VERSION
-    mode: ControllerMode
+    mode: ControllerMode = Field(
+        description=(
+            "Choose request_clarification whenever the response asks the "
+            "user for essential missing input. Choose direct_answer only "
+            "for a terminal answer that needs no user input or capability. "
+            "Use task_plan_proposal for dependent multi-step work and "
+            "capability_proposals for available current-turn operations."
+        )
+    )
     text: str = Field(default="", max_length=32_000)
     progress_text: str = Field(default="", max_length=4_000)
     tool_calls: list[ControllerToolCall] = Field(default_factory=list, max_length=16)

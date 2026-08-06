@@ -17,6 +17,10 @@ from app.services.agent_core.contracts import (
 from app.services.agent_core.harness import AgentCoreHarness
 from app.services.agent_core.plan_graph import PlanGraphNormalizer
 from app.services.agent_core.proposal_validator import ProposalValidator
+from app.services.agent_core.prompt_composer import (
+    CONTROLLER_PROMPT_VERSION,
+    PromptComposer,
+)
 from app.services.agent_core.publisher import ResponsePublisher
 from app.services.agent_runtime.contracts import (
     ActionPlan,
@@ -90,6 +94,29 @@ def _conversation_output() -> ControllerOutput:
 
 
 class ControllerContractTests(unittest.TestCase):
+    def test_mode_schema_defines_clarification_boundary(self) -> None:
+        description = ControllerOutput.model_json_schema()["properties"][
+            "mode"
+        ]["description"]
+
+        self.assertIn("essential missing input", description)
+        self.assertIn("terminal answer", description)
+
+    def test_prompt_defines_clarification_and_receipt_boundaries(
+        self,
+    ) -> None:
+        prompt = PromptComposer(_enabled_registry()).core_prompt()
+
+        self.assertEqual(CONTROLLER_PROMPT_VERSION, "controller-prompt-v4")
+        self.assertIn(
+            "request_clarification is the only mode",
+            prompt,
+        )
+        self.assertIn(
+            "without a trusted receipt",
+            prompt,
+        )
+
     def test_direct_answer_and_tool_calls_are_mutually_exclusive(self) -> None:
         with self.assertRaises(ValidationError):
             ControllerOutput(
