@@ -46,7 +46,7 @@ def _assert_default_flags() -> None:
         "AGENT_CAPABILITY_TASK_V1",
     ):
         assert fields[name].default is False, f"{name} must fail closed"
-    assert fields["AGENT_LEGACY_MEMORY_WRITE_COMPAT"].default is True
+    assert fields["AGENT_LEGACY_MEMORY_WRITE_COMPAT"].default is False
 
 
 def _assert_projection_matrix() -> None:
@@ -81,8 +81,8 @@ def _assert_journal_authority() -> None:
     history_imports = _imported_modules("app/api/v1/chat/history.py")
     assert "app.agents" not in history_imports
     history_source = _source("app/api/v1/chat/history.py")
-    assert "LegacyHistoryBackfillPolicy" in history_source
-    assert "read_legacy_checkpointer_history" in history_source
+    assert "LegacyHistoryBackfillPolicy" not in history_source
+    assert "read_legacy_checkpointer_history" not in history_source
 
     runtime_source = _source("app/services/agent_runtime/runtime.py")
     runtime_tree = ast.parse(runtime_source)
@@ -159,7 +159,7 @@ def _main() -> int:
             {
                 "contract": "r6-authoritative-paths-v1",
                 "journal_is_formal_history_authority": True,
-                "checkpointer_compatibility": "explicit_read_only",
+                "checkpointer_compatibility": "retired",
                 "core_capability_matrix_shared": True,
                 "core_capabilities_default_enabled": False,
                 "model_memory_tools": [

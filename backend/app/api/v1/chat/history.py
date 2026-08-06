@@ -20,12 +20,6 @@ from app.services.conversation.journal_chat_projection import (
 from app.services.conversation.journal_repository import (
     ConversationEventRepository,
 )
-from app.services.conversation.legacy_backfill_policy import (
-    LegacyHistoryBackfillPolicy,
-)
-from app.services.conversation.legacy_history_reader import (
-    read_legacy_checkpointer_history,
-)
 from app.schemas.trace import StepOutput
 
 logger = logging.getLogger(__name__)
@@ -73,15 +67,7 @@ async def history(
             message_sequence=message_sequence,
         )
 
-    policy = LegacyHistoryBackfillPolicy.from_settings()
-    if not policy.authorize(user_id=user_id, thread_id=thread_id):
-        return ChatHistory(
-            messages=[],
-            message_sequence=message_sequence,
-        )
-    chat_messages = await read_legacy_checkpointer_history(
-        db,
-        thread_id=thread_id,
+    return ChatHistory(
+        messages=[],
+        message_sequence=message_sequence,
     )
-
-    return ChatHistory(messages=chat_messages, message_sequence=message_sequence)

@@ -341,6 +341,7 @@ class JournalAuthorityTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("_conversation_window", source)
         self.assertNotIn("conversation_turns", source)
         self.assertNotIn("get_agent", inspect.getsource(history))
+        self.assertNotIn("legacy_history", inspect.getsource(history))
         self.assertIn(
             "get_agent",
             inspect.getsource(legacy_history_reader),

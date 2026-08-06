@@ -19,6 +19,7 @@ from app.infra.config import Settings, get_settings
 
 
 ENTRY_FILES = (
+    "app/main.py",
     "app/services/chat.py",
     "app/services/streaming.py",
     "app/services/agent_core/chat_entry.py",
@@ -28,6 +29,7 @@ ENTRY_FILES = (
     "app/services/agent_runtime/runtime.py",
 )
 FORBIDDEN_IMPORTS = (
+    "app.services.agent_core.legacy_chat_runtime",
     "app.services.agent_runtime.coordinator",
     "app.services.agent_runtime.planner",
     "app.services.agent_runtime.legacy_admission",
@@ -67,10 +69,24 @@ def verify_structure() -> dict[str, object]:
     chat = _read("app/services/chat.py")
     streaming = _read("app/services/streaming.py")
     for name, source in (("chat", chat), ("streaming", streaming)):
-        if "LegacyChatRuntimeBridge" not in source:
-            raise AssertionError(f"{name} bypasses the sole legacy bridge")
-        if "prepare_runtime_turn" in source:
-            raise AssertionError(f"{name} imports the legacy coordinator directly")
+        for retired in (
+            "LegacyChatRuntimeBridge",
+            "prepare_legacy_runtime_turn",
+            "prepare_runtime_turn",
+        ):
+            if retired in source:
+                raise AssertionError(
+                    f"{name} still references retired runtime token {retired}"
+                )
+    if "AGENT_STREAM_V1" in streaming:
+        raise AssertionError("Live stream still has a legacy path selector")
+
+    startup = _read("app/main.py")
+    for retired in ("init_agent", "get_agent", "preload_templates"):
+        if retired in startup:
+            raise AssertionError(
+                f"application startup still references {retired}"
+            )
 
     runtime_path = BACKEND_ROOT / "app/services/agent_runtime/runtime.py"
     runtime_tree = ast.parse(
@@ -97,19 +113,10 @@ def verify_structure() -> dict[str, object]:
         if token not in runtime_source:
             raise AssertionError(f"SystemRuntime boundary missing {token}")
 
-    bridge_source = _read("app/services/agent_core/legacy_chat_runtime.py")
-    bridge_tree = ast.parse(bridge_source)
-    top_level_old_imports = [
-        name
-        for node in bridge_tree.body
-        if isinstance(node, (ast.Import, ast.ImportFrom))
-        for name in _import_names(node)
-        if name.startswith("app.services.agent_runtime.coordinator")
-    ]
-    if top_level_old_imports:
-        raise AssertionError("legacy bridge eagerly imports the old coordinator")
-    if "_load_legacy_turn_factory" not in bridge_source:
-        raise AssertionError("legacy coordinator is not lazily isolated")
+    if (
+        BACKEND_ROOT / "app/services/agent_core/legacy_chat_runtime.py"
+    ).exists():
+        raise AssertionError("legacy runtime bridge module still exists")
     compatibility_source = _read(
         "app/services/agent_runtime/legacy_compatibility.py"
     )
@@ -120,14 +127,14 @@ def verify_structure() -> dict[str, object]:
         raise AssertionError("legacy compatibility is not operation-allowlisted")
 
     fields = Settings.model_fields
-    if fields["AGENT_LEGACY_RUNTIME_FALLBACK"].default is not True:
-        raise AssertionError("candidate fallback default changed without gate evidence")
+    if fields["AGENT_LEGACY_RUNTIME_FALLBACK"].default is not False:
+        raise AssertionError("legacy runtime fallback must default off")
     return {
         "status": "passed",
         "entry_files": len(ENTRY_FILES),
         "imports_scanned": scanned_imports,
         "system_runtime_retired_operations": 0,
-        "bridge_count": 1,
+        "bridge_count": 0,
         "release_gate_credit": False,
     }
 

@@ -42,15 +42,12 @@ def main() -> None:
         ast.parse(source, filename=name)
 
     _assert("tools: list = []" in supervisor, "supervisor still registers tools")
-    _assert(
-        "LegacyChatRuntimeBridge" in chat and "prepare_runtime_turn" not in chat,
-        "chat bypasses the R8 legacy quarantine boundary",
-    )
-    _assert(
-        "LegacyChatRuntimeBridge" in streaming
-        and "prepare_runtime_turn" not in streaming,
-        "streaming bypasses the R8 legacy quarantine boundary",
-    )
+    for name, source in (("chat", chat), ("streaming", streaming)):
+        _assert(
+            "LegacyChatRuntimeBridge" not in source
+            and "prepare_runtime_turn" not in source,
+            f"{name} still reaches the retired runtime",
+        )
     _assert(
         "action_plan" in context and "plan_receipt" in context,
         "runtime context contract missing",

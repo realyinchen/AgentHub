@@ -14,7 +14,6 @@ from typing import Any
 from fastapi import APIRouter, status
 from fastapi.responses import StreamingResponse
 
-from app.agents import get_agent
 from app.api.v1.dependencies import DBSession
 from app.crud.chat import get_or_create_conversation_by_thread_id
 from app.infra.database import get_database
@@ -71,8 +70,7 @@ async def invoke(user_input: UserInput, db: DBSession) -> ChatMessage:
     Business logic is delegated to ChatService.invoke().
     """
     await _ensure_conversation_for_run(user_input)
-    supervisor = get_agent()
-    service = ChatService(supervisor)
+    service = ChatService()
     return await service.invoke(db, user_input)
 
 
@@ -93,8 +91,7 @@ async def stream(user_input: UserInput) -> StreamingResponse:
     )
 
     await _ensure_conversation_for_run(user_input)
-    supervisor = get_agent()
-    service = ChatStreamingService(supervisor)
+    service = ChatStreamingService()
 
     return StreamingResponse(
         service.generate(user_input),

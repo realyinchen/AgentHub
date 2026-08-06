@@ -136,15 +136,11 @@ class Settings(BaseSettings):
     AGENT_CAPABILITY_MEMORY_READ_V1: bool = False
     AGENT_CAPABILITY_MEMORY_WRITE_V1: bool = False
     AGENT_CAPABILITY_TASK_V1: bool = False
-    # Read-only migration bridge for conversations that predate Journal.
-    AGENT_LEGACY_HISTORY_READ_FALLBACK: bool = True
-    # Temporary old-routing write bridge. R6 cutover sets this false; rollback
-    # must leave it false and preserve only read compatibility.
-    AGENT_LEGACY_MEMORY_WRITE_COMPAT: bool = True
-    # R8 quarantine switch for the complete pre-Controller chat runtime. This
-    # remains true only while Shadow still needs the old baseline. Release is
-    # blocked until it is false; memory-write compatibility exits separately.
-    AGENT_LEGACY_RUNTIME_FALLBACK: bool = True
+    # Retired compatibility flags remain parseable for deployment validation,
+    # but every default is fail-closed and enabling the old runtime is rejected.
+    AGENT_LEGACY_HISTORY_READ_FALLBACK: bool = False
+    AGENT_LEGACY_MEMORY_WRITE_COMPAT: bool = False
+    AGENT_LEGACY_RUNTIME_FALLBACK: bool = False
 
     # =========================================================================
     # LiteLLM Router — Per-Call Timeout
@@ -310,13 +306,9 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_agent_legacy_transition(self) -> "Settings":
-        if (
-            self.AGENT_CONTROLLER_V1_MODE == "shadow"
-            and not self.AGENT_LEGACY_RUNTIME_FALLBACK
-        ):
+        if self.AGENT_LEGACY_RUNTIME_FALLBACK:
             raise ValueError(
-                "Shadow mode requires AGENT_LEGACY_RUNTIME_FALLBACK=true "
-                "until the comparison window is complete"
+                "AGENT_LEGACY_RUNTIME_FALLBACK has been retired"
             )
         if (
             self.AGENT_CAPABILITY_MEMORY_WRITE_V1

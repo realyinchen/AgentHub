@@ -17,7 +17,6 @@ from app.channels.weixin.service import get_weixin_service
 from app.infra.database import get_database
 from app.schemas.chat import UserInput
 from app.services.chat import ChatService
-from app.agents import get_agent
 from app.crud.chat import get_or_create_conversation_by_thread_id
 
 
@@ -161,8 +160,7 @@ class WeixinListener:
                     timezone="Asia/Shanghai",
                 )
 
-                agent = get_agent()
-                service = ChatService(agent)
+                service = ChatService()
 
                 response = await service.invoke(session, user_input)
 

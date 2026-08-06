@@ -7,8 +7,6 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 
-from app.agents import init_agent
-from app.agents.middleware.prompt import preload_templates
 from app.infra.config import get_settings
 from app.utils.logging import JsonFormatter, RequestIdFilter
 from app.infra.llm.manager import get_model_manager
@@ -22,8 +20,6 @@ from app.infra.database import (
     init_database_connection,
     init_database_components,
     dispose_database,
-    get_checkpointer,
-    get_store,
 )
 from app.api.v1 import api_router
 
@@ -135,15 +131,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         schedule_routing_semantic_warmup()
         logger.info("Routing semantic index warmup scheduled")
 
-        # Preload prompt templates (sync, zero first-request latency)
-        loaded = preload_templates()
-        logger.info("Preloaded %d prompt templates: %s", len(loaded), loaded)
-
-        store = get_store()
-        await init_agent(
-            checkpointer=get_checkpointer().get_saver(),
-            store=store.get_store() if store else None,
-        )
         from app.services.agent_core.shadow_dispatcher import (
             init_shadow_observation_dispatcher,
         )

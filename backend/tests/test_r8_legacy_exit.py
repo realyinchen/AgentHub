@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from uuid import uuid4
 
 from pydantic import ValidationError
@@ -8,7 +10,7 @@ from pydantic import ValidationError
 from app.infra.config import Settings
 from app.schemas.chat import ChatMessage, UserInput
 from app.services.agent_core.chat_entry import AgentChatEntry
-from app.services.agent_core.legacy_chat_runtime import LegacyChatRuntimeBridge
+from app.services.streaming import ChatStreamingService
 from app.services.agent_runtime.compatibility import RuntimeCompatibilityPort
 from app.services.agent_runtime.contracts import (
     ActionPlan,
@@ -121,22 +123,32 @@ class RuntimeIsolationTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-class LegacyBridgeTests(unittest.IsolatedAsyncioTestCase):
-    async def test_disabled_bridge_does_not_load_old_runtime(self) -> None:
-        calls = 0
+class AgentCoreFallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_stream_has_no_legacy_selector(self) -> None:
+        class _TrustedStream:
+            calls = 0
 
-        async def forbidden_factory(*args, **kwargs):
-            nonlocal calls
-            calls += 1
-            raise AssertionError("disabled bridge loaded the old runtime")
+            async def generate(self, user_input):
+                self.calls += 1
+                yield "data: trusted\n\n"
 
-        result = await LegacyChatRuntimeBridge(
-            enabled=False,
-            turn_factory=forbidden_factory,
-        ).prepare(_input())
-        self.assertEqual(result.status, "disabled")
-        self.assertIsNone(result.turn)
-        self.assertEqual(calls, 0)
+        class _ForbiddenChat:
+            async def invoke(self, *args, **kwargs):
+                raise AssertionError("Live stream entered non-Live adapter")
+
+        trusted = _TrustedStream()
+        service = ChatStreamingService(
+            trusted_stream=trusted,  # type: ignore[arg-type]
+            chat_service=_ForbiddenChat(),  # type: ignore[arg-type]
+        )
+        with patch(
+            "app.services.streaming.get_settings",
+            return_value=SimpleNamespace(AGENT_CONTROLLER_V1_MODE="live"),
+        ):
+            events = [event async for event in service.generate(_input())]
+
+        self.assertEqual(trusted.calls, 1)
+        self.assertIn("data: trusted", "".join(events))
 
     async def test_plain_entry_has_no_runtime_or_tool_execution(self) -> None:
         class _ForbiddenGateway:
@@ -169,27 +181,25 @@ class LegacyBridgeTests(unittest.IsolatedAsyncioTestCase):
 
 
 class StaticLegacyExitTests(unittest.TestCase):
-    def test_candidate_defaults_remain_explicit_and_release_blocking(self) -> None:
+    def test_legacy_defaults_are_fail_closed(self) -> None:
         fields = Settings.model_fields
-        self.assertIs(fields["AGENT_LEGACY_RUNTIME_FALLBACK"].default, True)
-        self.assertIs(fields["AGENT_LEGACY_MEMORY_WRITE_COMPAT"].default, True)
+        self.assertIs(fields["AGENT_LEGACY_RUNTIME_FALLBACK"].default, False)
+        self.assertIs(fields["AGENT_LEGACY_MEMORY_WRITE_COMPAT"].default, False)
+        self.assertIs(fields["AGENT_LEGACY_HISTORY_READ_FALLBACK"].default, False)
 
     def test_shadow_and_memory_write_cutovers_are_fail_closed(self) -> None:
         with self.assertRaises(ValidationError):
-            Settings(
-                AGENT_CONTROLLER_V1_MODE="shadow",
-                AGENT_LEGACY_RUNTIME_FALLBACK=False,
-            )
+            Settings(AGENT_LEGACY_RUNTIME_FALLBACK=True)
         with self.assertRaises(ValidationError):
             Settings(
                 AGENT_CAPABILITY_MEMORY_WRITE_V1=True,
                 AGENT_LEGACY_MEMORY_WRITE_COMPAT=True,
             )
 
-    def test_production_entry_has_one_quarantine_boundary(self) -> None:
+    def test_production_entry_has_no_legacy_boundary(self) -> None:
         result = verify_structure()
         self.assertEqual(result["status"], "passed")
-        self.assertEqual(result["bridge_count"], 1)
+        self.assertEqual(result["bridge_count"], 0)
         self.assertEqual(result["system_runtime_retired_operations"], 0)
 
     def test_release_aggregator_cannot_pass_without_every_gate(self) -> None:

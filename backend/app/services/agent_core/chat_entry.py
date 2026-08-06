@@ -114,7 +114,7 @@ class PlainChatClient:
 
 
 class AgentChatEntry:
-    """Choose shadow/live/plain behavior before the legacy runtime path."""
+    """Choose shadow, Live or isolated plain Agent Core behavior."""
 
     def __init__(
         self,
@@ -245,7 +245,7 @@ class AgentChatEntry:
         model_name: str,
         attempt: AgentControllerAttempt | None = None,
     ) -> AgentChatEntryResult:
-        """Produce a no-tool response when the legacy bridge is disabled."""
+        """Produce a no-tool response when Agent Core is not admitted."""
 
         return await self._run_plain(
             db,
@@ -256,7 +256,7 @@ class AgentChatEntry:
                 or AgentControllerAttempt(
                     mode="off",
                     status="off",
-                    reason="legacy_runtime_fallback_disabled",
+                    reason="agent_core_not_admitted",
                 )
             ),
         )
