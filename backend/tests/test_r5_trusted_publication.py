@@ -17,6 +17,7 @@ from app.services.agent_core.publication.contracts import (
     ReceiptEvidenceBundle,
 )
 from app.services.agent_core.publication.graph import (
+    build_turn_execution_graph,
     project_public_execution_graph,
 )
 from app.services.agent_core.publication.service import TrustedPublisher
@@ -271,6 +272,34 @@ class TrustedEvidenceProjectionTests(unittest.TestCase):
 
 
 class TrustedStreamProtocolTests(unittest.TestCase):
+    def test_clarification_turn_projects_waiting_response(self) -> None:
+        output = ControllerOutput(
+            mode="request_clarification",
+            text="请告诉我需要记住的名字。",
+        )
+        answer = TrustedPublisher().publish_direct(output)
+        turn = TurnReceipt(
+            status="clarification_required",
+            request_id="request-waiting",
+            rounds=[
+                ControllerRoundReceipt(
+                    round_no=1,
+                    output=output,
+                    answer=answer,
+                )
+            ],
+            final_answer=answer,
+        )
+
+        internal = build_turn_execution_graph(
+            turn,
+            request_id=turn.request_id,
+        )
+        public = project_public_execution_graph(internal)
+
+        self.assertEqual(internal.nodes[-1].status, "waiting")
+        self.assertEqual(public.nodes[-1].status, "waiting")
+
     def test_waiting_receipt_remains_waiting_in_graphs(self) -> None:
         plan = _plan()
         receipt = _receipt(plan, status="waiting")

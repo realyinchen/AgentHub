@@ -167,7 +167,7 @@ def build_turn_execution_graph(
             node_id=response_node_id,
             kind="response",
             label="AI",
-            status="response",
+            status=_turn_response_status(turn),
             order=order,
             step_number=order + 1,
         )
@@ -188,6 +188,14 @@ def build_turn_execution_graph(
         nodes=nodes,
         edges=edges,
     )
+
+
+def _turn_response_status(turn: TurnReceipt | None) -> str:
+    if turn is None or turn.status == "completed":
+        return "response"
+    if turn.status == "clarification_required":
+        return "waiting"
+    return "failed"
 
 
 def _turn_edge(
