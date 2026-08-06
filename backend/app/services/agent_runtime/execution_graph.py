@@ -16,6 +16,7 @@ ExecutionNodeStatus = Literal[
     "failed",
     "blocked",
     "skipped",
+    "waiting",
     "response",
     "missing",
 ]

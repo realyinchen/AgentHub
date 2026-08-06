@@ -271,6 +271,16 @@ class TrustedEvidenceProjectionTests(unittest.TestCase):
 
 
 class TrustedStreamProtocolTests(unittest.TestCase):
+    def test_waiting_receipt_remains_waiting_in_graphs(self) -> None:
+        plan = _plan()
+        receipt = _receipt(plan, status="waiting")
+
+        internal = build_execution_graph(plan, receipt)
+        public = project_public_execution_graph(internal)
+
+        self.assertEqual(internal.nodes[1].status, "waiting")
+        self.assertEqual(public.nodes[1].status, "waiting")
+
     def test_public_graph_keeps_authoritative_edges_without_internal_ids(
         self,
     ) -> None:
