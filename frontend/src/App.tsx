@@ -116,7 +116,7 @@ function App() {
     getSelectedModelInfo,
     refreshModels,
     isLoading: isLoadingModels,
-  } = useModels(threadId, isLoggedIn)
+  } = useModels(threadId, isLoggedIn, effectiveUserId)
 
   // Handle user switch - go back to home page
   const handleSwitchUser = useCallback(async () => {

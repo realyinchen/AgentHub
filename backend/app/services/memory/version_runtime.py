@@ -59,12 +59,20 @@ async def execute_search_memory(
     request = SearchMemoryRequest.model_validate(arguments)
     database = get_database()
     async with database.session() as session:
-        current = await MemoryVersionStore(session).list_current(
-            user_id=context.user_id,
-            limit=200,
+        store = MemoryVersionStore(session)
+        records = (
+            await store.list_current(
+                user_id=context.user_id,
+                limit=200,
+            )
+            if request.scope == "current"
+            else await store.list_history(
+                user_id=context.user_id,
+                limit=500,
+            )
         )
     return VersionedMemorySearch().search(
-        current,
+        records,
         request,
     ).model_dump(mode="json")
 

@@ -65,7 +65,10 @@ async def get_latest_capability_checks(
     result = await db.execute(
         select(ModelCapabilityCheck)
         .where(ModelCapabilityCheck.model_id.in_(ids))
-        .order_by(ModelCapabilityCheck.model_id, ModelCapabilityCheck.checked_at.desc())
+        .order_by(
+            ModelCapabilityCheck.model_id,
+            ModelCapabilityCheck.checked_at.desc(),
+        )
     )
 
     latest: dict[uuid.UUID, ModelCapabilityCheck] = {}

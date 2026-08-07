@@ -56,6 +56,7 @@ class DeterministicReceiptRenderer:
             if content:
                 rendered.append((action.action_id, content))
         if rendered:
+            rendered = _select_readable(rendered, receipt)
             status = (
                 "completed"
                 if receipt.status in {"completed", "partial"}
@@ -117,6 +118,43 @@ def _render_action(action: ActionReceipt) -> str:
     if action.operation == "forget_memory_v2":
         return render_memory_forget(output)
     return ""
+
+
+def _select_readable(
+    rendered: list[tuple[str, str]],
+    receipt: PlanReceipt,
+) -> list[tuple[str, str]]:
+    """Deterministic source priority for read-only combinations.
+
+    Durable long-term memory answers win over recent-transcript reads so
+    questions such as "我之前叫什么" never degrade into a raw concatenation
+    of conversation_read plus search_memory receipts.
+    """
+
+    by_id = {item.action_id: item for item in receipt.actions}
+    search_items = [
+        (action_id, content)
+        for action_id, content in rendered
+        if by_id.get(action_id) is not None
+        and by_id[action_id].operation == "search_memory_v2"
+    ]
+    if search_items and any(
+        not _empty_memory_search(content) for _, content in search_items
+    ):
+        return search_items
+    conversation_items = [
+        (action_id, content)
+        for action_id, content in rendered
+        if by_id.get(action_id) is not None
+        and by_id[action_id].operation == "conversation_read"
+    ]
+    if conversation_items:
+        return conversation_items
+    return rendered
+
+
+def _empty_memory_search(content: str) -> bool:
+    return str(content or "").startswith("我还没有找到")
 
 
 __all__ = ["DeterministicReceiptRenderer"]

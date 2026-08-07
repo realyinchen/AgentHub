@@ -316,7 +316,8 @@ async def get_models_response(
     from app.crud import provider_connection as connection_crud
 
     capabilities = await capability_crud.get_latest_capability_checks(
-        db, [m.id for m in models]
+        db,
+        [m.id for m in models],
     )
     connections_list = await connection_crud.get_connections(db)
     connections = {c.id: c for c in connections_list}

@@ -131,13 +131,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         schedule_routing_semantic_warmup()
         logger.info("Routing semantic index warmup scheduled")
 
-        from app.services.agent_core.shadow_dispatcher import (
-            init_shadow_observation_dispatcher,
-        )
-
-        await init_shadow_observation_dispatcher()
-        logger.info("Agent Shadow observation dispatcher initialized")
-
         # WeChat listener is now per-login, started in WebSocket endpoint
     except Exception as e:
         logger.critical("Application startup failed, exiting: %s", e)
@@ -148,12 +141,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         # ── Shutdown ──────────────────────────────────────────────────
         # WeChat listeners are stopped individually when WebSocket disconnects
-        from app.services.agent_core.shadow_dispatcher import (
-            dispose_shadow_observation_dispatcher,
-        )
-
-        await dispose_shadow_observation_dispatcher()
-        logger.info("Agent Shadow observation dispatcher stopped")
         await dispose_database()
         logger.info("All database components disposed successfully")
 

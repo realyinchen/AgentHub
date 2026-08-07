@@ -6,11 +6,16 @@ function getModelKey(model: ModelInfo): string {
   return model.model_uuid || model.id
 }
 
+function storageKey(userId: string | null): string {
+  return `agent-hub:selected-model:${userId || "guest"}`
+}
+
 /**
- * Hook to manage model selection per conversation.
+ * Hook to manage model selection as a persistent per-user preference.
  *
  * @param threadId - The current conversation thread ID
  * @param isLoggedIn - Whether the user is logged in (API calls only made when logged in)
+ * @param userId - The effective user id, used to scope the persisted preference
  * @returns An object containing:
  *   - models: ModelInfo[] - All available models
  *   - selectedModel: string | null - Currently selected model ID
@@ -21,17 +26,22 @@ function getModelKey(model: ModelInfo): string {
  *   - isLoading: boolean - Whether the models are being fetched
  *   - error: string | null - Error message if fetch failed
  */
-export function useModels(threadId: string | null, isLoggedIn: boolean) {
+export function useModels(
+  _threadId: string | null,
+  isLoggedIn: boolean,
+  userId: string | null,
+) {
   const [models, setModels] = useState<ModelInfo[]>([])
   const [defaultModel, setDefaultModel] = useState<string | null>(null)
-  const [selectedModel, setSelectedModelState] = useState<string | null>(null)
+  const [selectedModel, setSelectedModelState] = useState<string | null>(() => {
+    if (typeof window === "undefined") return null
+    return window.localStorage.getItem(storageKey(userId))
+  })
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   // Track if component is mounted to prevent state updates after unmount
   const mountedRef = useRef(true)
-  // Track previous threadId to detect real conversation switch vs new conversation
-  const prevThreadIdRef = useRef<string | null>(null)
   // Track if we've already fetched models after login
   const hasFetchedRef = useRef(false)
 
@@ -44,9 +54,20 @@ export function useModels(threadId: string | null, isLoggedIn: boolean) {
         const availableKeys = new Set(result.models.map(getModelKey))
         setModels(result.models)
         setDefaultModel(result.default_llm)
-        setSelectedModelState(current =>
-          current && !availableKeys.has(current) ? result.default_llm : current
-        )
+        setSelectedModelState(current => {
+          if (current && !availableKeys.has(current)) {
+            const fallback = result.default_llm
+            if (typeof window !== "undefined") {
+              if (fallback) {
+                window.localStorage.setItem(storageKey(userId), fallback)
+              } else {
+                window.localStorage.removeItem(storageKey(userId))
+              }
+            }
+            return fallback
+          }
+          return current
+        })
         setError(null)
         hasFetchedRef.current = true
       }
@@ -60,7 +81,7 @@ export function useModels(threadId: string | null, isLoggedIn: boolean) {
         setIsLoading(false)
       }
     }
-  }, [])
+  }, [userId])
 
   // Fetch models only after user logs in
   useEffect(() => {
@@ -76,34 +97,24 @@ export function useModels(threadId: string | null, isLoggedIn: boolean) {
     }
   }, [fetchModels, isLoggedIn])
 
-  // Reset selection when switching to a different conversation (threadId changes from one non-empty to another)
-  // BUT: do NOT reset when a new conversation creates its threadId ("" -> non-empty)
-  // This preserves the user's model selection when sending the first message in a new conversation
+  // Load the persisted preference when the active user changes.
   useEffect(() => {
-    const prevThreadId = prevThreadIdRef.current
-    prevThreadIdRef.current = threadId
-
-    // Helper: treat both null and empty string as "no active conversation"
-    const hasPrevThreadId = prevThreadId !== null && prevThreadId !== ""
-    const hasCurrentThreadId = threadId !== null && threadId !== ""
-
-    // Only reset to default model when:
-    // 1. Switching from one existing conversation to another (both non-empty and different)
-    // 2. NOT when a new conversation creates its first threadId ("" -> non-empty)
-    if (hasPrevThreadId && hasCurrentThreadId && prevThreadId !== threadId) {
-      setSelectedModelState(defaultModel)
-    }
-    // When going from non-empty to empty (e.g. new conversation button),
-    // also reset to default model for the fresh new conversation
-    if (hasPrevThreadId && !hasCurrentThreadId) {
-      setSelectedModelState(defaultModel)
-    }
-  }, [threadId, defaultModel])
+    if (typeof window === "undefined") return
+    const stored = window.localStorage.getItem(storageKey(userId))
+    setSelectedModelState(stored)
+  }, [userId])
 
   // Update selected model
   const setSelectedModel = useCallback((modelId: string | null) => {
     setSelectedModelState(modelId)
-  }, [])
+    if (typeof window !== "undefined") {
+      if (modelId) {
+        window.localStorage.setItem(storageKey(userId), modelId)
+      } else {
+        window.localStorage.removeItem(storageKey(userId))
+      }
+    }
+  }, [userId])
 
   // Get the selected model's info
   const getSelectedModelInfo = useCallback((): ModelInfo | undefined => {

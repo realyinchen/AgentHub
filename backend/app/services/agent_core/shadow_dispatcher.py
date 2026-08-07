@@ -274,7 +274,7 @@ async def init_shadow_observation_dispatcher() -> None:
         from app.infra.config import get_settings
 
         settings = get_settings()
-        mode = settings.AGENT_CONTROLLER_V1_MODE
+        mode = getattr(settings, "AGENT_CONTROLLER_V1_MODE", "off")
         if mode in {"shadow", "live"}:
             from app.services.agent_core.release_identity import (
                 require_release_commit_sha,

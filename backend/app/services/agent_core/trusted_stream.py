@@ -123,7 +123,6 @@ class TrustedControllerStream:
                     session,
                     user_input=user_input,
                     model_name=model_name,
-                    mode="live",
                     journal_sequence_watermark=user_event.sequence_no,
                 )
             if (

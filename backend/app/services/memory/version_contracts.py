@@ -24,6 +24,7 @@ MemoryMutationStatus = Literal[
     "noop_duplicate",
     "forgotten",
 ]
+MemorySearchScope = Literal["current", "previous", "earliest", "timeline"]
 
 
 class VersionedMemoryModel(BaseModel):
@@ -60,6 +61,10 @@ class RememberMemoryRequest(VersionedMemoryModel):
 class SearchMemoryRequest(VersionedMemoryModel):
     query: str = Field(default="", max_length=1000)
     predicate: str = Field(default="", max_length=256)
+    scope: MemorySearchScope = "current"
+    depth: int = Field(default=1, ge=1, le=10)
+    since: datetime | None = None
+    until: datetime | None = None
 
     @field_validator("query", "predicate", mode="before")
     @classmethod
@@ -71,6 +76,14 @@ class SearchMemoryRequest(VersionedMemoryModel):
         if not self.query and not self.predicate:
             raise ValueError(
                 "memory search requires query or predicate"
+            )
+        if (
+            self.since is not None
+            and self.until is not None
+            and self.since >= self.until
+        ):
+            raise ValueError(
+                "memory timeline since must precede until"
             )
         return self
 
@@ -174,6 +187,7 @@ class MemoryMutation(VersionedMemoryModel):
     memory_key: str
     status: MemoryMutationStatus
     version: MemoryVersionRecord
+    previous: MemoryVersionRecord | None = None
 
 
 class MemoryMutationReceipt(VersionedMemoryModel):
@@ -186,4 +200,6 @@ class MemoryMutationReceipt(VersionedMemoryModel):
 class MemorySearchReceipt(VersionedMemoryModel):
     result_mode: Literal["memory_search_receipt"] = "memory_search_receipt"
     status: Literal["completed", "empty"]
+    scope: MemorySearchScope = "current"
     memories: list[MemoryVersionRecord] = Field(default_factory=list)
+    truncated: bool = False

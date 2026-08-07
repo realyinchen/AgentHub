@@ -1,6 +1,4 @@
 from app.models.chat import Conversation
-from app.models.agent_capability_certification import AgentCapabilityCertification
-from app.models.agent_shadow_observation import AgentShadowObservationRecord
 from app.models.conversation_event import ConversationEventRecord
 from app.models.conversation_summary import ConversationSummaryRecord
 from app.models.book import (
@@ -31,8 +29,6 @@ from app.models.user import User
 from app.models.user_channel import UserChannel
 
 __all__ = [
-    "AgentCapabilityCertification",
-    "AgentShadowObservationRecord",
     "Book",
     "BookInteraction",
     "RecommendationEvent",

@@ -7,31 +7,19 @@ planner/runtime stack.
 
 from __future__ import annotations
 
-import logging
 from collections.abc import AsyncGenerator
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.infra.config import get_settings
 from app.infra.llm import resolve_model_name
 from app.infra.llm.resolver import refresh_model_cache_if_missing
 from app.schemas.chat import ChatMessage, UserInput
-from app.services.agent_core.chat_entry import (
-    AgentChatEntry,
-    AgentChatEntryResult,
-)
+from app.services.agent_core.chat_entry import AgentChatEntry
 from app.services.agent_core.publication.commit import (
     TurnPublicationCommitter,
 )
-from app.services.agent_core.shadow_enrollment import (
-    is_current_shadow_enrollment,
-    prepare_shadow_enrollment,
-)
 from app.services.conversation import ConversationJournalService
-
-
-logger = logging.getLogger(__name__)
 
 
 class ChatService:
@@ -51,33 +39,17 @@ class ChatService:
         db: AsyncSession,
         user_input: UserInput,
     ) -> ChatMessage:
-        """Run one committed Agent Core turn.
-
-        Off and Shadow modes use the isolated no-tool responder after their
-        respective control decision.  They never invoke the retired runtime.
-        """
+        """Run one committed production Agent Core turn."""
 
         journal = ConversationJournalService()
-        settings = get_settings()
-        controller_mode = settings.AGENT_CONTROLLER_V1_MODE
-        prepared = prepare_shadow_enrollment(
-            user_input,
-            mode=controller_mode,
-            model_resolver=resolve_model_name,
-            source_commit_sha=settings.AGENT_RELEASE_COMMIT_SHA,
-        )
-        user_input = prepared.user_input
         user_event = await journal.record_user_message(
             db,
             user_input,
-            shadow_enrollment=prepared.enrollment,
         )
         await db.commit()
 
         requested_model = user_input.model_uuid or user_input.model_name
-        model_name = prepared.resolved_model_name or resolve_model_name(
-            requested_model
-        )
+        model_name = resolve_model_name(requested_model)
         if not model_name:
             raise HTTPException(
                 status_code=503,
@@ -90,20 +62,12 @@ class ChatService:
                 update={"model_name": model_name}
             )
 
-        entry = await self._evaluate_entry(
+        entry = await self._agent_entry.run(
             db,
             user_input=user_input,
             model_name=model_name,
             journal_sequence_watermark=user_event.sequence_no,
-            shadow_enrollment=user_event.shadow_enrollment,
         )
-        if not entry.handled:
-            entry = await self._agent_entry.run_plain(
-                db,
-                user_input=user_input,
-                model_name=model_name,
-                attempt=entry.attempt,
-            )
         if entry.message is None or entry.answer is None:
             raise HTTPException(
                 status_code=503,
@@ -123,39 +87,6 @@ class ChatService:
             ),
         )
         return committed.message
-
-    async def _evaluate_entry(
-        self,
-        db: AsyncSession,
-        *,
-        user_input: UserInput,
-        model_name: str,
-        journal_sequence_watermark: int,
-        shadow_enrollment,
-    ) -> AgentChatEntryResult:
-        settings = get_settings()
-        if settings.AGENT_CONTROLLER_V1_MODE == "shadow" and not (
-            is_current_shadow_enrollment(
-                shadow_enrollment,
-                source_commit_sha=settings.AGENT_RELEASE_COMMIT_SHA or "",
-            )
-        ):
-            logger.info(
-                "[request_id=%s] Shadow skipped: no current durable enrollment",
-                user_input.request_id,
-            )
-            return await self._agent_entry.run_plain(
-                db,
-                user_input=user_input,
-                model_name=model_name,
-            )
-        return await self._agent_entry.run(
-            db,
-            user_input=user_input,
-            model_name=model_name,
-            journal_sequence_watermark=journal_sequence_watermark,
-            shadow_enrollment=shadow_enrollment,
-        )
 
     async def stream(
         self,

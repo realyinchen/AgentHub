@@ -520,6 +520,17 @@ export function ProviderConfigDialog({ open, onOpenChange, onConfigChanged }: Pr
     }
   }
 
+  const toggleModelActive = async (model: ModelInfo, active: boolean) => {
+    try {
+      await updateModel(model.id, { is_active: active })
+      setModels(prev => prev.map(m => m.id === model.id ? { ...m, is_active: active } : m))
+      await notifyConfigChanged()
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error)
+      errorAlert.showError(t("error.saveFailed", { details: errorMessage }))
+    }
+  }
+
   const handleValidateModel = async (model: ModelInfo) => {
     setValidatingModelIds(prev => new Set(prev).add(model.id))
     try {
@@ -1302,7 +1313,7 @@ export function ProviderConfigDialog({ open, onOpenChange, onConfigChanged }: Pr
                                         <Switch
                                           id={`active-${modelKey}`}
                                           checked={model.is_active}
-                                          disabled
+                                          onCheckedChange={(checked) => void toggleModelActive(model, checked)}
                                           className="scale-75"
                                         />
                                         <label htmlFor={`active-${modelKey}`} className="text-xs text-muted-foreground">

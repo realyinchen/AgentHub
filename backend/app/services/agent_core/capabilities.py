@@ -19,7 +19,6 @@ from app.services.external_capabilities.contracts import (
 )
 from app.services.memory.version_contracts import (
     ForgetMemoryRequest,
-    MemoryAssertionProposal,
     RememberMemoryRequest,
     SearchMemoryRequest,
 )
@@ -101,8 +100,11 @@ class CapabilityRegistry:
             "search_memory": CapabilitySpec(
                 name="search_memory",
                 description=(
-                    "Search current, non-forgotten long-term facts about this "
-                    "user. At least one of query or predicate must be non-empty."
+                    "Search long-term facts about this user. scope=current "
+                    "returns current facts; scope=previous/earliest/timeline "
+                    "reads version history (previous values, first fact, or "
+                    "change timeline). At least one of query or predicate "
+                    "must be non-empty."
                 ),
                 input_model=SearchMemoryInput,
                 side_effect=False,

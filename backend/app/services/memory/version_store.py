@@ -115,6 +115,11 @@ class MemoryVersionStore:
                     memory_key=fact.memory_key,
                     status=status,
                     version=_record_to_version(record),
+                    previous=(
+                        _record_to_version(previous)
+                        if previous is not None
+                        else None
+                    ),
                 )
             )
 
@@ -223,6 +228,33 @@ class MemoryVersionStore:
             stmt.order_by(MemoryEventRecord.valid_from.desc()).limit(
                 max(1, min(int(limit), 500))
             )
+        )
+        return [_record_to_version(item) for item in result.scalars().all()]
+
+    async def list_history(
+        self,
+        *,
+        user_id: UUID,
+        schema_key: str | None = None,
+        limit: int = 500,
+    ) -> list[MemoryVersionRecord]:
+        """Read every version in every chain, including tombstones.
+
+        History reads are bounded; scopes such as previous/earliest/timeline
+        select from this full material rather than a second execution channel.
+        """
+
+        stmt = select(MemoryEventRecord).where(
+            MemoryEventRecord.user_id == user_id,
+            MemoryEventRecord.memory_key.is_not(None),
+        )
+        if schema_key:
+            stmt = stmt.where(MemoryEventRecord.schema_key == schema_key)
+        result = await self._session.execute(
+            stmt.order_by(
+                MemoryEventRecord.memory_key.asc(),
+                MemoryEventRecord.version_no.asc(),
+            ).limit(max(1, min(int(limit), 1000)))
         )
         return [_record_to_version(item) for item in result.scalars().all()]
 

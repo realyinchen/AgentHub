@@ -26,7 +26,12 @@ from app.crud.chat import (
     update_conversation_by_thread_id,
     get_latest_model_name,
 )
-from app.infra.llm import get_model_manager, get_system_llm
+from app.infra.llm import (
+    get_llm,
+    get_model_manager,
+    get_system_llm,
+    resolve_model_name,
+)
 from app.schemas.chat import (
     ConversationCreate,
     ConversationInDB,
@@ -203,7 +208,12 @@ async def generate_title(
     should not block the user flow.
     """
     try:
-        llm = get_system_llm()
+        model_name = resolve_model_name(None)
+        llm = (
+            get_llm(model_name, thinking_mode=False)
+            if model_name
+            else get_system_llm()
+        )
 
         # Truncate user input to limit injection surface
         truncated_user_msg = request.user_message[:200]

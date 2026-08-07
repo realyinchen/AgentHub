@@ -13,7 +13,6 @@ Routes:
 
 import logging
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,26 +23,13 @@ from app.crud import model_capability as capability_crud
 from app.crud import provider as provider_crud
 from app.crud import provider_connection as connection_crud
 from app.infra.llm import get_model_manager
-from app.infra.config import get_settings
-from app.services.agent_core.evidence_source import (
-    EvidenceSourceStateError,
-    GitSourceState,
-    GitSourceStateReader,
-)
-from app.services.agent_core.release_identity import (
-    AgentReleaseIdentityError,
-    require_release_commit_sha,
-)
 from app.schemas.model import (
-    AgentCapabilityCertificationStatus,
-    AgentModeAdmissionStatus,
-    AgentValidationRequest,
     ModelCapabilityStatus,
     ModelCreate,
     ModelInfo,
-    ModelValidationRequest,
     ModelsResponse,
     ModelUpdateRequest,
+    ModelValidationRequest,
     ThinkingModeStatus,
 )
 from app.schemas.provider import (
@@ -55,11 +41,6 @@ from app.schemas.provider import (
     ProvidersResponse,
     ProviderUpdateRequest,
 )
-from app.services.agent_certification import (
-    AgentCertificationError,
-    get_agent_mode_admission,
-    validate_agent_capability,
-)
 from app.services.model_validation import (
     ModelValidationError,
     validate_model_capability,
@@ -69,19 +50,6 @@ from app.utils.crypto import encrypt_api_key
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter(prefix="/models", tags=["Models"])
-PROJECT_ROOT = Path(__file__).resolve().parents[4]
-
-
-def _agent_release_source() -> GitSourceState:
-    release_commit = require_release_commit_sha(
-        get_settings().AGENT_RELEASE_COMMIT_SHA
-    )
-    return GitSourceStateReader().require_release_state(
-        PROJECT_ROOT,
-        expected_commit_sha=release_commit,
-    )
-
-
 # ── Model CRUD ───────────────────────────────────────────────────────────────
 
 
@@ -251,7 +219,10 @@ async def validate_model(
     return ModelCapabilityStatus.model_validate(check)
 
 
-@api_router.get("/{model_id:uuid}/capabilities", response_model=ModelCapabilityStatus | None)
+@api_router.get(
+    "/{model_id:uuid}/capabilities",
+    response_model=ModelCapabilityStatus | None,
+)
 async def get_model_capability(
     model_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -268,72 +239,6 @@ async def get_model_capability(
     if check is None:
         return None
     return ModelCapabilityStatus.model_validate(check)
-
-
-@api_router.post(
-    "/{model_id:uuid}/validate-agent",
-    response_model=AgentCapabilityCertificationStatus,
-)
-async def validate_agent_model(
-    model_id: uuid.UUID,
-    request: AgentValidationRequest | None = None,
-    db: AsyncSession = Depends(get_db),
-) -> AgentCapabilityCertificationStatus:
-    """Run the explicit, isolated Agent capability certification."""
-    try:
-        certification = await validate_agent_capability(
-            db,
-            model_id,
-            source_state=_agent_release_source(),
-            timeout_seconds=(
-                45 if request is None else request.timeout_seconds
-            ),
-        )
-    except (
-        AgentCertificationError,
-        AgentReleaseIdentityError,
-        EvidenceSourceStateError,
-    ) as exc:
-        detail = str(exc)
-        raise HTTPException(
-            status_code=(
-                status.HTTP_404_NOT_FOUND
-                if detail == "model_not_found"
-                else status.HTTP_400_BAD_REQUEST
-            ),
-            detail=detail,
-        ) from exc
-    return AgentCapabilityCertificationStatus.model_validate(certification)
-
-
-@api_router.get(
-    "/{model_id:uuid}/agent-capabilities",
-    response_model=AgentModeAdmissionStatus,
-)
-async def get_agent_model_admission(
-    model_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-) -> AgentModeAdmissionStatus:
-    """Fail-closed Agent admission for the model's current configuration."""
-    try:
-        admission = await get_agent_mode_admission(
-            db,
-            model_id,
-            source_commit_sha=(
-                get_settings().AGENT_RELEASE_COMMIT_SHA
-            ),
-        )
-    except AgentCertificationError as exc:
-        detail = str(exc)
-        raise HTTPException(
-            status_code=(
-                status.HTTP_404_NOT_FOUND
-                if detail == "model_not_found"
-                else status.HTTP_400_BAD_REQUEST
-            ),
-            detail=detail,
-        ) from exc
-    return AgentModeAdmissionStatus.model_validate(admission)
 
 
 # ── Provider (sub-resource of models) ────────────────────────────────────────

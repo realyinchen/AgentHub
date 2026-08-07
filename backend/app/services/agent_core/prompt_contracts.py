@@ -4,7 +4,6 @@ from typing import Literal
 
 from pydantic import Field
 
-from app.services.agent_core.certification_contracts import AgentModeAdmission
 from app.services.agent_core.contracts import AgentCoreModel
 
 
@@ -104,7 +103,6 @@ class ControllerModelRequest(AgentCoreModel):
     context: ControllerContextSnapshot = Field(
         default_factory=ControllerContextSnapshot
     )
-    admission: AgentModeAdmission
     timeout_seconds: float = Field(default=60, ge=1, le=180)
 
 

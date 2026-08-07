@@ -5,8 +5,9 @@ from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.infra.config import get_settings
+from app.infra.llm.resolver import resolve_model_name
 from app.schemas.chat import UserInput
-from app.services.agent_core.certification_contracts import AgentModeAdmission
 from app.services.agent_core.context_coordinator import (
     ContextPreparationError,
     ControllerContextCoordinator,
@@ -51,7 +52,6 @@ class ControllerRequestBuilder:
         *,
         user_input: UserInput,
         model_name: str,
-        admission: AgentModeAdmission,
         journal_sequence_watermark: int | None = None,
     ) -> ControllerModelRequest:
         memories = await self._memory_context(
@@ -78,10 +78,13 @@ class ControllerRequestBuilder:
                 else None
             ),
         )
-        summary_provider = LLMSummaryProvider(
-            model_name=model_name,
-            admission=admission,
+        settings = get_settings()
+        summary_model = (
+            settings.AGENT_CONTEXT_SUMMARY_MODEL
+            or resolve_model_name(None)
+            or model_name
         )
+        summary_provider = LLMSummaryProvider(model_name=summary_model)
         assembled = await self._contexts.prepare(
             db,
             user_id=user_input.user_id,
@@ -98,7 +101,6 @@ class ControllerRequestBuilder:
             model_name=model_name,
             current_user_message=user_input.content,
             context=assembled.snapshot,
-            admission=admission,
         )
 
     async def _memory_context(
@@ -166,17 +168,18 @@ class ControllerRequestBuilder:
 
 
 def _memory_fact(record) -> str:
-    quote = str(record.evidence_quote or "").strip()
-    if quote:
-        return quote
-    return (
-        f"{record.subject} {record.predicate} "
-        + json.dumps(
-            record.value,
-            ensure_ascii=False,
-            sort_keys=True,
-            separators=(",", ":"),
-        )
+    # The evidence quote is provenance, not the fact. Only canonicalized
+    # memory fields enter model context so wording changes cannot regress a
+    # resolved fact back into an ambiguous user utterance.
+    return json.dumps(
+        {
+            "subject": record.subject,
+            "predicate": record.predicate,
+            "value": record.value,
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
     )
 
 

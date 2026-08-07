@@ -45,9 +45,7 @@ async def validate_model_capability(
         raise ModelValidationError("unsupported_model_type") from exc
 
     started = time.perf_counter()
-    outcome = await probe.run(
-        target.config
-    )
+    outcome = await probe.run(target.config)
 
     raw_summary: dict[str, Any] = {
         "contract_version": "model-probe-v2",

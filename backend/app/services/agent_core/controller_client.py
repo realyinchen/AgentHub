@@ -62,11 +62,11 @@ PLAN_TASK_TOOL: dict[str, Any] = {
 
 
 class ControllerClientError(ValueError):
-    """Raised when a certified Controller response violates its contract."""
+    """Raised when a Controller response violates its contract."""
 
 
 class ControllerClient:
-    """One certified model round. It proposes; it never executes."""
+    """One model round. It proposes; it never executes."""
 
     def __init__(
         self,
@@ -80,14 +80,10 @@ class ControllerClient:
         self._model_factory = model_factory or _default_model_factory
 
     async def decide(self, request: ControllerModelRequest) -> ControllerOutput:
-        if not request.admission.admitted:
-            raise ControllerClientError(
-                f"agent_mode_denied:{request.admission.reason}"
-            )
         model = self._model_factory(request.model_name)
         bind_tools = getattr(model, "bind_tools", None)
         if not callable(bind_tools):
-            raise ControllerClientError("certified model no longer exposes bind_tools")
+            raise ControllerClientError("model does not expose bind_tools")
         schemas = controller_tool_schemas(self._registry)
         runnable = bind_tools(list(schemas), tool_choice="auto")
         messages = model_history_projector.project(

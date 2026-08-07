@@ -12,7 +12,6 @@ from langchain_core.messages import (
 )
 
 from app.infra.llm.factory import get_llm
-from app.services.agent_core.certification_contracts import AgentModeAdmission
 from app.services.conversation.journal_contracts import ConversationJournalEvent
 from app.services.conversation.summary_builder import SummaryBuildError
 from app.services.conversation.summary_contracts import (
@@ -41,20 +40,15 @@ Rules:
 
 
 class LLMSummaryProvider:
-    """Certified model adapter that emits a draft but never persists it."""
+    """Model adapter that emits a draft but never persists it."""
 
     def __init__(
         self,
         *,
         model_name: str,
-        admission: AgentModeAdmission,
         timeout_seconds: float = 60,
         model_factory=None,
     ) -> None:
-        if not admission.admitted:
-            raise SummaryBuildError(
-                f"summary_model_not_admitted:{admission.reason}"
-            )
         self._model_name = model_name
         self._timeout_seconds = timeout_seconds
         self._model_factory = model_factory or _default_model_factory

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import unittest
+from datetime import datetime, timezone
+from uuid import uuid4
 
 from pydantic import ValidationError
 
@@ -8,8 +10,11 @@ from app.services.memory import (
     ForgetMemoryTargetProposal,
     MemoryAssertionProposal,
     MemoryCanonicalizer,
+    MemoryVersionRecord,
+    SearchMemoryRequest,
     VersionedMemorySchemaRegistry,
 )
+from app.services.memory.version_search import VersionedMemorySearch
 
 
 def _assertion(
@@ -28,6 +33,36 @@ def _assertion(
     )
 
 
+def _name_version(
+    *,
+    version_no: int,
+    name: str,
+    valid_from: datetime,
+    previous_version_id=None,
+    operation: str = "create",
+) -> MemoryVersionRecord:
+    return MemoryVersionRecord(
+        id=uuid4(),
+        user_id=uuid4(),
+        chain_id=uuid4(),
+        schema_key="identity.self_reported_name",
+        memory_key="identity.self_reported_name:self",
+        version_no=version_no,
+        operation=operation,
+        previous_version_id=previous_version_id,
+        source_event_id=uuid4(),
+        receipt_id=f"receipt-{version_no}",
+        canonical_hash="0" * 64,
+        schema_version=1,
+        subject="self",
+        predicate="name",
+        value={"name": name},
+        qualifiers={},
+        evidence_quote=f"I am {name}",
+        valid_from=valid_from,
+    )
+
+
 class MemoryCanonicalizerTests(unittest.TestCase):
     def setUp(self) -> None:
         self.canonicalizer = MemoryCanonicalizer()
@@ -41,11 +76,157 @@ class MemoryCanonicalizerTests(unittest.TestCase):
                 "identity.alias",
                 "preference.entity",
                 "relationship.entity",
+                "possession.entity",
                 "instruction.behavior",
                 "feedback.outcome",
                 "temporary.state",
             ),
         )
+
+    def test_predicate_variants_classify_into_categories(self) -> None:
+        registry = VersionedMemorySchemaRegistry()
+        self.assertEqual(
+            registry.resolve_predicate("养").schema_key,
+            "possession.entity",
+        )
+        self.assertEqual(
+            registry.resolve_predicate("我的物品").schema_key,
+            "possession.entity",
+        )
+        self.assertEqual(
+            registry.resolve_predicate("名字").schema_key,
+            "identity.self_reported_name",
+        )
+        self.assertEqual(
+            registry.resolve_predicate("想要").schema_key,
+            "preference.entity",
+        )
+
+    def test_possession_entities_form_independent_chains(self) -> None:
+        cat = self.canonicalizer.canonicalize(
+            [
+                _assertion(
+                    predicate="has",
+                    value={"entity": "猫"},
+                    qualifiers={"entity_type": "pet"},
+                    evidence="我有一只猫",
+                )
+            ],
+            source_text="我有一只猫",
+        )
+        dog = self.canonicalizer.canonicalize(
+            [
+                _assertion(
+                    predicate="养",
+                    value={"entity": "狗"},
+                    qualifiers={"entity_type": "pet"},
+                    evidence="我还有一只狗",
+                )
+            ],
+            source_text="我还有一只狗",
+        )
+        same_cat = self.canonicalizer.canonicalize(
+            [
+                _assertion(
+                    predicate="have",
+                    value={"entity": "猫"},
+                    qualifiers={"entity_type": "pet"},
+                    evidence="我养了一只猫",
+                )
+            ],
+            source_text="我养了一只猫",
+        )
+        self.assertEqual(cat.status, "ready")
+        self.assertEqual(dog.status, "ready")
+        self.assertEqual(same_cat.status, "ready")
+        self.assertEqual(cat.facts[0].schema_key, "possession.entity")
+        self.assertNotEqual(cat.facts[0].memory_key, dog.facts[0].memory_key)
+        self.assertEqual(
+            cat.facts[0].memory_key,
+            same_cat.facts[0].memory_key,
+        )
+        self.assertEqual(
+            cat.facts[0].canonical_hash,
+            same_cat.facts[0].canonical_hash,
+        )
+
+    def test_entity_type_is_optional_qualifier(self) -> None:
+        result = self.canonicalizer.canonicalize(
+            [
+                _assertion(
+                    predicate="likes",
+                    value={"entity": "科幻小说", "polarity": "like"},
+                    evidence="我喜欢科幻小说",
+                )
+            ],
+            source_text="我喜欢科幻小说",
+        )
+        self.assertEqual(result.status, "ready")
+        self.assertEqual(result.facts[0].schema_key, "preference.entity")
+
+    def test_unknown_predicate_still_clarifies_when_unclassifiable(
+        self,
+    ) -> None:
+        result = self.canonicalizer.canonicalize(
+            [
+                _assertion(
+                    predicate="invented_schema",
+                    value={"value": "x"},
+                    evidence="记住 x",
+                )
+            ],
+            source_text="记住 x",
+        )
+        self.assertEqual(result.status, "clarification_required")
+        self.assertIn("unknown_memory_predicate", result.reason_codes)
+        self.assertIn("invented_schema", result.clarification_question)
+
+    def test_history_scopes_select_expected_versions(self) -> None:
+        v1 = _name_version(
+            version_no=1,
+            name="小红",
+            valid_from=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        )
+        v2 = _name_version(
+            version_no=2,
+            name="小白",
+            valid_from=datetime(2026, 2, 1, tzinfo=timezone.utc),
+            previous_version_id=v1.id,
+            operation="correct",
+        )
+        v3 = _name_version(
+            version_no=3,
+            name="小红",
+            valid_from=datetime(2026, 3, 1, tzinfo=timezone.utc),
+            previous_version_id=v2.id,
+            operation="correct",
+        )
+        v1.superseded_by = v2.id
+        v2.superseded_by = v3.id
+        records = [v1, v2, v3]
+
+        previous = VersionedMemorySearch().search(
+            records,
+            SearchMemoryRequest(query="", predicate="name", scope="previous"),
+        )
+        self.assertEqual(
+            [item.value["name"] for item in previous.memories],
+            ["小白"],
+        )
+        earliest = VersionedMemorySearch().search(
+            records,
+            SearchMemoryRequest(query="", predicate="name", scope="earliest"),
+        )
+        self.assertEqual(
+            [item.value["name"] for item in earliest.memories],
+            ["小红"],
+        )
+        timeline = VersionedMemorySearch().search(
+            records,
+            SearchMemoryRequest(query="", predicate="name", scope="timeline"),
+        )
+        self.assertEqual(len(timeline.memories), 3)
+        self.assertEqual(timeline.scope, "timeline")
 
     def test_model_assertion_rejects_storage_identity(self) -> None:
         with self.assertRaises(ValidationError):

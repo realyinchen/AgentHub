@@ -49,16 +49,32 @@ Rules:
     question. "这三句分别怎么回答/最近三轮" means target="exchange" with
     selection="last_n", count=3, even when the requested content is assistant
     replies.
-  * Self-reported identity uses subject="self". A name uses predicate="name"
-    and value={"name": <name>}. A book-genre preference uses predicate=
-    "preference", value={"entity": <genre>, "polarity": "like"}, and
-    qualifiers={"entity_type": "book_genre"}.
-  * Search for a preference uses predicate="preference". Forgetting a name
-    targets subject="self", predicate="name". Forgetting a book-genre
-    preference targets subject="self", predicate="preference",
-    identity={"entity": <genre>}, qualifiers={"entity_type":"book_genre"}.
-  * A correction such as "更正/不是" is a new remember_memory assertion for
-    the corrected value; do not emit forget_memory first.
+  * Memory facts are "self - relationship category - object". Categories and
+    their controlled predicates:
+    - identity: predicate="name" with value={"name": <name>}; "call_me" for
+      address; "alias" for another name.
+    - possess: predicate="has" with value={"entity": <thing>}; qualifiers
+      {"entity_type": "pet"/"book"/...} are optional.
+    - prefer: predicate="likes"/"dislikes"/"wants" with value={"entity": <x>,
+      "polarity": "like"/"dislike"/"want"/"avoid"}; qualifiers optional.
+    - relate: predicate="relationship" with value={"entity": <x>,
+      "relation": <relation>}; qualifiers optional.
+    - behave: predicate="instruction" with value={"instruction": <behavior>}.
+    - feedback: predicate="feedback" with value={"target": <x>,
+      "outcome": <result>}.
+    - state: predicate="state" with value={"state": <key>, "value": <v>}.
+  * Entity types are open and optional; never require the user to name one.
+    "我有一只猫" and "我养了一只猫" are the same possess fact.
+  * Identity questions answered fully by trusted_memory_facts ("我是谁",
+    "我叫什么") must be answered directly with no tool call.
+  * Temporal history uses search_memory scope: "之前/原来/以前" ->
+    scope="previous"; "最早/一开始" -> scope="earliest"; "改过几次/什么时候/
+    历史" -> scope="timeline". "我是谁" must not use conversation_read.
+  * Search for a preference uses predicate="likes" or "preference". Forgetting
+    a name targets subject="self", predicate="name". Forgetting a possessed
+    item targets predicate="has", identity={"entity": <thing>}.
+  * A correction such as "更正/不是/现在叫/改成" is a new remember_memory
+    assertion for the corrected value; do not emit forget_memory first.
   * Every remember_memory or forget_memory evidence_quote must be a verbatim
     contiguous quote from the current user message, including the instruction
     or negation that establishes the requested mutation.

@@ -36,7 +36,7 @@ async def persist_publication_trace(
                 message_type="tool",
                 content=None,
                 tool_name=node.operation or node.label,
-                tool_args=None,
+                tool_args=node.metadata.get("tool_args"),
                 tool_output=None,
                 tool_call_id=node.action_id,
                 system_executed=bool(

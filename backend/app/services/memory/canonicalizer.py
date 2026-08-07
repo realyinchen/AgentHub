@@ -127,7 +127,8 @@ class MemoryCanonicalizer:
                 return MemoryTargetResolutionResult(
                     status="clarification_required",
                     clarification_question=(
-                        "我还不能确定你希望忘记哪一种长期事实。"
+                        f"我还不能确定“{target.predicate}”属于哪一种长期事实，"
+                        "请换一种完整说法。"
                     ),
                     reason_codes=["unknown_memory_predicate"],
                 )
@@ -212,7 +213,10 @@ class MemoryCanonicalizer:
         schema = self._registry.resolve_predicate(assertion.predicate)
         if schema is None:
             return _clarification(
-                "我还不能确定这条信息属于哪一种长期事实，请换一种完整说法。",
+                (
+                    f"我还不能确定“{assertion.predicate}”属于哪一种长期事实，"
+                    "请换一种完整说法。"
+                ),
                 "unknown_memory_predicate",
             )
 
@@ -321,6 +325,7 @@ def _identity_payload(
         "qualifiers": {
             key: qualifiers[key]
             for key in schema.identity_qualifier_fields
+            if key in qualifiers and _has_value(qualifiers[key])
         },
     }
 

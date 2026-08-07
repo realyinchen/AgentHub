@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field, model_validator
 
 from app.services.agent_runtime.contracts import ActionPlan, PlanReceipt
+from app.services.agent_runtime.trace_redaction import redact_tool_args
 
 
 EXECUTION_GRAPH_CONTRACT_VERSION = "execution-graph-v2"
@@ -130,6 +131,7 @@ def build_execution_graph(
                     "system_executed": bool(
                         action_receipt and action_receipt.system_executed
                     ),
+                    "tool_args": redact_tool_args(action.arguments),
                 },
             )
         )
